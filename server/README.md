@@ -1,7 +1,9 @@
 # opds-sync
 
-Quire sync server. FastAPI + Postgres. See
-[`docs/superpowers/specs/2026-05-05-phase-2-progress-sync.md`](../docs/superpowers/specs/2026-05-05-phase-2-progress-sync.md).
+Quire sync server. FastAPI + Postgres. Source of truth for reading state.
+
+See [`../docs/architecture.md`](../docs/architecture.md) for the system
+design and [`../docs/sync-api.md`](../docs/sync-api.md) for the REST surface.
 
 ## Local dev
 

@@ -1,0 +1,211 @@
+# Architecture
+
+This document describes how the Quire Android app, the `opds-sync` server, and
+calibre-web fit together. For the REST surface in detail, see
+[`sync-api.md`](sync-api.md).
+
+## Components
+
+| Component | What it does | Stack |
+|---|---|---|
+| **Quire** (Android) | Browses OPDS, downloads EPUBs, renders them, tracks progress, syncs. | Kotlin, Jetpack Compose, Readium Kotlin Toolkit, Room, WorkManager, OkHttp, AppAuth |
+| **opds-sync** (server) | REST API for reading state. Single source of truth. | Python 3.12, FastAPI, SQLAlchemy 2 + Alembic, Postgres 16 |
+| **calibre-web** | OPDS catalog and book downloads. Unchanged. | Existing self-hosted instance |
+
+calibre-web is stateless from the reader's perspective — no reading state ever
+lives there. (Phase 6 will add a read-only Calibre plugin that pulls progress
+from `opds-sync` into Calibre custom columns.)
+
+## Module layout (Android)
+
+```
+:app           Compose UI, navigation, DI wiring, the Application class
+:core:identity Document identity (hash, dc:identifier normalization)
+:core:model    Domain types: Document, Progress, Annotation
+:data:local    Room database + DAOs; pending_sync_ops outbox; sync_state
+:data:opds     calibre-web OPDS client
+:data:sync     opds-sync REST client + WorkManager sync job
+:reader        Readium navigator integration, font/theme controls
+:auth          AppAuth (OIDC + PKCE) wrapper, Keystore credential store
+```
+
+The split is deliberate: `:core:identity` exists as its own module because the
+identity rules are shared spec with the server (see below) — both sides have
+unit tests against the same fixture set.
+
+## Document identity
+
+A document is identified by **two** independent keys; either resolves a record:
+
+| Column | Meaning |
+|---|---|
+| `metadata_id` | Normalized first non-empty `dc:identifier` from the EPUB OPF. Nullable. |
+| `content_hash` | KOReader-style sampled MD5. Always present. |
+
+Both are indexed.
+
+### Sampled hash
+
+Matches KOReader's "binary" hash for potential interop. Fast (64 KB read total
+regardless of file size); stable across filename changes and most EPUB metadata
+edits. Does **not** survive Calibre re-encoding the file — that's what
+`metadata_id` is for.
+
+```
+step  = max(1, filesize // 1024)
+buf   = bytearray()
+for i in 0..1023:
+    seek(i * step)
+    buf.extend(read(64))
+content_hash = md5(buf).hexdigest()
+```
+
+### `metadata_id` normalization
+
+Both client and server apply identical rules:
+
+1. First `<dc:identifier>` whose trimmed value is non-empty.
+2. Lowercase.
+3. Strip leading `urn:` and any scheme prefix (`isbn:`, `uuid:`, `calibre:`,
+   `mobi-asin:`, …). Keep only the bare value.
+4. Remove all whitespace and hyphens.
+5. Empty after normalization → treat as missing.
+
+Examples:
+
+| Input | Output |
+|---|---|
+| `urn:uuid:550E8400-E29B-41D4-A716-446655440000` | `550e8400e29b41d4a716446655440000` |
+| `ISBN: 978-0-14-103614-4` | `9780141036144` |
+| `calibre:42` | `42` |
+
+Reference implementation: `core/identity` (Kotlin) and
+`server/opds_sync/core/identity.py` (Python). Both are tested against the same
+fixture set so they cannot drift.
+
+### Lookup precedence
+
+1. If `metadata_id` is present → look up by `metadata_id`. Match wins.
+2. Else → look up by `content_hash`. Match wins.
+3. Else → no match; create new record.
+
+### Reconciliation
+
+When a record was first written by hash alone and the client later learns the
+metadata-id, the client calls `POST /sync/v1/documents/alias` once per
+document. In one transaction the server merges any pre-existing
+metadata-id-keyed and hash-keyed records: per-field LWW for scalars, set union
++ tombstone resolution for annotations.
+
+### Known limitations
+
+- **`calibre:N` collisions across libraries.** v1 assumes one calibre-web; book
+  #42 in two different Calibre instances would alias to one record. Mitigation
+  if it ever matters: prefix `metadata_id` with a library scope.
+- **Re-anchoring after EPUB republish.** Different EPUB copies can produce
+  shifted CFIs. Progress is approximate by nature; annotations have a snippet
+  fallback (see below).
+- **Reused `dc:identifier`s in pirated EPUBs.** Different books with identical
+  identifiers will alias. Workaround: edit the OPF in Calibre.
+
+## Sync model
+
+### Progress (Phase 2, current)
+
+Record-level last-writer-wins on `updated_at`. Each device pushes its current
+locator/percent and pulls deltas since its high-water mark.
+
+The client maintains:
+
+- `pending_sync_ops` — outbox of writes that haven't reached the server.
+- `sync_state` — per-table `last_pulled_at` high-water marks.
+
+A WorkManager job drains the outbox (push), pulls deltas (pull), updates
+high-water marks. Triggered on app foreground, network reconnect, and
+pull-to-refresh.
+
+### Annotations (Phase 3+, designed not built)
+
+Single table with a `kind` discriminator (`highlight` | `note` | `bookmark`):
+
+```
+id              uuid          -- client-generated
+user_id         text          -- Authentik 'sub' claim
+document_pk     bigint        -- FK to documents
+kind            text
+cfi_start       text
+cfi_end         text          -- null for bookmarks
+text_snippet    text          -- ≤512 chars, for re-anchoring fallback
+body            text          -- note body, null for highlight/bookmark
+color           text          -- e.g. 'yellow', null otherwise
+created_at      timestamptz   -- server-assigned, immutable
+updated_at      timestamptz   -- server-assigned on every write
+deleted_at      timestamptz   -- tombstone marker
+field_versions  jsonb         -- per-field client timestamps
+```
+
+**Field-level LWW.** `field_versions` is `{field: client_iso8601}`. On write,
+each field is independently compared; later timestamp wins. Editing a note's
+body on device A and its color on device B while both are offline preserves
+both edits.
+
+**Tombstones.** Delete is `deleted_at = now()`; row remains. Sync filters
+`WHERE deleted_at IS NULL` unless the client opts in to tombstones (it does, so
+deletes propagate). Nightly GC purges rows older than 90 days. Clients offline
+more than 90 days will resurrect deleted annotations on next sync. Documented
+and accepted.
+
+**Anchoring fallback.** When the client renders an annotation:
+
+1. Resolve CFI; read surrounding text.
+2. If surrounding text doesn't contain `text_snippet` (case-insensitive,
+   whitespace-normalized, ~32-char prefix), fall to step 3.
+3. Search the spine item for `text_snippet`. If exactly one match, use it; the
+   server's CFI stays authoritative for other clients.
+4. If not found or ambiguous, mark the annotation **orphaned** in a sidebar.
+   User can manually re-anchor or delete.
+
+This handles "EPUB republished with shifted CFIs" without silent data loss.
+
+## Authentication
+
+Two protocols, two credentials. Deliberately not unified.
+
+### calibre-web (OPDS) — HTTP Basic
+
+- Use a dedicated `android-reader` user, not the admin account.
+- Username + password stored in **Android Keystore** (hardware-backed where
+  available).
+- Every OPDS request sends `Authorization: Basic ...`.
+- Reason: calibre-web's OIDC is browser-only; OPDS clients can't ride the
+  redirect flow. Basic against the built-in user store is the supported path.
+
+### opds-sync — Authentik OIDC + PKCE
+
+- Public client (no secret), redirect URI `eink-reader://oauth`.
+- Android does Authorization Code + PKCE against the Authentik issuer.
+- Refresh token stored in Keystore; never leaves the device.
+- Server validates JWTs against Authentik's JWKS (cached, refreshed on `kid`
+  miss). Validates `iss`, `aud`, `exp`, `nbf`. Rejects anything else.
+- `sub` claim is the user identity, stored as `user_id` on every row.
+  **Multi-user from day one.**
+
+### Token handling on Android
+
+- Access token used per-request. On 401 → refresh once, retry once. On second
+  401 → clear refresh token and require re-auth.
+- Logout clears both Keystore entries (Basic creds and Authentik tokens).
+
+## Decision log
+
+| # | Decision | Rationale |
+|---|---|---|
+| 1 | Composite document identity (metadata-id + content-hash) | Survives both Calibre re-encodes and sideloaded files without metadata. |
+| 2 | Server-side merge on alias | Keeps the system tidy long-term; one transaction. |
+| 3 | Per-annotation field-level LWW with tombstones | Standard, correct, fits relational schema. CRDTs unnecessary with single server. |
+| 4 | 90-day tombstone GC | Bounded storage; documented edge case for long-offline clients. |
+| 5 | CFI + text snippet anchoring | Survives EPUB republishing without silent data loss. |
+| 6 | Split auth (OPDS Basic, sync OIDC + PKCE) | Each protocol gets the auth that fits its nature. |
+| 7 | Python FastAPI for the sync server | Fastest to write; traffic is trivial; deploys cleanly into the existing cluster. |
+| 8 | Single annotations table with `kind` discriminator | Identical merge logic across kinds; queries are document-scoped. |
+| 9 | Calibre plugin as Phase 6 read-only consumer | Validates API shape; non-blocking; clean separation. |
