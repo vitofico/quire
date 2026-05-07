@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Run gradle inside the project's docker image.
+# Usage: scripts/dgradle <gradle-args...>
+# Examples:
+#   scripts/dgradle test
+#   scripts/dgradle :core:identity:test
+#   scripts/dgradle :app:assembleDebug
+set -euo pipefail
+
+IMAGE="opds-ereader-build:latest"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+  echo "[dgradle] building $IMAGE under linux/amd64 (Rosetta on Apple Silicon, ~5 min)…"
+  docker build --platform linux/amd64 -t "$IMAGE" "$ROOT"
+fi
+
+# Only allocate a TTY when stdin is one — keeps the script usable from
+# non-interactive contexts (CI, subagent shells) without losing the colored
+# Gradle output when run from a real terminal.
+TTY_FLAGS=(-i)
+if [ -t 0 ] && [ -t 1 ]; then
+  TTY_FLAGS+=(-t)
+fi
+
+exec docker run --rm "${TTY_FLAGS[@]}" \
+  --platform linux/amd64 \
+  -v "$ROOT":/workspace \
+  -v opds-ereader-gradle-cache:/root/.gradle \
+  -v opds-ereader-android-cache:/root/.android \
+  "$IMAGE" \
+  ./gradlew "$@"

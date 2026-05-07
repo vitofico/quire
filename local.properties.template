@@ -1,0 +1,5 @@
+# Copy to local.properties and fill in. Not committed.
+sdk.dir=/Users/<you>/Library/Android/sdk
+calibreweb.baseUrl=https://library.example.com
+calibreweb.username=android-reader
+calibreweb.password=replace-me
