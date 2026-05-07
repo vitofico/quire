@@ -7,7 +7,7 @@
 #   scripts/dgradle :app:assembleDebug
 set -euo pipefail
 
-IMAGE="opds-ereader-build:latest"
+IMAGE="quire-build:latest"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
@@ -26,7 +26,7 @@ fi
 exec docker run --rm "${TTY_FLAGS[@]}" \
   --platform linux/amd64 \
   -v "$ROOT":/workspace \
-  -v opds-ereader-gradle-cache:/root/.gradle \
-  -v opds-ereader-android-cache:/root/.android \
+  -v quire-gradle-cache:/root/.gradle \
+  -v quire-android-cache:/root/.android \
   "$IMAGE" \
   ./gradlew "$@"

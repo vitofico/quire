@@ -22,9 +22,10 @@ class AppContainer(context: Context) {
 
     val opdsHttp = OpdsHttpClient(credentialStore)
     val opdsClient: OpdsClient = OpdsClient(opdsHttp.okHttp)
+    val booksDir: File = File(appContext.filesDir, "books")
     val bookDownloader: BookDownloader = BookDownloader(
         okHttp = opdsHttp.okHttp,
-        booksDir = File(appContext.filesDir, "books"),
+        booksDir = booksDir,
     )
 
     private val db: EReaderDatabase = EReaderDatabase.build(appContext)

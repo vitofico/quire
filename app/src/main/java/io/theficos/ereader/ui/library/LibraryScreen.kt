@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,9 +16,15 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -29,14 +36,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
-import io.theficos.ereader.data.sync.SyncEnqueuer
 import androidx.compose.ui.unit.dp
 import io.theficos.ereader.core.model.Document
+import io.theficos.ereader.data.sync.SyncEnqueuer
 import io.theficos.ereader.ui.components.CoverImage
 import io.theficos.ereader.ui.components.SectionLabel
 import io.theficos.ereader.ui.theme.Lora
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(
     viewModel: LibraryViewModel,
@@ -48,61 +55,140 @@ fun LibraryScreen(
 
     val items by viewModel.items.collectAsState()
     val cont by viewModel.continueReading.collectAsState()
+    var menuFor by remember { mutableStateOf<Document?>(null) }
     var pendingDelete by remember { mutableStateOf<Document?>(null) }
+    var pendingRestart by remember { mutableStateOf<Document?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(Unit) {
+        viewModel.events.collect { event ->
+            when (event) {
+                LibraryEvent.RestartFailed ->
+                    snackbarHostState.showSnackbar("Couldn't sync restart — will retry.")
+            }
+        }
+    }
 
     if (items.isEmpty()) {
         EmptyState(modifier = Modifier.padding(contentPadding))
         return
     }
 
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(3),
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(contentPadding),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            Text(
-                text = "Quire",
-                style = MaterialTheme.typography.displaySmall,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-        }
-        cont?.let { row ->
+    Box(modifier = Modifier.fillMaxSize().padding(contentPadding)) {
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(3),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
-                ContinueReadingCard(row = row, onClick = { onOpenBook(row.document.id) })
+                Text(
+                    text = "Quire",
+                    style = MaterialTheme.typography.displaySmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+            cont?.let { row ->
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    ContinueReadingCard(row = row, onClick = { onOpenBook(row.document.id) })
+                }
+            }
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                SectionLabel("Library · ${items.size}")
+            }
+            itemsIndexed(items, key = { _, r -> r.document.id }) { _, row ->
+                Column(
+                    modifier = Modifier.combinedClickable(
+                        onClick = { onOpenBook(row.document.id) },
+                        onLongClick = { menuFor = row.document },
+                    ),
+                ) {
+                    CoverImage(
+                        source = row.document.coverPath,
+                        title = row.document.title,
+                        author = row.document.author,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(2f / 3f),
+                    )
+                    Text(
+                        text = row.document.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
             }
         }
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            SectionLabel("Library · ${items.size}")
-        }
-        itemsIndexed(items, key = { _, r -> r.document.id }) { _, row ->
-            Column(
-                modifier = Modifier.combinedClickable(
-                    onClick = { onOpenBook(row.document.id) },
-                    onLongClick = { pendingDelete = row.document },
-                ),
-            ) {
-                CoverImage(
-                    source = row.document.coverPath,
-                    title = row.document.title,
-                    author = row.document.author,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(2f / 3f),
-                )
+        SnackbarHost(hostState = snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter))
+    }
+
+    menuFor?.let { doc ->
+        val sheetState = rememberModalBottomSheetState()
+        ModalBottomSheet(
+            onDismissRequest = { menuFor = null },
+            sheetState = sheetState,
+        ) {
+            Column(modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
                 Text(
-                    text = row.document.title,
+                    text = doc.title,
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 6.dp),
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
                 )
+                TextButton(
+                    onClick = {
+                        pendingRestart = doc
+                        menuFor = null
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                ) {
+                    Text("Restart book", modifier = Modifier.fillMaxWidth())
+                }
+                TextButton(
+                    onClick = {
+                        pendingDelete = doc
+                        menuFor = null
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                ) {
+                    Text(
+                        "Delete from library",
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
             }
         }
+    }
+
+    pendingRestart?.let { doc ->
+        var alsoDelete by remember { mutableStateOf(false) }
+        AlertDialog(
+            onDismissRequest = { pendingRestart = null },
+            title = { Text("Restart book?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("\"${doc.title}\" will be marked as unread and synced to your other devices.")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = alsoDelete, onCheckedChange = { alsoDelete = it })
+                        Text("Also delete the downloaded copy", modifier = Modifier.padding(start = 8.dp))
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.restartFromUi(doc, alsoDelete, context)
+                    pendingRestart = null
+                }) { Text("Restart") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingRestart = null }) { Text("Cancel") }
+            },
+        )
     }
 
     pendingDelete?.let { doc ->

@@ -15,7 +15,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "opds-ereader"
+rootProject.name = "quire"
 
 include(
     ":app",

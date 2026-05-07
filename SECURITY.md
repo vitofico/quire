@@ -11,7 +11,7 @@ Please **do not** open a public GitHub issue for security problems.
 
 Use GitHub's private vulnerability reporting:
 
-**https://github.com/vitofico/opds-ereader-android-app/security/advisories/new**
+**https://github.com/vitofico/quire/security/advisories/new**
 
 Include:
 
