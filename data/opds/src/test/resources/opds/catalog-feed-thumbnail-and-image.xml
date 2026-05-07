@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog" xmlns:dc="http://purl.org/dc/terms/">
+  <id>urn:calibre-web:both</id>
+  <title>Both Rels</title>
+  <updated>2026-04-26T00:00:00Z</updated>
+  <link rel="self" href="/opds/both" type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+  <entry>
+    <title>The Sample Book</title>
+    <id>urn:calibre-web:42</id>
+    <updated>2026-04-26T00:00:00Z</updated>
+    <author><name>Jane Doe</name></author>
+    <dc:identifier>urn:uuid:550e8400-e29b-41d4-a716-446655440000</dc:identifier>
+    <link rel="http://opds-spec.org/acquisition" href="/opds/download/42/epub" type="application/epub+zip"/>
+    <link rel="http://opds-spec.org/image" href="/opds/cover/42" type="image/jpeg"/>
+    <link rel="http://opds-spec.org/image/thumbnail" href="/opds/cover/42/thumb" type="image/jpeg"/>
+  </entry>
+</feed>

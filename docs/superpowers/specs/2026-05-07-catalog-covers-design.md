@@ -57,17 +57,28 @@ Coil's default memory and disk caches are sufficient. No custom cache config.
 - Renders a gradient+initials fallback on `loading` and `error`.
 - Crops with `ContentScale.Crop` at a 2:3 aspect ratio.
 
-### Change 2 — Prefer thumbnail rel in the OPDS parser
+### Change 2 — Cover extraction from raw entry XML, with thumbnail preference
 
-In `data/opds/src/main/java/io/theficos/ereader/data/opds/OpdsClient.kt`
-(currently lines 37–53), reorder the cover-link selection:
+The original sketch was to reorder Readium's image-rel preference. On
+investigation Readium's OPDS model has a stronger quirk: it groups image
+links into a `pub.subcollections["images"]` collection only when
+`opds:image` is present, and silently drops `opds:image/thumbnail` if it
+appears alone. Reordering rels therefore can't fix the thumbnail-only case.
 
-1. `rel="http://opds-spec.org/image/thumbnail"` — preferred for list/grid use.
+Instead, replace the Readium-driven cover extraction with a small XML-level
+scan, mirroring the existing `parseSearchLink` workaround in the same file
+(which exists for the analogous Readium quirk around `{searchTerms}`
+templates). The scan walks each `<entry>`, collects its image and
+acquisition `<link>` rels, and joins back to Readium's parsed publications
+using the unique acquisition href.
+
+Rel preference within an entry:
+
+1. `rel="http://opds-spec.org/image/thumbnail"` — preferred for list/grid.
 2. `rel="http://opds-spec.org/image"` — full-resolution fallback.
-3. First image link of any rel — last-ditch fallback (unchanged).
 
-URL absolutization (`absolutize(absoluteUrl, …)`) is unchanged. No other
-fields on `OpdsPublication` are affected.
+URL absolutization (`absolutize(absoluteUrl, …)`) is reused unchanged. No
+other fields on `OpdsPublication` are affected.
 
 ## Testing
 

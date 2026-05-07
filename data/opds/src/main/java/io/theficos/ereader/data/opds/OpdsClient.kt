@@ -26,6 +26,9 @@ class OpdsClient(
             // Readium silently drops links whose href contains template chars like `{searchTerms}`,
             // so we always look for rel="search" ourselves from the raw XML.
             val searchLink = parseSearchLink(bytes, absoluteUrl)
+            // Readium also drops opds:image/thumbnail links unless a sibling opds:image link
+            // is present, so we pull cover hrefs from the raw XML and join by acquisition href.
+            val coversByEpubHref = parseCoverHrefs(bytes, absoluteUrl)
             OpdsFeed(
                 title = feed.metadata.title,
                 navigation = feed.navigation.map { link ->
@@ -39,17 +42,12 @@ class OpdsClient(
                         link.rels.contains("http://opds-spec.org/acquisition") &&
                             link.mediaType.toString() == "application/epub+zip"
                     } ?: return@mapNotNull null
-                    val imageLinks = pub.subcollections["images"].orEmpty().flatMap { it.links }
-                    val coverLink = imageLinks.firstOrNull { link ->
-                        link.rels.contains("http://opds-spec.org/image")
-                    } ?: imageLinks.firstOrNull { link ->
-                        link.rels.contains("http://opds-spec.org/image/thumbnail")
-                    } ?: imageLinks.firstOrNull()
+                    val absoluteEpubHref = absolutize(absoluteUrl, epubLink.href.toString())
                     OpdsPublication(
                         title = pub.metadata.title.orEmpty(),
                         author = pub.metadata.authors.firstOrNull()?.name,
-                        epubDownloadHref = absolutize(absoluteUrl, epubLink.href.toString()),
-                        coverUrl = coverLink?.href?.toString()?.let { absolutize(absoluteUrl, it) },
+                        epubDownloadHref = absoluteEpubHref,
+                        coverUrl = coversByEpubHref[absoluteEpubHref],
                     )
                 },
                 searchLink = searchLink,
@@ -62,6 +60,41 @@ class OpdsClient(
         // otherwise URL resolution percent-encodes the braces and the substitution misses.
         val rawTemplate = if (link.isDescription) fetchSearchTemplate(link.href) else link.href
         return absolutize(link.baseUrl, applyTemplate(rawTemplate, query))
+    }
+
+    private fun parseCoverHrefs(bytes: ByteArray, feedUrl: String): Map<String, String> {
+        val doc = runCatching {
+            DocumentBuilderFactory.newInstance()
+                .apply { isNamespaceAware = true }
+                .newDocumentBuilder()
+                .parse(ByteArrayInputStream(bytes))
+        }.getOrNull() ?: return emptyMap()
+        val entries = doc.getElementsByTagNameNS("http://www.w3.org/2005/Atom", "entry")
+        val result = mutableMapOf<String, String>()
+        for (i in 0 until entries.length) {
+            val entry = entries.item(i) as org.w3c.dom.Element
+            val links = entry.getElementsByTagNameNS("http://www.w3.org/2005/Atom", "link")
+            var epubHref: String? = null
+            var thumbnailHref: String? = null
+            var imageHref: String? = null
+            for (j in 0 until links.length) {
+                val el = links.item(j) as org.w3c.dom.Element
+                val rel = el.getAttribute("rel")
+                val href = el.getAttribute("href").takeIf { it.isNotBlank() } ?: continue
+                when (rel) {
+                    "http://opds-spec.org/acquisition" -> {
+                        if (el.getAttribute("type") == "application/epub+zip") epubHref = href
+                    }
+                    "http://opds-spec.org/image/thumbnail" -> thumbnailHref = href
+                    "http://opds-spec.org/image" -> imageHref = href
+                }
+            }
+            val cover = thumbnailHref ?: imageHref
+            if (epubHref != null && cover != null) {
+                result[absolutize(feedUrl, epubHref)] = absolutize(feedUrl, cover)
+            }
+        }
+        return result
     }
 
     private fun parseSearchLink(bytes: ByteArray, feedUrl: String): OpdsSearchLink? {
