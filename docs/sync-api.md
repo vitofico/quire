@@ -36,8 +36,8 @@ returns `503`.
 | `POST` | `/sync/v1/progress` | yes | Push progress for one or more documents |
 | `GET` | `/sync/v1/progress` | yes | Pull progress deltas |
 | `POST` | `/sync/v1/documents/alias` | yes | Reconcile a hash-keyed record with a newly-known metadata-id (planned) |
-| `POST` | `/sync/v1/annotations` | yes | Push annotation create/update/delete (Phase 3+) |
-| `GET` | `/sync/v1/annotations` | yes | Pull annotation deltas (Phase 3+) |
+| `POST` | `/sync/v1/bookmarks` | yes | Push bookmark create/delete (Phase 3) |
+| `GET` | `/sync/v1/bookmarks` | yes | Pull bookmark deltas (Phase 3) |
 
 Currently shipped: health probes and progress. The rest are designed; see
 phasing in the project README.
@@ -158,34 +158,23 @@ In one transaction the server:
 
 1. Finds the record keyed by `content_hash`.
 2. Finds the record keyed by `metadata_id` (may not exist).
-3. If both exist and differ, merges: per-field LWW for scalars, set union with
-   tombstone resolution for annotations.
+3. If both exist and differ, merges: record-level LWW for scalars, set union
+   with tombstone resolution for bookmarks.
 4. Deletes the orphan, returns the surviving record's identity.
 
-## Annotations (Phase 3+)
+## Bookmarks (Phase 3)
 
-### `POST /sync/v1/annotations`
+### `POST /sync/v1/bookmarks`
 
 ```json
 {
-  "annotations": [
+  "bookmarks": [
     {
       "id": "8b2a3f10-...",
       "document": { "metadata_id": "...", "content_hash": "..." },
-      "kind": "highlight",
-      "cfi_start": "epubcfi(/6/4!/...)",
-      "cfi_end":   "epubcfi(/6/4!/...)",
-      "text_snippet": "...",
-      "body": null,
-      "color": "yellow",
-      "field_versions": {
-        "cfi_start":    "2026-04-26T10:15:00Z",
-        "cfi_end":      "2026-04-26T10:15:00Z",
-        "text_snippet": "2026-04-26T10:15:00Z",
-        "body":         "2026-04-26T11:42:00Z",
-        "color":        "2026-04-26T12:01:00Z",
-        "deleted_at":   null
-      },
+      "cfi": "epubcfi(/6/4!/4/2/2[ch01]/2/1:0)",
+      "text_snippet": "It was the best of times, it was the worst of times...",
+      "updated_at": "2026-04-26T10:15:00Z",
       "deleted": false
     }
   ]
@@ -193,31 +182,26 @@ In one transaction the server:
 ```
 
 IDs are client-generated UUIDs. The server never reassigns them. This lets
-the client create annotations offline and reference them locally before first
+the client create bookmarks offline and reference them locally before first
 sync.
 
-Response per annotation:
+Response per bookmark:
 
 ```json
 {
   "id": "8b2a3f10-...",
-  "status": "accepted" | "rejected_stale" | "merged",
-  "field_versions": { "...": "..." }
+  "status": "accepted" | "rejected_stale",
+  "server_updated_at": "2026-04-26T10:15:00Z"
 }
 ```
 
-`field_versions` in the response is the server's authoritative state after
-the merge. `rejected_stale` means every incoming field had an older timestamp
-than the stored one; the client should update its local cache from the
-returned `field_versions`.
+Conflict resolution is record-level LWW on `updated_at` (see
+[`architecture.md`](architecture.md#bookmarks-phase-3-designed-not-built)).
 
-Conflict resolution is per-field LWW (see
-[`architecture.md`](architecture.md#sync-model)).
-
-### `GET /sync/v1/annotations`
+### `GET /sync/v1/bookmarks`
 
 ```
-GET /sync/v1/annotations?since=<ISO8601>[&document=<id>]
+GET /sync/v1/bookmarks?since=<ISO8601>[&document=<id>]
 ```
 
 Returns rows where `updated_at > since`, **including tombstones**

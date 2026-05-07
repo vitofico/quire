@@ -154,7 +154,7 @@ opds_sync/
   api/
     health.py        /healthz, /readyz
     progress.py      /sync/v1/progress
-    # annotations.py — Phase 3
+    # bookmarks.py — Phase 3
     # documents.py   — /documents/alias, Phase 2 reconciliation
   core/
     auth.py          Basic-header validator (probes calibre-web /opds, TTL-cached)

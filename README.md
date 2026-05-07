@@ -8,7 +8,7 @@ A self-hosted reading stack for people who already run [calibre-web]:
 
 - **Quire** — native Android EPUB reader (Kotlin / Compose / Readium).
 - **opds-sync** — small FastAPI service that stores reading progress and
-  (later) annotations in Postgres.
+  (later) bookmarks in Postgres.
 
 calibre-web stays the source of truth for books. opds-sync is the source
 of truth for reading state. Quire reconciles both on the device.
@@ -49,10 +49,9 @@ of truth for reading state. Quire reconciles both on the device.
 | 1 | Local reader: OPDS browse + download, EPUB rendering, local progress | shipped |
 | 2 | Progress sync server + Android sync client | shipped |
 | 2.1 | Sync server uses calibre-web Basic auth (no separate IdP) | shipped |
-| 3 | Highlights sync | not started |
-| 4 | Notes & bookmarks | not started |
-| 5 | PDF support | deferred |
-| 6 | Calibre plugin (read-only consumer) | not started |
+| 3 | Bookmarks sync | not started |
+| 4 | PDF support | deferred |
+| 5 | Calibre plugin (read-only consumer) | not started |
 
 This is pre-1.0 software built for the author's personal eink device. It
 works, it's tested, but the API and DB schema may still change. Pin a
@@ -64,7 +63,7 @@ commit if you depend on it.
 app/                  Android entry point — Compose UI, navigation, DI wiring
 auth/                 Keystore-backed calibre-web Basic credential store
 core/identity/        Document identity: hash + dc:identifier normalization
-core/model/           Domain types (Document, Annotation, Progress)
+core/model/           Domain types (Document, Progress, Bookmark)
 data/local/           Room database, DAOs
 data/opds/            calibre-web OPDS client
 data/sync/            opds-sync REST client + WorkManager job

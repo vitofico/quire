@@ -21,7 +21,7 @@ from `opds-sync` into Calibre custom columns.)
 ```
 :app           Compose UI, navigation, DI wiring, the Application class
 :core:identity Document identity (hash, dc:identifier normalization)
-:core:model    Domain types: Document, Progress, Annotation
+:core:model    Domain types: Document, Progress, Bookmark
 :data:local    Room database + DAOs; pending_sync_ops outbox; sync_state
 :data:opds     calibre-web OPDS client
 :data:sync     opds-sync REST client + WorkManager sync job
@@ -94,8 +94,8 @@ fixture set so they cannot drift.
 When a record was first written by hash alone and the client later learns the
 metadata-id, the client calls `POST /sync/v1/documents/alias` once per
 document. In one transaction the server merges any pre-existing
-metadata-id-keyed and hash-keyed records: per-field LWW for scalars, set union
-+ tombstone resolution for annotations.
+metadata-id-keyed and hash-keyed records: record-level LWW for scalars, set
+union + tombstone resolution for bookmarks.
 
 ### Known limitations
 
@@ -103,7 +103,7 @@ metadata-id-keyed and hash-keyed records: per-field LWW for scalars, set union
   #42 in two different Calibre instances would alias to one record. Mitigation
   if it ever matters: prefix `metadata_id` with a library scope.
 - **Re-anchoring after EPUB republish.** Different EPUB copies can produce
-  shifted CFIs. Progress is approximate by nature; annotations have a snippet
+  shifted CFIs. Progress is approximate by nature; bookmarks have a snippet
   fallback (see below).
 - **Reused `dc:identifier`s in pirated EPUBs.** Different books with identical
   identifiers will alias. Workaround: edit the OPF in Calibre.
@@ -124,45 +124,37 @@ A WorkManager job drains the outbox (push), pulls deltas (pull), updates
 high-water marks. Triggered on app foreground, network reconnect, and
 pull-to-refresh.
 
-### Annotations (Phase 3+, designed not built)
-
-Single table with a `kind` discriminator (`highlight` | `note` | `bookmark`):
+### Bookmarks (Phase 3, designed not built)
 
 ```
 id              uuid          -- client-generated
 user_id         text          -- Lowercased calibre-web username
 document_pk     bigint        -- FK to documents
-kind            text
-cfi_start       text
-cfi_end         text          -- null for bookmarks
+cfi             text          -- bookmark location
 text_snippet    text          -- ≤512 chars, for re-anchoring fallback
-body            text          -- note body, null for highlight/bookmark
-color           text          -- e.g. 'yellow', null otherwise
 created_at      timestamptz   -- server-assigned, immutable
 updated_at      timestamptz   -- server-assigned on every write
 deleted_at      timestamptz   -- tombstone marker
-field_versions  jsonb         -- per-field client timestamps
 ```
 
-**Field-level LWW.** `field_versions` is `{field: client_iso8601}`. On write,
-each field is independently compared; later timestamp wins. Editing a note's
-body on device A and its color on device B while both are offline preserves
-both edits.
+Conflict resolution: record-level LWW on `updated_at`, same as progress.
+Bookmarks are immutable in shape (a location + a snapshot of the
+surrounding text), so per-field LWW would be overkill.
 
 **Tombstones.** Delete is `deleted_at = now()`; row remains. Sync filters
 `WHERE deleted_at IS NULL` unless the client opts in to tombstones (it does, so
 deletes propagate). Nightly GC purges rows older than 90 days. Clients offline
-more than 90 days will resurrect deleted annotations on next sync. Documented
+more than 90 days will resurrect deleted bookmarks on next sync. Documented
 and accepted.
 
-**Anchoring fallback.** When the client renders an annotation:
+**Anchoring fallback.** When the client renders a bookmark:
 
 1. Resolve CFI; read surrounding text.
 2. If surrounding text doesn't contain `text_snippet` (case-insensitive,
    whitespace-normalized, ~32-char prefix), fall to step 3.
 3. Search the spine item for `text_snippet`. If exactly one match, use it; the
    server's CFI stays authoritative for other clients.
-4. If not found or ambiguous, mark the annotation **orphaned** in a sidebar.
+4. If not found or ambiguous, mark the bookmark **orphaned** in a sidebar.
    User can manually re-anchor or delete.
 
 This handles "EPUB republished with shifted CFIs" without silent data loss.
@@ -212,10 +204,9 @@ calibre-web username and password; everything else flows from that.
 |---|---|---|
 | 1 | Composite document identity (metadata-id + content-hash) | Survives both Calibre re-encodes and sideloaded files without metadata. |
 | 2 | Server-side merge on alias | Keeps the system tidy long-term; one transaction. |
-| 3 | Per-annotation field-level LWW with tombstones | Standard, correct, fits relational schema. CRDTs unnecessary with single server. |
-| 4 | 90-day tombstone GC | Bounded storage; documented edge case for long-offline clients. |
-| 5 | CFI + text snippet anchoring | Survives EPUB republishing without silent data loss. |
-| 6 | One credential, sync server proxies Basic auth to calibre-web | No second IdP to deploy; no token state on the server; the user already has the credential. Replaced an earlier OIDC/Authentik design (Phase 2.1). |
-| 7 | Python FastAPI for the sync server | Fastest to write; traffic is trivial; deploys cleanly into the existing cluster. |
-| 8 | Single annotations table with `kind` discriminator | Identical merge logic across kinds; queries are document-scoped. |
-| 9 | Calibre plugin as Phase 6 read-only consumer | Validates API shape; non-blocking; clean separation. |
+| 3 | 90-day tombstone GC | Bounded storage; documented edge case for long-offline clients. |
+| 4 | CFI + text snippet anchoring | Survives EPUB republishing without silent data loss. |
+| 5 | One credential, sync server proxies Basic auth to calibre-web | No second IdP to deploy; no token state on the server; the user already has the credential. Replaced an earlier OIDC/Authentik design (Phase 2.1). |
+| 6 | Python FastAPI for the sync server | Fastest to write; traffic is trivial; deploys cleanly into the existing cluster. |
+| 7 | Bookmarks are the only synced reading artifact beyond progress | Smallest scope that's actually useful; record-level LWW is sufficient; matches the author's actual reading workflow. |
+| 8 | Calibre plugin as a later read-only consumer | Validates API shape; non-blocking; clean separation. |

@@ -71,7 +71,7 @@ tell you if they don't.
 Gitmoji + conventional commits. Examples:
 
 ```
-:sparkles: feat: add highlights sync endpoint
+:sparkles: feat: add bookmarks sync endpoint
 :bug: fix: handle 401 from calibre-web during auth probe
 :memo: docs: clarify identity precedence
 :white_check_mark: test: cover the alias-merge transaction
