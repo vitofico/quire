@@ -1,0 +1,34 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: opds_sync
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: opds_sync
+    volumes:
+      - opds_sync_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opds_sync"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  opds-sync:
+    image: ghcr.io/vitofico/opds-sync:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      OPDS_SYNC_DATABASE_URL: postgresql+asyncpg://opds_sync:${POSTGRES_PASSWORD:-changeme}@postgres:5432/opds_sync
+      OPDS_SYNC_CWA_BASE_URL: ${OPDS_SYNC_CWA_BASE_URL}
+      OPDS_SYNC_LOG_LEVEL: ${OPDS_SYNC_LOG_LEVEL:-INFO}
+    ports:
+      - "${OPDS_SYNC_PORT:-8000}:8000"
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn opds_sync.main:app --host 0.0.0.0 --port 8000"
+
+volumes:
+  opds_sync_pg:
