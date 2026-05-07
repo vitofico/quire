@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.util.ArrayDeque
 import java.util.UUID
 
 class CatalogViewModel(
@@ -29,6 +30,8 @@ class CatalogViewModel(
     private val _state = MutableStateFlow<CatalogUiState>(CatalogUiState.Idle)
     val state: StateFlow<CatalogUiState> = _state.asStateFlow()
 
+    private val backStack = ArrayDeque<Pair<String, OpdsFeed>>()
+
     val downloadedUrls: StateFlow<Set<String>> = docs.observeLibrary()
         .map { list -> list.map { it.downloadUrl }.toSet() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
@@ -39,15 +42,44 @@ class CatalogViewModel(
             _state.value = CatalogUiState.Error("Configure calibre-web in Settings first.")
             return
         }
+        backStack.clear()
         load("${baseUrl.trimEnd('/')}/opds")
     }
 
     fun load(url: String) {
+        val current = _state.value as? CatalogUiState.Loaded
         _state.value = CatalogUiState.Loading
         viewModelScope.launch {
             runCatching { client.fetch(url) }
-                .onSuccess { _state.value = CatalogUiState.Loaded(url, it) }
+                .onSuccess { feed ->
+                    if (current != null) backStack.push(current.url to current.feed)
+                    _state.value = CatalogUiState.Loaded(url, feed, canGoBack = backStack.isNotEmpty())
+                }
                 .onFailure { _state.value = CatalogUiState.Error(it.message ?: "Fetch failed") }
+        }
+    }
+
+    fun back(): Boolean {
+        val (url, feed) = backStack.pollFirst() ?: return false
+        _state.value = CatalogUiState.Loaded(url, feed, canGoBack = backStack.isNotEmpty())
+        return true
+    }
+
+    fun search(query: String) {
+        val current = _state.value as? CatalogUiState.Loaded ?: return
+        val link = current.feed.searchLink ?: return
+        if (query.isBlank()) return
+        _state.value = CatalogUiState.Loading
+        viewModelScope.launch {
+            runCatching {
+                val resolved = client.resolveSearchUrl(link, query.trim())
+                client.fetch(resolved) to resolved
+            }.onSuccess { (feed, resolved) ->
+                backStack.push(current.url to current.feed)
+                _state.value = CatalogUiState.Loaded(resolved, feed, canGoBack = true)
+            }.onFailure {
+                _state.value = CatalogUiState.Error(it.message ?: "Search failed")
+            }
         }
     }
 
@@ -102,6 +134,7 @@ sealed interface CatalogUiState {
     data class Loaded(
         val url: String,
         val feed: OpdsFeed,
+        val canGoBack: Boolean = false,
         val downloading: String? = null,
         val progress: Float = 0f,
         val lastDownloaded: String? = null,

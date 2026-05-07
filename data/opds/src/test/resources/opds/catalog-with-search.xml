@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
+  <id>urn:calibre-web:root</id>
+  <title>calibre-web</title>
+  <updated>2026-04-26T00:00:00Z</updated>
+  <link rel="self" href="/opds" type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
+  <link rel="search" href="/opds/osd" type="application/opensearchdescription+xml"/>
+  <entry>
+    <title>All Books</title>
+    <id>urn:calibre-web:allbooks</id>
+    <updated>2026-04-26T00:00:00Z</updated>
+    <link rel="subsection" href="/opds/new" type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+  </entry>
+</feed>

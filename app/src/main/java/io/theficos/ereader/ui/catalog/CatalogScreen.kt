@@ -1,5 +1,6 @@
 package io.theficos.ereader.ui.catalog
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -17,22 +18,33 @@ import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.theficos.ereader.data.opds.OpdsPublication
@@ -48,6 +60,9 @@ fun CatalogScreen(
     val downloadedUrls by viewModel.downloadedUrls.collectAsState()
     LaunchedEffect(Unit) { if (state == CatalogUiState.Idle) viewModel.loadRoot() }
 
+    val canGoBack = (state as? CatalogUiState.Loaded)?.canGoBack == true
+    BackHandler(enabled = canGoBack) { viewModel.back() }
+
     Box(modifier = Modifier.fillMaxSize().padding(contentPadding)) {
         when (val s = state) {
             CatalogUiState.Idle -> {}
@@ -62,6 +77,8 @@ fun CatalogScreen(
                 state = s,
                 downloadedUrls = downloadedUrls,
                 onNavigate = viewModel::load,
+                onBack = viewModel::back,
+                onSearch = viewModel::search,
                 onDownload = viewModel::download,
             )
         }
@@ -73,6 +90,8 @@ private fun Loaded(
     state: CatalogUiState.Loaded,
     downloadedUrls: Set<String>,
     onNavigate: (String) -> Unit,
+    onBack: () -> Unit,
+    onSearch: (String) -> Unit,
     onDownload: (OpdsPublication) -> Unit,
 ) {
     LazyVerticalGrid(
@@ -83,10 +102,16 @@ private fun Loaded(
         modifier = Modifier.fillMaxSize(),
     ) {
         item(span = { GridItemSpan(maxLineSpan) }) {
-            Text(
-                text = "Catalog",
-                style = MaterialTheme.typography.displaySmall,
+            Header(
+                title = state.feed.title.takeUnless { it.isBlank() } ?: "Catalog",
+                canGoBack = state.canGoBack,
+                onBack = onBack,
             )
+        }
+        if (state.feed.searchLink != null) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                SearchField(onSearch = onSearch)
+            }
         }
         if (state.error != null) {
             item(span = { GridItemSpan(maxLineSpan) }) {
@@ -176,6 +201,61 @@ private fun Loaded(
             }
         }
     }
+}
+
+@Composable
+private fun Header(
+    title: String,
+    canGoBack: Boolean,
+    onBack: () -> Unit,
+) {
+    Box(modifier = Modifier.fillMaxWidth()) {
+        if (canGoBack) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier.align(Alignment.CenterStart),
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+        }
+        Text(
+            text = title,
+            style = MaterialTheme.typography.displaySmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .padding(start = if (canGoBack) 48.dp else 0.dp),
+        )
+    }
+}
+
+@Composable
+private fun SearchField(onSearch: (String) -> Unit) {
+    var query by rememberSaveable { mutableStateOf("") }
+    OutlinedTextField(
+        value = query,
+        onValueChange = { query = it },
+        placeholder = { Text("Search this catalog") },
+        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+        trailingIcon = {
+            if (query.isNotEmpty()) {
+                IconButton(onClick = { query = "" }) {
+                    Icon(Icons.Default.Close, contentDescription = "Clear")
+                }
+            }
+        },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(onSearch = {
+            if (query.isNotBlank()) onSearch(query)
+        }),
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
 
 private fun LazyGridScope.navigationItems(

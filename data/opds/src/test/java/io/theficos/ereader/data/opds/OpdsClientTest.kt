@@ -29,12 +29,21 @@ class OpdsClientTest {
             .build()
         client = OpdsClient(okHttp)
         server.dispatcher = object : Dispatcher() {
-            override fun dispatch(req: RecordedRequest): MockResponse = when (req.path) {
-                "/opds" -> MockResponse().setHeader("Content-Type", "application/atom+xml")
-                    .setBody(resource("/opds/catalog-root.xml"))
-                "/opds/new" -> MockResponse().setHeader("Content-Type", "application/atom+xml")
-                    .setBody(resource("/opds/catalog-feed.xml"))
-                else -> MockResponse().setResponseCode(404)
+            override fun dispatch(req: RecordedRequest): MockResponse {
+                val path = req.path?.substringBefore('?')
+                return when (path) {
+                    "/opds" -> MockResponse().setHeader("Content-Type", "application/atom+xml")
+                        .setBody(resource("/opds/catalog-root.xml"))
+                    "/opds/new" -> MockResponse().setHeader("Content-Type", "application/atom+xml")
+                        .setBody(resource("/opds/catalog-feed.xml"))
+                    "/opds/with-search" -> MockResponse().setHeader("Content-Type", "application/atom+xml")
+                        .setBody(resource("/opds/catalog-with-search.xml"))
+                    "/opds/with-direct-search" -> MockResponse().setHeader("Content-Type", "application/atom+xml")
+                        .setBody(resource("/opds/catalog-with-direct-search.xml"))
+                    "/opds/osd" -> MockResponse().setHeader("Content-Type", "application/opensearchdescription+xml")
+                        .setBody(resource("/opds/opensearch.xml"))
+                    else -> MockResponse().setResponseCode(404)
+                }
             }
         }
     }
@@ -65,6 +74,41 @@ class OpdsClientTest {
         val pub = feed.publications[0]
         assertThat(pub.coverUrl).isNotNull()
         assertThat(pub.coverUrl).endsWith("/opds/cover/42")
+    }
+
+    @Test fun `feed without a search link exposes none`() = runTest {
+        val feed = client.fetch(server.url("/opds").toString())
+        assertThat(feed.searchLink).isNull()
+    }
+
+    @Test fun `feed with OpenSearch description link is parsed as description`() = runTest {
+        val feed = client.fetch(server.url("/opds/with-search").toString())
+        val link = feed.searchLink
+        assertThat(link).isNotNull()
+        assertThat(link!!.isDescription).isTrue()
+        assertThat(link.href).endsWith("/opds/osd")
+    }
+
+    @Test fun `feed with templated atom search link is parsed as direct`() = runTest {
+        val feed = client.fetch(server.url("/opds/with-direct-search").toString())
+        val link = feed.searchLink
+        assertThat(link).isNotNull()
+        assertThat(link!!.isDescription).isFalse()
+        assertThat(link.href).contains("{searchTerms}")
+    }
+
+    @Test fun `resolveSearchUrl substitutes searchTerms in direct template`() = runTest {
+        val feed = client.fetch(server.url("/opds/with-direct-search").toString())
+        val resolved = client.resolveSearchUrl(feed.searchLink!!, "moby dick")
+        assertThat(resolved).endsWith("/opds/search/moby+dick")
+    }
+
+    @Test fun `resolveSearchUrl fetches description and substitutes template`() = runTest {
+        val feed = client.fetch(server.url("/opds/with-search").toString())
+        val resolved = client.resolveSearchUrl(feed.searchLink!!, "tolkien")
+        assertThat(resolved).contains("/opds/search/tolkien")
+        assertThat(resolved).doesNotContain("{")
+        assertThat(resolved).doesNotContain("startIndex={")
     }
 
 }
