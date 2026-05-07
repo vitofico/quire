@@ -25,7 +25,14 @@ fun AppNavGraph(container: AppContainer) {
     val nav = rememberNavController()
     NavHost(navController = nav, startDestination = "home") {
         composable("home") {
-            val libVm = remember { LibraryViewModel(container.documentRepository, container.progressRepository) }
+            val libVm = remember {
+                LibraryViewModel(
+                    docs = container.documentRepository,
+                    progress = container.progressRepository,
+                    syncOrchestrator = container.syncOrchestrator,
+                    booksDir = container.booksDir,
+                )
+            }
             val catVm = remember {
                 CatalogViewModel(container.opdsClient, container.bookDownloader, container.documentRepository, container.credentialStore)
             }

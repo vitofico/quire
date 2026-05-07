@@ -42,6 +42,7 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
+    testOptions { unitTests.isIncludeAndroidResources = true }
     signingConfigs {
         create("release") {
             val storePath = System.getenv("QUIRE_RELEASE_KEYSTORE")
@@ -96,4 +97,13 @@ dependencies {
     debugImplementation(libs.compose.ui.tooling)
 
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.2")
+
+    testImplementation(libs.junit)
+    testImplementation(libs.truth)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.turbine)
+    testImplementation(libs.okhttp.mockwebserver)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(libs.room.testing)
 }
