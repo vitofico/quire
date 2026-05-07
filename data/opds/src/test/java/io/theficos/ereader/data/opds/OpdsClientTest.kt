@@ -42,6 +42,10 @@ class OpdsClientTest {
                         .setBody(resource("/opds/catalog-with-direct-search.xml"))
                     "/opds/osd" -> MockResponse().setHeader("Content-Type", "application/opensearchdescription+xml")
                         .setBody(resource("/opds/opensearch.xml"))
+                    "/opds/both" -> MockResponse().setHeader("Content-Type", "application/atom+xml")
+                        .setBody(resource("/opds/catalog-feed-thumbnail-and-image.xml"))
+                    "/opds/thumb-only" -> MockResponse().setHeader("Content-Type", "application/atom+xml")
+                        .setBody(resource("/opds/catalog-feed-thumbnail-only.xml"))
                     else -> MockResponse().setResponseCode(404)
                 }
             }
@@ -109,6 +113,27 @@ class OpdsClientTest {
         assertThat(resolved).contains("/opds/search/tolkien")
         assertThat(resolved).doesNotContain("{")
         assertThat(resolved).doesNotContain("startIndex={")
+    }
+
+    @Test fun `cover prefers thumbnail rel when both rels present`() = runTest {
+        val feed = client.fetch(server.url("/opds/both").toString())
+        val pub = feed.publications.single()
+        assertThat(pub.coverUrl).isNotNull()
+        assertThat(pub.coverUrl).endsWith("/opds/cover/42/thumb")
+    }
+
+    @Test fun `cover uses thumbnail rel when only thumbnail is present`() = runTest {
+        val feed = client.fetch(server.url("/opds/thumb-only").toString())
+        val pub = feed.publications.single()
+        assertThat(pub.coverUrl).isNotNull()
+        assertThat(pub.coverUrl).endsWith("/opds/cover/42/thumb")
+    }
+
+    @Test fun `cover falls back to full-size image rel when thumbnail is absent`() = runTest {
+        val feed = client.fetch(server.url("/opds/new").toString())
+        val pub = feed.publications.single()
+        assertThat(pub.coverUrl).isNotNull()
+        assertThat(pub.coverUrl).endsWith("/opds/cover/42")
     }
 
 }
