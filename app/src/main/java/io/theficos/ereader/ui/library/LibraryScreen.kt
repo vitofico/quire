@@ -19,6 +19,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -26,7 +27,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
+import io.theficos.ereader.data.sync.SyncEnqueuer
 import androidx.compose.ui.unit.dp
 import io.theficos.ereader.core.model.Document
 import io.theficos.ereader.ui.components.CoverImage
@@ -40,6 +43,9 @@ fun LibraryScreen(
     onOpenBook: (documentId: Long) -> Unit,
     contentPadding: PaddingValues,
 ) {
+    val context = LocalContext.current
+    LaunchedEffect(Unit) { SyncEnqueuer.enqueue(context, expedited = true) }
+
     val items by viewModel.items.collectAsState()
     val cont by viewModel.continueReading.collectAsState()
     var pendingDelete by remember { mutableStateOf<Document?>(null) }

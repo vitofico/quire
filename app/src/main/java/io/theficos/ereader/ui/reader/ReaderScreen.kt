@@ -25,7 +25,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.fragment.app.FragmentActivity
 import androidx.fragment.app.FragmentContainerView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.lifecycleScope
+import io.theficos.ereader.data.sync.SyncEnqueuer
 import io.theficos.ereader.reader.ReaderPreferences
 import io.theficos.ereader.reader.toEpubPreferences
 import kotlinx.coroutines.delay
@@ -41,6 +45,18 @@ fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
     val preferences by viewModel.preferences.collectAsState()
     val chromeVisible by viewModel.chromeVisible.collectAsState()
     var showFontSheet by remember { mutableStateOf(false) }
+
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE) {
+                SyncEnqueuer.enqueue(context, expedited = true)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     LaunchedEffect(Unit) { viewModel.load() }
     LaunchedEffect(chromeVisible) {

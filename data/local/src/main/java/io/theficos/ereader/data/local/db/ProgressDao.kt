@@ -16,4 +16,10 @@ interface ProgressDao {
 
     @Query("SELECT * FROM progress WHERE documentId = :docId LIMIT 1")
     fun observeByDocument(docId: Long): Flow<ProgressEntity?>
+
+    @Query("SELECT * FROM progress WHERE localUpdatedAt > syncedAt")
+    suspend fun dirty(): List<ProgressEntity>
+
+    @Query("UPDATE progress SET syncedAt = :syncedAt WHERE documentId = :documentId")
+    suspend fun markSynced(documentId: Long, syncedAt: Long)
 }

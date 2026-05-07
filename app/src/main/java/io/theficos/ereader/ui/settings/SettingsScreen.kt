@@ -20,6 +20,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import io.theficos.ereader.reader.ReaderFontFamily
@@ -130,6 +131,32 @@ fun SettingsScreen(
             }
         }
 
+        SectionLabel("Sync")
+        QuireCard(modifier = Modifier.fillMaxWidth()) {
+            val syncState by viewModel.sync.collectAsState()
+            val context = LocalContext.current
+
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (!syncState.hasCredentials) {
+                    Text(
+                        "Configure calibre-web above to enable sync.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    val ts = syncState.lastSyncedAtMs
+                    Text(
+                        if (ts == null) "Not synced yet" else "Last synced: ${formatRelative(ts)}",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+                Button(
+                    onClick = { viewModel.syncNow(context) },
+                    enabled = syncState.hasCredentials,
+                ) { Text("Sync now") }
+            }
+        }
+
         SectionLabel("About")
         QuireCard(modifier = Modifier.fillMaxWidth()) {
             Column {
@@ -141,5 +168,15 @@ fun SettingsScreen(
                 )
             }
         }
+    }
+}
+
+private fun formatRelative(epochMs: Long): String {
+    val deltaSec = (System.currentTimeMillis() - epochMs) / 1000
+    return when {
+        deltaSec < 60 -> "just now"
+        deltaSec < 3600 -> "${deltaSec / 60}m ago"
+        deltaSec < 86_400 -> "${deltaSec / 3600}h ago"
+        else -> "${deltaSec / 86_400}d ago"
     }
 }

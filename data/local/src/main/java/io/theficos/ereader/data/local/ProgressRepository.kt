@@ -14,13 +14,21 @@ class ProgressRepository(private val dao: ProgressDao) {
         dao.observeByDocument(documentId).map { it?.toDomain() }
 
     suspend fun save(progress: Progress) {
+        val now = System.currentTimeMillis()
         dao.upsert(ProgressEntity(
             documentId = progress.documentId,
             locator = progress.locator,
             percent = progress.percent,
             updatedAt = progress.updatedAt,
+            localUpdatedAt = now,
+            syncedAt = 0L,
         ))
     }
+
+    suspend fun dirty(): List<Progress> = dao.dirty().map { it.toDomain() }
+
+    suspend fun markSynced(documentId: Long, syncedAt: Long) =
+        dao.markSynced(documentId, syncedAt)
 
     private fun ProgressEntity.toDomain(): Progress =
         Progress(documentId = documentId, locator = locator, percent = percent, updatedAt = updatedAt)

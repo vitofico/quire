@@ -23,6 +23,7 @@ include(
     ":core:identity",
     ":data:local",
     ":data:opds",
+    ":data:sync",
     ":reader",
     ":auth",
 )

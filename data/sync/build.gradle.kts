@@ -1,16 +1,15 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
-    alias(libs.plugins.ksp)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
-    namespace = "io.theficos.ereader.data.local"
+    namespace = "io.theficos.ereader.data.sync"
     compileSdk = 34
     defaultConfig {
         minSdk = 26
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        ksp { arg("room.schemaLocation", "$projectDir/schemas") }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -18,26 +17,24 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     testOptions { unitTests.isIncludeAndroidResources = true }
-    sourceSets {
-        getByName("test") {
-            assets.srcDir("$projectDir/schemas")
-        }
-    }
 }
 
 dependencies {
     api(project(":core:model"))
+    api(project(":data:local"))
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
-    api(libs.room.runtime)
-    api(libs.room.ktx)
-    ksp(libs.room.compiler)
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.okhttp)
+    implementation(libs.work.runtime.ktx)
 
     testImplementation(libs.junit)
     testImplementation(libs.truth)
     testImplementation(libs.robolectric)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.turbine)
+    testImplementation(libs.okhttp.mockwebserver)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.room.testing)
 }

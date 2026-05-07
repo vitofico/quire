@@ -32,6 +32,7 @@ fun AppNavGraph(container: AppContainer) {
                 SettingsViewModel(
                     store = container.credentialStore,
                     readerStore = container.readerPreferencesStore,
+                    syncStateDao = container.syncStateDao,
                 )
             }
             MainScaffold { tab, padding ->

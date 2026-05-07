@@ -23,4 +23,6 @@ data class ProgressEntity(
     val locator: String,
     val percent: Double,
     val updatedAt: Long,
+    val localUpdatedAt: Long,
+    val syncedAt: Long,
 )
