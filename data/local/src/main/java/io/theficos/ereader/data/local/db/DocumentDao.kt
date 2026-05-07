@@ -29,4 +29,7 @@ interface DocumentDao {
 
     @Query("DELETE FROM documents WHERE id = :id")
     suspend fun deleteById(id: Long): Int
+
+    @Query("DELETE FROM documents")
+    suspend fun deleteAll()
 }
