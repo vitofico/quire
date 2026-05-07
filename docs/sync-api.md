@@ -2,7 +2,7 @@
 
 REST surface of the `opds-sync` server. All endpoints are versioned under
 `/sync/v1`, all request and response bodies are JSON, and all sync endpoints
-require a Bearer JWT issued by Authentik.
+require an HTTP Basic header valid against the upstream calibre-web instance.
 
 For the rationale behind the conflict-resolution model, see
 [`architecture.md`](architecture.md).
@@ -10,16 +10,22 @@ For the rationale behind the conflict-resolution model, see
 ## Authentication
 
 ```
-Authorization: Bearer <Authentik access token>
+Authorization: Basic <base64(username:password)>
 ```
 
-The server validates each token against Authentik's JWKS (cached, refreshed
-on `kid` miss). It checks `iss`, `aud`, `exp`, `nbf`. The `sub` claim is the
-user identity and is recorded as `user_id` on every persisted row. The system
-is multi-user from day one.
+The same calibre-web Basic credentials the Android app uses for OPDS
+browsing. The server validates each header by probing
+`{OPDS_SYNC_CWA_BASE_URL}{OPDS_SYNC_CWA_PROBE_PATH}` (default `/opds`)
+with the incoming `Authorization` header and treats `200` as
+authenticated, `401` as not. Results are TTL-cached (60 s positive,
+10 s negative).
 
-Token failures return `401`. The Android client refreshes once and retries
-once; a second 401 forces re-auth.
+The `user_id` recorded on every persisted row is the lowercased
+calibre-web username extracted from the Basic header. The system is
+multi-user from day one.
+
+A failed lookup returns `401`. If calibre-web is unreachable the server
+returns `503`.
 
 ## Endpoints
 
@@ -30,8 +36,8 @@ once; a second 401 forces re-auth.
 | `POST` | `/sync/v1/progress` | yes | Push progress for one or more documents |
 | `GET` | `/sync/v1/progress` | yes | Pull progress deltas |
 | `POST` | `/sync/v1/documents/alias` | yes | Reconcile a hash-keyed record with a newly-known metadata-id (planned) |
-| `POST` | `/sync/v1/annotations` | yes | Push annotation create/update/delete (Phase 3+) |
-| `GET` | `/sync/v1/annotations` | yes | Pull annotation deltas (Phase 3+) |
+| `POST` | `/sync/v1/bookmarks` | yes | Push bookmark create/delete (planned) |
+| `GET` | `/sync/v1/bookmarks` | yes | Pull bookmark deltas (planned) |
 
 Currently shipped: health probes and progress. The rest are designed; see
 phasing in the project README.
@@ -63,7 +69,7 @@ record-level last-writer-wins on the client-provided `updated_at`.
 
 ```http
 POST /sync/v1/progress
-Authorization: Bearer ...
+Authorization: Basic ...
 Content-Type: application/json
 
 {
@@ -106,7 +112,7 @@ Pull progress rows updated after the client's high-water mark.
 
 ```http
 GET /sync/v1/progress?since=2026-05-07T09:14:32Z[&document=...]
-Authorization: Bearer ...
+Authorization: Basic ...
 ```
 
 - `since` — ISO 8601, required. Server returns rows with `updated_at > since`.
@@ -142,7 +148,7 @@ alone.
 
 ```http
 POST /sync/v1/documents/alias
-Authorization: Bearer ...
+Authorization: Basic ...
 Content-Type: application/json
 
 { "content_hash": "8e3a...", "metadata_id": "9780141036144" }
@@ -152,34 +158,23 @@ In one transaction the server:
 
 1. Finds the record keyed by `content_hash`.
 2. Finds the record keyed by `metadata_id` (may not exist).
-3. If both exist and differ, merges: per-field LWW for scalars, set union with
-   tombstone resolution for annotations.
+3. If both exist and differ, merges: record-level LWW for scalars, set union
+   with tombstone resolution for bookmarks.
 4. Deletes the orphan, returns the surviving record's identity.
 
-## Annotations (Phase 3+)
+## Bookmarks (planned)
 
-### `POST /sync/v1/annotations`
+### `POST /sync/v1/bookmarks`
 
 ```json
 {
-  "annotations": [
+  "bookmarks": [
     {
       "id": "8b2a3f10-...",
       "document": { "metadata_id": "...", "content_hash": "..." },
-      "kind": "highlight",
-      "cfi_start": "epubcfi(/6/4!/...)",
-      "cfi_end":   "epubcfi(/6/4!/...)",
-      "text_snippet": "...",
-      "body": null,
-      "color": "yellow",
-      "field_versions": {
-        "cfi_start":    "2026-04-26T10:15:00Z",
-        "cfi_end":      "2026-04-26T10:15:00Z",
-        "text_snippet": "2026-04-26T10:15:00Z",
-        "body":         "2026-04-26T11:42:00Z",
-        "color":        "2026-04-26T12:01:00Z",
-        "deleted_at":   null
-      },
+      "cfi": "epubcfi(/6/4!/4/2/2[ch01]/2/1:0)",
+      "text_snippet": "It was the best of times, it was the worst of times...",
+      "updated_at": "2026-04-26T10:15:00Z",
       "deleted": false
     }
   ]
@@ -187,31 +182,26 @@ In one transaction the server:
 ```
 
 IDs are client-generated UUIDs. The server never reassigns them. This lets
-the client create annotations offline and reference them locally before first
+the client create bookmarks offline and reference them locally before first
 sync.
 
-Response per annotation:
+Response per bookmark:
 
 ```json
 {
   "id": "8b2a3f10-...",
-  "status": "accepted" | "rejected_stale" | "merged",
-  "field_versions": { "...": "..." }
+  "status": "accepted" | "rejected_stale",
+  "server_updated_at": "2026-04-26T10:15:00Z"
 }
 ```
 
-`field_versions` in the response is the server's authoritative state after
-the merge. `rejected_stale` means every incoming field had an older timestamp
-than the stored one; the client should update its local cache from the
-returned `field_versions`.
+Conflict resolution is record-level LWW on `updated_at` (see
+[`architecture.md`](architecture.md#bookmarks-designed-not-built)).
 
-Conflict resolution is per-field LWW (see
-[`architecture.md`](architecture.md#sync-model)).
-
-### `GET /sync/v1/annotations`
+### `GET /sync/v1/bookmarks`
 
 ```
-GET /sync/v1/annotations?since=<ISO8601>[&document=<id>]
+GET /sync/v1/bookmarks?since=<ISO8601>[&document=<id>]
 ```
 
 Returns rows where `updated_at > since`, **including tombstones**
@@ -239,9 +229,9 @@ Standard FastAPI shape:
 | Status | Meaning |
 |---|---|
 | 400 | Malformed request (missing fields, bad types, neither identifier supplied). |
-| 401 | Missing or invalid JWT. |
+| 401 | Missing or invalid Basic credentials, or calibre-web rejected them. |
 | 404 | Document not found (pull paths). |
 | 409 | Identity conflict the server cannot auto-resolve (rare; mostly future-proofing for the alias endpoint). |
 | 422 | Validation failure (FastAPI default). |
 | 500 | Server error. |
-| 503 | Database unavailable (`/readyz` only). |
+| 503 | Database unavailable (`/readyz`) or calibre-web unreachable for auth probes. |

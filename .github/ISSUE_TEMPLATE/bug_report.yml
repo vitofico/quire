@@ -1,0 +1,65 @@
+name: Bug report
+description: Something is broken in the Android app or the sync server.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please fill in as
+        much as you can — vague reports often can't be acted on.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Android app
+        - Sync server
+        - Both / unsure
+        - Documentation
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      description: App version (Settings → About) or server git SHA.
+      placeholder: 2026.05.07.42 or git sha abc1234
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, what did you see instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      description: Numbered steps. The shorter the better.
+      placeholder: |
+        1. Open the catalog
+        2. Tap a book
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Android: `adb logcat -d -s Quire:* AndroidRuntime:E`.
+        Server: `kubectl logs` or `docker logs` output around the failure.
+        Strip anything sensitive.
+      render: shell
+  - type: input
+    id: device
+    attributes:
+      label: Device / OS (Android only)
+      placeholder: Boox Note Air 3, Android 12
+  - type: input
+    id: calibre-web
+    attributes:
+      label: calibre-web version
+      placeholder: 0.6.21

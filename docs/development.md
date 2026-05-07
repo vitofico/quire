@@ -36,27 +36,25 @@ will produce confusing failures.
 
 ### Configuring the app
 
+The app needs no compile-time configuration. On first launch it asks
+the user for their calibre-web base URL, username, and password; those
+go into the Android Keystore and drive both OPDS browsing and sync.
+
+For host (non-Docker) builds you may need a `local.properties`
+pointing Gradle at your Android SDK:
+
 ```sh
 cp local.properties.template local.properties
+# Edit sdk.dir if Gradle can't find your SDK.
 ```
 
-Then fill in:
-
-```
-sdk.dir=                  # ignored when building via scripts/dgradle
-calibreweb.baseUrl=https://library.example.com
-calibreweb.username=android-reader
-calibreweb.password=...
-```
-
-These are baked into BuildConfig at compile time for dev builds; the runtime
-credential store (Android Keystore) takes over for production flows.
+`scripts/dgradle` provides its own SDK and ignores `local.properties`.
 
 ### Module layout
 
 ```
 :app           Compose UI, navigation, DI wiring
-:auth          AppAuth + Keystore credential store
+:auth          Keystore-backed calibre-web Basic credential store
 :core:identity Document identity (hash + dc:identifier normalization)
 :core:model    Domain types
 :data:local    Room DB, DAOs, sync outbox
@@ -115,9 +113,13 @@ Listens on `http://localhost:8000`. Configuration is via environment variables;
 see `opds_sync/config.py` for the full list. At minimum:
 
 ```
-OPDS_SYNC_DATABASE_URL=postgresql+asyncpg://localhost/opds_sync
-OPDS_SYNC_AUTHENTIK_ISSUER=https://auth.example.com/application/o/opds-sync/
-OPDS_SYNC_AUTHENTIK_AUDIENCE=opds-sync
+OPDS_SYNC_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/opds_sync
+OPDS_SYNC_CWA_BASE_URL=https://library.example.com
+# Optional, defaults shown:
+OPDS_SYNC_CWA_PROBE_PATH=/opds
+OPDS_SYNC_CWA_PROBE_TIMEOUT_S=3.0
+OPDS_SYNC_AUTH_CACHE_POSITIVE_TTL_S=60
+OPDS_SYNC_AUTH_CACHE_NEGATIVE_TTL_S=10
 ```
 
 ### Tests
@@ -152,12 +154,12 @@ opds_sync/
   api/
     health.py        /healthz, /readyz
     progress.py      /sync/v1/progress
-    # annotations.py — Phase 3
-    # documents.py   — /documents/alias, Phase 2 reconciliation
+    # bookmarks.py — planned
+    # documents.py   — /documents/alias, alias reconciliation (planned)
   core/
-    auth.py          JWT validation, JWKS cache
+    auth.py          Basic-header validator (probes calibre-web /opds, TTL-cached)
     identity.py      Identity normalization (mirrors :core:identity)
-    # merge.py       — field-level LWW, Phase 3
+    # merge.py       — record-level LWW for bookmark alias merge (planned)
   db/
     models.py        SQLAlchemy models
     session.py
