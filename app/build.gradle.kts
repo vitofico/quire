@@ -5,6 +5,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.aboutlibraries)
 }
 
 // CalVer: versionName = YYYY.MM.DD[.<run>], versionCode = YYMMDD*100 + run%100.
@@ -91,6 +92,7 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.compose.material.icons.extended)
     implementation(libs.coil.compose)
+    implementation(libs.aboutlibraries.compose)
     debugImplementation(libs.compose.ui.tooling)
 
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.2")

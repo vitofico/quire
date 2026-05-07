@@ -1,5 +1,6 @@
 package io.theficos.ereader.ui.settings
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -32,6 +33,7 @@ import io.theficos.ereader.ui.components.SectionLabel
 fun SettingsScreen(
     viewModel: SettingsViewModel,
     contentPadding: PaddingValues,
+    onNavigateToLicenses: () -> Unit = {},
 ) {
     val calibre by viewModel.calibre.collectAsState()
     val reader by viewModel.readerPreferences.collectAsState()
@@ -159,12 +161,22 @@ fun SettingsScreen(
 
         SectionLabel("About")
         QuireCard(modifier = Modifier.fillMaxWidth()) {
-            Column {
-                Text("Quire", style = MaterialTheme.typography.titleMedium)
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Column {
+                    Text("Quire", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "A reader for your shelf.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 Text(
-                    "A reader for your shelf.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    "Open-source licenses",
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onNavigateToLicenses)
+                        .padding(vertical = 8.dp),
                 )
             }
         }
