@@ -5,8 +5,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.auth.CalibreCredentials
+import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.db.SyncStateDao
 import io.theficos.ereader.data.sync.SyncEnqueuer
+import java.io.File
 import io.theficos.ereader.reader.ReaderFontFamily
 import io.theficos.ereader.reader.ReaderPreferences
 import io.theficos.ereader.reader.ReaderPreferencesStore
@@ -25,6 +27,9 @@ class SettingsViewModel(
     private val store: CalibreCredentialStore,
     private val readerStore: ReaderPreferencesStore,
     private val syncStateDao: SyncStateDao,
+    private val documentRepo: DocumentRepository,
+    private val booksDir: File,
+    private val syncEnqueuer: (Context) -> Unit = { SyncEnqueuer.enqueue(it, expedited = true, replaceExisting = true) },
 ) : ViewModel() {
     private val _calibre = MutableStateFlow(loadInitialCalibre())
     val calibre: StateFlow<CalibreUiState> = _calibre.asStateFlow()
@@ -69,6 +74,20 @@ class SettingsViewModel(
         viewModelScope.launch {
             val ts = syncStateDao.lastPulled("progress")
             if (ts != null) _sync.value = _sync.value.copy(lastSyncedAtMs = ts)
+        }
+    }
+
+    fun resetSync(context: Context) {
+        viewModelScope.launch {
+            syncStateDao.clearAll()
+            _sync.value = _sync.value.copy(lastSyncedAtMs = null)
+            syncEnqueuer(context)
+        }
+    }
+
+    fun removeAllBooks() {
+        viewModelScope.launch {
+            documentRepo.deleteAll(booksDir)
         }
     }
 }
