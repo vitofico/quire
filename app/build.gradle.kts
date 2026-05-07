@@ -5,6 +5,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.aboutlibraries)
 }
 
 // CalVer: versionName = YYYY.MM.DD[.<run>], versionCode = YYMMDD*100 + run%100.
@@ -41,11 +42,26 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
+    signingConfigs {
+        create("release") {
+            val storePath = System.getenv("QUIRE_RELEASE_KEYSTORE")
+            if (!storePath.isNullOrBlank()) {
+                storeFile = file(storePath)
+                storePassword = System.getenv("QUIRE_RELEASE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("QUIRE_RELEASE_KEY_ALIAS")
+                keyPassword = System.getenv("QUIRE_RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
     buildTypes {
         debug { isMinifyEnabled = false }
         release {
             isMinifyEnabled = false   // Phase 1 only; revisit before publishing
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig =
+                if (System.getenv("QUIRE_RELEASE_KEYSTORE").isNullOrBlank())
+                    signingConfigs.getByName("debug")
+                else
+                    signingConfigs.getByName("release")
         }
     }
 }
@@ -76,6 +92,7 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.compose.material.icons.extended)
     implementation(libs.coil.compose)
+    implementation(libs.aboutlibraries.compose)
     debugImplementation(libs.compose.ui.tooling)
 
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.2")

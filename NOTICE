@@ -1,0 +1,16 @@
+Quire / opds-sync
+Copyright 2026 Vito Fico and contributors
+
+This product includes software developed by:
+  - The Readium Foundation (Readium Kotlin Toolkit, BSD-3-Clause)
+  - The OkHttp project (Apache-2.0)
+  - The AndroidX project, Google LLC (Apache-2.0)
+  - The Jetpack Compose project, Google LLC (Apache-2.0)
+  - The FastAPI project (MIT)
+  - The SQLAlchemy project (MIT)
+  - The Pydantic project (MIT)
+  - calibre-web (GPL-3.0) — used as an external service, not redistributed.
+
+A complete attribution list is generated at build time and shown in
+the application under Settings → About → Open-source licenses
+(see the nice-to-have plan for the in-app screen).

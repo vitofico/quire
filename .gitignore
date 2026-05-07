@@ -7,3 +7,13 @@ local.properties
 captures/
 .cxx/
 .superpowers/
+
+# Secrets — never commit. The release keystore lives outside the repo.
+*.keystore
+*.jks
+*.p12
+*.b64
+.env
+
+# Claude Code session state
+.claude/

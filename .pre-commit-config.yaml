@@ -1,0 +1,45 @@
+# Pre-commit hooks. Install once with `pre-commit install`.
+# These mirror the cheap parts of CI; Gradle is intentionally NOT here
+# (too slow for a hook — the CI build catches it).
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        # Don't modify bundled third-party text (font licenses, etc).
+        exclude: ^app/src/main/res/raw/.*_ofl\.txt$
+      - id: end-of-file-fixer
+        exclude: ^app/src/main/res/raw/.*_ofl\.txt$
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: detect-private-key
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  # Same checks server-ci.yaml runs.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        files: ^server/
+      - id: ruff-format
+        files: ^server/
+
+  # Catch credentials / API keys before they're committed. Generates a
+  # .secrets.baseline on first run; review and commit it once.
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ["--baseline", ".secrets.baseline"]
+        exclude: |
+          (?x)^(
+            .*\.lock|
+            .*\.sum|
+            gradle/wrapper/.*|
+            fastlane/metadata/.*
+          )$
