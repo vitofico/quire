@@ -10,15 +10,21 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -156,6 +162,73 @@ fun SettingsScreen(
                     onClick = { viewModel.syncNow(context) },
                     enabled = syncState.hasCredentials,
                 ) { Text("Sync now") }
+            }
+        }
+
+        SectionLabel("Storage & sync")
+        QuireCard(modifier = Modifier.fillMaxWidth()) {
+            val context = LocalContext.current
+            var pendingResetSync by remember { mutableStateOf(false) }
+            var pendingRemoveAll by remember { mutableStateOf(false) }
+
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Column {
+                    Text("Reset sync", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Re-pull everything on the next sync. Your books and progress are kept.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    TextButton(onClick = { pendingResetSync = true }) { Text("Reset sync") }
+                }
+                Column {
+                    Text("Remove all downloaded books", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Delete all EPUB files from this device. Reading progress is preserved on the server.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    TextButton(
+                        onClick = { pendingRemoveAll = true },
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    ) { Text("Remove all downloaded books") }
+                }
+            }
+
+            if (pendingResetSync) {
+                AlertDialog(
+                    onDismissRequest = { pendingResetSync = false },
+                    title = { Text("Reset sync?") },
+                    text = { Text("Next sync will re-pull everything from the server. Local books and progress are kept.") },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            viewModel.resetSync(context)
+                            pendingResetSync = false
+                        }) { Text("Reset") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { pendingResetSync = false }) { Text("Cancel") }
+                    },
+                )
+            }
+            if (pendingRemoveAll) {
+                AlertDialog(
+                    onDismissRequest = { pendingRemoveAll = false },
+                    title = { Text("Remove all downloaded books?") },
+                    text = { Text("Delete all downloaded books from this device? Reading progress is preserved on the server and will sync back if you re-download.") },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                viewModel.removeAllBooks()
+                                pendingRemoveAll = false
+                            },
+                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                        ) { Text("Remove all") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { pendingRemoveAll = false }) { Text("Cancel") }
+                    },
+                )
             }
         }
 
