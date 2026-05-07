@@ -18,6 +18,26 @@ project; please read this before opening a PR.
 
 See [`docs/development.md`](docs/development.md). Short version:
 
+### Pre-commit hooks (recommended)
+
+```sh
+# One-time install (uses the .pre-commit-config.yaml in the repo).
+pip install pre-commit       # or: uv tool install pre-commit
+pre-commit install
+```
+
+The hooks run on every commit and mirror the cheap parts of CI: ruff
+on the server, file hygiene, secret detection. Gradle is intentionally
+not in pre-commit (too slow for a hook); CI catches Android build
+issues. To run all hooks against the whole tree once:
+
+```sh
+pre-commit run --all-files
+```
+
+### Build / test
+
+
 ```sh
 # Android
 scripts/dgradle :app:assembleDebug
