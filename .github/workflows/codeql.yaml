@@ -6,9 +6,19 @@ on:
     branches: [main]
   schedule:
     - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+# Cancel obsolete runs when a new commit lands on the same ref.
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   analyze:
+    # CodeQL upload requires Code Scanning enabled, which is free on
+    # public repos and gated behind GitHub Advanced Security on private
+    # ones. Skip the whole workflow until the repo is public.
+    if: github.event.repository.visibility == 'public'
     runs-on: ubuntu-latest
     permissions:
       security-events: write
