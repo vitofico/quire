@@ -44,14 +44,14 @@ of truth for reading state. Quire reconciles both on the device.
 
 ## Status
 
-| Phase | Scope | Status |
-|---|---|---|
-| 1 | Local reader: OPDS browse + download, EPUB rendering, local progress | shipped |
-| 2 | Progress sync server + Android sync client | shipped |
-| 2.1 | Sync server uses calibre-web Basic auth (no separate IdP) | shipped |
-| 3 | Bookmarks sync | not started |
-| 4 | PDF support | deferred |
-| 5 | Calibre plugin (read-only consumer) | not started |
+| Capability | Status |
+|---|---|
+| Local reader: OPDS browse + download, EPUB rendering, local progress | shipped |
+| Progress sync server + Android sync client | shipped |
+| Sync server uses calibre-web Basic auth (no separate IdP) | shipped |
+| Bookmarks sync | not started |
+| PDF support | deferred |
+| Calibre plugin (read-only consumer) | not started |
 
 This is pre-1.0 software built for the author's personal eink device. It
 works, it's tested, but the API and DB schema may still change. Pin a

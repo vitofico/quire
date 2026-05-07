@@ -36,8 +36,8 @@ returns `503`.
 | `POST` | `/sync/v1/progress` | yes | Push progress for one or more documents |
 | `GET` | `/sync/v1/progress` | yes | Pull progress deltas |
 | `POST` | `/sync/v1/documents/alias` | yes | Reconcile a hash-keyed record with a newly-known metadata-id (planned) |
-| `POST` | `/sync/v1/bookmarks` | yes | Push bookmark create/delete (Phase 3) |
-| `GET` | `/sync/v1/bookmarks` | yes | Pull bookmark deltas (Phase 3) |
+| `POST` | `/sync/v1/bookmarks` | yes | Push bookmark create/delete (planned) |
+| `GET` | `/sync/v1/bookmarks` | yes | Pull bookmark deltas (planned) |
 
 Currently shipped: health probes and progress. The rest are designed; see
 phasing in the project README.
@@ -162,7 +162,7 @@ In one transaction the server:
    with tombstone resolution for bookmarks.
 4. Deletes the orphan, returns the surviving record's identity.
 
-## Bookmarks (Phase 3)
+## Bookmarks (planned)
 
 ### `POST /sync/v1/bookmarks`
 
@@ -196,7 +196,7 @@ Response per bookmark:
 ```
 
 Conflict resolution is record-level LWW on `updated_at` (see
-[`architecture.md`](architecture.md#bookmarks-phase-3-designed-not-built)).
+[`architecture.md`](architecture.md#bookmarks-designed-not-built)).
 
 ### `GET /sync/v1/bookmarks`
 

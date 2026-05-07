@@ -154,12 +154,12 @@ opds_sync/
   api/
     health.py        /healthz, /readyz
     progress.py      /sync/v1/progress
-    # bookmarks.py — Phase 3
-    # documents.py   — /documents/alias, Phase 2 reconciliation
+    # bookmarks.py — planned
+    # documents.py   — /documents/alias, alias reconciliation (planned)
   core/
     auth.py          Basic-header validator (probes calibre-web /opds, TTL-cached)
     identity.py      Identity normalization (mirrors :core:identity)
-    # merge.py       — field-level LWW, Phase 3
+    # merge.py       — record-level LWW for bookmark alias merge (planned)
   db/
     models.py        SQLAlchemy models
     session.py

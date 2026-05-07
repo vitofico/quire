@@ -13,8 +13,8 @@ calibre-web fit together. For the REST surface in detail, see
 | **calibre-web** | OPDS catalog and book downloads. Unchanged. | Existing self-hosted instance |
 
 calibre-web is stateless from the reader's perspective — no reading state ever
-lives there. (Phase 6 will add a read-only Calibre plugin that pulls progress
-from `opds-sync` into Calibre custom columns.)
+lives there. (A planned read-only Calibre plugin will pull progress from
+`opds-sync` into Calibre custom columns.)
 
 ## Module layout (Android)
 
@@ -110,7 +110,7 @@ union + tombstone resolution for bookmarks.
 
 ## Sync model
 
-### Progress (Phase 2, current)
+### Progress (current)
 
 Record-level last-writer-wins on `updated_at`. Each device pushes its current
 locator/percent and pulls deltas since its high-water mark.
@@ -124,7 +124,7 @@ A WorkManager job drains the outbox (push), pulls deltas (pull), updates
 high-water marks. Triggered on app foreground, network reconnect, and
 pull-to-refresh.
 
-### Bookmarks (Phase 3, designed not built)
+### Bookmarks (designed, not built)
 
 ```
 id              uuid          -- client-generated
@@ -206,7 +206,7 @@ calibre-web username and password; everything else flows from that.
 | 2 | Server-side merge on alias | Keeps the system tidy long-term; one transaction. |
 | 3 | 90-day tombstone GC | Bounded storage; documented edge case for long-offline clients. |
 | 4 | CFI + text snippet anchoring | Survives EPUB republishing without silent data loss. |
-| 5 | One credential, sync server proxies Basic auth to calibre-web | No second IdP to deploy; no token state on the server; the user already has the credential. Replaced an earlier OIDC/Authentik design (Phase 2.1). |
+| 5 | One credential, sync server proxies Basic auth to calibre-web | No second IdP to deploy; no token state on the server; the user already has the credential. Replaced an earlier OIDC/Authentik design. |
 | 6 | Python FastAPI for the sync server | Fastest to write; traffic is trivial; deploys cleanly into the existing cluster. |
 | 7 | Bookmarks are the only synced reading artifact beyond progress | Smallest scope that's actually useful; record-level LWW is sufficient; matches the author's actual reading workflow. |
 | 8 | Calibre plugin as a later read-only consumer | Validates API shape; non-blocking; clean separation. |
