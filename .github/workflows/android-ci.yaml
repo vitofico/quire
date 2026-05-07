@@ -28,8 +28,17 @@ on:
       - "gradlew"
       - ".github/workflows/android-ci.yaml"
 
+# Cancel obsolete runs when new commits land on a PR / branch. Never
+# cancel runs on main (we want every commit's tag) or on tag refs.
+concurrency:
+  group: android-ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
 jobs:
   build:
+    # Skip on tag pushes — the release job below handles them and the
+    # commit was already built when it landed on main.
+    if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -73,11 +82,9 @@ jobs:
 
   # Tag-triggered: builds a signed release APK and attaches it to a
   # GitHub Release. Tags come from the build job's "Tag release" step on
-  # main; the tag push re-triggers this workflow, the build job runs
-  # again (paths filter is bypassed for tag pushes), and this job fires
-  # after build succeeds.
+  # main. We do not depend on `build` because that job is skipped on tag
+  # pushes (the same commit was already tested when it landed on main).
   release:
-    needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
