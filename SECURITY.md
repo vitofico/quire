@@ -9,7 +9,11 @@ Older releases get no backports.
 
 Please **do not** open a public GitHub issue for security problems.
 
-Email **vito.fico@hivepower.tech** with:
+Use GitHub's private vulnerability reporting:
+
+**https://github.com/vitofico/opds-ereader-android-app/security/advisories/new**
+
+Include:
 
 - A description of the issue.
 - Steps to reproduce, including a minimal proof of concept if possible.
