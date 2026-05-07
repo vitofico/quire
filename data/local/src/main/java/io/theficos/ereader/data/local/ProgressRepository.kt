@@ -30,6 +30,17 @@ class ProgressRepository(private val dao: ProgressDao) {
     suspend fun markSynced(documentId: Long, syncedAt: Long) =
         dao.markSynced(documentId, syncedAt)
 
+    suspend fun resetForDocument(documentId: Long, now: Long) {
+        dao.upsert(ProgressEntity(
+            documentId = documentId,
+            locator = "",
+            percent = 0.0,
+            updatedAt = now,
+            localUpdatedAt = now,
+            syncedAt = 0L,
+        ))
+    }
+
     private fun ProgressEntity.toDomain(): Progress =
         Progress(documentId = documentId, locator = locator, percent = percent, updatedAt = updatedAt)
 }
