@@ -1,0 +1,1 @@
+Self-hosted EPUB reader for calibre-web. No telemetry, no cloud, your data.

@@ -16,6 +16,7 @@ import io.theficos.ereader.ui.main.MainScaffold
 import io.theficos.ereader.ui.main.Tab
 import io.theficos.ereader.ui.reader.ReaderScreen
 import io.theficos.ereader.ui.reader.ReaderViewModel
+import io.theficos.ereader.ui.settings.LicensesScreen
 import io.theficos.ereader.ui.settings.SettingsScreen
 import io.theficos.ereader.ui.settings.SettingsViewModel
 
@@ -49,6 +50,7 @@ fun AppNavGraph(container: AppContainer) {
                     Tab.SETTINGS -> SettingsScreen(
                         viewModel = setVm,
                         contentPadding = padding,
+                        onNavigateToLicenses = { nav.navigate("licenses") },
                     )
                 }
             }
@@ -68,6 +70,9 @@ fun AppNavGraph(container: AppContainer) {
                 )
             }
             ReaderScreen(viewModel = vm, onClose = { nav.popBackStack() })
+        }
+        composable("licenses") {
+            LicensesScreen(onBack = { nav.popBackStack() })
         }
     }
 }

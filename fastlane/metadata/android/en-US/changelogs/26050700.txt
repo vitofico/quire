@@ -1,0 +1,7 @@
+First public release.
+
+- OPDS catalog browsing, search, and back navigation
+- EPUB reader with Readium (font / theme / line-height controls)
+- Reading progress sync to your self-hosted opds-sync server
+- Calibre-web Basic auth proxied end-to-end (one credential)
+- In-app open-source licenses screen

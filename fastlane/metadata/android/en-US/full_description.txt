@@ -1,0 +1,21 @@
+Quire is a native Android EPUB reader for people who self-host
+calibre-web.
+
+It browses your library over OPDS, downloads books on demand, renders
+them with Readium, and syncs reading progress (and later bookmarks) to
+a small companion server you run yourself (opds-sync, included).
+
+Features:
+- OPDS catalog browsing and search
+- EPUB reading with Readium (font, theme, line-height controls)
+- Reading progress sync across devices via your own Postgres
+- Multi-user from day one
+- One credential: your existing calibre-web account
+
+Privacy:
+- No analytics, no crash reporting, no third-party SDKs
+- Network calls go to your calibre-web and your sync server only
+- Credentials stored in Android Keystore
+
+Source code, server, and documentation:
+https://github.com/vitofico/opds-ereader-android-app

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":semanticCommitsDisabled",
+    ":dependencyDashboard",
+    "schedule:weekly"
+  ],
+  "labels": ["dependencies"],
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 0,
+  "rangeStrategy": "bump",
+  "packageRules": [
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "github-actions",
+      "pinDigests": true
+    },
+    {
+      "matchManagers": ["dockerfile"],
+      "pinDigests": true
+    },
+    {
+      "matchPackageNames": ["org.jetbrains.kotlin:kotlin-gradle-plugin"],
+      "groupName": "kotlin"
+    },
+    {
+      "matchPackagePrefixes": ["androidx."],
+      "groupName": "androidx",
+      "schedule": ["before 9am on monday"]
+    },
+    {
+      "matchPackagePrefixes": ["org.readium."],
+      "groupName": "readium"
+    }
+  ],
+  "vulnerabilityAlerts": {
+    "labels": ["security"],
+    "schedule": []
+  }
+}

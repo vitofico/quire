@@ -1,0 +1,39 @@
+name: Feature request
+description: Suggest something this project should do.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Quire's scope is deliberately narrow (see CONTRIBUTING.md).
+        Requests that don't fit will be closed politely; please don't
+        take it personally.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the user-facing problem, not the proposed solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Does this fit Quire's scope?
+      description: |
+        See CONTRIBUTING.md for what's in scope. If unsure, pick "Unsure".
+      options:
+        - Yes — self-hosted, no telemetry, calibre-web-centric
+        - Unsure
+        - Maybe a fork is better
+    validations:
+      required: true

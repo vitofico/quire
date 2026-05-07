@@ -1,16 +1,40 @@
-# Quire
+<p align="center">
+  <img src="fastlane/metadata/android/en-US/images/icon.png" alt="Quire" width="128" height="128">
+</p>
 
-A self-hosted reading stack: a native Android EPUB reader (**Quire**) backed by
-a small FastAPI sync service (**opds-sync**), pulling books from an existing
-[calibre-web] instance over OPDS.
+<h1 align="center">Quire</h1>
 
-The sync server is the source of truth for reading state. calibre-web stays
-stateless from the reader's perspective — it serves books, nothing more.
+<p align="center">
+  <em>Self-hosted EPUB reader for calibre-web. No telemetry, no cloud, your data.</em>
+</p>
+
+<p align="center">
+  <a href="https://github.com/vitofico/opds-ereader-android-app/actions/workflows/android-ci.yaml"><img src="https://github.com/vitofico/opds-ereader-android-app/actions/workflows/android-ci.yaml/badge.svg" alt="android-ci"></a>
+  <a href="https://github.com/vitofico/opds-ereader-android-app/actions/workflows/server-ci.yaml"><img src="https://github.com/vitofico/opds-ereader-android-app/actions/workflows/server-ci.yaml/badge.svg" alt="server-ci"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0"></a>
+</p>
+
+<p align="center">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/01_library.png" alt="Library" width="280">
+  &nbsp;&nbsp;
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/05_reader.png" alt="Reader" width="280">
+</p>
+
+## What it is
+
+A self-hosted reading stack for people who already run [calibre-web]:
+
+- **Quire** — native Android EPUB reader (Kotlin / Compose / Readium).
+- **opds-sync** — small FastAPI service that stores reading progress
+  (and later bookmarks) in Postgres.
+
+calibre-web stays the source of truth for books. opds-sync is the
+source of truth for reading state. Quire reconciles both on the device.
 
 ```
-[calibre-web]  ──OPDS + HTTP Basic──>  [Android: Quire / Readium]
+[calibre-web]  ──OPDS + HTTP Basic──>  [Android: Quire]
                                               │
-                                              │  HTTPS + JWT (Authentik)
+                                              │  HTTPS + same Basic creds
                                               ▼
                                         [opds-sync]
                                               │
@@ -18,25 +42,85 @@ stateless from the reader's perspective — it serves books, nothing more.
                                          [Postgres]
 ```
 
-## Status
+## Why this exists
 
-| Phase | Scope | Status |
-|---|---|---|
-| 1 | Local reader: OPDS browse + download, EPUB rendering, local progress | shipped |
-| 2 | Progress sync server + Android sync client | shipped |
-| 2.1 | calibre-web auth proxy | shipped |
-| 3 | Highlights sync | not started |
-| 4 | Notes & bookmarks | not started |
-| 5 | PDF support | deferred |
-| 6 | Calibre plugin (read-only consumer) | not started |
+The starting point was an OPDS catalog (calibre-web) and a simple need:
+read books from it on Android, with reading progress synced across
+devices.
+
+That's harder than it sounds in the self-hosted world:
+
+- **KOReader has KOSync**, but KOSync is shaped around KOReader's
+  identity and document model. Using it as a generic sync layer for
+  other clients means working against the grain.
+- **Stock OPDS readers** on Android either don't sync reading position
+  to a server you control, or sync it through a vendor cloud.
+- **Calibre Companion** is paid and Google-Play-only — not an option
+  for a fully self-hosted, FOSS stack.
+
+So `opds-sync` is the piece that was missing: a small, reader-agnostic
+progress server that speaks OPDS-style document identity and uses your
+**calibre-web account as the only credential** — no second IdP, no
+separate sync account. Quire is the Android client built against it;
+nothing in the server design is Quire-specific.
+
+## Privacy
+
+- No analytics, no crash reporting, no third-party SDKs.
+- Network calls go to exactly two places: your calibre-web instance and
+  your opds-sync server. Both are configured by you, on first launch.
+- Credentials are stored in Android Keystore (hardware-backed where the
+  device supports it).
+
+## Install
+
+Grab the latest APK from [Releases], install it, and point it at your
+calibre-web URL on first launch. F-Droid listing is planned.
+
+For the sync server, see [`server/README.md`](server/README.md).
+
+## Roadmap
+
+**Shipped:** OPDS catalog browsing and search, EPUB rendering with
+Readium, local reading progress, progress sync (server + Android
+client), single-credential auth via calibre-web Basic.
+
+**Planned:** bookmarks sync, calibre-web read-only consumer plugin.
+
+**Not on the roadmap:** PDF support (deferred), separate IdP or
+non-calibre-web auth.
+
+This is pre-1.0 software built for the author's personal eink device.
+It works and it's tested, but the API and DB schema may still change.
+Pin a commit if you depend on it.
+
+## Build from source
+
+```sh
+# Build the debug APK using the project's Docker-based Gradle wrapper.
+# Host JDK and Android SDK are not required.
+scripts/dgradle :app:assembleDebug
+# APK at app/build/outputs/apk/debug/app-debug.apk
+```
+
+Sync server development:
+
+```sh
+cd server
+uv venv && source .venv/bin/activate
+uv pip install -e ".[dev]"
+uv run pytest                                  # spins up Postgres in Docker
+OPDS_SYNC_CWA_BASE_URL=https://library.example.com \
+  uv run uvicorn opds_sync.main:app --reload   # http://localhost:8000
+```
 
 ## Repo layout
 
 ```
 app/                  Android entry point — Compose UI, navigation, DI wiring
-auth/                 AppAuth (OIDC + PKCE) wrapper, Keystore credential store
+auth/                 Keystore-backed calibre-web Basic credential store
 core/identity/        Document identity: hash + dc:identifier normalization
-core/model/           Domain types (Document, Annotation, Progress)
+core/model/           Domain types (Document, Progress, Bookmark)
 data/local/           Room database, DAOs
 data/opds/            calibre-web OPDS client
 data/sync/            opds-sync REST client + WorkManager job
@@ -47,40 +131,28 @@ scripts/dgradle       Gradle wrapper that runs inside the project's Docker image
 Dockerfile            Reproducible Android build environment (linux/amd64)
 ```
 
-## Quick start
-
-### Android app
-
-```sh
-cp local.properties.template local.properties
-# Edit local.properties: sdk.dir + calibreweb.{baseUrl,username,password}
-
-scripts/dgradle :app:assembleDebug
-# APK at app/build/outputs/apk/debug/app-debug.apk
-```
-
-`scripts/dgradle` builds and uses a pinned Docker image so host JDK/Android-SDK
-state doesn't matter. Always prefer it over the host `./gradlew`.
-
-### Sync server
-
-```sh
-cd server
-uv venv && source .venv/bin/activate
-uv pip install -e ".[dev]"
-uv run pytest                                  # spins up Postgres in Docker
-uv run uvicorn opds_sync.main:app --reload     # http://localhost:8000
-```
-
-See [`server/README.md`](server/README.md) for more.
-
 ## Documentation
 
 - [`docs/architecture.md`](docs/architecture.md) — components, document
-  identity, sync model, conflict resolution.
-- [`docs/development.md`](docs/development.md) — module layout, build commands,
-  testing, CI, releases.
-- [`docs/sync-api.md`](docs/sync-api.md) — REST surface of `opds-sync`: auth,
-  endpoints, wire formats.
+  identity, sync model, conflict resolution, auth.
+- [`docs/development.md`](docs/development.md) — module layout, build
+  commands, testing, CI, releases.
+- [`docs/sync-api.md`](docs/sync-api.md) — REST surface of `opds-sync`.
+
+## Contributing
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md). TL;DR: gitmoji + conventional
+commits, `scripts/dgradle test` and `cd server && uv run pytest` must
+pass, no telemetry / analytics PRs.
+
+## Security
+
+If you find a vulnerability, please follow [`SECURITY.md`](SECURITY.md)
+rather than opening a public issue.
+
+## License
+
+Apache-2.0. See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
 
 [calibre-web]: https://github.com/janeczku/calibre-web
+[Releases]: https://github.com/vitofico/opds-ereader-android-app/releases
