@@ -1,8 +1,27 @@
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
+
+// CalVer: versionName = YYYY.MM.DD[.<run>], versionCode = YYMMDD*100 + run%100.
+// BUILD_DATE (YYYY-MM-DD) and GITHUB_RUN_NUMBER are set by CI; local builds fall
+// back to today's date and run 0.
+val buildDate: LocalDate =
+    System.getenv("BUILD_DATE")?.takeIf { it.isNotBlank() }
+        ?.let(LocalDate::parse)
+        ?: LocalDate.now()
+val buildRun: Int = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0
+val calverName: String = buildString {
+    append(buildDate.format(DateTimeFormatter.ofPattern("yyyy.MM.dd")))
+    if (buildRun > 0) append(".$buildRun")
+}
+val calverCode: Int =
+    buildDate.format(DateTimeFormatter.ofPattern("yyMMdd")).toInt() * 100 +
+        (buildRun % 100)
 
 android {
     namespace = "io.theficos.quire"
@@ -11,8 +30,8 @@ android {
         applicationId = "io.theficos.quire"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0-phase1"
+        versionCode = calverCode
+        versionName = calverName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions {
