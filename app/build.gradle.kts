@@ -41,11 +41,26 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
+    signingConfigs {
+        create("release") {
+            val storePath = System.getenv("QUIRE_RELEASE_KEYSTORE")
+            if (!storePath.isNullOrBlank()) {
+                storeFile = file(storePath)
+                storePassword = System.getenv("QUIRE_RELEASE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("QUIRE_RELEASE_KEY_ALIAS")
+                keyPassword = System.getenv("QUIRE_RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
     buildTypes {
         debug { isMinifyEnabled = false }
         release {
             isMinifyEnabled = false   // Phase 1 only; revisit before publishing
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig =
+                if (System.getenv("QUIRE_RELEASE_KEYSTORE").isNullOrBlank())
+                    signingConfigs.getByName("debug")
+                else
+                    signingConfigs.getByName("release")
         }
     }
 }
