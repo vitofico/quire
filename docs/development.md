@@ -15,7 +15,7 @@ both.
 
 ### `scripts/dgradle`
 
-`scripts/dgradle` runs Gradle inside `opds-ereader-build:latest`, an image
+`scripts/dgradle` runs Gradle inside `quire-build:latest`, an image
 built from the project's `Dockerfile` (Eclipse Temurin 17 + Android cmdline
 tools, pinned platform 34, build-tools 34.0.0).
 
@@ -28,7 +28,7 @@ scripts/dgradle lint
 
 First invocation builds the image (~5 minutes on Apple Silicon under Rosetta).
 The Gradle and Android caches live in named Docker volumes
-(`opds-ereader-gradle-cache`, `opds-ereader-android-cache`) so rebuilds are
+(`quire-gradle-cache`, `quire-android-cache`) so rebuilds are
 fast.
 
 Use `scripts/dgradle` rather than the host `./gradlew` — host JDK/SDK drift

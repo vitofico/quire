@@ -9,15 +9,17 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/vitofico/opds-ereader-android-app/actions/workflows/android-ci.yaml"><img src="https://github.com/vitofico/opds-ereader-android-app/actions/workflows/android-ci.yaml/badge.svg" alt="android-ci"></a>
-  <a href="https://github.com/vitofico/opds-ereader-android-app/actions/workflows/server-ci.yaml"><img src="https://github.com/vitofico/opds-ereader-android-app/actions/workflows/server-ci.yaml/badge.svg" alt="server-ci"></a>
+  <a href="https://github.com/vitofico/quire/actions/workflows/android-ci.yaml"><img src="https://github.com/vitofico/quire/actions/workflows/android-ci.yaml/badge.svg" alt="android-ci"></a>
+  <a href="https://github.com/vitofico/quire/actions/workflows/server-ci.yaml"><img src="https://github.com/vitofico/quire/actions/workflows/server-ci.yaml/badge.svg" alt="server-ci"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0"></a>
 </p>
 
 <p align="center">
-  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/01_library.png" alt="Library" width="280">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/01_library.png" alt="Library" width="260">
   &nbsp;&nbsp;
-  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/05_reader.png" alt="Reader" width="280">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/02_catalog.png" alt="Catalog" width="260">
+  &nbsp;&nbsp;
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/05_reader.png" alt="Reader" width="260">
 </p>
 
 ## What it is
@@ -152,5 +154,11 @@ rather than opening a public issue.
 
 Apache-2.0. See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
 
+## Support
+
+If Quire is useful to you and you'd like to chip in, you can buy me a coffee:
+
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/vito507767)
+
 [calibre-web]: https://github.com/janeczku/calibre-web
-[Releases]: https://github.com/vitofico/opds-ereader-android-app/releases
+[Releases]: https://github.com/vitofico/quire/releases

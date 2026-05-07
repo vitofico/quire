@@ -31,6 +31,16 @@ class DocumentRepository(private val dao: DocumentDao) {
         runCatching { File(document.localPath).delete() }
     }
 
+    /**
+     * Deletes every document row (cascade-deletes all progress) and best-effort
+     * removes everything inside [booksDir]. The directory itself is preserved so
+     * future downloads have a destination.
+     */
+    suspend fun deleteAll(booksDir: File) {
+        dao.deleteAll()
+        runCatching { booksDir.listFiles()?.forEach { it.deleteRecursively() } }
+    }
+
     suspend fun insert(
         identity: DocumentIdentity,
         title: String,

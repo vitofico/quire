@@ -18,4 +18,4 @@ Privacy:
 - Credentials stored in Android Keystore
 
 Source code, server, and documentation:
-https://github.com/vitofico/opds-ereader-android-app
+https://github.com/vitofico/quire
