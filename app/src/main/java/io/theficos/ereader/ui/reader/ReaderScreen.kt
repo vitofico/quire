@@ -22,7 +22,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.fragment.app.FragmentContainerView
 import androidx.lifecycle.Lifecycle
@@ -64,6 +68,20 @@ fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
             delay(2_500)
             viewModel.setChromeVisible(false)
         }
+    }
+
+    val view = LocalView.current
+    val window = (context as FragmentActivity).window
+    DisposableEffect(window, view) {
+        val controller = WindowCompat.getInsetsController(window, view)
+        controller.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        onDispose { controller.show(WindowInsetsCompat.Type.systemBars()) }
+    }
+    LaunchedEffect(chromeVisible) {
+        val controller = WindowCompat.getInsetsController(window, view)
+        if (chromeVisible) controller.show(WindowInsetsCompat.Type.systemBars())
+        else controller.hide(WindowInsetsCompat.Type.systemBars())
     }
 
     Box(Modifier.fillMaxSize()) {
