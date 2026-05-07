@@ -12,6 +12,11 @@ on:
       - ".github/workflows/server-ci.yaml"
       - "core/identity/src/test/resources/identity/**"
 
+# Cancel superseded runs on the same branch / PR.
+concurrency:
+  group: server-ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
