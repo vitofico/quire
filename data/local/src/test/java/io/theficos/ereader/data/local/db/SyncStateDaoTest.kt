@@ -40,4 +40,14 @@ class SyncStateDaoTest {
         dao.set(SyncStateEntity("progress", 2L))
         assertThat(dao.lastPulled("progress")).isEqualTo(2L)
     }
+
+    @Test fun `clearAll removes every row`() = runTest {
+        dao.set(SyncStateEntity("progress", 1234L))
+        dao.set(SyncStateEntity("bookmarks", 5678L))
+
+        dao.clearAll()
+
+        assertThat(dao.lastPulled("progress")).isNull()
+        assertThat(dao.lastPulled("bookmarks")).isNull()
+    }
 }
