@@ -2,7 +2,7 @@
 
 REST surface of the `opds-sync` server. All endpoints are versioned under
 `/sync/v1`, all request and response bodies are JSON, and all sync endpoints
-require a Bearer JWT issued by Authentik.
+require an HTTP Basic header valid against the upstream calibre-web instance.
 
 For the rationale behind the conflict-resolution model, see
 [`architecture.md`](architecture.md).
@@ -10,16 +10,22 @@ For the rationale behind the conflict-resolution model, see
 ## Authentication
 
 ```
-Authorization: Bearer <Authentik access token>
+Authorization: Basic <base64(username:password)>
 ```
 
-The server validates each token against Authentik's JWKS (cached, refreshed
-on `kid` miss). It checks `iss`, `aud`, `exp`, `nbf`. The `sub` claim is the
-user identity and is recorded as `user_id` on every persisted row. The system
-is multi-user from day one.
+The same calibre-web Basic credentials the Android app uses for OPDS
+browsing. The server validates each header by probing
+`{OPDS_SYNC_CWA_BASE_URL}{OPDS_SYNC_CWA_PROBE_PATH}` (default `/opds`)
+with the incoming `Authorization` header and treats `200` as
+authenticated, `401` as not. Results are TTL-cached (60 s positive,
+10 s negative).
 
-Token failures return `401`. The Android client refreshes once and retries
-once; a second 401 forces re-auth.
+The `user_id` recorded on every persisted row is the lowercased
+calibre-web username extracted from the Basic header. The system is
+multi-user from day one.
+
+A failed lookup returns `401`. If calibre-web is unreachable the server
+returns `503`.
 
 ## Endpoints
 
@@ -63,7 +69,7 @@ record-level last-writer-wins on the client-provided `updated_at`.
 
 ```http
 POST /sync/v1/progress
-Authorization: Bearer ...
+Authorization: Basic ...
 Content-Type: application/json
 
 {
@@ -106,7 +112,7 @@ Pull progress rows updated after the client's high-water mark.
 
 ```http
 GET /sync/v1/progress?since=2026-05-07T09:14:32Z[&document=...]
-Authorization: Bearer ...
+Authorization: Basic ...
 ```
 
 - `since` — ISO 8601, required. Server returns rows with `updated_at > since`.
@@ -142,7 +148,7 @@ alone.
 
 ```http
 POST /sync/v1/documents/alias
-Authorization: Bearer ...
+Authorization: Basic ...
 Content-Type: application/json
 
 { "content_hash": "8e3a...", "metadata_id": "9780141036144" }
@@ -239,9 +245,9 @@ Standard FastAPI shape:
 | Status | Meaning |
 |---|---|
 | 400 | Malformed request (missing fields, bad types, neither identifier supplied). |
-| 401 | Missing or invalid JWT. |
+| 401 | Missing or invalid Basic credentials, or calibre-web rejected them. |
 | 404 | Document not found (pull paths). |
 | 409 | Identity conflict the server cannot auto-resolve (rare; mostly future-proofing for the alias endpoint). |
 | 422 | Validation failure (FastAPI default). |
 | 500 | Server error. |
-| 503 | Database unavailable (`/readyz` only). |
+| 503 | Database unavailable (`/readyz`) or calibre-web unreachable for auth probes. |
