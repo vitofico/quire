@@ -20,7 +20,7 @@ class AppContainer(context: Context) {
 
     val credentialStore: CalibreCredentialStore = CalibreCredentialStore(appContext)
 
-    private val opdsHttp = OpdsHttpClient(credentialStore)
+    val opdsHttp = OpdsHttpClient(credentialStore)
     val opdsClient: OpdsClient = OpdsClient(opdsHttp.okHttp)
     val bookDownloader: BookDownloader = BookDownloader(
         okHttp = opdsHttp.okHttp,
