@@ -15,5 +15,5 @@ data class OpdsPublication(
     val title: String,
     val author: String?,
     val epubDownloadHref: String,
-    val coverHref: String?,
+    val coverUrl: String?,
 )

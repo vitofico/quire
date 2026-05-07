@@ -5,10 +5,10 @@ plugins {
 }
 
 android {
-    namespace = "io.theficos.ereader"
+    namespace = "io.theficos.quire"
     compileSdk = 34
     defaultConfig {
-        applicationId = "io.theficos.ereader"
+        applicationId = "io.theficos.quire"
         minSdk = 26
         targetSdk = 34
         versionCode = 1
@@ -52,6 +52,7 @@ dependencies {
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
     implementation(libs.compose.material.icons.extended)
+    implementation(libs.coil.compose)
     debugImplementation(libs.compose.ui.tooling)
 
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.2")

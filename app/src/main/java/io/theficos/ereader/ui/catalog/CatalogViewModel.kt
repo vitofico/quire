@@ -61,6 +61,10 @@ class CatalogViewModel(
                     val frac = if (total > 0) sent.toFloat() / total else 0f
                     _state.value = (_state.value as? CatalogUiState.Loaded)?.copy(progress = frac) ?: return@download
                 }
+                val coverFile = pub.coverUrl?.let { url ->
+                    val coverName = fileName.removeSuffix(".epub") + ".cover"
+                    downloader.downloadCover(url, coverName)
+                }
                 val identity = extractIdentity(file)
                 val existing = docs.findByIdentity(identity)
                 if (existing == null) {
@@ -70,10 +74,12 @@ class CatalogViewModel(
                         author = pub.author,
                         downloadUrl = pub.epubDownloadHref,
                         localPath = file.absolutePath,
+                        coverPath = coverFile?.absolutePath,
                         downloadedAt = System.currentTimeMillis(),
                     )
                 } else {
                     file.delete()
+                    coverFile?.delete()
                 }
             }.onSuccess {
                 _state.value = current.copy(downloading = null, progress = 0f, lastDownloaded = pub.title)

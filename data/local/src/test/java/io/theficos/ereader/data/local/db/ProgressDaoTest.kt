@@ -30,7 +30,7 @@ class ProgressDaoTest {
     @After fun tearDown() { db.close() }
 
     @Test fun `upsert replaces previous progress for same document`() = runTest {
-        val docId = docs.insert(DocumentEntity(metadataId = null, contentHash = "h", title = "t", author = null, downloadUrl = "u", localPath = "p", downloadedAt = 0))
+        val docId = docs.insert(DocumentEntity(metadataId = null, contentHash = "h", title = "t", author = null, downloadUrl = "u", localPath = "p", coverPath = null, downloadedAt = 0))
         dao.upsert(ProgressEntity(documentId = docId, locator = "loc1", percent = 0.1, updatedAt = 1))
         dao.upsert(ProgressEntity(documentId = docId, locator = "loc2", percent = 0.5, updatedAt = 2))
         val found = dao.findByDocument(docId)
@@ -39,7 +39,7 @@ class ProgressDaoTest {
     }
 
     @Test fun `flow emits updates`() = runTest {
-        val docId = docs.insert(DocumentEntity(metadataId = null, contentHash = "h", title = "t", author = null, downloadUrl = "u", localPath = "p", downloadedAt = 0))
+        val docId = docs.insert(DocumentEntity(metadataId = null, contentHash = "h", title = "t", author = null, downloadUrl = "u", localPath = "p", coverPath = null, downloadedAt = 0))
         dao.observeByDocument(docId).test {
             assertThat(awaitItem()).isNull()
             dao.upsert(ProgressEntity(documentId = docId, locator = "x", percent = 0.2, updatedAt = 1))

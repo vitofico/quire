@@ -33,11 +33,17 @@ class OpdsClient(
                         link.rels.contains("http://opds-spec.org/acquisition") &&
                             link.mediaType.toString() == "application/epub+zip"
                     } ?: return@mapNotNull null
+                    val imageLinks = pub.subcollections["images"].orEmpty().flatMap { it.links }
+                    val coverLink = imageLinks.firstOrNull { link ->
+                        link.rels.contains("http://opds-spec.org/image")
+                    } ?: imageLinks.firstOrNull { link ->
+                        link.rels.contains("http://opds-spec.org/image/thumbnail")
+                    } ?: imageLinks.firstOrNull()
                     OpdsPublication(
                         title = pub.metadata.title.orEmpty(),
                         author = pub.metadata.authors.firstOrNull()?.name,
                         epubDownloadHref = absolutize(absoluteUrl, epubLink.href.toString()),
-                        coverHref = null, // covers deferred — Readium 3.0.0's cover API exposes Bitmap, not href
+                        coverUrl = coverLink?.href?.toString()?.let { absolutize(absoluteUrl, it) },
                     )
                 },
             )

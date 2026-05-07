@@ -19,5 +19,6 @@ data class DocumentEntity(
     val author: String?,
     val downloadUrl: String,
     val localPath: String,
+    val coverPath: String?,
     val downloadedAt: Long,
 )

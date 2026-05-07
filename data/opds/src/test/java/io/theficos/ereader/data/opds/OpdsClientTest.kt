@@ -59,4 +59,12 @@ class OpdsClientTest {
         assertThat(pub.author).isEqualTo("Jane Doe")
         assertThat(pub.epubDownloadHref).endsWith("/opds/download/42/epub")
     }
+
+    @Test fun `fetch acquisition feed extracts cover URL`() = runTest {
+        val feed = client.fetch(server.url("/opds/new").toString())
+        val pub = feed.publications[0]
+        assertThat(pub.coverUrl).isNotNull()
+        assertThat(pub.coverUrl).endsWith("/opds/cover/42")
+    }
+
 }

@@ -37,6 +37,7 @@ class DocumentRepository(private val dao: DocumentDao) {
         author: String?,
         downloadUrl: String,
         localPath: String,
+        coverPath: String?,
         downloadedAt: Long,
     ): Long = dao.insert(DocumentEntity(
         metadataId = identity.metadataId,
@@ -45,6 +46,7 @@ class DocumentRepository(private val dao: DocumentDao) {
         author = author,
         downloadUrl = downloadUrl,
         localPath = localPath,
+        coverPath = coverPath,
         downloadedAt = downloadedAt,
     ))
 
@@ -55,6 +57,7 @@ class DocumentRepository(private val dao: DocumentDao) {
         author = author,
         downloadUrl = downloadUrl,
         localPath = localPath,
+        coverPath = coverPath,
         downloadedAt = downloadedAt,
     )
 }

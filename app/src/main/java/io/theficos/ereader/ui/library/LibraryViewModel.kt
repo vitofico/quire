@@ -21,18 +21,40 @@ class LibraryViewModel(
     private val progress: ProgressRepository,
 ) : ViewModel() {
 
-    val items: StateFlow<List<LibraryRow>> =
+    private val rows: StateFlow<List<LibraryRow>> =
         docs.observeLibrary()
             .flatMapLatest { docList ->
                 if (docList.isEmpty()) flowOf(emptyList())
-                else combine(docList.map { d -> progress.observe(d.id).map { d to it?.percent } }) { it.toList() }
+                else combine(docList.map { d -> progress.observe(d.id).map { d to it } }) { it.toList() }
             }
-            .map { pairs -> pairs.map { (d, pct) -> LibraryRow(d, pct ?: 0.0) } }
+            .map { pairs ->
+                pairs.map { (d, p) ->
+                    LibraryRow(
+                        document = d,
+                        percent = p?.percent ?: 0.0,
+                        progressUpdatedAt = p?.updatedAt ?: 0L,
+                    )
+                }
+            }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val items: StateFlow<List<LibraryRow>> = rows
+
+    val continueReading: StateFlow<LibraryRow?> = rows
+        .map { list ->
+            list
+                .filter { it.percent in 0.0001..0.9999 }
+                .maxByOrNull { it.progressUpdatedAt }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     fun delete(document: Document) {
         viewModelScope.launch { docs.delete(document) }
     }
 }
 
-data class LibraryRow(val document: Document, val percent: Double)
+data class LibraryRow(
+    val document: Document,
+    val percent: Double,
+    val progressUpdatedAt: Long,
+)

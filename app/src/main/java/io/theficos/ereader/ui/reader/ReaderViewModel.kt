@@ -27,7 +27,7 @@ class ReaderViewModel(
     private val docs: DocumentRepository,
     private val progress: ProgressRepository,
     private val readium: ReadiumFactory,
-    preferencesStore: ReaderPreferencesStore,
+    private val preferencesStore: ReaderPreferencesStore,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<ReaderUiState>(ReaderUiState.Loading)
@@ -37,6 +37,21 @@ class ReaderViewModel(
     val locatorUpdates: SharedFlow<Locator> = _locatorUpdates.asSharedFlow()
 
     val preferences: StateFlow<ReaderPreferences> = preferencesStore.flow
+
+    private val _chromeVisible = MutableStateFlow(true)
+    val chromeVisible: StateFlow<Boolean> = _chromeVisible.asStateFlow()
+
+    fun setChromeVisible(visible: Boolean) {
+        _chromeVisible.value = visible
+    }
+
+    fun toggleChrome() {
+        _chromeVisible.value = !_chromeVisible.value
+    }
+
+    fun updatePreferences(next: ReaderPreferences) {
+        preferencesStore.update { next }
+    }
 
     private val tracker = ProgressTracker(
         save = { progress.save(it) },

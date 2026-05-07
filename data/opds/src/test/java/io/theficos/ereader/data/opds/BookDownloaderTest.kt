@@ -51,4 +51,29 @@ class BookDownloaderTest {
         server.enqueue(MockResponse().setResponseCode(401))
         downloader.download(server.url("/x").toString(), "x.epub") { _, _ -> }
     }
+
+    @Test fun `downloadCover writes bytes to the books dir`() = runTest {
+        val coverBytes = ByteArray(1024) { (it % 251).toByte() }
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "image/jpeg")
+                .setBody(Buffer().write(coverBytes))
+        )
+        val out = downloader.downloadCover(
+            server.url("/cover.jpg").toString(),
+            "abc.jpg",
+        )
+        assertThat(out).isNotNull()
+        assertThat(out!!.exists()).isTrue()
+        assertThat(out.readBytes()).isEqualTo(coverBytes)
+    }
+
+    @Test fun `downloadCover returns null on http error`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(404))
+        val out = downloader.downloadCover(
+            server.url("/cover.jpg").toString(),
+            "missing.jpg",
+        )
+        assertThat(out).isNull()
+    }
 }

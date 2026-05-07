@@ -46,4 +46,36 @@ class BookDownloader(
             }
         }
     }
+
+    /**
+     * Best-effort cover fetch. Returns the file on success or null on any failure
+     * (HTTP error, IO error, network). A missing cover must never block book download.
+     */
+    suspend fun downloadCover(
+        url: String,
+        destFileName: String,
+    ): File? = withContext(Dispatchers.IO) {
+        runCatching {
+            val response = okHttp.newCall(Request.Builder().url(url).get().build()).execute()
+            response.use {
+                if (!it.isSuccessful) return@runCatching null
+                val out = File(booksDir, destFileName)
+                val tmp = File(booksDir, "$destFileName.part")
+                try {
+                    it.body!!.byteStream().use { input ->
+                        tmp.outputStream().use { sink -> input.copyTo(sink) }
+                    }
+                    if (out.exists()) out.delete()
+                    if (!tmp.renameTo(out)) {
+                        tmp.delete()
+                        return@runCatching null
+                    }
+                    out
+                } catch (t: Throwable) {
+                    tmp.delete()
+                    null
+                }
+            }
+        }.getOrNull()
+    }
 }

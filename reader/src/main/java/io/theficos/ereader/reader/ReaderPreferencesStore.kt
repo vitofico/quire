@@ -17,21 +17,33 @@ class ReaderPreferencesStore(context: Context) {
         prefs.edit()
             .putFloat(KEY_FONT_SCALE, next.fontScale.toFloat())
             .putString(KEY_THEME, next.theme.name)
+            .putString(KEY_FONT_FAMILY, next.fontFamily.name)
+            .putFloat(KEY_LINE_SPACING, next.lineSpacing.toFloat())
             .apply()
         _flow.value = next
     }
 
     private fun load(): ReaderPreferences {
-        val fontScale = prefs.getFloat(KEY_FONT_SCALE, DEFAULT_FONT_SCALE).toDouble()
-            .coerceIn(0.5, 2.0)
+        val fontScale = prefs.getFloat(KEY_FONT_SCALE, 1.0f).toDouble().coerceIn(0.5, 2.0)
         val themeName = prefs.getString(KEY_THEME, ReaderTheme.LIGHT.name) ?: ReaderTheme.LIGHT.name
         val theme = runCatching { ReaderTheme.valueOf(themeName) }.getOrDefault(ReaderTheme.LIGHT)
-        return ReaderPreferences(fontScale = fontScale, theme = theme)
+        val familyName = prefs.getString(KEY_FONT_FAMILY, ReaderFontFamily.SYSTEM.name)
+            ?: ReaderFontFamily.SYSTEM.name
+        val family = runCatching { ReaderFontFamily.valueOf(familyName) }
+            .getOrDefault(ReaderFontFamily.SYSTEM)
+        val lineSpacing = prefs.getFloat(KEY_LINE_SPACING, 1.4f).toDouble().coerceIn(1.0, 1.8)
+        return ReaderPreferences(
+            fontScale = fontScale,
+            theme = theme,
+            fontFamily = family,
+            lineSpacing = lineSpacing,
+        )
     }
 
     private companion object {
         const val KEY_FONT_SCALE = "font_scale"
         const val KEY_THEME = "theme"
-        const val DEFAULT_FONT_SCALE = 1.0f
+        const val KEY_FONT_FAMILY = "font_family"
+        const val KEY_LINE_SPACING = "line_spacing"
     }
 }

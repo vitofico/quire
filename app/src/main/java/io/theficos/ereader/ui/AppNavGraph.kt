@@ -12,6 +12,8 @@ import io.theficos.ereader.ui.catalog.CatalogScreen
 import io.theficos.ereader.ui.catalog.CatalogViewModel
 import io.theficos.ereader.ui.library.LibraryScreen
 import io.theficos.ereader.ui.library.LibraryViewModel
+import io.theficos.ereader.ui.main.MainScaffold
+import io.theficos.ereader.ui.main.Tab
 import io.theficos.ereader.ui.reader.ReaderScreen
 import io.theficos.ereader.ui.reader.ReaderViewModel
 import io.theficos.ereader.ui.settings.SettingsScreen
@@ -20,33 +22,35 @@ import io.theficos.ereader.ui.settings.SettingsViewModel
 @Composable
 fun AppNavGraph(container: AppContainer) {
     val nav = rememberNavController()
-    NavHost(navController = nav, startDestination = "library") {
-        composable("library") {
-            val vm = remember { LibraryViewModel(container.documentRepository, container.progressRepository) }
-            LibraryScreen(
-                viewModel = vm,
-                onOpenCatalog = { nav.navigate("catalog") },
-                onOpenBook = { id -> nav.navigate("reader/$id") },
-            )
-        }
-        composable("catalog") {
-            val vm = remember {
+    NavHost(navController = nav, startDestination = "home") {
+        composable("home") {
+            val libVm = remember { LibraryViewModel(container.documentRepository, container.progressRepository) }
+            val catVm = remember {
                 CatalogViewModel(container.opdsClient, container.bookDownloader, container.documentRepository, container.credentialStore)
             }
-            CatalogScreen(
-                viewModel = vm,
-                onOpenLibrary = { nav.popBackStack("library", inclusive = false) },
-                onOpenSettings = { nav.navigate("settings") },
-            )
-        }
-        composable("settings") {
-            val vm = remember {
+            val setVm = remember {
                 SettingsViewModel(
                     store = container.credentialStore,
                     readerStore = container.readerPreferencesStore,
                 )
             }
-            SettingsScreen(viewModel = vm, onBack = { nav.popBackStack() })
+            MainScaffold { tab, padding ->
+                when (tab) {
+                    Tab.LIBRARY -> LibraryScreen(
+                        viewModel = libVm,
+                        onOpenBook = { id -> nav.navigate("reader/$id") },
+                        contentPadding = padding,
+                    )
+                    Tab.CATALOG -> CatalogScreen(
+                        viewModel = catVm,
+                        contentPadding = padding,
+                    )
+                    Tab.SETTINGS -> SettingsScreen(
+                        viewModel = setVm,
+                        contentPadding = padding,
+                    )
+                }
+            }
         }
         composable(
             "reader/{docId}",
@@ -62,7 +66,7 @@ fun AppNavGraph(container: AppContainer) {
                     preferencesStore = container.readerPreferencesStore,
                 )
             }
-            ReaderScreen(viewModel = vm)
+            ReaderScreen(viewModel = vm, onClose = { nav.popBackStack() })
         }
     }
 }

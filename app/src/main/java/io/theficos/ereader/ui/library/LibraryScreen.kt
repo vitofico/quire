@@ -1,24 +1,23 @@
 package io.theficos.ereader.ui.library
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -27,46 +26,75 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.theficos.ereader.core.model.Document
+import io.theficos.ereader.ui.components.CoverImage
+import io.theficos.ereader.ui.components.SectionLabel
+import io.theficos.ereader.ui.theme.Lora
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun LibraryScreen(
     viewModel: LibraryViewModel,
-    onOpenCatalog: () -> Unit,
     onOpenBook: (documentId: Long) -> Unit,
+    contentPadding: PaddingValues,
 ) {
     val items by viewModel.items.collectAsState()
+    val cont by viewModel.continueReading.collectAsState()
     var pendingDelete by remember { mutableStateOf<Document?>(null) }
 
-    Scaffold(topBar = {
-        TopAppBar(title = { Text("Library") }, actions = {
-            TextButton(onClick = onOpenCatalog) { Text("Catalog") }
-        })
-    }) { padding ->
-        if (items.isEmpty()) {
-            Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("No books yet. Download from the Catalog.")
+    if (items.isEmpty()) {
+        EmptyState(modifier = Modifier.padding(contentPadding))
+        return
+    }
+
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(3),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(contentPadding),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Text(
+                text = "Quire",
+                style = MaterialTheme.typography.displaySmall,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+        cont?.let { row ->
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                ContinueReadingCard(row = row, onClick = { onOpenBook(row.document.id) })
             }
-        } else {
-            LazyColumn(Modifier.padding(padding).fillMaxSize()) {
-                items(items) { row ->
-                    ListItem(
-                        headlineContent = { Text(row.document.title) },
-                        supportingContent = { Text("${(row.percent * 100).toInt()}%") },
-                        trailingContent = {
-                            IconButton(onClick = { pendingDelete = row.document }) {
-                                Icon(Icons.Default.Delete, contentDescription = "Delete")
-                            }
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onOpenBook(row.document.id) }
-                            .padding(horizontal = 8.dp),
-                    )
-                    HorizontalDivider()
-                }
+        }
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            SectionLabel("Library · ${items.size}")
+        }
+        itemsIndexed(items, key = { _, r -> r.document.id }) { _, row ->
+            Column(
+                modifier = Modifier.combinedClickable(
+                    onClick = { onOpenBook(row.document.id) },
+                    onLongClick = { pendingDelete = row.document },
+                ),
+            ) {
+                CoverImage(
+                    source = row.document.coverPath,
+                    title = row.document.title,
+                    author = row.document.author,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(2f / 3f),
+                )
+                Text(
+                    text = row.document.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
             }
         }
     }
@@ -86,5 +114,31 @@ fun LibraryScreen(
                 TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
             },
         )
+    }
+}
+
+@Composable
+private fun EmptyState(modifier: Modifier = Modifier) {
+    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = "q",
+                fontFamily = Lora,
+                style = MaterialTheme.typography.displaySmall.copy(
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
+                modifier = Modifier.padding(bottom = 16.dp),
+            )
+            Text(
+                text = "Your shelf is empty.",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = "Open the Catalog tab to find books.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
     }
 }

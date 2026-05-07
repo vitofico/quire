@@ -29,7 +29,8 @@ class DocumentDaoTest {
     @Test fun `insert and lookup by metadata id`() = runTest {
         val rowId = dao.insert(DocumentEntity(
             metadataId = "42", contentHash = "abc", title = "T", author = "A",
-            downloadUrl = "https://x/y.epub", localPath = "/tmp/y.epub", downloadedAt = 1L
+            downloadUrl = "https://x/y.epub", localPath = "/tmp/y.epub",
+            coverPath = null, downloadedAt = 1L
         ))
         val found = dao.findByMetadataId("42")
         assertThat(found?.id).isEqualTo(rowId)
@@ -39,18 +40,34 @@ class DocumentDaoTest {
     @Test fun `insert and lookup by content hash`() = runTest {
         dao.insert(DocumentEntity(
             metadataId = null, contentHash = "abc", title = "T", author = null,
-            downloadUrl = "u", localPath = "p", downloadedAt = 1L
+            downloadUrl = "u", localPath = "p", coverPath = null, downloadedAt = 1L
         ))
         assertThat(dao.findByContentHash("abc")?.contentHash).isEqualTo("abc")
     }
 
     @Test fun `unique constraint on metadata id`() = runTest {
-        dao.insert(DocumentEntity(metadataId = "42", contentHash = "h1", title = "a", author = null, downloadUrl = "u1", localPath = "p1", downloadedAt = 1))
+        dao.insert(DocumentEntity(metadataId = "42", contentHash = "h1", title = "a", author = null, downloadUrl = "u1", localPath = "p1", coverPath = null, downloadedAt = 1))
         try {
-            dao.insert(DocumentEntity(metadataId = "42", contentHash = "h2", title = "b", author = null, downloadUrl = "u2", localPath = "p2", downloadedAt = 2))
+            dao.insert(DocumentEntity(metadataId = "42", contentHash = "h2", title = "b", author = null, downloadUrl = "u2", localPath = "p2", coverPath = null, downloadedAt = 2))
             org.junit.Assert.fail("expected SQLiteConstraintException for duplicate metadataId")
         } catch (e: android.database.sqlite.SQLiteConstraintException) {
             // ok
         }
+    }
+
+    @Test fun `insert with coverPath round-trips`() = runTest {
+        val id = dao.insert(DocumentEntity(
+            metadataId = "id-cover",
+            contentHash = "hash-cover",
+            title = "T",
+            author = null,
+            downloadUrl = "http://x/y.epub",
+            localPath = "/tmp/y.epub",
+            coverPath = "/tmp/y.jpg",
+            downloadedAt = 0L,
+        ))
+        val row = dao.findById(id)
+        assertThat(row).isNotNull()
+        assertThat(row!!.coverPath).isEqualTo("/tmp/y.jpg")
     }
 }

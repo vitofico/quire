@@ -51,6 +51,14 @@ class SettingsViewModel(
     fun setTheme(theme: ReaderTheme) {
         readerStore.update { it.copy(theme = theme) }
     }
+
+    fun setFontFamily(family: io.theficos.ereader.reader.ReaderFontFamily) {
+        readerStore.update { it.copy(fontFamily = family) }
+    }
+
+    fun setLineSpacing(value: Double) {
+        readerStore.update { it.copy(lineSpacing = value.coerceIn(1.0, 1.8)) }
+    }
 }
 
 data class CalibreUiState(

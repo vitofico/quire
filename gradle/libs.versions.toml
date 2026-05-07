@@ -22,6 +22,7 @@ androidx-test-rules = "1.6.1"
 androidx-test-junit = "1.2.1"
 truth = "1.4.4"
 espresso = "3.6.1"
+coil = "2.7.0"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version = "1.13.1" }
@@ -59,6 +60,7 @@ androidx-test-runner = { module = "androidx.test:runner", version.ref = "android
 androidx-test-rules = { module = "androidx.test:rules", version.ref = "androidx-test-rules" }
 androidx-test-junit = { module = "androidx.test.ext:junit", version.ref = "androidx-test-junit" }
 espresso-core = { module = "androidx.test.espresso:espresso-core", version.ref = "espresso" }
+coil-compose = { module = "io.coil-kt:coil-compose", version.ref = "coil" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

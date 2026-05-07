@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="quire_surface">#FFF8F4EC</color>
+    <color name="quire_surface_container">#FFFEFBF4</color>
+    <color name="quire_outline">#FFEFE5D2</color>
+    <color name="quire_on_surface">#FF1F1A14</color>
+    <color name="quire_on_surface_muted">#FF8A7355</color>
+    <color name="quire_accent">#FF7A2E2A</color>
+    <color name="quire_accent_deep">#FF4A1A18</color>
+    <color name="quire_on_accent">#FFF5EFE3</color>
+</resources>
