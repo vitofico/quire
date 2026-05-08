@@ -37,11 +37,11 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
         isCoreLibraryDesugaringEnabled = true
     }
-    kotlinOptions { jvmTarget = "17" }
+    kotlinOptions { jvmTarget = "21" }
     buildFeatures { compose = true }
     testOptions { unitTests.isIncludeAndroidResources = true }
     signingConfigs {
@@ -59,6 +59,11 @@ android {
         debug { isMinifyEnabled = false }
         release {
             isMinifyEnabled = false   // Phase 1 only; revisit before publishing
+            // AGP 8.3+ embeds git origin/branch/SHA into the APK by default,
+            // which makes F-Droid reproducible builds fail (their checkout's
+            // origin URL differs from ours). The tag itself already pins the
+            // commit, so we don't lose useful info by disabling this.
+            vcsInfo.include = false
             signingConfig =
                 if (System.getenv("QUIRE_RELEASE_KEYSTORE").isNullOrBlank())
                     signingConfigs.getByName("debug")

@@ -1,4 +1,4 @@
-FROM --platform=linux/amd64 eclipse-temurin:17-jdk-jammy
+FROM --platform=linux/amd64 eclipse-temurin:21-jdk-jammy
 
 ARG ANDROID_CMDLINE_TOOLS_VERSION=11076708
 ARG ANDROID_PLATFORM=android-34

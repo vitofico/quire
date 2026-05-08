@@ -30,6 +30,9 @@ jobs:
         language: [java-kotlin, python]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - name: Initialize CodeQL
         uses: github/codeql-action/init@0daab03d71ff584ef619d027a3fd9146679c5d84 # v3
         with:
@@ -38,12 +41,17 @@ jobs:
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21"
       - if: matrix.language == 'java-kotlin'
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
         with:
           packages: "platform-tools platforms;android-34 build-tools;34.0.0"
       - if: matrix.language == 'java-kotlin'
+        env:
+          # CodeQL doesn't need a meaningful version — fall back to a fixed
+          # placeholder so the version derivation in app/build.gradle.kts
+          # succeeds even when no v* tag is reachable from this commit.
+          QUIRE_VERSION_FALLBACK: 2026.05.08.0
         run: ./gradlew assembleDebug -x test --stacktrace
       - if: matrix.language == 'python'
         uses: github/codeql-action/autobuild@0daab03d71ff584ef619d027a3fd9146679c5d84 # v3
