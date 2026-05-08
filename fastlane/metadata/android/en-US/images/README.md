@@ -31,12 +31,13 @@ order:
 Tablet screenshots (1600×2560 or similar) for users browsing F-Droid on
 a tablet. Same naming convention.
 
-## featureGraphic.png — optional but improves listing
+## featureGraphic.png — shipped
 
-1024×500 PNG. Shown at the top of the F-Droid page; gives the app a
-visual identity beyond the icon. Place at:
-
-    fastlane/metadata/android/en-US/images/featureGraphic.png
+1024×500 PNG at `featureGraphic.png` in this directory. Shown at the
+top of the F-Droid page; gives the app a visual identity beyond the
+icon. Regenerate with the ImageMagick recipe documented in the PR
+that introduced it (paper-tone bg `#F2EBDD`, icon left-thirds, wordmark
+"Quire" + tagline in Helvetica).
 
 ## How F-Droid finds these
 

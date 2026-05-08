@@ -11,8 +11,6 @@ The CalVer scheme this project uses produces:
 So a build on 2026-05-07 with CI run #42 has versionCode `26050742`,
 and its changelog file is `26050742.txt`.
 
-`26050700.txt` in this directory is a placeholder for the very first
-public release. Rename or duplicate it with the actual versionCode the
-release job produces.
+Each release tag gets a corresponding `<versionCode>.txt` here. Filename = `yyMMdd*100 + (CI_run % 100)` of the tag.
 
 Keep entries terse — F-Droid truncates long changelogs in the listing.

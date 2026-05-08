@@ -76,12 +76,14 @@ Gitmoji + conventional commits. Examples:
 :memo: docs: clarify identity precedence
 :white_check_mark: test: cover the alias-merge transaction
 :construction_worker: ci: pin actions to commit SHAs
+:wrench: chore: bump renovate config
 ```
 
 Common gitmoji used here: `:sparkles:` (feat), `:bug:` (fix),
 `:memo:` (docs), `:white_check_mark:` (tests), `:construction_worker:`
-(CI), `:art:` (refactor/style), `:fire:` (removals),
-`:lock:` (security), `:page_facing_up:` (legal/license).
+(CI), `:wrench:` (chore), `:construction:` (scaffolding / WIP),
+`:art:` (refactor/style), `:fire:` (removals), `:lock:` (security),
+`:page_facing_up:` (legal/license).
 
 ## Identity rules — Kotlin / Python parity
 
