@@ -43,6 +43,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
+          fetch-tags: true
       - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
         with:
           distribution: temurin
@@ -55,9 +56,12 @@ jobs:
         name: Compute version
         run: |
           # Match what app/build.gradle.kts derives from the same checkout.
-          # Fetch tags first — actions/checkout@v4 with default fetch-depth
-          # may not pull tags.
-          git fetch --tags --depth=1 origin || true
+          # Tags are pulled by checkout's fetch-tags: true; verify here.
+          if ! git describe --tags --match 'v*' --abbrev=0 >/dev/null 2>&1; then
+            echo "::error::No matching v* tag in history. Build will fail."
+            git tag -l 'v*' | head
+            exit 1
+          fi
           VERSION=$(git describe --tags --match 'v*' --always | sed 's/^v//')
           echo "VERSION_NAME=$VERSION" >> "$GITHUB_ENV"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -90,6 +94,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
+          fetch-tags: true
       - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
         with:
           distribution: temurin
