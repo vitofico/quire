@@ -25,6 +25,14 @@ val versionInfo = Version.fromGitDescribe(
     fallback = System.getenv("QUIRE_VERSION_FALLBACK")
 )
 
+// Drop the build timestamp from the AboutLibraries-generated license JSON
+// so the resource is byte-identical across rebuilds (matters for F-Droid's
+// reproducible-build verification). Disabled by default in AboutLibraries
+// 14+; explicit on 11.x.
+aboutLibraries {
+    excludeFields = arrayOf("generated")
+}
+
 android {
     namespace = "io.theficos.quire"
     compileSdk = 34
