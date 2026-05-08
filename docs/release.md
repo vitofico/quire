@@ -59,3 +59,56 @@ scripts/dgradle :app:assembleRelease
 
 If the env vars are unset, `:app:assembleRelease` falls back to
 debug-signed.
+
+## Reproducibility check before submitting to F-Droid
+
+F-Droid's builder rebuilds every release from source and compares the
+output to the signed APK in your GitHub Release. If the contents
+differ, F-Droid won't publish. Run the same check locally before
+submitting the recipe MR.
+
+```sh
+# In an fdroiddata clone (https://gitlab.com/fdroid/fdroiddata),
+# with fdroidserver installed:
+cd ~/src/fdroiddata
+fdroid lint io.theficos.quire
+fdroid readmeta
+fdroid rewritemeta io.theficos.quire
+fdroid build --server -v -l io.theficos.quire
+```
+
+The `--server` flag spins fdroidserver's reproducible build VM
+(headless VirtualBox by default; podman backend also supported). On
+success, the unsigned APK lands in
+`~/src/fdroiddata/unsigned/io.theficos.quire_<versionCode>.apk`.
+
+Compare it to your signed release APK:
+
+```sh
+# Strip signatures from both, then diff the contents.
+cd /tmp && mkdir cmp && cd cmp
+unzip -q ~/src/fdroiddata/unsigned/io.theficos.quire_*.apk -d a
+unzip -q ~/Downloads/app-release.apk -d b
+rm -rf a/META-INF b/META-INF       # signatures differ by design
+diff -r a b && echo "REPRODUCIBLE"
+```
+
+If `diff` reports no differences, F-Droid will accept the build. If
+it reports differences in `classes*.dex`, the build is non-reproducible
+— check JDK version, AGP version, and `gradle.properties` flags in
+the fdroidserver VM vs the CI runner.
+
+If `git describe` returns nothing inside the fdroidserver VM (it does
+a non-shallow clone, but on rare runs tags might not propagate),
+set `QUIRE_VERSION_FALLBACK` in the recipe's `Builds:` block:
+
+```yaml
+Builds:
+  - versionName: 2026.05.08.30
+    versionCode: 26050830
+    commit: v2026.05.08.30
+    subdir: app
+    gradle: [ yes ]
+    env:
+      QUIRE_VERSION_FALLBACK: 2026.05.08.30
+```
