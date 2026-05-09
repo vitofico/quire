@@ -1,9 +1,12 @@
 # Release process
 
-Tag-driven. The `build` job in `android-ci.yaml` already pushes a
-`vYYYY.MM.DD.<run>` tag on every push to `main`. The tag push fires the
-workflow again, and the `release` job builds and signs a release APK
-and attaches it to a GitHub Release.
+Push-driven. Every push to `main` triggers `android-ci.yaml`. The
+`build` job bumps `VERSION_NAME` / `VERSION_CODE` in `gradle.properties`
+to the next CalVer (`YYYY.MM.DD.<run>` / `yyMMdd*100 + run%100`),
+commits with a `[bot]` author, tags `vYYYY.MM.DD.<run>`, and pushes
+both before Gradle runs. The `release` job then builds and signs a
+release APK from the freshly-pushed tag and attaches it to a GitHub
+Release.
 
 ## One-time keystore setup
 
@@ -35,17 +38,20 @@ testers but should not be your `latest` release.
 
 ## Cutting a release
 
-The `build` job pushes `vYYYY.MM.DD.<run>` tags on every push to
-`main`. The tag-trigger run does the rest. Nothing manual needed.
+Land a commit on `main`. The `build` job's *Compute version* step picks
+the next CalVer, writes it into `gradle.properties`, commits + tags +
+pushes, then builds. Nothing manual needed.
 
-To cut an out-of-band release, push a tag manually:
-
-```sh
-git tag v2026.05.07.0
-git push origin v2026.05.07.0
-```
+To cut an out-of-band release, push a no-op commit (e.g. `git commit
+--allow-empty -m ":bookmark: chore: trigger release"` followed by `git
+push`). Manually-pushed tags are not used by this workflow.
 
 ## Local release builds
+
+`gradle.properties` carries the version (`VERSION_NAME` and
+`VERSION_CODE`). Whatever's committed at HEAD is what the local build
+reports — if you want a specific version locally, edit those values
+before running.
 
 ```sh
 export QUIRE_RELEASE_KEYSTORE=/abs/path/to/quire-release.keystore
@@ -98,17 +104,8 @@ it reports differences in `classes*.dex`, the build is non-reproducible
 — check JDK version, AGP version, and `gradle.properties` flags in
 the fdroidserver VM vs the CI runner.
 
-If `git describe` returns nothing inside the fdroidserver VM (it does
-a non-shallow clone, but on rare runs tags might not propagate),
-set `QUIRE_VERSION_FALLBACK` in the recipe's `Builds:` block:
-
-```yaml
-Builds:
-  - versionName: 2026.05.08.30
-    versionCode: 26050830
-    commit: v2026.05.08.30
-    subdir: app
-    gradle: [ yes ]
-    env:
-      QUIRE_VERSION_FALLBACK: 2026.05.08.30
-```
+The version values come from `gradle.properties` (`VERSION_NAME` and
+`VERSION_CODE`), which CI bumps on every push to `main` before the
+build runs. fdroidserver reads them via the recipe's `UpdateCheckData`
+line, so each tag's APK metadata is statically derivable from source
+without running Gradle.
