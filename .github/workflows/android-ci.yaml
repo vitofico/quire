@@ -119,6 +119,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          ref: v${{ needs.build.outputs.version }}
           fetch-depth: 0
           fetch-tags: true
       - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
@@ -136,11 +137,6 @@ jobs:
           KEYSTORE_B64: ${{ secrets.QUIRE_RELEASE_KEYSTORE_B64 }}
       - name: Assemble release APK
         env:
-          # The build job created the tag locally on its runner so Gradle's
-          # git-describe found an exact match. Each release-job runner gets
-          # a fresh checkout with no local tag, so feed the same CalVer in
-          # via the parser's fallback path.
-          QUIRE_VERSION_FALLBACK: ${{ needs.build.outputs.version }}
           QUIRE_RELEASE_KEYSTORE: ${{ secrets.QUIRE_RELEASE_KEYSTORE_B64 != '' && format('{0}/release.keystore', runner.temp) || '' }}
           QUIRE_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.QUIRE_RELEASE_KEYSTORE_PASSWORD }}
           QUIRE_RELEASE_KEY_ALIAS: ${{ secrets.QUIRE_RELEASE_KEY_ALIAS }}
