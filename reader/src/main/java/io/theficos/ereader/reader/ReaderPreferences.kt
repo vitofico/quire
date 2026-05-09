@@ -19,6 +19,7 @@ data class ReaderPreferences(
     val theme: ReaderTheme = ReaderTheme.LIGHT,
     val fontFamily: ReaderFontFamily = ReaderFontFamily.SYSTEM,
     val lineSpacing: Double = 1.4,
+    val tapNavigationEnabled: Boolean = true,
 ) {
     init {
         require(fontScale in 0.5..2.0) { "fontScale out of range: $fontScale" }

@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import org.readium.r2.navigator.epub.EpubNavigatorFragment
 import org.readium.r2.shared.publication.Locator
 import org.readium.r2.shared.publication.Publication
 import java.io.File
@@ -57,6 +58,20 @@ class ReaderViewModel(
         save = { progress.save(it) },
         scope = viewModelScope,
     )
+
+    private var navigator: EpubNavigatorFragment? = null
+
+    fun bindNavigator(nav: EpubNavigatorFragment?) {
+        navigator = nav
+    }
+
+    fun pageForward() {
+        viewModelScope.launch { navigator?.goForward() }
+    }
+
+    fun pageBackward() {
+        viewModelScope.launch { navigator?.goBackward() }
+    }
 
     fun load() {
         viewModelScope.launch {

@@ -4,8 +4,10 @@ import android.app.Activity
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,6 +38,7 @@ import io.theficos.ereader.reader.ReaderPreferences
 import io.theficos.ereader.reader.toEpubPreferences
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.readium.r2.navigator.epub.EpubNavigatorFactory
 import org.readium.r2.navigator.epub.EpubNavigatorFragment
 import org.readium.r2.shared.publication.Locator
@@ -86,16 +89,38 @@ fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
                     initialLocator = s.initialLocator,
                     preferences = preferences,
                     onLocator = viewModel::publishLocator,
+                    onNavigatorReady = viewModel::bindNavigator,
                 )
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .fillMaxHeight()
-                        .fillMaxWidth(0.34f)
-                        .pointerInput(Unit) {
-                            detectTapGestures(onTap = { viewModel.toggleChrome() })
-                        }
-                )
+                if (preferences.tapNavigationEnabled) {
+                    Row(modifier = Modifier.fillMaxSize()) {
+                        Box(
+                            modifier = Modifier
+                                .weight(0.33f)
+                                .fillMaxHeight()
+                                .tapPassthrough { viewModel.pageBackward() }
+                        )
+                        Box(
+                            modifier = Modifier
+                                .weight(0.34f)
+                                .fillMaxHeight()
+                                .tapPassthrough { viewModel.toggleChrome() }
+                        )
+                        Box(
+                            modifier = Modifier
+                                .weight(0.33f)
+                                .fillMaxHeight()
+                                .tapPassthrough { viewModel.pageForward() }
+                        )
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .fillMaxHeight()
+                            .fillMaxWidth(0.34f)
+                            .tapPassthrough { viewModel.toggleChrome() }
+                    )
+                }
 
                 ReaderTopBar(
                     visible = chromeVisible,
@@ -130,6 +155,7 @@ private fun ReaderContent(
     initialLocator: Locator?,
     preferences: ReaderPreferences,
     onLocator: (Locator) -> Unit,
+    onNavigatorReady: (EpubNavigatorFragment?) -> Unit,
 ) {
     val activity = LocalContext.current as FragmentActivity
     val containerId = rememberSaveable { View.generateViewId() }
@@ -164,6 +190,7 @@ private fun ReaderContent(
             .replace(containerId, nav, tag)
             .commitNow()
         fragment = nav
+        onNavigatorReady(nav)
 
         val job = activity.lifecycleScope.launch {
             nav.currentLocator.collect { onLocator(it) }
@@ -172,6 +199,7 @@ private fun ReaderContent(
         onDispose {
             job.cancel()
             fragment = null
+            onNavigatorReady(null)
             fm.beginTransaction()
                 .remove(nav)
                 .commitNowAllowingStateLoss()
@@ -180,5 +208,37 @@ private fun ReaderContent(
 
     LaunchedEffect(preferences) {
         fragment?.submitPreferences(preferences.toEpubPreferences())
+    }
+}
+
+/**
+ * Tap detector that does NOT consume the down event, so swipes and other drag
+ * gestures still reach the underlying view (Readium's navigator AndroidView).
+ * Only the up event is consumed, and only when the gesture qualifies as a tap
+ * (no movement past touchSlop, finished within long-press timeout).
+ */
+private fun Modifier.tapPassthrough(onTap: () -> Unit): Modifier = this.pointerInput(Unit) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        val touchSlop = viewConfiguration.touchSlop
+        val up = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+            val pointerId = down.id
+            while (true) {
+                val event = awaitPointerEvent()
+                val change = event.changes.firstOrNull { it.id == pointerId }
+                    ?: return@withTimeoutOrNull null
+                if (!change.pressed) return@withTimeoutOrNull change
+                val dx = change.position.x - down.position.x
+                val dy = change.position.y - down.position.y
+                if (kotlin.math.hypot(dx.toDouble(), dy.toDouble()) > touchSlop) {
+                    return@withTimeoutOrNull null
+                }
+            }
+            @Suppress("UNREACHABLE_CODE") null
+        }
+        if (up != null) {
+            up.consume()
+            onTap()
+        }
     }
 }

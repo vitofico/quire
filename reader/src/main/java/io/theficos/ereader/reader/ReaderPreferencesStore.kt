@@ -19,6 +19,7 @@ class ReaderPreferencesStore(context: Context) {
             .putString(KEY_THEME, next.theme.name)
             .putString(KEY_FONT_FAMILY, next.fontFamily.name)
             .putFloat(KEY_LINE_SPACING, next.lineSpacing.toFloat())
+            .putBoolean(KEY_TAP_NAVIGATION, next.tapNavigationEnabled)
             .apply()
         _flow.value = next
     }
@@ -32,11 +33,13 @@ class ReaderPreferencesStore(context: Context) {
         val family = runCatching { ReaderFontFamily.valueOf(familyName) }
             .getOrDefault(ReaderFontFamily.SYSTEM)
         val lineSpacing = prefs.getFloat(KEY_LINE_SPACING, 1.4f).toDouble().coerceIn(1.0, 1.8)
+        val tap = prefs.getBoolean(KEY_TAP_NAVIGATION, true)
         return ReaderPreferences(
             fontScale = fontScale,
             theme = theme,
             fontFamily = family,
             lineSpacing = lineSpacing,
+            tapNavigationEnabled = tap,
         )
     }
 
@@ -45,5 +48,6 @@ class ReaderPreferencesStore(context: Context) {
         const val KEY_THEME = "theme"
         const val KEY_FONT_FAMILY = "font_family"
         const val KEY_LINE_SPACING = "line_spacing"
+        const val KEY_TAP_NAVIGATION = "tap_navigation_enabled"
     }
 }
