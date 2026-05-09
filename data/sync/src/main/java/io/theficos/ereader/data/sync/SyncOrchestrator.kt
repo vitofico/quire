@@ -30,6 +30,7 @@ class SyncOrchestrator(
                     locator = progress.locator,
                     percent = progress.percent,
                     clientUpdatedAt = Instant.ofEpochMilli(progress.updatedAt).toString(),
+                    finishedAt = progress.finishedAt?.let { Instant.ofEpochMilli(it).toString() },
                 )
             }
             when (val res = client.pushProgress(ProgressPushBody(items))) {
@@ -61,6 +62,7 @@ class SyncOrchestrator(
         val identity = DocumentIdentity(metadataId = item.document.metadataId, contentHash = item.document.contentHash)
         val doc = documentRepo.findByIdentity(identity) ?: return
         val incomingUpdatedAt = Instant.parse(item.clientUpdatedAt).toEpochMilli()
+        val incomingFinishedAt = item.finishedAt?.let { Instant.parse(it).toEpochMilli() }
         val existing = progressDao.findByDocument(doc.id)
         if (existing != null && existing.localUpdatedAt >= incomingUpdatedAt) {
             return
@@ -74,6 +76,7 @@ class SyncOrchestrator(
                 updatedAt = incomingUpdatedAt,
                 localUpdatedAt = incomingUpdatedAt,
                 syncedAt = incomingUpdatedAt,
+                finishedAt = incomingFinishedAt,
             )
         )
     }

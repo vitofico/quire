@@ -72,8 +72,14 @@ class ReaderViewModel(
             }
             val savedProgress = progress.get(doc.id)
             val initialLocator = savedProgress?.locator?.let { ProgressTracker.parseOrNull(it) }
+            val lastSpineHref = publication.readingOrder.lastOrNull()?.url()
             _state.value = ReaderUiState.Open(doc, publication, initialLocator, savedProgress)
-            tracker.attach(documentId = doc.id, locatorUpdates = locatorUpdates)
+            tracker.attach(
+                documentId = doc.id,
+                locatorUpdates = locatorUpdates,
+                lastSpineHref = lastSpineHref,
+                initialFinishedAt = savedProgress?.finishedAt,
+            )
         }
     }
 
