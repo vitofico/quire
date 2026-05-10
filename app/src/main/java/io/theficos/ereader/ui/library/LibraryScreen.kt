@@ -11,15 +11,25 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.SnackbarHost
@@ -42,6 +52,13 @@ import io.theficos.ereader.data.sync.SyncEnqueuer
 import io.theficos.ereader.ui.components.CoverImage
 import io.theficos.ereader.ui.components.SectionLabel
 import io.theficos.ereader.ui.theme.Lora
+
+private val sortLabels: List<Pair<LibrarySort, String>> = listOf(
+    LibrarySort.RECENTLY_READ to "Recently read",
+    LibrarySort.RECENTLY_ADDED to "Recently added",
+    LibrarySort.TITLE to "Title",
+    LibrarySort.AUTHOR to "Author",
+)
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -83,11 +100,41 @@ fun LibraryScreen(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
-                Text(
-                    text = "Quire",
-                    style = MaterialTheme.typography.displaySmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Quire",
+                        style = MaterialTheme.typography.displaySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                    var sortMenuOpen by remember { mutableStateOf(false) }
+                    val currentSort by viewModel.sort.collectAsState()
+                    Box {
+                        IconButton(onClick = { sortMenuOpen = true }) {
+                            Icon(Icons.Filled.Sort, contentDescription = "Sort")
+                        }
+                        DropdownMenu(
+                            expanded = sortMenuOpen,
+                            onDismissRequest = { sortMenuOpen = false },
+                        ) {
+                            sortLabels.forEach { (key, label) ->
+                                DropdownMenuItem(
+                                    text = { Text(label) },
+                                    leadingIcon = if (currentSort == key) {
+                                        { Icon(Icons.Filled.Check, contentDescription = null) }
+                                    } else null,
+                                    onClick = {
+                                        viewModel.setSort(key)
+                                        sortMenuOpen = false
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
             }
             cont?.let { row ->
                 item(span = { GridItemSpan(maxLineSpan) }) {
@@ -104,14 +151,35 @@ fun LibraryScreen(
                         onLongClick = { menuFor = row.document },
                     ),
                 ) {
-                    CoverImage(
-                        source = row.document.coverPath,
-                        title = row.document.title,
-                        author = row.document.author,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(2f / 3f),
-                    )
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        CoverImage(
+                            source = row.document.coverPath,
+                            title = row.document.title,
+                            author = row.document.author,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(2f / 3f),
+                        )
+                        if (row.finishedAt != null) {
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.tertiaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(6.dp)
+                                    .size(24.dp),
+                            ) {
+                                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Check,
+                                        contentDescription = "Finished",
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
                     Text(
                         text = row.document.title,
                         style = MaterialTheme.typography.titleMedium,

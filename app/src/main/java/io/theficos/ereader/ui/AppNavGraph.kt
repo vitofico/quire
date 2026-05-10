@@ -31,6 +31,7 @@ fun AppNavGraph(container: AppContainer) {
                     progress = container.progressRepository,
                     syncOrchestrator = container.syncOrchestrator,
                     booksDir = container.booksDir,
+                    libraryPreferencesStore = container.libraryPreferencesStore,
                 )
             }
             val catVm = remember {

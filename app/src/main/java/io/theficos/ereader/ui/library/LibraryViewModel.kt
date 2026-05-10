@@ -33,9 +33,14 @@ class LibraryViewModel(
     private val progress: ProgressRepository,
     private val syncOrchestrator: SyncOrchestrator,
     private val booksDir: File,
+    private val libraryPreferencesStore: LibraryPreferencesStore,
     private val nowMillis: () -> Long = System::currentTimeMillis,
     private val syncEnqueuer: (Context) -> Unit = { SyncEnqueuer.enqueue(it, expedited = true, replaceExisting = true) },
 ) : ViewModel() {
+
+    val sort: StateFlow<LibrarySort> = libraryPreferencesStore.flow
+
+    fun setSort(next: LibrarySort) = libraryPreferencesStore.update(next)
 
     private val rows: StateFlow<List<LibraryRow>> =
         docs.observeLibrary()
@@ -49,17 +54,20 @@ class LibraryViewModel(
                         document = d,
                         percent = p?.percent ?: 0.0,
                         progressUpdatedAt = p?.updatedAt ?: 0L,
+                        finishedAt = p?.finishedAt,
                     )
                 }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val items: StateFlow<List<LibraryRow>> = rows
+    val items: StateFlow<List<LibraryRow>> = combine(rows, sort) { list, by ->
+        applySort(list, by)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val continueReading: StateFlow<LibraryRow?> = rows
         .map { list ->
             list
-                .filter { it.percent in 0.0001..0.9999 }
+                .filter { it.percent > 0.0001 && it.finishedAt == null }
                 .maxByOrNull { it.progressUpdatedAt }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
@@ -102,10 +110,24 @@ class LibraryViewModel(
             }
         }
     }
+
+    private fun applySort(list: List<LibraryRow>, by: LibrarySort): List<LibraryRow> = when (by) {
+        LibrarySort.RECENTLY_READ -> list.sortedWith(
+            compareByDescending<LibraryRow> { it.progressUpdatedAt }
+                .thenBy { it.document.title.lowercase() }
+        )
+        LibrarySort.RECENTLY_ADDED -> list.sortedByDescending { it.document.id }
+        LibrarySort.TITLE -> list.sortedBy { it.document.title.lowercase() }
+        LibrarySort.AUTHOR -> list.sortedWith(
+            compareBy<LibraryRow> { it.document.author?.lowercase() ?: "￿" }
+                .thenBy { it.document.title.lowercase() }
+        )
+    }
 }
 
 data class LibraryRow(
     val document: Document,
     val percent: Double,
     val progressUpdatedAt: Long,
+    val finishedAt: Long? = null,
 )
