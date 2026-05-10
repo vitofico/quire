@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -42,6 +43,11 @@ class LibraryViewModel(
 
     fun setSort(next: LibrarySort) = libraryPreferencesStore.update(next)
 
+    private val _query = kotlinx.coroutines.flow.MutableStateFlow("")
+    val query: StateFlow<String> = _query.asStateFlow()
+
+    fun setQuery(next: String) { _query.value = next }
+
     private val rows: StateFlow<List<LibraryRow>> =
         docs.observeLibrary()
             .flatMapLatest { docList ->
@@ -60,8 +66,15 @@ class LibraryViewModel(
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val items: StateFlow<List<LibraryRow>> = combine(rows, sort) { list, by ->
-        applySort(list, by)
+    val items: StateFlow<List<LibraryRow>> = combine(rows, sort, _query) { list, by, q ->
+        val sorted = applySort(list, by)
+        if (q.isBlank()) sorted else {
+            val needle = q.trim().lowercase()
+            sorted.filter { row ->
+                row.document.title.lowercase().contains(needle) ||
+                    (row.document.author?.lowercase()?.contains(needle) == true)
+            }
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val continueReading: StateFlow<LibraryRow?> = rows

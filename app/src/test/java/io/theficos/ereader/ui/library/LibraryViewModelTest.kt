@@ -179,6 +179,55 @@ class LibraryViewModelTest {
         }
     }
 
+    @Test fun `query filters by title case-insensitively`() = runTest {
+        seed("h1", "Alpha", "Auth")
+        seed("h2", "BRAVO", "Auth")
+        seed("h3", "Charlie", "Auth")
+        vm.setSort(LibrarySort.TITLE)
+        vm.setQuery("bra")
+        vm.items.test {
+            var final = awaitItem()
+            while (final.size != 1 || final.firstOrNull()?.document?.title != "BRAVO") {
+                final = awaitItem()
+            }
+            assertThat(final.map { it.document.title }).containsExactly("BRAVO")
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test fun `query filters by author`() = runTest {
+        seed("h1", "Alpha", "King")
+        seed("h2", "Bravo", "Tolkien")
+        vm.setSort(LibrarySort.TITLE)
+        vm.setQuery("tolk")
+        vm.items.test {
+            var final = awaitItem()
+            while (final.size != 1 || final.firstOrNull()?.document?.title != "Bravo") {
+                final = awaitItem()
+            }
+            assertThat(final.map { it.document.title }).containsExactly("Bravo")
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test fun `clearing query restores full list`() = runTest {
+        seed("h1", "Alpha", null)
+        seed("h2", "Bravo", null)
+        vm.setSort(LibrarySort.TITLE)
+        vm.setQuery("alpha")
+        vm.items.test {
+            var filtered = awaitItem()
+            while (filtered.size != 1 || filtered.firstOrNull()?.document?.title != "Alpha") {
+                filtered = awaitItem()
+            }
+            vm.setQuery("")
+            var final = awaitItem()
+            while (final.size < 2) final = awaitItem()
+            assertThat(final).hasSize(2)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
     @Test fun `finished books are excluded from continueReading`() = runTest {
         seed("h1", "InProgress", null, percent = 0.5, updatedAt = 100L)
         seed("h2", "Finished", null, percent = 0.99, updatedAt = 200L, finishedAt = 200L)

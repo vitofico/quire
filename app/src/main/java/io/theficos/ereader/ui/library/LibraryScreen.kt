@@ -17,8 +17,11 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
@@ -29,6 +32,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -41,10 +45,13 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.theficos.ereader.core.model.Document
@@ -76,6 +83,8 @@ fun LibraryScreen(
     var pendingDelete by remember { mutableStateOf<Document?>(null) }
     var pendingRestart by remember { mutableStateOf<Document?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
+    var searchActive by rememberSaveable { mutableStateOf(false) }
+    val query by viewModel.query.collectAsState()
 
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
@@ -86,7 +95,7 @@ fun LibraryScreen(
         }
     }
 
-    if (items.isEmpty()) {
+    if (items.isEmpty() && !searchActive && query.isBlank()) {
         EmptyState(modifier = Modifier.padding(contentPadding))
         return
     }
@@ -110,7 +119,10 @@ fun LibraryScreen(
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f),
                     )
-                    var sortMenuOpen by remember { mutableStateOf(false) }
+                    IconButton(onClick = { searchActive = true }) {
+                        Icon(Icons.Filled.Search, contentDescription = "Search")
+                    }
+                    var sortMenuOpen by rememberSaveable { mutableStateOf(false) }
                     val currentSort by viewModel.sort.collectAsState()
                     Box {
                         IconButton(onClick = { sortMenuOpen = true }) {
@@ -142,7 +154,29 @@ fun LibraryScreen(
                 }
             }
             item(span = { GridItemSpan(maxLineSpan) }) {
-                SectionLabel("Library · ${items.size}")
+                if (searchActive) {
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { viewModel.setQuery(it) },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("Search library") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(
+                            capitalization = KeyboardCapitalization.None,
+                            imeAction = ImeAction.Search,
+                        ),
+                        trailingIcon = {
+                            IconButton(onClick = {
+                                viewModel.setQuery("")
+                                searchActive = false
+                            }) {
+                                Icon(Icons.Filled.Close, contentDescription = "Close search")
+                            }
+                        },
+                    )
+                } else {
+                    SectionLabel("Library · ${items.size}")
+                }
             }
             itemsIndexed(items, key = { _, r -> r.document.id }) { _, row ->
                 Column(
@@ -186,6 +220,16 @@ fun LibraryScreen(
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
+            }
+            if (searchActive && query.isNotBlank() && items.isEmpty()) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Text(
+                        text = "No matches in your library",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(16.dp),
                     )
                 }
             }
