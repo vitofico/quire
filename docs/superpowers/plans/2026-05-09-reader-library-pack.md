@@ -2446,6 +2446,421 @@ EOF
 
 ---
 
+# Phase 6 — Catalog refresh on credential change
+
+Files touched in this phase:
+
+- Modify: `auth/src/main/java/io/theficos/ereader/auth/CalibreCredentialStore.kt` — add observable `flow: StateFlow<CalibreCredentials?>`.
+- Modify: `app/src/main/java/io/theficos/ereader/ui/catalog/CatalogViewModel.kt` — observe credential flow; re-run `loadRoot()` on baseUrl change. Expose `refresh()` for pull-to-refresh.
+- Modify: `app/src/main/java/io/theficos/ereader/ui/catalog/CatalogScreen.kt` — wrap the catalog list in a Material 3 `PullToRefreshBox`.
+- Create: `auth/src/test/java/io/theficos/ereader/auth/CalibreCredentialStoreTest.kt` — flow round-trip tests.
+- Modify: `app/src/test/java/io/theficos/ereader/ui/catalog/CatalogViewModelTest.kt` if it exists (else create) — credential-change triggers refetch.
+
+Phase ends with one commit:
+`:sparkles: feat(catalog): refresh on credential change and pull-to-refresh`
+
+---
+
+## Task 6.1 — Make `CalibreCredentialStore` observable
+
+**Files:**
+- Modify: `auth/src/main/java/io/theficos/ereader/auth/CalibreCredentialStore.kt`
+- Create: `auth/src/test/java/io/theficos/ereader/auth/CalibreCredentialStoreTest.kt`
+
+- [ ] **Step 1: Write the failing test**
+
+Create `CalibreCredentialStoreTest.kt`:
+
+```kotlin
+package io.theficos.ereader.auth
+
+import androidx.test.core.app.ApplicationProvider
+import com.google.common.truth.Truth.assertThat
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [33])
+class CalibreCredentialStoreTest {
+
+    @Test fun `flow emits null when nothing stored`() {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.clear()
+        assertThat(store.flow.value).isNull()
+    }
+
+    @Test fun `put updates flow synchronously`() {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.clear()
+        store.put(CalibreCredentials("https://example", "u", "p"))
+        assertThat(store.flow.value).isEqualTo(CalibreCredentials("https://example", "u", "p"))
+    }
+
+    @Test fun `clear emits null`() {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.put(CalibreCredentials("https://example", "u", "p"))
+        store.clear()
+        assertThat(store.flow.value).isNull()
+    }
+
+    @Test fun `flow value matches get`() {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.put(CalibreCredentials("https://example", "u", "p"))
+        assertThat(store.flow.value).isEqualTo(store.get())
+    }
+}
+```
+
+- [ ] **Step 2: Run the tests and confirm they fail**
+
+Run: `./gradlew :auth:testDebugUnitTest --tests "io.theficos.ereader.auth.CalibreCredentialStoreTest"`
+Expected: compile error — `CalibreCredentialStore` has no `flow` member.
+
+- [ ] **Step 3: Add the flow to `CalibreCredentialStore`**
+
+Replace the file with:
+
+```kotlin
+package io.theficos.ereader.auth
+
+import android.content.Context
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+class CalibreCredentialStore(context: Context) {
+
+    private val prefs = EncryptedSharedPreferences.create(
+        context,
+        "calibre_creds",
+        MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
+        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+    )
+
+    private val _flow = MutableStateFlow(load())
+    val flow: StateFlow<CalibreCredentials?> = _flow.asStateFlow()
+
+    fun get(): CalibreCredentials? = _flow.value
+
+    fun put(creds: CalibreCredentials) {
+        prefs.edit()
+            .putString(KEY_BASE_URL, creds.baseUrl)
+            .putString(KEY_USER, creds.username)
+            .putString(KEY_PASS, creds.password)
+            .apply()
+        _flow.value = creds
+    }
+
+    fun clear() {
+        prefs.edit().clear().commit()
+        _flow.value = null
+    }
+
+    private fun load(): CalibreCredentials? {
+        val baseUrl = prefs.getString(KEY_BASE_URL, null) ?: return null
+        val user = prefs.getString(KEY_USER, null) ?: return null
+        val pass = prefs.getString(KEY_PASS, null) ?: return null
+        return CalibreCredentials(baseUrl, user, pass)
+    }
+
+    private companion object {
+        const val KEY_BASE_URL = "base_url"
+        const val KEY_USER = "username"
+        const val KEY_PASS = "password"
+    }
+}
+```
+
+`get()` now reads from the flow value (which is hydrated from disk on construction), so existing call sites continue to work without change.
+
+- [ ] **Step 4: Run tests**
+
+Run: `./gradlew :auth:testDebugUnitTest`
+Expected: all tests pass.
+
+---
+
+## Task 6.2 — `CatalogViewModel` observes credential changes; expose `refresh()`
+
+**Files:**
+- Modify: `app/src/main/java/io/theficos/ereader/ui/catalog/CatalogViewModel.kt`
+
+- [ ] **Step 1: Subscribe to credential flow in `init {}`**
+
+Add this block after the existing `downloadedUrls` declaration (or anywhere in the class body, before the existing functions):
+
+```kotlin
+    init {
+        viewModelScope.launch {
+            credentialStore.flow
+                .map { it?.baseUrl }
+                .distinctUntilChanged()
+                .collect { baseUrl ->
+                    if (!baseUrl.isNullOrBlank()) loadRoot()
+                }
+        }
+    }
+```
+
+Add imports:
+
+```kotlin
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+```
+
+(The first may already be imported; only add what's missing.)
+
+- [ ] **Step 2: Add a public `refresh()` for pull-to-refresh**
+
+Add right after `loadRoot()`:
+
+```kotlin
+    fun refresh() {
+        val current = _state.value as? CatalogUiState.Loaded ?: return loadRoot()
+        load(current.url)
+    }
+```
+
+`refresh()` re-fetches the URL the user is currently viewing (so it
+respects the breadcrumb back stack); falls back to `loadRoot()` if no
+feed is loaded.
+
+- [ ] **Step 3: Build and confirm**
+
+Run: `./gradlew :app:compileDebugKotlin`
+Expected: BUILD SUCCESSFUL.
+
+---
+
+## Task 6.3 — Wrap CatalogScreen list in `PullToRefreshBox`
+
+**Files:**
+- Modify: `app/src/main/java/io/theficos/ereader/ui/catalog/CatalogScreen.kt`
+
+- [ ] **Step 1: Read the file to find the lazy column**
+
+Run: `grep -n "LazyColumn\|LazyVerticalGrid\|CatalogUiState.Loaded" app/src/main/java/io/theficos/ereader/ui/catalog/CatalogScreen.kt`
+
+Identify the composable that renders the loaded feed list — wrap that in `PullToRefreshBox`.
+
+- [ ] **Step 2: Wrap the loaded-state content with `PullToRefreshBox`**
+
+Add imports:
+
+```kotlin
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+```
+
+Surround the content rendered for `CatalogUiState.Loaded` with:
+
+```kotlin
+@OptIn(ExperimentalMaterial3Api::class)
+PullToRefreshBox(
+    isRefreshing = state is CatalogUiState.Loading,
+    onRefresh = { viewModel.refresh() },
+    modifier = Modifier.fillMaxSize(),
+) {
+    // existing list content here, unchanged
+}
+```
+
+If the screen already has an `@OptIn(ExperimentalMaterial3Api::class)` at the file or function level, don't duplicate it.
+
+- [ ] **Step 3: Build and sanity check**
+
+Run: `./gradlew :app:compileDebugKotlin`
+Expected: BUILD SUCCESSFUL.
+
+By hand: open Catalog, pull down — should show the spinner and refetch the current feed. Save bad creds in Settings, see the Catalog show an error; correct the creds and save — the Catalog should refetch automatically without a process restart.
+
+- [ ] **Step 4: Commit Phase 6**
+
+```bash
+git add auth/src/main/java/io/theficos/ereader/auth/CalibreCredentialStore.kt auth/src/test/java/io/theficos/ereader/auth/CalibreCredentialStoreTest.kt app/src/main/java/io/theficos/ereader/ui/catalog/CatalogViewModel.kt app/src/main/java/io/theficos/ereader/ui/catalog/CatalogScreen.kt
+git status
+git commit -m "$(cat <<'EOF'
+:sparkles: feat(catalog): refresh on credential change and pull-to-refresh
+
+CalibreCredentialStore now exposes a StateFlow that emits on put()
+and clear(). CatalogViewModel subscribes in init and re-runs
+loadRoot() when the baseUrl changes, so saving corrected credentials
+in Settings refreshes the Catalog without restarting the app. A
+Material 3 PullToRefreshBox in CatalogScreen gives users a manual
+escape hatch for transient fetch failures.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+# Phase 7 — Sync re-attach for newly-downloaded books
+
+Files touched in this phase:
+
+- Modify: `app/src/main/java/io/theficos/ereader/ui/catalog/CatalogViewModel.kt` — after a successful download, clear the progress sync cursor and enqueue a sync.
+- Modify: `app/src/test/java/io/theficos/ereader/ui/catalog/CatalogViewModelTest.kt` if it exists (else create) — verify the cursor is cleared on success.
+
+Phase ends with one commit:
+`:bug: fix(sync): re-pull progress for newly-downloaded books`
+
+---
+
+## Task 7.1 — Reset progress sync cursor on download success
+
+**Files:**
+- Modify: `app/src/main/java/io/theficos/ereader/ui/catalog/CatalogViewModel.kt`
+
+- [ ] **Step 1: Inject the sync state DAO and the sync enqueuer**
+
+Open `CatalogViewModel.kt`. The constructor currently takes
+`(client, downloader, docs, credentialStore)`. Extend it:
+
+```kotlin
+class CatalogViewModel(
+    private val client: OpdsClient,
+    private val downloader: BookDownloader,
+    private val docs: DocumentRepository,
+    private val credentialStore: CalibreCredentialStore,
+    private val syncStateDao: io.theficos.ereader.data.local.db.SyncStateDao,
+    private val syncEnqueuer: (android.content.Context) -> Unit =
+        { ctx -> io.theficos.ereader.data.sync.SyncEnqueuer.enqueue(ctx, expedited = true, replaceExisting = true) },
+)
+```
+
+(Resolve the imports at the top of the file rather than fully-qualified
+names if cleaner — both forms compile.)
+
+- [ ] **Step 2: Wire the new dependencies in `AppContainer`**
+
+Open `app/src/main/java/io/theficos/ereader/di/AppContainer.kt` and update
+the `CatalogViewModel` construction (search for `CatalogViewModel(`).
+Pass `syncStateDao = syncStateDao` and leave `syncEnqueuer` as default.
+
+If the VM is constructed in `AppNavGraph.kt` instead (or elsewhere),
+update that call site. Run `grep -rn "CatalogViewModel(" app/src/main`
+to find every site.
+
+- [ ] **Step 3: Reset cursor in the download success path**
+
+In `CatalogViewModel.download(...)`, locate the `runCatching { ... }
+.onSuccess { ... }` block (or whatever pattern handles success). After
+`docs.upsert(...)` (or whichever call inserts the downloaded `documents`
+row) and BEFORE the state mutation that marks `lastDownloaded`, add:
+
+```kotlin
+                    // The book that just landed may have server-side progress that an
+                    // earlier pull silently dropped (no local doc to attach to). Reset the
+                    // progress sync cursor so the next pull re-fetches every row from
+                    // epoch 0; the now-present local doc lets it attach.
+                    syncStateDao.clearAll()
+                    syncEnqueuer(context)
+```
+
+`context` is required for `SyncEnqueuer.enqueue`. The download call
+already takes a `Context` from the calling site (see the Library's
+`restartFromUi(... context: Context)` for the established pattern).
+If `download()` does not currently accept a `Context` parameter, add
+one and update its call sites in `CatalogScreen` to pass
+`LocalContext.current`.
+
+- [ ] **Step 4: Verify build**
+
+Run: `./gradlew :app:compileDebugKotlin`
+Expected: BUILD SUCCESSFUL.
+
+---
+
+## Task 7.2 — Test: cursor cleared and sync enqueued on download success
+
+**Files:**
+- Create or modify: `app/src/test/java/io/theficos/ereader/ui/catalog/CatalogViewModelTest.kt`
+
+- [ ] **Step 1: Write the test**
+
+If the test file does not yet exist, create one with the standard
+Robolectric+Truth setup (mirror the structure of `LibraryViewModelTest`).
+Either way, add:
+
+```kotlin
+@Test fun `successful download clears progress sync cursor and enqueues sync`() = runTest {
+    var enqueueCount = 0
+    // Construct the VM with a stub `syncEnqueuer` that increments the counter.
+    // Seed `sync_state` with a non-zero cursor.
+    db.syncStateDao().set(SyncStateEntity("progress", lastPulledAt = 12345L))
+
+    // Stub the downloader so that `download(...)` returns a fake File and
+    // `downloadCover(...)` is a no-op. (Use a temp file like the existing
+    // LibraryViewModelTest does.)
+
+    // Simulate a successful download by calling vm.download(...) with a
+    // fixture OpdsPublication.
+    vm.download(/* publication fixture */)
+    advanceUntilIdle()
+
+    assertThat(db.syncStateDao().lastPulled("progress")).isNull()
+    assertThat(enqueueCount).isEqualTo(1)
+}
+```
+
+The exact construction of the test fixture (downloader stub, OpdsPublication
+fixture) follows the patterns already in this codebase. If those patterns
+are absent for CatalogViewModel, prefer the simpler integration form:
+
+```kotlin
+@Test fun `successful download clears progress sync cursor`() = runTest {
+    db.syncStateDao().set(SyncStateEntity("progress", lastPulledAt = 12345L))
+    // Manually invoke the same mutation the download success branch makes.
+    // (If the VM has an internal helper, call it; otherwise, exercise it
+    // through the public download() path with a stub downloader returning
+    // a temp file.)
+    ...
+    assertThat(db.syncStateDao().lastPulled("progress")).isNull()
+}
+```
+
+If a full VM-level integration test is too heavy here, the production
+behaviour is also covered by reading the diff and confirming the
+two-line addition to the success branch. In that case, document the
+gap explicitly in the commit message and proceed.
+
+- [ ] **Step 2: Run tests**
+
+Run: `./gradlew :app:testDebugUnitTest`
+Expected: all tests pass.
+
+- [ ] **Step 3: Commit Phase 7**
+
+```bash
+git add app/src/main/java/io/theficos/ereader/ui/catalog/CatalogViewModel.kt app/src/main/java/io/theficos/ereader/di/AppContainer.kt
+# Plus any test files that changed
+git status
+git commit -m "$(cat <<'EOF'
+:bug: fix(sync): re-pull progress for newly-downloaded books
+
+When a download completes, clear the progress sync cursor and enqueue
+an expedited sync. The next pull starts from epoch 0 so any
+server-side progress for the newly-downloaded book attaches to the
+just-inserted local document. Without this, the pull's high-water
+mark advances past the row when no local doc matched, leaving the
+book stuck at chapter 1 even though the server has progress.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
 # Final verification
 
 - [ ] **Step 1: Run the full Android suite**
@@ -2458,17 +2873,20 @@ Expected: BUILD SUCCESSFUL across all modules.
 Run: `cd server && uv run pytest -v`
 Expected: all tests pass.
 
-- [ ] **Step 3: Confirm the branch has five logical commits**
+- [ ] **Step 3: Confirm the branch has seven logical commits**
 
 Run: `git log --oneline main..feat/reader-library-pack`
 Expected output (commit shas will differ):
 
 ```
+<sha> :bug: fix(sync): re-pull progress for newly-downloaded books
+<sha> :sparkles: feat(catalog): refresh on credential change and pull-to-refresh
 <sha> :sparkles: feat(library): local search by title and author
 <sha> :sparkles: feat(library): sort options and finished badge
 <sha> :sparkles: feat(reader): tap left/right to turn pages (toggleable)
 <sha> :sparkles: feat(reader): keep screen on while reading
 <sha> :bug: fix(reader): track finished books and stop the 99% Continue Reading loop
+<sha> :memo: docs: reader & library feature pack implementation plan
 <sha> :memo: docs: reader & library feature pack spec
 ```
 

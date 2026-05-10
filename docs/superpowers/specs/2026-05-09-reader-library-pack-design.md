@@ -338,6 +338,116 @@ sort applied first, then a case-insensitive `contains` filter on
 
 ---
 
+## Phase 6 — Catalog refresh on credential change
+
+### Problem
+
+`CatalogViewModel.loadRoot()` calls `credentialStore.get()` once per
+invocation. When the user fixes a wrong base URL in Settings and saves,
+the Catalog VM is not notified — it keeps the previous (failed) state
+until the process is killed and restarted.
+
+### Approach
+
+Two changes, layered:
+
+1. **Observable credentials.** `CalibreCredentialStore` exposes a
+   `flow: StateFlow<CalibreCredentials?>` alongside `get()`. An
+   internal `MutableStateFlow` is updated on `put(...)` and `clear()`
+   so subscribers see fresh values immediately. `get()` continues to
+   work for synchronous read sites.
+2. **Catalog auto-refresh.** `CatalogViewModel` subscribes to the
+   flow in `init {}` and calls `loadRoot()` when the credentials
+   change (with a `distinctUntilChanged`-on-baseUrl guard so saving
+   the same URL twice doesn't trigger a redundant fetch).
+
+### Pull-to-refresh
+
+Added to the Catalog list as a manual escape hatch independent of the
+credential change. Material 3 `PullToRefreshBox` wraps the lazy column
+of OPDS entries; `onRefresh` calls `viewModel.refresh()`. This also
+handles the orthogonal case of a flaky calibre-web instance where the
+URL is fine but a single fetch failed.
+
+### Tests
+
+- `CalibreCredentialStoreTest` (new): the flow emits the current
+  value on subscription, emits a new value after `put(...)`, emits
+  null after `clear()`.
+- `CatalogViewModelTest` (new or extend existing): when the store's
+  flow emits a new baseUrl, the VM re-fetches.
+
+### Out of scope
+
+- No retry-with-backoff on auto-refresh failures (manual pull-to-refresh
+  covers this).
+- No multi-server account picker.
+
+---
+
+## Phase 7 — Sync re-attach for newly-downloaded books
+
+### Problem
+
+`SyncOrchestrator.applyPulled` silently drops progress rows whose
+`DocumentIdentity` does not match a local `documents` row, then
+advances the high-water mark anyway. When the user later downloads
+that book, its server-side progress is unreachable without resetting
+the sync state manually (Settings → Reset sync).
+
+### Approach (simplest viable)
+
+When a book download completes successfully — the moment a new
+`documents` row is inserted via the catalog download flow — clear the
+`progress` sync cursor by calling `syncStateDao.clearAll()` and
+enqueue an expedited sync. The next pull starts from epoch 0 and
+returns every progress row the user has, including the one belonging
+to the newly-downloaded doc.
+
+Cost is `O(server_progress_rows)` per download. For personal-scale
+libraries this is dozens to low hundreds of rows — trivial. The
+existing pull path already handles "doc not found" gracefully (early
+return) so other rows in the same response are no-ops.
+
+### Why not a per-doc server endpoint
+
+A targeted `GET /progress/by-identity?metadata_id=...&content_hash=...`
+would be more surgical, but it requires a server change, a new client
+HTTP path, and conflict-free ordering with the existing pull cursor.
+The reset-cursor approach is one line in the download path and
+exercises the existing pull machinery.
+
+### Why not a pending-progress side table
+
+Storing dropped progress rows in a `pending_progress` table keyed by
+identity, then materialising them when the matching doc is later
+inserted, is more elegant — but it introduces a new table, a
+migration, and cleanup semantics. Not worth it for the size of the
+problem.
+
+### Implementation point
+
+The hook lives in `CatalogViewModel.download(...)` after the
+`documents.upsert(...)` succeeds (the `runCatching { … }.onSuccess`
+branch). Reset and trigger inside the same `viewModelScope.launch` so
+the success state is only marked after the cursor is cleared.
+
+### Tests
+
+- `CatalogViewModelTest` (new or extend): on successful download, the
+  sync state for `progress` is cleared.
+- Integration-style test in `LibraryViewModelTest` style: server has
+  a progress row for an identity, no local doc exists, download
+  inserts the doc, `SyncOrchestrator.runOnce()` then attaches the
+  progress to the new local row.
+
+### Out of scope
+
+- Cleanup of orphan progress rows on the server (a separate concern).
+- Auto-reset on push failures (current LWW semantics handle this).
+
+---
+
 ## Risks and trade-offs
 
 - **Threshold tuning.** 0.98 is a guess informed by Readium's
