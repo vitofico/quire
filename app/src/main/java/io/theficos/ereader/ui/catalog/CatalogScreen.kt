@@ -45,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -61,6 +62,7 @@ fun CatalogScreen(
     val state by viewModel.state.collectAsState()
     val downloadedUrls by viewModel.downloadedUrls.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val context = LocalContext.current
 
     val canGoBack = (state as? CatalogUiState.Loaded)?.canGoBack == true
     BackHandler(enabled = canGoBack) { viewModel.back() }
@@ -86,7 +88,7 @@ fun CatalogScreen(
                     onNavigate = viewModel::load,
                     onBack = viewModel::back,
                     onSearch = viewModel::search,
-                    onDownload = viewModel::download,
+                    onDownload = { pub -> viewModel.download(pub, context) },
                 )
             }
         }

@@ -35,7 +35,13 @@ fun AppNavGraph(container: AppContainer) {
                 )
             }
             val catVm = remember {
-                CatalogViewModel(container.opdsClient, container.bookDownloader, container.documentRepository, container.credentialStore)
+                CatalogViewModel(
+                    client = container.opdsClient,
+                    downloader = container.bookDownloader,
+                    docs = container.documentRepository,
+                    credentialStore = container.credentialStore,
+                    syncStateDao = container.syncStateDao,
+                )
             }
             val setVm = remember {
                 SettingsViewModel(

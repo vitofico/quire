@@ -1,15 +1,18 @@
 package io.theficos.ereader.ui.catalog
 
+import android.content.Context
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.core.identity.extractIdentity
 import io.theficos.ereader.data.local.DocumentRepository
+import io.theficos.ereader.data.local.db.SyncStateDao
 import io.theficos.ereader.data.opds.BookDownloader
 import io.theficos.ereader.data.opds.OpdsClient
 import io.theficos.ereader.data.opds.OpdsFeed
 import io.theficos.ereader.data.opds.OpdsPublication
+import io.theficos.ereader.data.sync.SyncEnqueuer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -26,6 +29,9 @@ class CatalogViewModel(
     private val downloader: BookDownloader,
     private val docs: DocumentRepository,
     private val credentialStore: CalibreCredentialStore,
+    private val syncStateDao: SyncStateDao,
+    private val syncEnqueuer: (Context) -> Unit =
+        { ctx -> SyncEnqueuer.enqueue(ctx, expedited = true, replaceExisting = true) },
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<CatalogUiState>(CatalogUiState.Idle)
@@ -111,7 +117,7 @@ class CatalogViewModel(
         }
     }
 
-    fun download(pub: OpdsPublication) {
+    fun download(pub: OpdsPublication, context: Context) {
         val current = _state.value as? CatalogUiState.Loaded ?: return
         viewModelScope.launch {
             _state.value = current.copy(downloading = pub.epubDownloadHref, progress = 0f)
@@ -142,6 +148,16 @@ class CatalogViewModel(
                     coverFile?.delete()
                 }
             }.onSuccess {
+                // The book that just landed may have server-side progress that an
+                // earlier pull silently dropped (no local doc to attach to). Reset the
+                // progress sync cursor so the next pull re-fetches every row from
+                // epoch 0; the now-present local doc lets it attach. Best-effort —
+                // a failure here doesn't roll back the already-successful download,
+                // but is logged so the silent re-attach gap is visible in logcat.
+                runCatching { syncStateDao.clearAll() }
+                    .onFailure { Log.w("CatalogViewModel", "clearAll failed; progress re-attach deferred", it) }
+                runCatching { syncEnqueuer(context) }
+                    .onFailure { Log.w("CatalogViewModel", "syncEnqueuer failed; will retry on next manual sync", it) }
                 _state.value = current.copy(downloading = null, progress = 0f, lastDownloaded = pub.title)
             }.onFailure {
                 Log.e("CatalogViewModel", "download failed for ${pub.epubDownloadHref}", it)
