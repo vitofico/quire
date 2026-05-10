@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -30,11 +31,25 @@ class CatalogViewModel(
     private val _state = MutableStateFlow<CatalogUiState>(CatalogUiState.Idle)
     val state: StateFlow<CatalogUiState> = _state.asStateFlow()
 
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
     private val backStack = ArrayDeque<Pair<String, OpdsFeed>>()
 
     val downloadedUrls: StateFlow<Set<String>> = docs.observeLibrary()
         .map { list -> list.map { it.downloadUrl }.toSet() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+
+    init {
+        viewModelScope.launch {
+            credentialStore.flow
+                .map { it?.baseUrl }
+                .distinctUntilChanged()
+                .collect { baseUrl ->
+                    if (!baseUrl.isNullOrBlank()) loadRoot()
+                }
+        }
+    }
 
     fun loadRoot() {
         val baseUrl = credentialStore.get()?.baseUrl
@@ -44,6 +59,19 @@ class CatalogViewModel(
         }
         backStack.clear()
         load("${baseUrl.trimEnd('/')}/opds")
+    }
+
+    fun refresh() {
+        val current = _state.value as? CatalogUiState.Loaded ?: return loadRoot()
+        _isRefreshing.value = true
+        viewModelScope.launch {
+            runCatching { client.fetch(current.url) }
+                .onSuccess { feed ->
+                    _state.value = CatalogUiState.Loaded(current.url, feed, canGoBack = backStack.isNotEmpty())
+                }
+                .onFailure { _state.value = CatalogUiState.Error(it.message ?: "Fetch failed") }
+            _isRefreshing.value = false
+        }
     }
 
     fun load(url: String) {

@@ -28,14 +28,15 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,6 +52,7 @@ import io.theficos.ereader.data.opds.OpdsPublication
 import io.theficos.ereader.ui.components.CoverImage
 import io.theficos.ereader.ui.components.SectionLabel
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CatalogScreen(
     viewModel: CatalogViewModel,
@@ -58,7 +60,7 @@ fun CatalogScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val downloadedUrls by viewModel.downloadedUrls.collectAsState()
-    LaunchedEffect(Unit) { if (state == CatalogUiState.Idle) viewModel.loadRoot() }
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
 
     val canGoBack = (state as? CatalogUiState.Loaded)?.canGoBack == true
     BackHandler(enabled = canGoBack) { viewModel.back() }
@@ -73,14 +75,20 @@ fun CatalogScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.align(Alignment.Center).padding(24.dp),
             )
-            is CatalogUiState.Loaded -> Loaded(
-                state = s,
-                downloadedUrls = downloadedUrls,
-                onNavigate = viewModel::load,
-                onBack = viewModel::back,
-                onSearch = viewModel::search,
-                onDownload = viewModel::download,
-            )
+            is CatalogUiState.Loaded -> PullToRefreshBox(
+                isRefreshing = isRefreshing,
+                onRefresh = { viewModel.refresh() },
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                Loaded(
+                    state = s,
+                    downloadedUrls = downloadedUrls,
+                    onNavigate = viewModel::load,
+                    onBack = viewModel::back,
+                    onSearch = viewModel::search,
+                    onDownload = viewModel::download,
+                )
+            }
         }
     }
 }
