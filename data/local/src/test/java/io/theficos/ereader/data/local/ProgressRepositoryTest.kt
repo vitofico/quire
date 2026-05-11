@@ -61,4 +61,37 @@ class ProgressRepositoryTest {
         assertThat(row.percent).isEqualTo(0.0)
         assertThat(row.updatedAt).isEqualTo(42L)
     }
+
+    @Test fun `save persists finishedAt`() = runTest {
+        val docId = seedDoc()
+        repo.save(io.theficos.ereader.core.model.Progress(
+            documentId = docId, locator = "loc", percent = 0.99,
+            updatedAt = 100L, finishedAt = 200L,
+        ))
+        val row = db.progressDao().findByDocument(docId)!!
+        assertThat(row.finishedAt).isEqualTo(200L)
+    }
+
+    @Test fun `resetForDocument clears finishedAt`() = runTest {
+        val docId = seedDoc()
+        db.progressDao().upsert(ProgressEntity(
+            documentId = docId, locator = "x", percent = 0.99,
+            updatedAt = 1L, localUpdatedAt = 1L, syncedAt = 1L,
+            finishedAt = 999L,
+        ))
+        repo.resetForDocument(docId, now = 50L)
+        val row = db.progressDao().findByDocument(docId)!!
+        assertThat(row.finishedAt).isNull()
+    }
+
+    @Test fun `get returns finishedAt when present`() = runTest {
+        val docId = seedDoc()
+        db.progressDao().upsert(ProgressEntity(
+            documentId = docId, locator = "x", percent = 0.99,
+            updatedAt = 1L, localUpdatedAt = 1L, syncedAt = 1L,
+            finishedAt = 7L,
+        ))
+        val p = repo.get(docId)
+        assertThat(p?.finishedAt).isEqualTo(7L)
+    }
 }

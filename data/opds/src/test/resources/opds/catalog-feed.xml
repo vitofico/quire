@@ -12,5 +12,6 @@
     <dc:identifier>urn:uuid:550e8400-e29b-41d4-a716-446655440000</dc:identifier>
     <link rel="http://opds-spec.org/acquisition" href="/opds/download/42/epub" type="application/epub+zip"/>
     <link rel="http://opds-spec.org/image" href="/opds/cover/42" type="image/jpeg"/>
+    <link rel="alternate" type="text/html" href="/book/42"/>
   </entry>
 </feed>

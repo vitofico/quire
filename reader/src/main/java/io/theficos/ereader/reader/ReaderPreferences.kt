@@ -19,10 +19,13 @@ data class ReaderPreferences(
     val theme: ReaderTheme = ReaderTheme.LIGHT,
     val fontFamily: ReaderFontFamily = ReaderFontFamily.SYSTEM,
     val lineSpacing: Double = 1.4,
+    val tapNavigationEnabled: Boolean = true,
+    val pageMargins: Double = 1.4,
 ) {
     init {
         require(fontScale in 0.5..2.0) { "fontScale out of range: $fontScale" }
         require(lineSpacing in 1.0..1.8) { "lineSpacing out of range: $lineSpacing" }
+        require(pageMargins in 0.5..2.0) { "pageMargins out of range: $pageMargins" }
     }
 }
 
@@ -35,4 +38,5 @@ fun ReaderPreferences.toEpubPreferences(): EpubPreferences = EpubPreferences(
     },
     fontFamily = fontFamily.readium,
     lineHeight = lineSpacing,
+    pageMargins = pageMargins,
 )

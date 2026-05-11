@@ -15,6 +15,7 @@ data class ProgressItemDto(
     val locator: String,
     val percent: Double,
     @SerialName("client_updated_at") val clientUpdatedAt: String,
+    @SerialName("finished_at") val finishedAt: String? = null,
 )
 
 @Serializable

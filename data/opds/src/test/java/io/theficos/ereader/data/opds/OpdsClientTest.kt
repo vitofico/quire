@@ -80,6 +80,22 @@ class OpdsClientTest {
         assertThat(pub.coverUrl).endsWith("/opds/cover/42")
     }
 
+    @Test fun `fetch acquisition feed extracts webUrl from rel=alternate text-html link`() = runTest {
+        val feed = client.fetch(server.url("/opds/new").toString())
+        val pub = feed.publications[0]
+        assertThat(pub.webUrl).isNotNull()
+        assertThat(pub.webUrl).endsWith("/book/42")
+    }
+
+    @Test fun `webUrl derives from calibre-web download href when no alternate link is present`() = runTest {
+        val feed = client.fetch(server.url("/opds/thumb-only").toString())
+        val pub = feed.publications.single()
+        // No rel=alternate text/html in this fixture, but the acquisition href is
+        // /opds/download/42/epub — fallback should produce <origin>/book/42.
+        assertThat(pub.webUrl).isNotNull()
+        assertThat(pub.webUrl).endsWith("/book/42")
+    }
+
     @Test fun `feed without a search link exposes none`() = runTest {
         val feed = client.fetch(server.url("/opds").toString())
         assertThat(feed.searchLink).isNull()

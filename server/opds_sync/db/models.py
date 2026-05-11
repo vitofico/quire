@@ -51,6 +51,9 @@ class Progress(Base):
     )
     locator: Mapped[str] = mapped_column(String, nullable=False)
     percent: Mapped[float] = mapped_column(Float, nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     client_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
