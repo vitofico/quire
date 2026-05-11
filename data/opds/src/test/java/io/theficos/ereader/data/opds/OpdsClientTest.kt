@@ -80,6 +80,19 @@ class OpdsClientTest {
         assertThat(pub.coverUrl).endsWith("/opds/cover/42")
     }
 
+    @Test fun `fetch acquisition feed extracts webUrl from rel=alternate text-html link`() = runTest {
+        val feed = client.fetch(server.url("/opds/new").toString())
+        val pub = feed.publications[0]
+        assertThat(pub.webUrl).isNotNull()
+        assertThat(pub.webUrl).endsWith("/book/42")
+    }
+
+    @Test fun `webUrl is null when feed has no alternate text-html link`() = runTest {
+        val feed = client.fetch(server.url("/opds/thumb-only").toString())
+        val pub = feed.publications.single()
+        assertThat(pub.webUrl).isNull()
+    }
+
     @Test fun `feed without a search link exposes none`() = runTest {
         val feed = client.fetch(server.url("/opds").toString())
         assertThat(feed.searchLink).isNull()
