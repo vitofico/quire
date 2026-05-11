@@ -23,6 +23,7 @@ class ProgressItem(BaseModel):
     locator: str
     percent: float
     client_updated_at: datetime
+    finished_at: datetime | None = None
 
 
 class ProgressPushBody(BaseModel):
@@ -50,6 +51,21 @@ class ProgressPullItem(BaseModel):
     locator: str
     percent: float
     client_updated_at: datetime
+    finished_at: datetime | None = None
+
+    @field_serializer("client_updated_at")
+    def _serialize_client_updated_at(self, v: datetime) -> str:
+        if v.tzinfo is None:
+            v = v.replace(tzinfo=UTC)
+        return v.isoformat()
+
+    @field_serializer("finished_at")
+    def _serialize_finished_at(self, v: datetime | None) -> str | None:
+        if v is None:
+            return None
+        if v.tzinfo is None:
+            v = v.replace(tzinfo=UTC)
+        return v.isoformat()
 
 
 class ProgressPullResponse(BaseModel):
@@ -108,6 +124,7 @@ async def push_progress(
                     locator=item.locator,
                     percent=item.percent,
                     client_updated_at=item.client_updated_at,
+                    finished_at=item.finished_at,
                 )
             )
             results.append(
@@ -122,6 +139,7 @@ async def push_progress(
             existing.locator = item.locator
             existing.percent = item.percent
             existing.client_updated_at = item.client_updated_at
+            existing.finished_at = item.finished_at
             results.append(
                 ProgressPushResult(
                     document=item.document,
@@ -163,6 +181,7 @@ async def pull_progress(
             locator=p.locator,
             percent=p.percent,
             client_updated_at=p.client_updated_at,
+            finished_at=p.finished_at,
         )
         for p, d in rows
     ]

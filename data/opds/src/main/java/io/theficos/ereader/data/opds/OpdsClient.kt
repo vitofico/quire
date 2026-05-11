@@ -29,6 +29,9 @@ class OpdsClient(
             // Readium also drops opds:image/thumbnail links unless a sibling opds:image link
             // is present, so we pull cover hrefs from the raw XML and join by acquisition href.
             val coversByEpubHref = parseCoverHrefs(bytes, absoluteUrl)
+            // The `rel=alternate type=text/html` link points at the OPDS server's web detail page
+            // (e.g. calibre-web's `/book/{id}`); Readium doesn't surface it, so we read raw XML too.
+            val webUrlsByEpubHref = parseWebUrls(bytes, absoluteUrl)
             OpdsFeed(
                 title = feed.metadata.title,
                 navigation = feed.navigation.map { link ->
@@ -48,6 +51,8 @@ class OpdsClient(
                         author = pub.metadata.authors.firstOrNull()?.name,
                         epubDownloadHref = absoluteEpubHref,
                         coverUrl = coversByEpubHref[absoluteEpubHref],
+                        webUrl = webUrlsByEpubHref[absoluteEpubHref]
+                            ?: deriveCalibreWebDetailUrl(absoluteEpubHref),
                     )
                 },
                 searchLink = searchLink,
@@ -95,6 +100,51 @@ class OpdsClient(
             }
         }
         return result
+    }
+
+    private fun parseWebUrls(bytes: ByteArray, feedUrl: String): Map<String, String> {
+        val doc = runCatching {
+            DocumentBuilderFactory.newInstance()
+                .apply { isNamespaceAware = true }
+                .newDocumentBuilder()
+                .parse(ByteArrayInputStream(bytes))
+        }.getOrNull() ?: return emptyMap()
+        val entries = doc.getElementsByTagNameNS("http://www.w3.org/2005/Atom", "entry")
+        val result = mutableMapOf<String, String>()
+        for (i in 0 until entries.length) {
+            val entry = entries.item(i) as org.w3c.dom.Element
+            val links = entry.getElementsByTagNameNS("http://www.w3.org/2005/Atom", "link")
+            var epubHref: String? = null
+            var webHref: String? = null
+            for (j in 0 until links.length) {
+                val el = links.item(j) as org.w3c.dom.Element
+                val rel = el.getAttribute("rel")
+                val href = el.getAttribute("href").takeIf { it.isNotBlank() } ?: continue
+                val type = el.getAttribute("type")
+                when {
+                    rel == "http://opds-spec.org/acquisition" && type == "application/epub+zip" -> epubHref = href
+                    rel == "alternate" && type == "text/html" -> webHref = href
+                }
+            }
+            if (epubHref != null && webHref != null) {
+                result[absolutize(feedUrl, epubHref)] = absolutize(feedUrl, webHref)
+            }
+        }
+        return result
+    }
+
+    /**
+     * Calibre-web's OPDS feeds don't include a `rel=alternate type=text/html` link, but the
+     * epub acquisition href follows the pattern `<origin>/opds/download/<book_id>/<format>`.
+     * The web detail page lives at `<origin>/book/<book_id>`. This best-effort derivation
+     * lets long-press → "Open in calibre-web" work without a spec-compliant alternate link.
+     * Returns null for non-calibre-web feeds (the URL doesn't match the pattern).
+     */
+    private fun deriveCalibreWebDetailUrl(absoluteEpubHref: String): String? {
+        val match = CALIBRE_DOWNLOAD_REGEX.find(absoluteEpubHref) ?: return null
+        val bookId = match.groupValues[1]
+        val origin = absoluteEpubHref.substring(0, match.range.first)
+        return "$origin/book/$bookId"
     }
 
     private fun parseSearchLink(bytes: ByteArray, feedUrl: String): OpdsSearchLink? {
@@ -166,5 +216,6 @@ class OpdsClient(
 
     private companion object {
         private val OPTIONAL_PARAM = Regex("""\{[^{}]+\?\}""")
+        private val CALIBRE_DOWNLOAD_REGEX = Regex("""/opds/download/(\d+)/[^/?]+/?(?:\?.*)?$""")
     }
 }
