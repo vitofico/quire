@@ -51,7 +51,8 @@ class OpdsClient(
                         author = pub.metadata.authors.firstOrNull()?.name,
                         epubDownloadHref = absoluteEpubHref,
                         coverUrl = coversByEpubHref[absoluteEpubHref],
-                        webUrl = webUrlsByEpubHref[absoluteEpubHref],
+                        webUrl = webUrlsByEpubHref[absoluteEpubHref]
+                            ?: deriveCalibreWebDetailUrl(absoluteEpubHref),
                     )
                 },
                 searchLink = searchLink,
@@ -132,6 +133,20 @@ class OpdsClient(
         return result
     }
 
+    /**
+     * Calibre-web's OPDS feeds don't include a `rel=alternate type=text/html` link, but the
+     * epub acquisition href follows the pattern `<origin>/opds/download/<book_id>/<format>`.
+     * The web detail page lives at `<origin>/book/<book_id>`. This best-effort derivation
+     * lets long-press → "Open in calibre-web" work without a spec-compliant alternate link.
+     * Returns null for non-calibre-web feeds (the URL doesn't match the pattern).
+     */
+    private fun deriveCalibreWebDetailUrl(absoluteEpubHref: String): String? {
+        val match = CALIBRE_DOWNLOAD_REGEX.find(absoluteEpubHref) ?: return null
+        val bookId = match.groupValues[1]
+        val origin = absoluteEpubHref.substring(0, match.range.first)
+        return "$origin/book/$bookId"
+    }
+
     private fun parseSearchLink(bytes: ByteArray, feedUrl: String): OpdsSearchLink? {
         val doc = runCatching {
             DocumentBuilderFactory.newInstance()
@@ -201,5 +216,6 @@ class OpdsClient(
 
     private companion object {
         private val OPTIONAL_PARAM = Regex("""\{[^{}]+\?\}""")
+        private val CALIBRE_DOWNLOAD_REGEX = Regex("""/opds/download/(\d+)/[^/?]+/?(?:\?.*)?$""")
     }
 }
