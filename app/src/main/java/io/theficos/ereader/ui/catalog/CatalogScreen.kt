@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -31,7 +32,10 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -85,19 +89,24 @@ fun CatalogScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.align(Alignment.Center).padding(24.dp),
             )
-            is CatalogUiState.Loaded -> PullToRefreshBox(
-                isRefreshing = isRefreshing,
-                onRefresh = { viewModel.refresh() },
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                Loaded(
-                    state = s,
-                    downloadedUrls = downloadedUrls,
-                    onNavigate = viewModel::load,
-                    onBack = viewModel::back,
-                    onSearch = viewModel::search,
-                    onDownload = { pub -> viewModel.download(pub, context) },
-                )
+            is CatalogUiState.Loaded -> {
+                val sort by viewModel.sort.collectAsState()
+                PullToRefreshBox(
+                    isRefreshing = isRefreshing,
+                    onRefresh = { viewModel.refresh() },
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    Loaded(
+                        state = s,
+                        downloadedUrls = downloadedUrls,
+                        sort = sort,
+                        onSort = viewModel::setSort,
+                        onNavigate = viewModel::load,
+                        onBack = viewModel::back,
+                        onSearch = viewModel::search,
+                        onDownload = { pub -> viewModel.download(pub, context) },
+                    )
+                }
             }
         }
     }
@@ -108,6 +117,8 @@ fun CatalogScreen(
 private fun Loaded(
     state: CatalogUiState.Loaded,
     downloadedUrls: Set<String>,
+    sort: CatalogSort,
+    onSort: (CatalogSort) -> Unit,
     onNavigate: (String) -> Unit,
     onBack: () -> Unit,
     onSearch: (String) -> Unit,
@@ -115,6 +126,9 @@ private fun Loaded(
 ) {
     val context = LocalContext.current
     var menuFor by remember { mutableStateOf<OpdsPublication?>(null) }
+    val publications = remember(state.feed.publications, sort) {
+        applyCatalogSort(state.feed.publications, sort)
+    }
 
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
@@ -148,18 +162,22 @@ private fun Loaded(
             item(span = { GridItemSpan(maxLineSpan) }) { SectionLabel("Sections") }
             navigationItems(state, onNavigate)
         }
-        if (state.feed.publications.isNotEmpty()) {
+        if (publications.isNotEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) {
-                SectionLabel("Books · ${state.feed.publications.size}")
+                CatalogBooksHeader(
+                    count = publications.size,
+                    sort = sort,
+                    onSort = onSort,
+                )
             }
-            itemsIndexed(state.feed.publications, key = { _, p -> p.epubDownloadHref }) { _, pub ->
+            itemsIndexed(publications, key = { _, p -> p.epubDownloadHref }) { _, pub ->
                 val downloaded = pub.epubDownloadHref in downloadedUrls
                 val downloading = state.downloading == pub.epubDownloadHref
                 Column(
                     modifier = Modifier.combinedClickable(
                         enabled = !downloading,
                         onClick = { if (!downloaded) onDownload(pub) },
-                        onLongClick = { if (pub.webUrl != null) menuFor = pub },
+                        onLongClick = { menuFor = pub },
                     ),
                 ) {
                     Box {
@@ -240,11 +258,11 @@ private fun Loaded(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
                 )
-                pub.webUrl?.let { url ->
+                if (pub.webUrl != null) {
                     TextButton(
                         onClick = {
                             context.startActivity(
-                                Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                Intent(Intent.ACTION_VIEW, Uri.parse(pub.webUrl))
                                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                             )
                             menuFor = null
@@ -253,6 +271,65 @@ private fun Loaded(
                     ) {
                         Text("Open in calibre-web", modifier = Modifier.fillMaxWidth())
                     }
+                } else {
+                    Text(
+                        text = "No detail link in this feed entry",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+private val catalogSortLabels: List<Pair<CatalogSort, String>> = listOf(
+    CatalogSort.AUTHOR to "Author",
+    CatalogSort.TITLE to "Title",
+    CatalogSort.AS_SHOWN to "As shown",
+)
+
+private fun applyCatalogSort(list: List<OpdsPublication>, by: CatalogSort): List<OpdsPublication> = when (by) {
+    CatalogSort.AUTHOR -> list.sortedWith(
+        compareBy<OpdsPublication> { it.author?.lowercase() ?: "￿" }
+            .thenBy { it.title.lowercase() }
+    )
+    CatalogSort.TITLE -> list.sortedBy { it.title.lowercase() }
+    CatalogSort.AS_SHOWN -> list
+}
+
+@Composable
+private fun CatalogBooksHeader(
+    count: Int,
+    sort: CatalogSort,
+    onSort: (CatalogSort) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        SectionLabel("Books · $count", modifier = Modifier.weight(1f))
+        var sortMenuOpen by rememberSaveable { mutableStateOf(false) }
+        Box {
+            IconButton(onClick = { sortMenuOpen = true }) {
+                Icon(Icons.Filled.Sort, contentDescription = "Sort")
+            }
+            DropdownMenu(
+                expanded = sortMenuOpen,
+                onDismissRequest = { sortMenuOpen = false },
+            ) {
+                catalogSortLabels.forEach { (key, label) ->
+                    DropdownMenuItem(
+                        text = { Text(label) },
+                        leadingIcon = if (sort == key) {
+                            { Icon(Icons.Filled.Check, contentDescription = null) }
+                        } else null,
+                        onClick = {
+                            onSort(key)
+                            sortMenuOpen = false
+                        },
+                    )
                 }
             }
         }

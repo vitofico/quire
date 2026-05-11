@@ -30,6 +30,7 @@ class CatalogViewModel(
     private val docs: DocumentRepository,
     private val credentialStore: CalibreCredentialStore,
     private val syncStateDao: SyncStateDao,
+    private val catalogPreferencesStore: CatalogPreferencesStore,
     private val syncEnqueuer: (Context) -> Unit =
         { ctx -> SyncEnqueuer.enqueue(ctx, expedited = true, replaceExisting = true) },
 ) : ViewModel() {
@@ -39,6 +40,10 @@ class CatalogViewModel(
 
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
+    val sort: StateFlow<CatalogSort> = catalogPreferencesStore.flow
+
+    fun setSort(next: CatalogSort) = catalogPreferencesStore.update(next)
 
     private val backStack = ArrayDeque<Pair<String, OpdsFeed>>()
 

@@ -121,6 +121,9 @@ class CatalogViewModelTest {
             docs = docs,
             credentialStore = credentialStore,
             syncStateDao = db.syncStateDao(),
+            catalogPreferencesStore = CatalogPreferencesStore(
+                androidx.test.core.app.ApplicationProvider.getApplicationContext()
+            ),
             syncEnqueuer = { enqueueCount++ },
         )
 
