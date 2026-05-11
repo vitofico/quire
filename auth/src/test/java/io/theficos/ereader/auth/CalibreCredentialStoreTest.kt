@@ -30,4 +30,30 @@ class CalibreCredentialStoreTest {
         store.clear()
         assertThat(store.get()).isNull()
     }
+
+    @Test fun `flow emits null when nothing stored`() {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.clear()
+        assertThat(store.flow.value).isNull()
+    }
+
+    @Test fun `put updates flow synchronously`() {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.clear()
+        store.put(CalibreCredentials("https://example", "u", "p"))
+        assertThat(store.flow.value).isEqualTo(CalibreCredentials("https://example", "u", "p"))
+    }
+
+    @Test fun `clear emits null`() {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.put(CalibreCredentials("https://example", "u", "p"))
+        store.clear()
+        assertThat(store.flow.value).isNull()
+    }
+
+    @Test fun `flow value matches get`() {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.put(CalibreCredentials("https://example", "u", "p"))
+        assertThat(store.flow.value).isEqualTo(store.get())
+    }
 }
