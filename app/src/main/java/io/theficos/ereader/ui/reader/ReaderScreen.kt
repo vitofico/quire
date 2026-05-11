@@ -8,9 +8,14 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.systemGestures
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -92,7 +97,14 @@ fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
                     onNavigatorReady = viewModel::bindNavigator,
                 )
                 if (preferences.tapNavigationEnabled) {
-                    Row(modifier = Modifier.fillMaxSize()) {
+                    // Inset by the system-gesture strip on each edge so left/right swipes
+                    // from the very edge still trigger Android's predictive back instead of
+                    // being captured by the tap zones.
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .windowInsetsPadding(WindowInsets.systemGestures.only(WindowInsetsSides.Horizontal))
+                    ) {
                         Box(
                             modifier = Modifier
                                 .weight(0.33f)

@@ -28,4 +28,18 @@ class ReaderPreferencesStoreTest {
         val store2 = ReaderPreferencesStore(ApplicationProvider.getApplicationContext())
         assertThat(store2.flow.value.tapNavigationEnabled).isFalse()
     }
+
+    @Test fun `default pageMargins is 1_4`() {
+        val store = freshStore()
+        assertThat(store.flow.value.pageMargins).isWithin(0.001).of(1.4)
+    }
+
+    @Test fun `pageMargins round-trips through update and reload`() {
+        val store1 = freshStore()
+        store1.update { it.copy(pageMargins = 1.8) }
+        assertThat(store1.flow.value.pageMargins).isWithin(0.001).of(1.8)
+
+        val store2 = ReaderPreferencesStore(ApplicationProvider.getApplicationContext())
+        assertThat(store2.flow.value.pageMargins).isWithin(0.001).of(1.8)
+    }
 }
