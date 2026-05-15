@@ -21,6 +21,29 @@ import httpx
 import pytest
 from fastapi import HTTPException, Request, status
 from httpx import ASGITransport
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine
+
+
+@pytest.fixture(autouse=True)
+async def _truncate_ai_tables_between_tests(request, engine: AsyncEngine):
+    """Reset AI-related tables before each integration test that touches the DB.
+
+    The app's own request-scoped DB sessions ``commit()`` rows that the test's
+    ``session`` fixture rollback cannot undo, so we explicitly TRUNCATE before
+    each test for clean isolation.  Mirrors the unit-test pattern in
+    ``tests/unit/conftest.py``: only fires when the test requests the ``session``
+    fixture so pure-unit tests stay fast.
+    """
+    if "session" not in request.fixturenames:
+        return
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "TRUNCATE TABLE book_insights, user_ai_preferences, "
+                "external_source_cache, ai_usage_daily RESTART IDENTITY CASCADE"
+            )
+        )
 
 
 class _AppProxy:

@@ -207,7 +207,7 @@ async def test_invalidate_drops_cache(client_factory, configure_ai, app, session
         )
 
         rows_before = (await session.execute(select(BookInsight))).scalars().all()
-        assert len(rows_before) >= 1
+        assert len(rows_before) == 1
 
         r = await client.post(
             "/ai/v1/insights/invalidate",
