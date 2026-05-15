@@ -1,0 +1,107 @@
+package io.theficos.ereader.data.ai
+
+import io.theficos.ereader.core.metadata.MetadataBundle
+import io.theficos.ereader.core.model.DocumentIdentity
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+@Serializable
+data class AiConfig(
+    val configured: Boolean,
+    @SerialName("base_url_host") val baseUrlHost: String? = null,
+    @SerialName("model_id") val modelId: String? = null,
+    @SerialName("sources_enabled") val sourcesEnabled: List<String> = emptyList(),
+    @SerialName("daily_budget") val dailyBudget: Int = 0,
+    @SerialName("regen_daily_limit") val regenDailyLimit: Int = 0,
+)
+
+@Serializable
+data class AiStyle(
+    val tone: String = "neutral",
+    val length: String = "standard",
+    @SerialName("author_focus") val authorFocus: String = "moderate",
+    @SerialName("include_spoilers") val includeSpoilers: Boolean = false,
+    val interests: List<String> = listOf("themes", "writing_style"),
+)
+
+@Serializable
+data class AiPreferences(
+    @SerialName("ai_enabled") val aiEnabled: Boolean,
+    val style: AiStyle = AiStyle(),
+)
+
+@Serializable
+data class AiPreferencesBody(
+    @SerialName("ai_enabled") val aiEnabled: Boolean? = null,
+    val style: AiStyle? = null,
+)
+
+@Serializable
+data class Citation(
+    val kind: String,
+    val title: String,
+    val url: String? = null,
+    val snippet: String = "",
+)
+
+@Serializable
+data class AuthorInsight(
+    val bio: String? = null,
+    @SerialName("notable_works") val notableWorks: List<String>? = null,
+    val nationality: String? = null,
+    @SerialName("active_years") val activeYears: String? = null,
+)
+
+@Serializable
+data class SeriesInsight(
+    val name: String,
+    val position: Int? = null,
+    @SerialName("total_known") val totalKnown: Int? = null,
+)
+
+@Serializable
+data class BookInsightPayload(
+    @SerialName("schema_version") val schemaVersion: Int = 1,
+    val summary: String? = null,
+    val author: AuthorInsight? = null,
+    val series: SeriesInsight? = null,
+    val themes: List<String>? = null,
+    val tone: String? = null,
+    @SerialName("content_advisory") val contentAdvisory: List<String>? = null,
+    @SerialName("suggested_for") val suggestedFor: String? = null,
+    val confidence: String = "low",
+    val notes: String? = null,
+)
+
+@Serializable
+data class BookInsightResponse(
+    val payload: BookInsightPayload,
+    val sources: List<Citation>,
+    @SerialName("model_id") val modelId: String,
+    @SerialName("prompt_version") val promptVersion: String,
+    @SerialName("generated_at") val generatedAt: String,
+)
+
+@Serializable
+data class InsightLookupBody(
+    val identity: DocumentIdentity,
+    val bundle: MetadataBundle,
+)
+
+@Serializable
+data class InsightGetBody(val identity: DocumentIdentity)
+
+@Serializable
+data class InsightRegenerateBody(
+    val identity: DocumentIdentity,
+    val bundle: MetadataBundle,
+    val reason: String,
+)
+
+/** Body of the inner detail object on a 429 response. */
+@Serializable
+data class QuotaInfo(
+    val used: Int,
+    val limit: Int,
+    @SerialName("resets_at") val resetsAt: String,
+)
