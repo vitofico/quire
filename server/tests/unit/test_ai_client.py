@@ -139,3 +139,24 @@ async def test_no_auth_header_when_key_absent():
     )
     await client.chat_structured(system="s", user="u", schema=BookInsightPayload, timeout_s=5.0)
     assert seen["auth"] is None
+
+
+@pytest.mark.asyncio
+async def test_4xx_raises_provider_rejected_with_status():
+    from opds_sync.core.ai.client import ProviderRejected
+
+    handler = httpx.MockTransport(lambda req: httpx.Response(429, json={"error": "rate_limited"}))
+    client = AIClient(base_url="http://fake/v1", api_key=None, model="m", transport=handler)
+    with pytest.raises(ProviderRejected) as exc:
+        await client.chat_structured(system="s", user="u", schema=BookInsightPayload, timeout_s=5.0)
+    assert exc.value.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_5xx_raises_provider_unreachable():
+    from opds_sync.core.ai.client import ProviderUnreachable
+
+    handler = httpx.MockTransport(lambda req: httpx.Response(503, text="upstream down"))
+    client = AIClient(base_url="http://fake/v1", api_key=None, model="m", transport=handler)
+    with pytest.raises(ProviderUnreachable):
+        await client.chat_structured(system="s", user="u", schema=BookInsightPayload, timeout_s=5.0)

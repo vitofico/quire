@@ -45,6 +45,14 @@ class ProviderParseError(ProviderError):
     pass
 
 
+class ProviderRejected(ProviderError):
+    """Provider rejected the request (4xx). Carries status_code for caller logic."""
+
+    def __init__(self, status_code: int, message: str) -> None:
+        self.status_code = status_code
+        super().__init__(message)
+
+
 class AIClient:
     def __init__(
         self,
@@ -103,8 +111,8 @@ class AIClient:
                     return self._parse(retry_text, schema)
                 except (json.JSONDecodeError, ValidationError) as second_err:
                     raise ProviderParseError(
-                        f"Validation failed twice; last error: {second_err}"
-                    ) from second_err
+                        f"Validation failed twice; first: {first_err}; second: {second_err}"
+                    ) from first_err
 
     def _build_client(self, timeout_s: float) -> httpx.AsyncClient:
         headers = {"User-Agent": self._user_agent, "Content-Type": "application/json"}
@@ -136,7 +144,7 @@ class AIClient:
         if r.status_code >= 500:
             raise ProviderUnreachable(f"provider {r.status_code}: {r.text[:200]}")
         if r.status_code >= 400:
-            raise ProviderParseError(f"provider {r.status_code}: {r.text[:200]}")
+            raise ProviderRejected(r.status_code, f"provider {r.status_code}: {r.text[:200]}")
 
         data = r.json()
         choices = data.get("choices") or []
