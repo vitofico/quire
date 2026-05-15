@@ -332,14 +332,9 @@ from sqlalchemy import ARRAY, JSON, Boolean, Date, Integer
 
 class BookInsight(Base):
     __tablename__ = "book_insights"
-    __table_args__ = (
-        UniqueConstraint(
-            "content_hash",
-            "model_id",
-            "prompt_version",
-            name="uq_book_insights_content_hash_model_prompt",
-        ),
-    )
+    # All uniqueness/indexes for this table are PARTIAL (depend on `superseded_at`).
+    # They live in the Alembic migration only — partial indexes can't be expressed
+    # declaratively on the model.
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     metadata_id: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -390,7 +385,7 @@ class AIUsageDaily(Base):
     regen_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 ```
 
-The partial unique/filter indexes on `book_insights` are created by the migration only — they can't be expressed declaratively on the model.
+The partial unique/filter indexes AND the partial unique constraint on `book_insights` are created by the migration only — they can't be expressed declaratively on the model.
 
 - [ ] **Step 2: Sanity check imports**
 
