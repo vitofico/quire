@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 @pytest.fixture(autouse=True)
 async def _truncate_external_source_cache(request, engine: AsyncEngine):
-    """Wipe the external_source_cache before every unit test that uses a DB session.
+    """Wipe committed tables before every unit test that uses a DB session.
 
     The engine dependency means all unit tests share a single Postgres container
     (session-scoped), but the actual TRUNCATE is skipped unless the test requests
@@ -22,4 +22,8 @@ async def _truncate_external_source_cache(request, engine: AsyncEngine):
     if "session" not in request.fixturenames:
         return
     async with engine.begin() as conn:
-        await conn.execute(text("TRUNCATE TABLE external_source_cache"))
+        await conn.execute(
+            text(
+                "TRUNCATE TABLE external_source_cache, book_insights, ai_usage_daily"
+            )
+        )
