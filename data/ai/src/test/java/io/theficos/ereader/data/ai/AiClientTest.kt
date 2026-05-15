@@ -23,7 +23,7 @@ class AiClientTest {
         server = MockWebServer()
         server.start()
         client = AiClient(
-            baseUrl = server.url("").toString().trimEnd('/'),
+            baseUrlProvider = { server.url("").toString().trimEnd('/') },
             http = OkHttpClient.Builder()
                 .callTimeout(5, TimeUnit.SECONDS)
                 .build(),
@@ -170,6 +170,21 @@ class AiClientTest {
             error("expected throw")
         } catch (e: AiHttpException) {
             assertThat(e.code).isEqualTo(409)
+        }
+    }
+
+    @Test
+    fun `empty baseUrl raises AiHttpException with code 0`() = runTest {
+        val nullClient = AiClient(
+            baseUrlProvider = { null },
+            http = OkHttpClient.Builder().callTimeout(1, TimeUnit.SECONDS).build(),
+        )
+        try {
+            nullClient.getConfig()
+            error("expected throw")
+        } catch (e: AiHttpException) {
+            assertThat(e.code).isEqualTo(0)
+            assertThat(e.body).contains("baseUrl not configured")
         }
     }
 }

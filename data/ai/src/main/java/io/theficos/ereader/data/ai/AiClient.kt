@@ -20,11 +20,19 @@ import okhttp3.RequestBody.Companion.toRequestBody
  * (the same one used by :data:sync). This client does not add headers.
  */
 class AiClient(
-    private val baseUrl: String,
+    private val baseUrlProvider: () -> String?,
     private val http: OkHttpClient,
     private val json: Json = Json { ignoreUnknownKeys = true; encodeDefaults = true },
 ) {
     private val mediaType = "application/json; charset=utf-8".toMediaType()
+
+    private fun resolveBaseUrl(): String {
+        val raw = baseUrlProvider()
+        if (raw.isNullOrBlank()) {
+            throw AiHttpException(0, "baseUrl not configured")
+        }
+        return raw.trimEnd('/')
+    }
 
     suspend fun getConfig(): AiConfig =
         get("/ai/v1/config")
@@ -67,19 +75,19 @@ class AiClient(
     }
 
     private suspend inline fun <reified T> get(path: String): T =
-        execute(Request.Builder().url("$baseUrl$path").get())
+        execute(Request.Builder().url("${resolveBaseUrl()}$path").get())
 
     private suspend inline fun <reified Body, reified Resp> post(path: String, body: Body): Resp =
         execute(
             Request.Builder()
-                .url("$baseUrl$path")
+                .url("${resolveBaseUrl()}$path")
                 .post(json.encodeToString(body).toRequestBody(mediaType))
         )
 
     private suspend inline fun <reified Body> postUnit(path: String, body: Body) {
         executeRaw(
             Request.Builder()
-                .url("$baseUrl$path")
+                .url("${resolveBaseUrl()}$path")
                 .post(json.encodeToString(body).toRequestBody(mediaType))
         )
     }
@@ -87,7 +95,7 @@ class AiClient(
     private suspend inline fun <reified Body, reified Resp> put(path: String, body: Body): Resp =
         execute(
             Request.Builder()
-                .url("$baseUrl$path")
+                .url("${resolveBaseUrl()}$path")
                 .put(json.encodeToString(body).toRequestBody(mediaType))
         )
 

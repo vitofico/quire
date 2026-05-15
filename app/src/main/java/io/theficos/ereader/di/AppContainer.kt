@@ -50,7 +50,7 @@ class AppContainer(context: Context) {
     )
 
     val aiClient: AiClient = AiClient(
-        baseUrl = credentialStore.get()?.baseUrl ?: "",
+        baseUrlProvider = { credentialStore.get()?.baseUrl },
         http = opdsHttp.okHttp,
     )
     val aiRepository: AiRepository = AiRepository(aiClient)
