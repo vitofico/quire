@@ -5,6 +5,8 @@ import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.ProgressRepository
 import io.theficos.ereader.data.local.db.EReaderDatabase
+import io.theficos.ereader.data.ai.AiClient
+import io.theficos.ereader.data.ai.AiRepository
 import io.theficos.ereader.data.opds.BookDownloader
 import io.theficos.ereader.data.opds.OpdsClient
 import io.theficos.ereader.data.opds.OpdsHttpClient
@@ -46,6 +48,12 @@ class AppContainer(context: Context) {
         documentRepo = documentRepository,
         syncState = syncStateDao,
     )
+
+    val aiClient: AiClient = AiClient(
+        baseUrl = credentialStore.get()?.baseUrl ?: "",
+        http = opdsHttp.okHttp,
+    )
+    val aiRepository: AiRepository = AiRepository(aiClient)
 
     init {
         SyncDependencies.holder = SyncDependencies.Holder(syncOrchestrator)
