@@ -5,6 +5,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.auth.CalibreCredentials
+import io.theficos.ereader.data.ai.AiConfig
+import io.theficos.ereader.data.ai.AiPreferences
+import io.theficos.ereader.data.ai.AiRepository
 import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.db.SyncStateDao
 import io.theficos.ereader.data.sync.SyncEnqueuer
@@ -14,13 +17,22 @@ import io.theficos.ereader.reader.ReaderPreferences
 import io.theficos.ereader.reader.ReaderPreferencesStore
 import io.theficos.ereader.reader.ReaderTheme
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class SyncUiState(
     val hasCredentials: Boolean,
     val lastSyncedAtMs: Long?,
+)
+
+data class AiState(
+    val config: AiConfig? = null,
+    val preferences: AiPreferences? = null,
+    val toggling: Boolean = false,
 )
 
 class SettingsViewModel(
@@ -29,6 +41,7 @@ class SettingsViewModel(
     private val syncStateDao: SyncStateDao,
     private val documentRepo: DocumentRepository,
     private val booksDir: File,
+    private val aiRepository: AiRepository,
     private val syncEnqueuer: (Context) -> Unit = { SyncEnqueuer.enqueue(it, expedited = true, replaceExisting = true) },
 ) : ViewModel() {
     private val _calibre = MutableStateFlow(loadInitialCalibre())
@@ -38,6 +51,19 @@ class SettingsViewModel(
 
     private val _sync = MutableStateFlow(SyncUiState(hasCredentials = store.get() != null, lastSyncedAtMs = null))
     val sync: StateFlow<SyncUiState> = _sync.asStateFlow()
+
+    val ai: StateFlow<AiState> = combine(
+        aiRepository.config,
+        aiRepository.preferences,
+    ) { c, p -> AiState(config = c, preferences = p) }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        AiState(),
+    )
+
+    init {
+        viewModelScope.launch { aiRepository.refresh() }
+    }
 
     private fun loadInitialCalibre(): CalibreUiState {
         val creds = store.get()
@@ -88,6 +114,18 @@ class SettingsViewModel(
     fun removeAllBooks() {
         viewModelScope.launch {
             documentRepo.deleteAll(booksDir)
+        }
+    }
+
+    fun toggleAi(enabled: Boolean) {
+        viewModelScope.launch {
+            runCatching { aiRepository.setEnabled(enabled) }
+        }
+    }
+
+    fun setStyleTone(tone: String) {
+        viewModelScope.launch {
+            runCatching { aiRepository.setStyleTone(tone) }
         }
     }
 }

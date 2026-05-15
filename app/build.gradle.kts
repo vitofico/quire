@@ -76,10 +76,12 @@ android {
 dependencies {
     implementation(project(":core:model"))
     implementation(project(":core:identity"))
+    implementation(project(":core:metadata"))
     implementation(project(":data:local"))
     implementation(project(":data:opds"))
     implementation(project(":auth"))
     implementation(project(":data:sync"))
+    implementation(project(":data:ai"))
     implementation(project(":reader"))
     implementation(libs.work.runtime.ktx)
     implementation(libs.kotlinx.serialization.json)
