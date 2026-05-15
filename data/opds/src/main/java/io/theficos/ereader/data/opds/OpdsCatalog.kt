@@ -17,6 +17,8 @@ data class OpdsPublication(
     val author: String?,
     val epubDownloadHref: String,
     val coverUrl: String?,
+    /** OPDS `rel=alternate type=text/html` href — the book's web detail page on the OPDS server (calibre-web's `/book/{id}`). Null if the feed didn't expose one. */
+    val webUrl: String? = null,
 )
 
 data class OpdsSearchLink(

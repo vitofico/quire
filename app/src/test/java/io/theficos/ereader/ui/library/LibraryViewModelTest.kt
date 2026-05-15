@@ -12,7 +12,13 @@ import io.theficos.ereader.data.local.db.DocumentEntity
 import io.theficos.ereader.data.local.db.EReaderDatabase
 import io.theficos.ereader.data.sync.SyncClient
 import io.theficos.ereader.data.sync.SyncOrchestrator
+import io.theficos.ereader.core.model.Progress as DomainProgress
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -24,6 +30,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.File
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], application = android.app.Application::class)
 class LibraryViewModelTest {
@@ -35,6 +42,7 @@ class LibraryViewModelTest {
     private lateinit var vm: LibraryViewModel
 
     @Before fun setUp() {
+        Dispatchers.setMain(UnconfinedTestDispatcher())
         server = MockWebServer().also { it.start() }
         db = Room.inMemoryDatabaseBuilder(
             ApplicationProvider.getApplicationContext(), EReaderDatabase::class.java
@@ -57,11 +65,12 @@ class LibraryViewModelTest {
             progress = progress,
             syncOrchestrator = orchestrator,
             booksDir = File("/dev/null"),
+            libraryPreferencesStore = LibraryPreferencesStore(ApplicationProvider.getApplicationContext()),
             nowMillis = { 999L },
         )
     }
 
-    @After fun tearDown() { db.close(); server.shutdown() }
+    @After fun tearDown() { db.close(); server.shutdown(); Dispatchers.resetMain() }
 
     private suspend fun seedDoc(file: File): Document {
         val id = db.documentDao().insert(DocumentEntity(
@@ -125,5 +134,110 @@ class LibraryViewModelTest {
         assertThat(tmp.exists()).isTrue()
         assertThat(db.documentDao().findById(doc.id)).isNotNull()
         tmp.delete()
+    }
+
+    private suspend fun seed(
+        contentHash: String, title: String, author: String?,
+        percent: Double = 0.0, updatedAt: Long = 0L, finishedAt: Long? = null,
+    ): Long {
+        val docId = db.documentDao().insert(DocumentEntity(
+            metadataId = contentHash, contentHash = contentHash, title = title, author = author,
+            downloadUrl = "u", localPath = "p", coverPath = null, downloadedAt = 0,
+        ))
+        if (percent > 0.0 || finishedAt != null) {
+            progress.save(DomainProgress(
+                documentId = docId, locator = "loc", percent = percent,
+                updatedAt = updatedAt, finishedAt = finishedAt,
+            ))
+        }
+        return docId
+    }
+
+    @Test fun `default sort is RECENTLY_READ ordering by progressUpdatedAt desc`() = runTest {
+        seed("h1", "Alpha", "Auth", percent = 0.2, updatedAt = 100L)
+        seed("h2", "Bravo", "Auth", percent = 0.4, updatedAt = 300L)
+        seed("h3", "Charlie", "Auth", percent = 0.1, updatedAt = 200L)
+        vm.items.test {
+            var final = awaitItem()
+            while (final.size < 3) final = awaitItem()
+            assertThat(final.map { it.document.title }).containsExactly("Bravo", "Charlie", "Alpha").inOrder()
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test fun `TITLE sort orders alphabetically`() = runTest {
+        seed("h1", "Charlie", null)
+        seed("h2", "Alpha", null)
+        seed("h3", "Bravo", null)
+        vm.setSort(LibrarySort.TITLE)
+        vm.items.test {
+            var final = awaitItem()
+            while (final.size < 3) final = awaitItem()
+            val titles = final.map { it.document.title }
+            assertThat(titles).containsExactly("Alpha", "Bravo", "Charlie").inOrder()
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test fun `query filters by title case-insensitively`() = runTest {
+        seed("h1", "Alpha", "Auth")
+        seed("h2", "BRAVO", "Auth")
+        seed("h3", "Charlie", "Auth")
+        vm.setSort(LibrarySort.TITLE)
+        vm.setQuery("bra")
+        vm.items.test {
+            var final = awaitItem()
+            while (final.size != 1 || final.firstOrNull()?.document?.title != "BRAVO") {
+                final = awaitItem()
+            }
+            assertThat(final.map { it.document.title }).containsExactly("BRAVO")
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test fun `query filters by author`() = runTest {
+        seed("h1", "Alpha", "King")
+        seed("h2", "Bravo", "Tolkien")
+        vm.setSort(LibrarySort.TITLE)
+        vm.setQuery("tolk")
+        vm.items.test {
+            var final = awaitItem()
+            while (final.size != 1 || final.firstOrNull()?.document?.title != "Bravo") {
+                final = awaitItem()
+            }
+            assertThat(final.map { it.document.title }).containsExactly("Bravo")
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test fun `clearing query restores full list`() = runTest {
+        seed("h1", "Alpha", null)
+        seed("h2", "Bravo", null)
+        vm.setSort(LibrarySort.TITLE)
+        vm.setQuery("alpha")
+        vm.items.test {
+            var filtered = awaitItem()
+            while (filtered.size != 1 || filtered.firstOrNull()?.document?.title != "Alpha") {
+                filtered = awaitItem()
+            }
+            vm.setQuery("")
+            var final = awaitItem()
+            while (final.size < 2) final = awaitItem()
+            assertThat(final).hasSize(2)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test fun `finished books are excluded from continueReading`() = runTest {
+        seed("h1", "InProgress", null, percent = 0.5, updatedAt = 100L)
+        seed("h2", "Finished", null, percent = 0.99, updatedAt = 200L, finishedAt = 200L)
+        vm.continueReading.test {
+            // skip nulls until we get a value or stable null
+            var emission = awaitItem()
+            // Wait one more tick if needed
+            if (emission?.document?.title != "InProgress") emission = awaitItem()
+            assertThat(emission?.document?.title).isEqualTo("InProgress")
+            cancelAndIgnoreRemainingEvents()
+        }
     }
 }

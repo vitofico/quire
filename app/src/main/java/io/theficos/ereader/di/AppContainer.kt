@@ -17,6 +17,8 @@ import io.theficos.ereader.data.sync.SyncOrchestrator
 import io.theficos.ereader.reader.ReaderPreferencesStore
 import io.theficos.ereader.reader.ReadiumFactory
 import io.theficos.ereader.ui.bookdetail.BookDetailViewModel
+import io.theficos.ereader.ui.catalog.CatalogPreferencesStore
+import io.theficos.ereader.ui.library.LibraryPreferencesStore
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -40,6 +42,8 @@ class AppContainer(context: Context) {
     val syncStateDao = db.syncStateDao()
     val readiumFactory = ReadiumFactory(appContext)
     val readerPreferencesStore = ReaderPreferencesStore(appContext)
+    val libraryPreferencesStore = LibraryPreferencesStore(appContext)
+    val catalogPreferencesStore = CatalogPreferencesStore(appContext)
 
     val syncClient: SyncClient = SyncClient(
         baseUrlProvider = { credentialStore.get()?.baseUrl },

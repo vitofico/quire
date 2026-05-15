@@ -37,6 +37,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # to push the version-bump commit and tag
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -54,23 +56,38 @@ jobs:
       - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
       - id: version
         name: Compute version
+        env:
+          # Use the GitHub-provided token to push the bump commit and tag.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ "$GITHUB_REF" = "refs/heads/main" ]; then
-            # On main: bump CalVer (date + CI run number) and tag the HEAD
-            # locally so Gradle's git-describe finds an exact-match tag.
-            # The release job pushes this tag when it creates the Release.
+            # On main: compute the next CalVer from date + run number,
+            # write it into gradle.properties, commit + tag, then push
+            # both before Gradle runs. The build then reads the bumped
+            # values directly from gradle.properties.
             BUILD_DATE=$(date -u +%Y-%m-%d)
-            VERSION="${BUILD_DATE//-/.}.${GITHUB_RUN_NUMBER}"
-            git tag "v$VERSION"
+            NEW_NAME="${BUILD_DATE//-/.}.${GITHUB_RUN_NUMBER}"
+            YY=$(date -u +%y)
+            MM=$(date -u +%m)
+            DD=$(date -u +%d)
+            NEW_CODE=$(( (10#$YY * 10000 + 10#$MM * 100 + 10#$DD) * 100 + GITHUB_RUN_NUMBER % 100 ))
+
+            sed -i "s/^VERSION_NAME=.*/VERSION_NAME=$NEW_NAME/" gradle.properties
+            sed -i "s/^VERSION_CODE=.*/VERSION_CODE=$NEW_CODE/" gradle.properties
+
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+            git add gradle.properties
+            git commit -m ":bookmark: chore: release v$NEW_NAME"
+            git tag "v$NEW_NAME"
+            git push origin "HEAD:$GITHUB_REF" "v$NEW_NAME"
+
+            VERSION="$NEW_NAME"
           else
-            # On PRs / feature branches: derive from existing tag history.
-            # Post-tag dev format is fine for non-release artifact names.
-            if ! git describe --tags --match 'v*' --abbrev=0 >/dev/null 2>&1; then
-              echo "::error::No matching v* tag in history. Build will fail."
-              git tag -l 'v*' | head
-              exit 1
-            fi
-            VERSION=$(git describe --tags --match 'v*' --always | sed 's/^v//')
+            # On PRs / feature branches: just read the static value from
+            # gradle.properties — no bump, no tag, no commit.
+            VERSION=$(grep '^VERSION_NAME=' gradle.properties | cut -d= -f2)
           fi
           echo "VERSION_NAME=$VERSION" >> "$GITHUB_ENV"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -102,6 +119,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          ref: v${{ needs.build.outputs.version }}
           fetch-depth: 0
           fetch-tags: true
       - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
@@ -119,11 +137,6 @@ jobs:
           KEYSTORE_B64: ${{ secrets.QUIRE_RELEASE_KEYSTORE_B64 }}
       - name: Assemble release APK
         env:
-          # The build job created the tag locally on its runner so Gradle's
-          # git-describe found an exact match. Each release-job runner gets
-          # a fresh checkout with no local tag, so feed the same CalVer in
-          # via the parser's fallback path.
-          QUIRE_VERSION_FALLBACK: ${{ needs.build.outputs.version }}
           QUIRE_RELEASE_KEYSTORE: ${{ secrets.QUIRE_RELEASE_KEYSTORE_B64 != '' && format('{0}/release.keystore', runner.temp) || '' }}
           QUIRE_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.QUIRE_RELEASE_KEYSTORE_PASSWORD }}
           QUIRE_RELEASE_KEY_ALIAS: ${{ secrets.QUIRE_RELEASE_KEY_ALIAS }}

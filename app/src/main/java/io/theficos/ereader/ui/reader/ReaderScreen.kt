@@ -1,12 +1,15 @@
 package io.theficos.ereader.ui.reader
 
+import android.app.Activity
+import android.content.Context
+import android.view.GestureDetector
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
-import androidx.compose.foundation.gestures.detectTapGestures
+import android.view.WindowManager
+import android.widget.FrameLayout
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -20,7 +23,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.fragment.app.FragmentActivity
@@ -58,6 +60,14 @@ fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    val activity = LocalContext.current as Activity
+    DisposableEffect(activity) {
+        activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose {
+            activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
     LaunchedEffect(Unit) { viewModel.load() }
     LaunchedEffect(chromeVisible) {
         if (chromeVisible) {
@@ -76,15 +86,10 @@ fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
                     initialLocator = s.initialLocator,
                     preferences = preferences,
                     onLocator = viewModel::publishLocator,
-                )
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .fillMaxHeight()
-                        .fillMaxWidth(0.34f)
-                        .pointerInput(Unit) {
-                            detectTapGestures(onTap = { viewModel.toggleChrome() })
-                        }
+                    onNavigatorReady = viewModel::bindNavigator,
+                    onPrev = viewModel::pageBackward,
+                    onNext = viewModel::pageForward,
+                    onToggleChrome = viewModel::toggleChrome,
                 )
 
                 ReaderTopBar(
@@ -120,6 +125,10 @@ private fun ReaderContent(
     initialLocator: Locator?,
     preferences: ReaderPreferences,
     onLocator: (Locator) -> Unit,
+    onNavigatorReady: (EpubNavigatorFragment?) -> Unit,
+    onPrev: () -> Unit,
+    onNext: () -> Unit,
+    onToggleChrome: () -> Unit,
 ) {
     val activity = LocalContext.current as FragmentActivity
     val containerId = rememberSaveable { View.generateViewId() }
@@ -129,13 +138,27 @@ private fun ReaderContent(
     AndroidView(
         modifier = Modifier.fillMaxSize(),
         factory = { ctx ->
-            FragmentContainerView(ctx).apply {
-                id = containerId
+            ReaderTapDispatcher(ctx).apply {
                 layoutParams = ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT,
                 )
+                addView(
+                    FragmentContainerView(ctx).apply {
+                        id = containerId
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                        )
+                    }
+                )
             }
+        },
+        update = { wrapper ->
+            wrapper.onPrev = onPrev
+            wrapper.onNext = onNext
+            wrapper.onToggleChrome = onToggleChrome
+            wrapper.tapNavigationEnabled = preferences.tapNavigationEnabled
         },
     )
 
@@ -154,6 +177,7 @@ private fun ReaderContent(
             .replace(containerId, nav, tag)
             .commitNow()
         fragment = nav
+        onNavigatorReady(nav)
 
         val job = activity.lifecycleScope.launch {
             nav.currentLocator.collect { onLocator(it) }
@@ -162,6 +186,7 @@ private fun ReaderContent(
         onDispose {
             job.cancel()
             fragment = null
+            onNavigatorReady(null)
             fm.beginTransaction()
                 .remove(nav)
                 .commitNowAllowingStateLoss()
@@ -170,5 +195,45 @@ private fun ReaderContent(
 
     LaunchedEffect(preferences) {
         fragment?.submitPreferences(preferences.toEpubPreferences())
+    }
+}
+
+/**
+ * Wraps the Readium [FragmentContainerView] and detects single taps via a
+ * [GestureDetector] at the View layer. Tap events fire navigation callbacks;
+ * swipes, long-presses and edge gestures flow naturally to children (the
+ * Readium WebView gets its swipe-to-page) and to Android's system gesture
+ * handler (predictive back). Compose overlays were tried first and don't
+ * coexist with the WebView's gesture handling — see commit history.
+ */
+private class ReaderTapDispatcher(context: Context) : FrameLayout(context) {
+    var onPrev: () -> Unit = {}
+    var onNext: () -> Unit = {}
+    var onToggleChrome: () -> Unit = {}
+    var tapNavigationEnabled: Boolean = true
+
+    private val gesture = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+        override fun onSingleTapUp(e: MotionEvent): Boolean {
+            val w = width.toFloat()
+            if (w <= 0f) return false
+            val frac = e.x / w
+            if (tapNavigationEnabled) {
+                when {
+                    frac < 0.33f -> onPrev()
+                    frac > 0.67f -> onNext()
+                    else -> onToggleChrome()
+                }
+            } else if (frac in 0.33f..0.67f) {
+                onToggleChrome()
+            }
+            return true
+        }
+    })
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        // Observe the event for tap recognition without consuming — children
+        // (Readium's WebView) still receive every touch they need for swipe.
+        gesture.onTouchEvent(ev)
+        return super.dispatchTouchEvent(ev)
     }
 }

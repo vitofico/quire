@@ -5,25 +5,10 @@ plugins {
     alias(libs.plugins.aboutlibraries)
 }
 
-// Tag-driven CalVer. The build reads `git describe --tags --match 'v*'`
-// and parses it via buildSrc/Version.kt. Set QUIRE_VERSION_FALLBACK
-// (e.g. "2026.05.08.29") if building from a shallow clone with no tags.
-fun gitDescribe(): String =
-    try {
-        val process = ProcessBuilder("git", "describe", "--tags", "--match", "v*", "--always")
-            .directory(rootDir)
-            .redirectErrorStream(true)
-            .start()
-        val output = process.inputStream.bufferedReader().readText().trim()
-        if (process.waitFor() == 0) output else ""
-    } catch (_: Exception) {
-        ""
-    }
-
-val versionInfo = Version.fromGitDescribe(
-    output = gitDescribe(),
-    fallback = System.getenv("QUIRE_VERSION_FALLBACK")
-)
+// Static version. Source of truth: gradle.properties (VERSION_NAME, VERSION_CODE).
+// CI bumps these on every push to main; local devs see the most recent release.
+val appVersionName: String = project.property("VERSION_NAME") as String
+val appVersionCode: Int = (project.property("VERSION_CODE") as String).toInt()
 
 // Drop the build timestamp from the AboutLibraries-generated license JSON
 // so the resource is byte-identical across rebuilds (matters for F-Droid's
@@ -40,8 +25,8 @@ android {
         applicationId = "io.theficos.quire"
         minSdk = 26
         targetSdk = 34
-        versionCode = versionInfo.code
-        versionName = versionInfo.name
+        versionCode = appVersionCode
+        versionName = appVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions {
@@ -52,6 +37,13 @@ android {
     kotlinOptions { jvmTarget = "21" }
     buildFeatures { compose = true }
     testOptions { unitTests.isIncludeAndroidResources = true }
+    // Don't embed dependency-metadata in the APK / bundle. AGP 8.x writes
+    // this into the v3 signing block; F-Droid's `check apk` rejects it as
+    // a privacy leak (it exposes the build's dep graph to scrapers).
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
+    }
     signingConfigs {
         create("release") {
             val storePath = System.getenv("QUIRE_RELEASE_KEYSTORE")

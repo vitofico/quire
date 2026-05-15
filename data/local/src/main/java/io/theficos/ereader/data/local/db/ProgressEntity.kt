@@ -25,4 +25,5 @@ data class ProgressEntity(
     val updatedAt: Long,
     val localUpdatedAt: Long,
     val syncedAt: Long,
+    val finishedAt: Long? = null,
 )

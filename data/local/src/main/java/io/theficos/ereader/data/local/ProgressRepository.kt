@@ -22,6 +22,7 @@ class ProgressRepository(private val dao: ProgressDao) {
             updatedAt = progress.updatedAt,
             localUpdatedAt = now,
             syncedAt = 0L,
+            finishedAt = progress.finishedAt,
         ))
     }
 
@@ -38,9 +39,16 @@ class ProgressRepository(private val dao: ProgressDao) {
             updatedAt = now,
             localUpdatedAt = now,
             syncedAt = 0L,
+            finishedAt = null,
         ))
     }
 
     private fun ProgressEntity.toDomain(): Progress =
-        Progress(documentId = documentId, locator = locator, percent = percent, updatedAt = updatedAt)
+        Progress(
+            documentId = documentId,
+            locator = locator,
+            percent = percent,
+            updatedAt = updatedAt,
+            finishedAt = finishedAt,
+        )
 }
