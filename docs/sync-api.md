@@ -235,3 +235,108 @@ Standard FastAPI shape:
 | 422 | Validation failure (FastAPI default). |
 | 500 | Server error. |
 | 503 | Database unavailable (`/readyz`) or calibre-web unreachable for auth probes. |
+
+## AI endpoints (`/ai/v1`)
+
+Optional. Returns 503 when the server is not configured for AI
+(`OPDS_SYNC_AI_ENABLED=false` or missing `AI_BASE_URL`/`AI_MODEL`).
+
+### Quota model
+
+Two layers protect the configured AI endpoint:
+
+- **`AI_RATE_PER_MIN`** (default 10): process-wide token bucket against the
+  AI provider. Cache reads bypass it; first-time generations may queue
+  briefly under load.
+- **`AI_DAILY_BUDGET`** (default 200) and **`AI_REGEN_DAILY_LIMIT`**
+  (default 3): per-user counters in `ai_usage_daily`. Exceeding either
+  returns **429** with a JSON body `{ "detail": { "used", "limit", "resets_at" } }`
+  and a `Retry-After` header (seconds until next UTC midnight). Set
+  `AI_DAILY_BUDGET=0` to disable the per-user cap.
+
+### `GET /ai/v1/config`
+
+Returns the user-visible AI configuration. Public to authed users.
+
+```json
+{
+  "configured": true,
+  "base_url_host": "ollama.example.lan",
+  "model_id": "llama3.1:8b",
+  "sources_enabled": ["wikipedia", "openlibrary"],
+  "daily_budget": 200,
+  "regen_daily_limit": 3
+}
+```
+
+### `GET /ai/v1/preferences` / `PUT /ai/v1/preferences`
+
+Per-user opt-in flag plus style personalization knobs.
+
+```json
+{
+  "ai_enabled": true,
+  "style": {
+    "tone": "neutral",
+    "length": "standard",
+    "author_focus": "moderate",
+    "include_spoilers": false,
+    "interests": ["themes", "writing_style"]
+  }
+}
+```
+
+`PUT` accepts either field independently — send `{ "ai_enabled": true }` to flip
+the toggle without changing style, or `{ "style": { ... full AiStyle ... } }`
+to update preferences without touching opt-in. Response always returns the full
+resolved state.
+
+### `POST /ai/v1/insights/lookup`
+
+Cache hit returns the existing insight; cache miss generates synchronously.
+Requires opt-in. May return **429** with the quota body shape and `Retry-After`
+header if the user's daily budget is exhausted. Body:
+
+```json
+{
+  "identity": { "metadata_id": "9780553293357", "content_hash": "abc..." },
+  "bundle":   { "title": "Foundation", "author": "Isaac Asimov", "...": "..." }
+}
+```
+
+Response: a `BookInsight` with `payload`, `sources`, `model_id`,
+`prompt_version`, `generated_at`. See `opds_sync/api/ai_schemas.py` for
+the full payload schema.
+
+### `POST /ai/v1/insights/regenerate`
+
+Force a fresh generation. The existing live row is marked `superseded_at` (kept
+for audit; queries return the new live row only). The new row records the
+previous row's id in `previous_insight_ids`.
+
+Requires opt-in. Subject to a tighter daily ceiling
+(`AI_REGEN_DAILY_LIMIT`, default 3 per user). Returns 429 with the same body
+shape as `lookup` when exceeded.
+
+Body adds a required `reason`:
+
+```json
+{
+  "identity": { "metadata_id": "...", "content_hash": "..." },
+  "bundle":   { "title": "...", "...": "..." },
+  "reason":   "Author bio claimed they were French; Asimov was Russian-American."
+}
+```
+
+The reason is included in the prompt sent to the model so it knows what to fix.
+
+### `POST /ai/v1/insights/get`
+
+Cache-only read. 404 on miss. Does NOT require opt-in (cached results are
+shared across users and remain readable by users who later opt out).
+
+### `POST /ai/v1/insights/invalidate`
+
+Drops the cached row for the current `(model_id, prompt_version)`. Use this
+for admin-style cache busting; users hit `regenerate` instead, which is
+budgeted. Requires opt-in. Returns `{"deleted": <int>}`.
