@@ -1,4 +1,4 @@
-"""ai tables: book_insights, user_ai_preferences, external_source_cache
+"""ai tables: book_insights, user_ai_preferences, external_source_cache, ai_usage_daily
 
 Revision ID: 0002
 Revises: 0001
@@ -38,12 +38,16 @@ def upgrade() -> None:
         # `previous_insight_ids` so we can show "v2 of 3" in the UI if we ever want to.
         sa.Column("superseded_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("previous_insight_ids", sa.JSON(), nullable=True),
-        sa.UniqueConstraint(
-            "content_hash",
-            "model_id",
-            "prompt_version",
-            name="uq_book_insights_content_hash_model_prompt",
-        ),
+    )
+    # Partial unique index on (content_hash, model_id, prompt_version): only one LIVE
+    # row may exist per identity. Superseded rows (regeneration history) are exempt so
+    # the lineage chain can accumulate without collisions.
+    op.create_index(
+        "uq_book_insights_content_hash_model_prompt",
+        "book_insights",
+        ["content_hash", "model_id", "prompt_version"],
+        unique=True,
+        postgresql_where=sa.text("superseded_at IS NULL"),
     )
     # Partial unique index: metadata_id is nullable but where present must be unique per (model, prompt).
     # Only the live (non-superseded) row counts; superseded rows are history.
@@ -116,4 +120,5 @@ def downgrade() -> None:
     op.drop_index("ix_book_insights_metadata_id", table_name="book_insights")
     op.drop_index("ix_book_insights_content_hash", table_name="book_insights")
     op.drop_index("uq_book_insights_metadata_id_model_prompt", table_name="book_insights")
+    op.drop_index("uq_book_insights_content_hash_model_prompt", table_name="book_insights")
     op.drop_table("book_insights")
