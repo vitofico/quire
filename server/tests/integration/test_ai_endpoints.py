@@ -17,17 +17,13 @@ from opds_sync.core.ai.client import AIClient
 from opds_sync.core.ai.service import InsightOrchestrator
 from opds_sync.db.models import BookInsight
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
 def _basic_header(user: str, password: str = "p") -> dict:
-    return {
-        "Authorization": "Basic "
-        + base64.b64encode(f"{user}:{password}".encode()).decode()
-    }
+    return {"Authorization": "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()}
 
 
 def _ai_chat_response(payload: dict) -> dict:
@@ -120,9 +116,7 @@ async def test_config_endpoint_when_enabled(client_factory):
 
 
 async def test_lookup_blocked_when_not_opted_in(client_factory, configure_ai, app):
-    async with client_factory(
-        ai_enabled=True, ai_base_url="http://x", ai_model="m"
-    ) as client:
+    async with client_factory(ai_enabled=True, ai_base_url="http://x", ai_model="m") as client:
         # Now that client_factory has populated app, install the fake AI.
         configure_ai(app, {"schema_version": 1, "summary": "ok", "confidence": "low"})
         r = await client.post(
@@ -140,9 +134,7 @@ async def test_lookup_blocked_when_not_opted_in(client_factory, configure_ai, ap
 async def test_lookup_generates_then_get_serves_from_cache(
     client_factory, configure_ai, app, session
 ):
-    async with client_factory(
-        ai_enabled=True, ai_base_url="http://x", ai_model="m"
-    ) as client:
+    async with client_factory(ai_enabled=True, ai_base_url="http://x", ai_model="m") as client:
         configure_ai(
             app,
             {"schema_version": 1, "summary": "Foundational sci-fi.", "confidence": "high"},
@@ -162,16 +154,12 @@ async def test_lookup_generates_then_get_serves_from_cache(
         }
 
         # Alice generates an insight.
-        r1 = await client.post(
-            "/ai/v1/insights/lookup", headers=_basic_header("alice"), json=body
-        )
+        r1 = await client.post("/ai/v1/insights/lookup", headers=_basic_header("alice"), json=body)
         assert r1.status_code == 200
         assert r1.json()["payload"]["summary"] == "Foundational sci-fi."
 
         # Bob is not opted in: lookup must 409.
-        r2 = await client.post(
-            "/ai/v1/insights/lookup", headers=_basic_header("bob"), json=body
-        )
+        r2 = await client.post("/ai/v1/insights/lookup", headers=_basic_header("bob"), json=body)
         assert r2.status_code == 409
         assert r2.json()["detail"] == "not_opted_in"
 
@@ -186,9 +174,7 @@ async def test_lookup_generates_then_get_serves_from_cache(
 
 
 async def test_invalidate_drops_cache(client_factory, configure_ai, app, session):
-    async with client_factory(
-        ai_enabled=True, ai_base_url="http://x", ai_model="m"
-    ) as client:
+    async with client_factory(ai_enabled=True, ai_base_url="http://x", ai_model="m") as client:
         configure_ai(app, {"schema_version": 1, "summary": "v1", "confidence": "low"})
 
         await client.put(

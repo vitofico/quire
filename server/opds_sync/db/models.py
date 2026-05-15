@@ -118,9 +118,7 @@ class AIUsageDaily(Base):
 
     user_id: Mapped[str] = mapped_column(String, primary_key=True)
     day: Mapped[date] = mapped_column(Date, primary_key=True)
-    count: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default=text("0"), default=0
-    )
+    count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"), default=0)
     regen_count: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0"), default=0
     )

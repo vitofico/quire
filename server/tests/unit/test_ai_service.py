@@ -8,12 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from opds_sync.api.ai_schemas import (
     AiStyle,
-    BookInsightPayload,
     DocumentIdentity,
     MetadataBundle,
 )
 from opds_sync.core.ai.service import InsightOrchestrator, QuotaExceeded, TokenBucket
-from opds_sync.db.models import AIUsageDaily, BookInsight
+from opds_sync.db.models import BookInsight
 
 
 class FakeAIClient:
@@ -59,6 +58,7 @@ def make_orchestrator(session):
         )
         orch.retriever = fake_retriever  # type: ignore[attr-defined]
         return orch
+
     return _make
 
 
@@ -89,13 +89,19 @@ async def test_alias_reconciliation_backfills_metadata_id(session: AsyncSession,
     await second.generate(session, ident_full, bundle, user_id="u2")
     assert second.ai.calls == []
 
-    rows = (await session.execute(select(BookInsight).where(BookInsight.content_hash == "ch-foo"))).scalars().all()
+    rows = (
+        (await session.execute(select(BookInsight).where(BookInsight.content_hash == "ch-foo")))
+        .scalars()
+        .all()
+    )
     assert len(rows) == 1
     assert rows[0].metadata_id == "urn-foo"
 
 
 @pytest.mark.asyncio
-async def test_concurrent_generations_collapse_to_one_model_call(session: AsyncSession, make_orchestrator):
+async def test_concurrent_generations_collapse_to_one_model_call(
+    session: AsyncSession, make_orchestrator
+):
     orch = make_orchestrator()
     ident = DocumentIdentity(metadata_id=None, content_hash="ch-coalesce")
     bundle = MetadataBundle(title="Coalesce")
@@ -191,14 +197,25 @@ async def test_regenerate_supersedes_and_records_lineage(session, make_orchestra
     await orch.generate(session, ident, MetadataBundle(title="X"), user_id="u1")
     orch.ai.next_payload = {"schema_version": 1, "summary": "fixed", "confidence": "high"}
     second = await orch.regenerate(
-        session, ident, MetadataBundle(title="X"),
-        user_id="u1", reason="Author bio was wrong.",
+        session,
+        ident,
+        MetadataBundle(title="X"),
+        user_id="u1",
+        reason="Author bio was wrong.",
     )
     assert second.payload.summary == "fixed"
 
-    rows = (await session.execute(
-        select(BookInsight).where(BookInsight.content_hash == "ch-regen").order_by(BookInsight.id)
-    )).scalars().all()
+    rows = (
+        (
+            await session.execute(
+                select(BookInsight)
+                .where(BookInsight.content_hash == "ch-regen")
+                .order_by(BookInsight.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert len(rows) == 2
     assert rows[0].superseded_at is not None
     assert rows[1].superseded_at is None
@@ -211,11 +228,13 @@ async def test_regen_has_tighter_daily_limit(session, make_orchestrator):
     orch._regen_daily_limit = 1
     ident = DocumentIdentity(metadata_id=None, content_hash="ch-regen-limit")
     await orch.generate(session, ident, MetadataBundle(title="X"), user_id="u-regen")
-    await orch.regenerate(session, ident, MetadataBundle(title="X"),
-                          user_id="u-regen", reason="no good")
+    await orch.regenerate(
+        session, ident, MetadataBundle(title="X"), user_id="u-regen", reason="no good"
+    )
     with pytest.raises(QuotaExceeded):
-        await orch.regenerate(session, ident, MetadataBundle(title="X"),
-                              user_id="u-regen", reason="still no good")
+        await orch.regenerate(
+            session, ident, MetadataBundle(title="X"), user_id="u-regen", reason="still no good"
+        )
 
 
 @pytest.mark.asyncio
@@ -223,7 +242,10 @@ async def test_style_threaded_into_prompt(session, make_orchestrator):
     orch = make_orchestrator()
     ident = DocumentIdentity(metadata_id=None, content_hash="ch-style")
     await orch.generate(
-        session, ident, MetadataBundle(title="X"), user_id="u-style",
+        session,
+        ident,
+        MetadataBundle(title="X"),
+        user_id="u-style",
         style=AiStyle(tone="scholarly", include_spoilers=True),
     )
     assert any("scholarly" in call["user"].lower() for call in orch.ai.calls)

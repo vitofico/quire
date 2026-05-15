@@ -49,7 +49,8 @@ def upgrade() -> None:
         unique=True,
         postgresql_where=sa.text("superseded_at IS NULL"),
     )
-    # Partial unique index: metadata_id is nullable but where present must be unique per (model, prompt).
+    # Partial unique index: metadata_id is nullable but where present must be unique
+    # per (model, prompt).
     # Only the live (non-superseded) row counts; superseded rows are history.
     op.create_index(
         "uq_book_insights_metadata_id_model_prompt",

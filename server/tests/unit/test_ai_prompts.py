@@ -1,8 +1,8 @@
 from opds_sync.api.ai_schemas import AiStyle, Citation, MetadataBundle
 from opds_sync.core.ai.prompts import (
     PROMPT_VERSION,
-    compose_user_prompt,
     SYSTEM_PROMPT,
+    compose_user_prompt,
 )
 
 
@@ -59,8 +59,13 @@ def test_system_prompt_describes_role_and_output_constraints():
 
 def test_style_block_emitted_when_non_default():
     bundle = MetadataBundle(title="Foundation")
-    style = AiStyle(tone="scholarly", length="deep", author_focus="detailed",
-                    include_spoilers=True, interests=["historical_context"])
+    style = AiStyle(
+        tone="scholarly",
+        length="deep",
+        author_focus="detailed",
+        include_spoilers=True,
+        interests=["historical_context"],
+    )
     text = compose_user_prompt(bundle, citations=[], style=style)
     low = text.lower()
     assert "scholarly" in low

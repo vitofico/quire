@@ -127,7 +127,7 @@ def client_factory(monkeypatch, postgres_url, alembic_upgrade, app: _AppProxy):
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="malformed credentials",
-                )
+                ) from None
             if ":" not in decoded:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,

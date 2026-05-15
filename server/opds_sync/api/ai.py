@@ -51,9 +51,7 @@ def _base_url_host() -> str | None:
 
 async def _require_opt_in(session: AsyncSession, user_id: str) -> UserAIPreference:
     pref = (
-        await session.execute(
-            select(UserAIPreference).where(UserAIPreference.user_id == user_id)
-        )
+        await session.execute(select(UserAIPreference).where(UserAIPreference.user_id == user_id))
     ).scalar_one_or_none()
     if pref is None or not pref.ai_enabled:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="not_opted_in")
@@ -72,13 +70,13 @@ def _style_from_pref(pref: UserAIPreference) -> AiStyle:
 
 
 def _quota_http_exception(exc: QuotaExceeded) -> HTTPException:
-    body = QuotaResponse(
-        used=exc.used, limit=exc.limit, resets_at=exc.resets_at.isoformat()
-    )
+    body = QuotaResponse(used=exc.used, limit=exc.limit, resets_at=exc.resets_at.isoformat())
     return HTTPException(
         status_code=status.HTTP_429_TOO_MANY_REQUESTS,
         detail=body.model_dump(),
-        headers={"Retry-After": str(max(int((exc.resets_at - datetime.now(UTC)).total_seconds()), 60))},
+        headers={
+            "Retry-After": str(max(int((exc.resets_at - datetime.now(UTC)).total_seconds()), 60))
+        },
     )
 
 
@@ -89,9 +87,7 @@ async def get_config(
     """Public to authed users; the app needs this to render the AI toggle."""
     settings = get_settings()
     return ConfigResponse(
-        configured=bool(
-            settings.ai_enabled and settings.ai_base_url and settings.ai_model
-        ),
+        configured=bool(settings.ai_enabled and settings.ai_base_url and settings.ai_model),
         base_url_host=_base_url_host() if settings.ai_enabled else None,
         model_id=settings.ai_model if settings.ai_enabled else None,
         sources_enabled=_enabled_sources() if settings.ai_enabled else [],
@@ -106,9 +102,7 @@ async def get_preferences(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> PreferencesResponse:
     pref = (
-        await session.execute(
-            select(UserAIPreference).where(UserAIPreference.user_id == user_id)
-        )
+        await session.execute(select(UserAIPreference).where(UserAIPreference.user_id == user_id))
     ).scalar_one_or_none()
     if pref is None:
         return PreferencesResponse(ai_enabled=False, style=AiStyle())
@@ -125,9 +119,7 @@ async def put_preferences(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> PreferencesResponse:
     pref = (
-        await session.execute(
-            select(UserAIPreference).where(UserAIPreference.user_id == user_id)
-        )
+        await session.execute(select(UserAIPreference).where(UserAIPreference.user_id == user_id))
     ).scalar_one_or_none()
     if pref is None:
         pref = UserAIPreference(

@@ -52,9 +52,7 @@ class Retriever:
         self._transport = transport
         self._timeout_s = timeout_s
 
-    async def lookup_wikipedia(
-        self, *, author: str | None, title: str
-    ) -> list[Citation]:
+    async def lookup_wikipedia(self, *, author: str | None, title: str) -> list[Citation]:
         key = f"title:{_normalize_key(title)}"
         cached = await self._read_cache("wikipedia", key)
         if cached is not None:
@@ -128,7 +126,9 @@ class Retriever:
                 if r.status_code == 404:
                     return []
                 if r.status_code != 200:
-                    logger.info("ai.retrieval.wikipedia.status status=%s term=%s", r.status_code, term)
+                    logger.info(
+                        "ai.retrieval.wikipedia.status status=%s term=%s", r.status_code, term
+                    )
                     return []
                 data = r.json()
         except httpx.HTTPError as e:
@@ -141,11 +141,7 @@ class Retriever:
         extract = data.get("extract") or ""
         if not extract:
             return []
-        url = (
-            data.get("content_urls", {})
-            .get("desktop", {})
-            .get("page")
-        )
+        url = data.get("content_urls", {}).get("desktop", {}).get("page")
         title = data.get("title") or term
         return [Citation(kind="wikipedia", title=title, url=url, snippet=extract[:1200])]
 

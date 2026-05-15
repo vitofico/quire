@@ -29,9 +29,9 @@ class Settings(BaseSettings):
     # Quota protection — important when AI_BASE_URL points at a metered/cloud provider
     # (Ollama Cloud subscription, OpenAI, Anthropic, OpenRouter, …). Free-tier Ollama
     # Cloud burns quota the same as a paid API.
-    ai_rate_per_min: int = 10          # process-wide token bucket against AI_BASE_URL
-    ai_daily_budget: int = 200         # generations per user per UTC day; 0 disables
-    ai_regen_daily_limit: int = 3      # tighter ceiling for /insights/regenerate per user/day
+    ai_rate_per_min: int = 10  # process-wide token bucket against AI_BASE_URL
+    ai_daily_budget: int = 200  # generations per user per UTC day; 0 disables
+    ai_regen_daily_limit: int = 3  # tighter ceiling for /insights/regenerate per user/day
 
 
 @lru_cache(maxsize=1)

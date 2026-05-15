@@ -76,15 +76,11 @@ class TokenBucket:
 
 
 class _AIClientLike(Protocol):
-    async def chat_structured(
-        self, *, system: str, user: str, schema: type, timeout_s: float
-    ): ...
+    async def chat_structured(self, *, system: str, user: str, schema: type, timeout_s: float): ...
 
 
 class _RetrieverLike(Protocol):
-    async def lookup_wikipedia(
-        self, *, author: str | None, title: str
-    ) -> list[Citation]: ...
+    async def lookup_wikipedia(self, *, author: str | None, title: str) -> list[Citation]: ...
 
     async def lookup_openlibrary(
         self, *, author: str | None, title: str, isbn: str | None
@@ -151,7 +147,12 @@ class InsightOrchestrator:
             await self._reserve_budget(session, user_id=user_id, is_regen=False)
             await self._bucket.acquire()
             row = await self._do_generate(
-                session, ident, bundle, user_id=user_id, style=style, feedback=None,
+                session,
+                ident,
+                bundle,
+                user_id=user_id,
+                style=style,
+                feedback=None,
                 previous_insight_ids=None,
             )
             return self._row_to_response(row)
@@ -180,14 +181,17 @@ class InsightOrchestrator:
             await self._reserve_budget(session, user_id=user_id, is_regen=True)
             await self._bucket.acquire()
             row = await self._do_generate(
-                session, ident, bundle, user_id=user_id, style=style, feedback=reason,
+                session,
+                ident,
+                bundle,
+                user_id=user_id,
+                style=style,
+                feedback=reason,
                 previous_insight_ids=previous_ids or None,
             )
             return self._row_to_response(row)
 
-    async def invalidate(
-        self, session: AsyncSession, ident: DocumentIdentity
-    ) -> int:
+    async def invalidate(self, session: AsyncSession, ident: DocumentIdentity) -> int:
         stmt = delete(BookInsight).where(
             BookInsight.model_id == self.model_id,
             BookInsight.prompt_version == self.prompt_version,
@@ -218,9 +222,7 @@ class InsightOrchestrator:
     ) -> BookInsight:
         async with self._sem:
             citations = await self._retrieve(session, bundle)
-            user_prompt = compose_user_prompt(
-                bundle, citations, style=style, feedback=feedback
-            )
+            user_prompt = compose_user_prompt(bundle, citations, style=style, feedback=feedback)
             t0 = time.monotonic()
             payload = await self.ai.chat_structured(
                 system=SYSTEM_PROMPT,
@@ -245,9 +247,7 @@ class InsightOrchestrator:
             )
 
         sources = list(citations)
-        sources.append(
-            Citation(kind="model", title=self.model_id, snippet="generated")
-        )
+        sources.append(Citation(kind="model", title=self.model_id, snippet="generated"))
         row = BookInsight(
             metadata_id=ident.metadata_id,
             content_hash=ident.content_hash,
@@ -288,12 +288,14 @@ class InsightOrchestrator:
 
         if self._daily_budget > 0 and usage.count >= self._daily_budget:
             raise QuotaExceeded(
-                used=usage.count, limit=self._daily_budget,
+                used=usage.count,
+                limit=self._daily_budget,
                 resets_at=_next_utc_midnight(today),
             )
         if is_regen and usage.regen_count >= self._regen_daily_limit:
             raise QuotaExceeded(
-                used=usage.regen_count, limit=self._regen_daily_limit,
+                used=usage.regen_count,
+                limit=self._regen_daily_limit,
                 resets_at=_next_utc_midnight(today),
             )
 
@@ -302,15 +304,11 @@ class InsightOrchestrator:
             usage.regen_count += 1
         await session.commit()
 
-    async def _retrieve(
-        self, session: AsyncSession, bundle: MetadataBundle
-    ) -> list[Citation]:
+    async def _retrieve(self, session: AsyncSession, bundle: MetadataBundle) -> list[Citation]:
         retriever = self.retriever_factory(session)
         tasks = []
         if "wikipedia" in self.sources_enabled:
-            tasks.append(
-                retriever.lookup_wikipedia(author=bundle.author, title=bundle.title)
-            )
+            tasks.append(retriever.lookup_wikipedia(author=bundle.author, title=bundle.title))
         if "openlibrary" in self.sources_enabled:
             tasks.append(
                 retriever.lookup_openlibrary(

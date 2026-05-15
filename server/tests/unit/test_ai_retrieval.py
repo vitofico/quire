@@ -122,7 +122,9 @@ async def test_lookup_openlibrary_uses_isbn_when_present(session: AsyncSession):
         )
 
     r = Retriever(session=session, transport=httpx.MockTransport(handler), timeout_s=5.0)
-    cites = await r.lookup_openlibrary(author="Isaac Asimov", title="Foundation", isbn="9780553293357")
+    cites = await r.lookup_openlibrary(
+        author="Isaac Asimov", title="Foundation", isbn="9780553293357"
+    )
     assert any("isbn=9780553293357" in u for u in seen_urls)
     assert any(c.url and "openlibrary.org" in c.url for c in cites)
 

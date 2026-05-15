@@ -100,9 +100,7 @@ def compose_user_prompt(
     if bundle.series_name:
         position = bundle.series_position
         pos_text = f", book {position}" if position is not None else ""
-        lines.append(
-            f"- Series (authoritative — do not override): {bundle.series_name}{pos_text}"
-        )
+        lines.append(f"- Series (authoritative — do not override): {bundle.series_name}{pos_text}")
 
     if citations:
         lines.append("")
