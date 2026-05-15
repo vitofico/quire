@@ -24,8 +24,8 @@ def _make_chat_response(content: str) -> dict:
 @pytest.mark.asyncio
 async def test_chat_structured_returns_validated_payload():
     payload = {
-        "schema_version": 1,
-        "summary": "A foundational sci-fi novel.",
+        "schema_version": 2,
+        "intro": "A foundational sci-fi novel.",
         "confidence": "high",
     }
     handler = httpx.MockTransport(
@@ -44,13 +44,13 @@ async def test_chat_structured_returns_validated_payload():
         timeout_s=5.0,
     )
     assert isinstance(result, BookInsightPayload)
-    assert result.summary == "A foundational sci-fi novel."
+    assert result.intro == "A foundational sci-fi novel."
 
 
 @pytest.mark.asyncio
 async def test_chat_structured_retries_once_on_validation_error():
-    bad = {"schema_version": 1, "summary": 42}  # summary must be str|None
-    good = {"schema_version": 1, "summary": "ok", "confidence": "low"}
+    bad = {"schema_version": 2, "intro": 42}  # intro must be str|None
+    good = {"schema_version": 2, "intro": "ok", "confidence": "low"}
     seen: list[str] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -68,14 +68,14 @@ async def test_chat_structured_retries_once_on_validation_error():
     out = await client.chat_structured(
         system="s", user="u", schema=BookInsightPayload, timeout_s=5.0
     )
-    assert out.summary == "ok"
+    assert out.intro == "ok"
     assert len(seen) == 2
     assert "validation" in seen[1].lower()
 
 
 @pytest.mark.asyncio
 async def test_chat_structured_raises_after_two_validation_failures():
-    bad = {"schema_version": 1, "summary": 42}
+    bad = {"schema_version": 2, "intro": 42}
     handler = httpx.MockTransport(
         lambda req: httpx.Response(200, json=_make_chat_response(json.dumps(bad)))
     )
@@ -107,7 +107,7 @@ async def test_authorization_header_sent_when_key_present():
         seen["auth"] = req.headers.get("Authorization")
         return httpx.Response(
             200,
-            json=_make_chat_response(json.dumps({"schema_version": 1, "confidence": "low"})),
+            json=_make_chat_response(json.dumps({"schema_version": 2, "confidence": "low"})),
         )
 
     client = AIClient(
@@ -128,7 +128,7 @@ async def test_no_auth_header_when_key_absent():
         seen["auth"] = req.headers.get("Authorization")
         return httpx.Response(
             200,
-            json=_make_chat_response(json.dumps({"schema_version": 1, "confidence": "low"})),
+            json=_make_chat_response(json.dumps({"schema_version": 2, "confidence": "low"})),
         )
 
     client = AIClient(

@@ -19,8 +19,9 @@ class FakeAIClient:
     def __init__(self) -> None:
         self.calls: list[dict] = []
         self.next_payload: dict[str, Any] = {
-            "schema_version": 1,
-            "summary": "A foundational sci-fi novel.",
+            "schema_version": 2,
+            "intro": "A foundational sci-fi novel.",
+            "analysis": "Asimov's Foundation imagines a galactic empire on the brink of collapse.",
             "confidence": "high",
         }
 
@@ -72,7 +73,7 @@ async def test_cache_hit_short_circuits(session: AsyncSession, make_orchestrator
     second_orch = make_orchestrator()
     second = await second_orch.generate(session, ident, bundle, user_id="u2")
 
-    assert first.payload.summary == second.payload.summary
+    assert first.payload.intro == second.payload.intro
     assert second_orch.ai.calls == []
     assert second_orch.retriever.wiki_calls == 0
 
@@ -112,7 +113,7 @@ async def test_concurrent_generations_collapse_to_one_model_call(
         orch.generate(session, ident, bundle, user_id="u3"),
     )
     assert len(orch.ai.calls) == 1
-    assert {r.payload.summary for r in results} == {"A foundational sci-fi novel."}
+    assert {r.payload.intro for r in results} == {"A foundational sci-fi novel."}
 
 
 @pytest.mark.asyncio
@@ -125,9 +126,9 @@ async def test_invalidate_drops_cached_row(session: AsyncSession, make_orchestra
     assert n == 1
 
     second = make_orchestrator()
-    second.ai.next_payload = {"schema_version": 1, "summary": "fresh", "confidence": "low"}
+    second.ai.next_payload = {"schema_version": 2, "intro": "fresh", "confidence": "low"}
     out = await second.generate(session, ident, MetadataBundle(title="X"), user_id="u1")
-    assert out.payload.summary == "fresh"
+    assert out.payload.intro == "fresh"
 
 
 @pytest.mark.asyncio
@@ -141,8 +142,8 @@ async def test_get_returns_none_on_miss(session: AsyncSession, make_orchestrator
 async def test_series_from_bundle_persists_into_payload(session: AsyncSession, make_orchestrator):
     orch = make_orchestrator()
     orch.ai.next_payload = {
-        "schema_version": 1,
-        "summary": "ok",
+        "schema_version": 2,
+        "intro": "ok",
         "series": {"name": "WrongName", "position": 99},
         "confidence": "low",
     }
@@ -187,7 +188,7 @@ async def test_cache_hits_bypass_budget(session, make_orchestrator):
     ident = DocumentIdentity(metadata_id=None, content_hash="ch-cache-hit")
     await orch.generate(session, ident, MetadataBundle(title="X"), user_id="u-cache")
     out = await orch.generate(session, ident, MetadataBundle(title="X"), user_id="u-cache")
-    assert out.payload.summary == "A foundational sci-fi novel."
+    assert out.payload.intro == "A foundational sci-fi novel."
 
 
 @pytest.mark.asyncio
@@ -195,7 +196,7 @@ async def test_regenerate_supersedes_and_records_lineage(session, make_orchestra
     orch = make_orchestrator()
     ident = DocumentIdentity(metadata_id=None, content_hash="ch-regen")
     await orch.generate(session, ident, MetadataBundle(title="X"), user_id="u1")
-    orch.ai.next_payload = {"schema_version": 1, "summary": "fixed", "confidence": "high"}
+    orch.ai.next_payload = {"schema_version": 2, "intro": "fixed", "confidence": "high"}
     second = await orch.regenerate(
         session,
         ident,
@@ -203,7 +204,7 @@ async def test_regenerate_supersedes_and_records_lineage(session, make_orchestra
         user_id="u1",
         reason="Author bio was wrong.",
     )
-    assert second.payload.summary == "fixed"
+    assert second.payload.intro == "fixed"
 
     rows = (
         (
@@ -246,6 +247,40 @@ async def test_style_threaded_into_prompt(session, make_orchestrator):
         ident,
         MetadataBundle(title="X"),
         user_id="u-style",
-        style=AiStyle(tone="scholarly", include_spoilers=True),
+        style=AiStyle(tone="scholarly"),
     )
-    assert any("scholarly" in call["user"].lower() for call in orch.ai.calls)
+    assert any(
+        "scholarly" in call["user"].lower() or "analytical" in call["user"].lower()
+        for call in orch.ai.calls
+    )
+
+
+@pytest.mark.asyncio
+async def test_different_tones_generate_separate_cache_rows(session, make_orchestrator):
+    """Two users with different tones must get their own rows — no cross-tone leak."""
+    orch = make_orchestrator()
+    ident = DocumentIdentity(metadata_id=None, content_hash="ch-tones")
+    bundle = MetadataBundle(title="X")
+
+    await orch.generate(session, ident, bundle, user_id="u1", style=AiStyle(tone="neutral"))
+    await orch.generate(session, ident, bundle, user_id="u2", style=AiStyle(tone="scholarly"))
+
+    rows = (
+        (await session.execute(select(BookInsight).where(BookInsight.content_hash == "ch-tones")))
+        .scalars()
+        .all()
+    )
+    assert {r.tone for r in rows} == {"neutral", "scholarly"}
+    assert len(orch.ai.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_same_tone_shares_cache_across_users(session, make_orchestrator):
+    orch = make_orchestrator()
+    ident = DocumentIdentity(metadata_id=None, content_hash="ch-shared-tone")
+    bundle = MetadataBundle(title="X")
+
+    await orch.generate(session, ident, bundle, user_id="u1", style=AiStyle(tone="scholarly"))
+    await orch.generate(session, ident, bundle, user_id="u2", style=AiStyle(tone="scholarly"))
+
+    assert len(orch.ai.calls) == 1

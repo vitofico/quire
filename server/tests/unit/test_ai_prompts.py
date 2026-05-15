@@ -6,9 +6,9 @@ from opds_sync.core.ai.prompts import (
 )
 
 
-def test_prompt_version_is_string():
-    assert isinstance(PROMPT_VERSION, str)
-    assert PROMPT_VERSION  # non-empty
+def test_prompt_version_is_v2():
+    """v2 schema requires v2 prompt — they share a cache key."""
+    assert PROMPT_VERSION == "2"
 
 
 def test_user_prompt_includes_metadata_fields():
@@ -27,7 +27,7 @@ def test_user_prompt_includes_metadata_fields():
     assert "Science Fiction" in text
 
 
-def test_user_prompt_includes_citations():
+def test_user_prompt_includes_citations_but_strips_urls():
     bundle = MetadataBundle(title="Foundation")
     cite = Citation(
         kind="wikipedia",
@@ -36,8 +36,11 @@ def test_user_prompt_includes_citations():
         snippet="Foundation is a 1951 science fiction novel by Isaac Asimov.",
     )
     text = compose_user_prompt(bundle, citations=[cite])
-    assert "Wikipedia" in text or "wikipedia" in text
+    assert "Wikipedia" in text
     assert "1951 science fiction novel" in text
+    # URLs belong in the structured `sources` field returned by the server,
+    # not in the prompt body — saves tokens.
+    assert "https://" not in text
 
 
 def test_user_prompt_marks_series_authoritative_when_in_bundle():
@@ -53,29 +56,23 @@ def test_user_prompt_marks_series_authoritative_when_in_bundle():
 
 
 def test_system_prompt_describes_role_and_output_constraints():
-    assert "book" in SYSTEM_PROMPT.lower()
-    assert "json" in SYSTEM_PROMPT.lower()
+    low = SYSTEM_PROMPT.lower()
+    assert "book" in low
+    assert "json" in low
+    # Reading order is load-bearing for the UI.
+    assert "intro" in low and "analysis" in low and "content_warnings" in low
+    # Reader-safety scope for warnings (not themes).
+    assert "warnings" in low
 
 
-def test_style_block_emitted_when_non_default():
+def test_tone_hint_emitted_when_non_default():
     bundle = MetadataBundle(title="Foundation")
-    style = AiStyle(
-        tone="scholarly",
-        length="deep",
-        author_focus="detailed",
-        include_spoilers=True,
-        interests=["historical_context"],
-    )
-    text = compose_user_prompt(bundle, citations=[], style=style)
-    low = text.lower()
-    assert "scholarly" in low
-    assert "deep" in low or "detailed" in low
-    assert "historical_context" in low or "historical context" in low
-    assert "spoiler" in low  # spoilers permitted line
+    text = compose_user_prompt(bundle, citations=[], style=AiStyle(tone="scholarly"))
+    assert "scholarly" in text.lower() or "analytical" in text.lower()
 
 
-def test_style_omitted_when_all_defaults():
-    """Defaults must not bloat the prompt — quota matters."""
+def test_tone_hint_omitted_when_default():
+    """Default tone must not bloat the prompt — quota matters."""
     bundle = MetadataBundle(title="Foundation")
     text_no_style = compose_user_prompt(bundle, citations=[])
     text_default_style = compose_user_prompt(bundle, citations=[], style=AiStyle())
@@ -85,5 +82,14 @@ def test_style_omitted_when_all_defaults():
 def test_feedback_block_appended_on_regeneration():
     bundle = MetadataBundle(title="Foundation")
     text = compose_user_prompt(bundle, citations=[], feedback="Author bio was wrong.")
-    assert "feedback" in text.lower()
+    low = text.lower()
+    assert "feedback" in low
     assert "Author bio was wrong." in text
+    # Regenerate feedback is for factual fixes, not personalization.
+    assert "factual" in low or "corrections" in low
+
+
+def test_trailing_instruction_is_concise():
+    bundle = MetadataBundle(title="Foundation")
+    text = compose_user_prompt(bundle, citations=[])
+    assert text.rstrip().endswith("Return BookInsightPayload JSON only.")

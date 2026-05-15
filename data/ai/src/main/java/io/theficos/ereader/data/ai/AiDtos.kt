@@ -18,10 +18,6 @@ data class AiConfig(
 @Serializable
 data class AiStyle(
     val tone: String = "neutral",
-    val length: String = "standard",
-    @SerialName("author_focus") val authorFocus: String = "moderate",
-    @SerialName("include_spoilers") val includeSpoilers: Boolean = false,
-    val interests: List<String> = listOf("themes", "writing_style"),
 )
 
 @Serializable
@@ -48,29 +44,24 @@ data class Citation(
 data class AuthorInsight(
     val bio: String? = null,
     @SerialName("notable_works") val notableWorks: List<String>? = null,
-    val nationality: String? = null,
-    @SerialName("active_years") val activeYears: String? = null,
 )
 
 @Serializable
 data class SeriesInsight(
     val name: String,
     val position: Int? = null,
-    @SerialName("total_known") val totalKnown: Int? = null,
+    val context: String? = null,
 )
 
 @Serializable
 data class BookInsightPayload(
-    @SerialName("schema_version") val schemaVersion: Int = 1,
-    val summary: String? = null,
+    val intro: String? = null,
     val author: AuthorInsight? = null,
     val series: SeriesInsight? = null,
-    val themes: List<String>? = null,
-    val tone: String? = null,
-    @SerialName("content_advisory") val contentAdvisory: List<String>? = null,
-    @SerialName("suggested_for") val suggestedFor: String? = null,
+    val analysis: String? = null,
+    @SerialName("content_warnings") val contentWarnings: List<String>? = null,
     val confidence: String = "low",
-    val notes: String? = null,
+    @SerialName("schema_version") val schemaVersion: Int = 2,
 )
 
 @Serializable

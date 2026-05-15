@@ -31,12 +31,11 @@ fun InsightSection(state: InsightUiState, onRetry: () -> Unit) {
         InsightUiState.Loading -> LoadingCard()
         is InsightUiState.Error -> ErrorCard(state.message, onRetry)
         is InsightUiState.Loaded -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            state.payload.summary?.let { SummaryCard(it, suggestedFor = state.payload.suggestedFor) }
+            state.payload.intro?.takeIf { it.isNotBlank() }?.let { IntroCard(it) }
             state.payload.author?.let { AuthorCard(it) }
             state.payload.series?.let { SeriesCard(it) }
-            state.payload.themes?.takeIf { it.isNotEmpty() }?.let {
-                ThemesCard(themes = it, advisory = state.payload.contentAdvisory)
-            }
+            state.payload.analysis?.takeIf { it.isNotBlank() }?.let { AnalysisCard(it) }
+            state.payload.contentWarnings?.takeIf { it.isNotEmpty() }?.let { ContentWarningsCard(it) }
             if (state.sources.isNotEmpty()) SourcesFooter(state.sources)
         }
     }
@@ -65,16 +64,12 @@ private fun ErrorCard(message: String, onRetry: () -> Unit) {
 }
 
 @Composable
-private fun SummaryCard(summary: String, suggestedFor: String?) {
+private fun IntroCard(intro: String) {
     QuireCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
         Column {
             Text("About this book", style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(4.dp))
-            Text(summary, style = MaterialTheme.typography.bodyMedium)
-            if (!suggestedFor.isNullOrBlank()) {
-                Spacer(Modifier.height(6.dp))
-                Text("Suggested for: $suggestedFor", style = MaterialTheme.typography.bodySmall)
-            }
+            Text(intro, style = MaterialTheme.typography.bodyMedium)
         }
     }
 }
@@ -101,27 +96,37 @@ private fun SeriesCard(s: SeriesInsight) {
         Column {
             Text("Series", style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(4.dp))
-            val pos = s.position?.toString().orEmpty()
-            val total = s.totalKnown?.let { " of $it" } ?: ""
-            Text("${s.name}${if (pos.isNotEmpty()) " — book $pos$total" else ""}")
+            val header = buildString {
+                append(s.name)
+                s.position?.let { append(" — book $it") }
+            }
+            Text(header, style = MaterialTheme.typography.bodyMedium)
+            s.context?.takeIf { it.isNotBlank() }?.let {
+                Spacer(Modifier.height(4.dp))
+                Text(it, style = MaterialTheme.typography.bodySmall)
+            }
         }
     }
 }
 
 @Composable
-private fun ThemesCard(themes: List<String>, advisory: List<String>?) {
+private fun AnalysisCard(analysis: String) {
     QuireCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
         Column {
-            Text("Themes", style = MaterialTheme.typography.titleSmall)
+            Text("Themes & analysis", style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(4.dp))
-            Text(themes.joinToString(" · "), style = MaterialTheme.typography.bodyMedium)
-            advisory?.takeIf { it.isNotEmpty() }?.let {
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "Content advisory: ${it.joinToString(", ")}",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
+            Text(analysis, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
+@Composable
+private fun ContentWarningsCard(warnings: List<String>) {
+    QuireCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+        Column {
+            Text("Content warnings", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(4.dp))
+            Text(warnings.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
         }
     }
 }

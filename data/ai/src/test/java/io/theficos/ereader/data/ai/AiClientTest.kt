@@ -53,20 +53,19 @@ class AiClientTest {
     fun `getPreferences parses style`() = runTest {
         server.enqueue(
             MockResponse().setResponseCode(200).setBody(
-                """{"ai_enabled":true,"style":{"tone":"scholarly","length":"standard","author_focus":"moderate","include_spoilers":false,"interests":["themes"]}}"""
+                """{"ai_enabled":true,"style":{"tone":"scholarly"}}"""
             )
         )
         val prefs = client.getPreferences()
         assertThat(prefs.aiEnabled).isTrue()
         assertThat(prefs.style.tone).isEqualTo("scholarly")
-        assertThat(prefs.style.interests).containsExactly("themes")
     }
 
     @Test
     fun `setPreferences sends PUT with body`() = runTest {
         server.enqueue(
             MockResponse().setResponseCode(200).setBody(
-                """{"ai_enabled":true,"style":{"tone":"neutral","length":"standard","author_focus":"moderate","include_spoilers":false,"interests":["themes","writing_style"]}}"""
+                """{"ai_enabled":true,"style":{"tone":"neutral"}}"""
             )
         )
         val out = client.setPreferences(enabled = true)
@@ -81,7 +80,7 @@ class AiClientTest {
     fun `setPreferences with style only`() = runTest {
         server.enqueue(
             MockResponse().setResponseCode(200).setBody(
-                """{"ai_enabled":true,"style":{"tone":"casual","length":"standard","author_focus":"moderate","include_spoilers":false,"interests":["themes","writing_style"]}}"""
+                """{"ai_enabled":true,"style":{"tone":"casual"}}"""
             )
         )
         client.setPreferences(style = AiStyle(tone = "casual"))
@@ -96,7 +95,7 @@ class AiClientTest {
     fun `lookupInsight serializes identity and bundle`() = runTest {
         server.enqueue(
             MockResponse().setResponseCode(200).setBody(
-                """{"payload":{"schema_version":1,"summary":"hi","confidence":"high"},"sources":[],"model_id":"m","prompt_version":"1","generated_at":"2026-05-09T00:00:00+00:00"}"""
+                """{"payload":{"schema_version":2,"intro":"hi","confidence":"high"},"sources":[],"model_id":"m","prompt_version":"2","generated_at":"2026-05-09T00:00:00+00:00"}"""
             )
         )
         val bundle = MetadataBundle(title = "Foundation", author = "Isaac Asimov")
@@ -107,14 +106,14 @@ class AiClientTest {
         val req = server.takeRequest()
         assertThat(req.path).isEqualTo("/ai/v1/insights/lookup")
         assertThat(req.body.readUtf8()).contains("Foundation")
-        assertThat(out.payload.summary).isEqualTo("hi")
+        assertThat(out.payload.intro).isEqualTo("hi")
     }
 
     @Test
     fun `regenerateInsight sends reason`() = runTest {
         server.enqueue(
             MockResponse().setResponseCode(200).setBody(
-                """{"payload":{"schema_version":1,"summary":"fixed","confidence":"high"},"sources":[],"model_id":"m","prompt_version":"1","generated_at":"2026-05-09T00:00:00+00:00"}"""
+                """{"payload":{"schema_version":2,"intro":"fixed","confidence":"high"},"sources":[],"model_id":"m","prompt_version":"2","generated_at":"2026-05-09T00:00:00+00:00"}"""
             )
         )
         val out = client.regenerateInsight(
@@ -125,7 +124,7 @@ class AiClientTest {
         val req = server.takeRequest()
         assertThat(req.path).isEqualTo("/ai/v1/insights/regenerate")
         assertThat(req.body.readUtf8()).contains("Author bio was wrong.")
-        assertThat(out.payload.summary).isEqualTo("fixed")
+        assertThat(out.payload.intro).isEqualTo("fixed")
     }
 
     @Test

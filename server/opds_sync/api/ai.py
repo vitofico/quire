@@ -59,13 +59,18 @@ async def _require_opt_in(session: AsyncSession, user_id: str) -> UserAIPreferen
 
 
 def _style_from_pref(pref: UserAIPreference) -> AiStyle:
-    """Build a validated AiStyle from the user's stored prefs, falling back to defaults."""
+    """Build a validated AiStyle from the user's stored prefs, falling back to defaults.
+
+    Tolerates prefs rows from older schema versions (which carried extra fields
+    like `length` / `author_focus`) by extracting only the keys AiStyle knows.
+    """
     if not pref.style:
         return AiStyle()
+    raw = pref.style if isinstance(pref.style, dict) else {}
+    filtered = {k: v for k, v in raw.items() if k in AiStyle.model_fields}
     try:
-        return AiStyle.model_validate(pref.style)
+        return AiStyle.model_validate(filtered)
     except Exception:
-        # Old / malformed prefs row → use defaults rather than 500-ing the read.
         return AiStyle()
 
 
@@ -200,7 +205,11 @@ async def get_insight(
     orch = _orchestrator(request)
     if orch is None:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="ai_disabled")
-    out = await orch.get(session, body.identity)
+    pref = (
+        await session.execute(select(UserAIPreference).where(UserAIPreference.user_id == user_id))
+    ).scalar_one_or_none()
+    style = _style_from_pref(pref) if pref is not None else AiStyle()
+    out = await orch.get(session, body.identity, style=style)
     if out is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="not_cached")
     return out

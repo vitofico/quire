@@ -2,8 +2,11 @@ import pytest
 from pydantic import ValidationError
 
 from opds_sync.api.ai_schemas import (
+    AiStyle,
     BookInsightPayload,
     InsightLookupBody,
+    InsightRegenerateBody,
+    SeriesInsight,
 )
 
 
@@ -11,13 +14,48 @@ def test_payload_round_trip_minimal():
     p = BookInsightPayload(confidence="high")
     again = BookInsightPayload.model_validate_json(p.model_dump_json())
     assert again.confidence == "high"
-    assert again.schema_version == 1
-    assert again.summary is None
+    assert again.schema_version == 2
+    assert again.intro is None
+    assert again.analysis is None
 
 
 def test_payload_extra_fields_rejected():
     with pytest.raises(ValidationError):
-        BookInsightPayload.model_validate({"schema_version": 1, "fictional_field": "no"})
+        BookInsightPayload.model_validate({"schema_version": 2, "fictional_field": "no"})
+
+
+def test_payload_dropped_v1_fields_rejected():
+    # v1 had summary/themes/tone/suggested_for/notes — none should validate under v2.
+    for stale in ("summary", "themes", "tone", "suggested_for", "notes", "content_advisory"):
+        with pytest.raises(ValidationError):
+            BookInsightPayload.model_validate({stale: "x"})
+
+
+def test_payload_key_order_matches_reading_order():
+    """Schema field order steers the model's generation order on response_format."""
+    keys = list(BookInsightPayload.model_fields.keys())
+    expected = [
+        "intro",
+        "author",
+        "series",
+        "analysis",
+        "content_warnings",
+        "confidence",
+        "schema_version",
+    ]
+    assert keys == expected
+
+
+def test_series_insight_accepts_context():
+    s = SeriesInsight.model_validate(
+        {"name": "Foundation", "position": 1, "context": "Book 1 of 7."}
+    )
+    assert s.context == "Book 1 of 7."
+
+
+def test_series_insight_rejects_v1_total_known():
+    with pytest.raises(ValidationError):
+        SeriesInsight.model_validate({"name": "Foundation", "total_known": 7})
 
 
 def test_lookup_body_requires_content_hash():
@@ -38,27 +76,24 @@ def test_lookup_body_metadata_id_optional():
     assert b.bundle.title == "Foundation"
 
 
-def test_style_defaults():
-    from opds_sync.api.ai_schemas import AiStyle
-
+def test_style_only_tone_remains():
     s = AiStyle()
     assert s.tone == "neutral"
-    assert s.length == "standard"
-    assert s.author_focus == "moderate"
-    assert s.include_spoilers is False
-    assert "themes" in s.interests
+    assert list(AiStyle.model_fields.keys()) == ["tone"]
 
 
 def test_style_rejects_unknown_tone():
-    from opds_sync.api.ai_schemas import AiStyle
-
     with pytest.raises(ValidationError):
         AiStyle.model_validate({"tone": "snarky"})
 
 
-def test_regenerate_requires_reason():
-    from opds_sync.api.ai_schemas import InsightRegenerateBody
+def test_style_rejects_v1_knobs():
+    for stale in ("length", "author_focus", "include_spoilers", "interests"):
+        with pytest.raises(ValidationError):
+            AiStyle.model_validate({"tone": "neutral", stale: "anything"})
 
+
+def test_regenerate_requires_reason():
     with pytest.raises(ValidationError):
         InsightRegenerateBody.model_validate(
             {
