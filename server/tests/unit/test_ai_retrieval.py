@@ -125,3 +125,32 @@ async def test_lookup_openlibrary_uses_isbn_when_present(session: AsyncSession):
     cites = await r.lookup_openlibrary(author="Isaac Asimov", title="Foundation", isbn="9780553293357")
     assert any("isbn=9780553293357" in u for u in seen_urls)
     assert any(c.url and "openlibrary.org" in c.url for c in cites)
+
+
+@pytest.mark.asyncio
+async def test_lookup_wikipedia_percent_encodes_special_chars(session: AsyncSession):
+    """Titles with non-ASCII or URL-special chars must be properly encoded."""
+    seen_urls: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen_urls.append(str(req.url))
+        return httpx.Response(
+            200, json=_wiki_summary_response("Il_nome_della_rosa", "Test extract.")
+        )
+
+    r = Retriever(session=session, transport=httpx.MockTransport(handler), timeout_s=5.0)
+    await r.lookup_wikipedia(author=None, title="Il nome della rosa")
+    # Spaces → underscores → percent-encoded? Actually underscores stay literal; only
+    # non-ASCII / special chars must be encoded. So a simple ASCII title is fine here.
+    # The real test: a title with `#` must not break.
+    seen_urls.clear()
+
+    def handler_special(req: httpx.Request) -> httpx.Response:
+        seen_urls.append(str(req.url))
+        return httpx.Response(200, json=_wiki_summary_response("Test", "ok"))
+
+    r2 = Retriever(session=session, transport=httpx.MockTransport(handler_special), timeout_s=5.0)
+    await r2.lookup_wikipedia(author=None, title="C#")  # should not produce a fragment-shaped URL
+    assert any("C%23" in u or "C%23" in str(u) for u in seen_urls), (
+        f"expected percent-encoded C# in URL, got: {seen_urls}"
+    )

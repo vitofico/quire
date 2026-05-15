@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import UTC, datetime, timedelta
+from urllib.parse import quote
 
 import httpx
 from sqlalchemy import select
@@ -122,7 +123,7 @@ class Retriever:
         try:
             async with self._http() as http:
                 # Wikipedia's REST API takes a slug; URL-encode + replace spaces.
-                slug = term.strip().replace(" ", "_")
+                slug = quote(term.strip().replace(" ", "_"), safe="")
                 r = await http.get(f"{_WIKI_BASE}/page/summary/{slug}")
                 if r.status_code == 404:
                     return []
