@@ -1,6 +1,8 @@
 package io.theficos.ereader.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -8,6 +10,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import io.theficos.ereader.di.AppContainer
+import io.theficos.ereader.ui.bookdetail.BookDetailScreen
 import io.theficos.ereader.ui.catalog.CatalogScreen
 import io.theficos.ereader.ui.catalog.CatalogViewModel
 import io.theficos.ereader.ui.library.LibraryScreen
@@ -46,11 +49,14 @@ fun AppNavGraph(container: AppContainer) {
                     aiRepository = container.aiRepository,
                 )
             }
+            val aiConfig by container.aiRepository.config.collectAsState()
             MainScaffold { tab, padding ->
                 when (tab) {
                     Tab.LIBRARY -> LibraryScreen(
                         viewModel = libVm,
                         onOpenBook = { id -> nav.navigate("reader/$id") },
+                        onShowDetails = { id -> nav.navigate("book/$id") },
+                        aiConfigured = aiConfig?.configured == true,
                         contentPadding = padding,
                     )
                     Tab.CATALOG -> CatalogScreen(
@@ -80,6 +86,20 @@ fun AppNavGraph(container: AppContainer) {
                 )
             }
             ReaderScreen(viewModel = vm, onClose = { nav.popBackStack() })
+        }
+        composable(
+            "book/{id}",
+            arguments = listOf(navArgument("id") { type = NavType.LongType }),
+        ) { backStack ->
+            val id = backStack.arguments!!.getLong("id")
+            val vm = remember(id) {
+                container.bookDetailViewModelFactory.create(id)
+            }
+            BookDetailScreen(
+                viewModel = vm,
+                onOpenReader = { docId -> nav.navigate("reader/$docId") },
+                onBack = { nav.popBackStack() },
+            )
         }
         composable("licenses") {
             LicensesScreen(onBack = { nav.popBackStack() })

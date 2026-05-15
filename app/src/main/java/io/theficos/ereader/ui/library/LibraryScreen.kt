@@ -15,9 +15,13 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -48,6 +52,8 @@ import io.theficos.ereader.ui.theme.Lora
 fun LibraryScreen(
     viewModel: LibraryViewModel,
     onOpenBook: (documentId: Long) -> Unit,
+    onShowDetails: (documentId: Long) -> Unit = {},
+    aiConfigured: Boolean = false,
     contentPadding: PaddingValues,
 ) {
     val context = LocalContext.current
@@ -104,14 +110,28 @@ fun LibraryScreen(
                         onLongClick = { menuFor = row.document },
                     ),
                 ) {
-                    CoverImage(
-                        source = row.document.coverPath,
-                        title = row.document.title,
-                        author = row.document.author,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(2f / 3f),
-                    )
+                    Box {
+                        CoverImage(
+                            source = row.document.coverPath,
+                            title = row.document.title,
+                            author = row.document.author,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(2f / 3f),
+                        )
+                        if (aiConfigured) {
+                            IconButton(
+                                onClick = { onShowDetails(row.document.id) },
+                                modifier = Modifier.align(Alignment.TopEnd),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Info,
+                                    contentDescription = "Book details and AI insights",
+                                    tint = MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
+                        }
+                    }
                     Text(
                         text = row.document.title,
                         style = MaterialTheme.typography.titleMedium,
