@@ -126,7 +126,7 @@ async def test_lookup_openlibrary_uses_isbn_when_present(session: AsyncSession):
         author="Isaac Asimov", title="Foundation", isbn="9780553293357"
     )
     assert any("isbn=9780553293357" in u for u in seen_urls)
-    assert any(c.url and "openlibrary.org" in c.url for c in cites)
+    assert any(c.url and c.url.startswith("https://openlibrary.org/") for c in cites)
 
 
 @pytest.mark.asyncio
