@@ -13,7 +13,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-05-09-quire-ai-design.md`
 
-**Branch / worktree:** Already on `worktree-feat+quire-ai` in `/Users/vito/repos/quire/.claude/worktrees/feat+quire-ai`. Spec is committed (`558dced`). Work directly on this branch.
+**Branch / worktree:** Work on `worktree-feat+quire-ai` (or your own feature branch off `main`). Spec is committed at `558dced`.
 
 **Conventional-commits format:** `:emoji: type: subject` matching `main`. Use `:sparkles: feat:`, `:white_check_mark: test:`, `:memo: docs:`, `:wrench: chore:`. Pre-commit hooks: `ruff` will run on Python files.
 
@@ -31,9 +31,9 @@
 
 | File | Status | Responsibility |
 |---|---|---|
-| `opds_sync/config.py` | modify | Add AI env vars (`AI_ENABLED`, `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL`, `AI_TIMEOUT_S`, `AI_MAX_CONCURRENCY`, `AI_SOURCES`, `AI_RETRIEVAL_TIMEOUT_S`, `AI_PROMPT_VERSION`). |
-| `opds_sync/db/models.py` | modify | Add `BookInsight`, `UserAIPreference`, `ExternalSourceCacheEntry` SQLAlchemy models. |
-| `migrations/versions/0002_ai_tables.py` | new | Alembic migration for the three tables, indexes, partial unique constraint. |
+| `opds_sync/config.py` | modify | Add AI env vars (`AI_ENABLED`, `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL`, `AI_TIMEOUT_S`, `AI_MAX_CONCURRENCY`, `AI_SOURCES`, `AI_RETRIEVAL_TIMEOUT_S`, `AI_PROMPT_VERSION`, `AI_RATE_PER_MIN`, `AI_DAILY_BUDGET`, `AI_REGEN_DAILY_LIMIT`). |
+| `opds_sync/db/models.py` | modify | Add `BookInsight`, `UserAIPreference`, `ExternalSourceCacheEntry`, `AIUsageDaily` SQLAlchemy models. |
+| `migrations/versions/0002_ai_tables.py` | new | Alembic migration for the four tables, indexes, partial unique constraint. |
 | `opds_sync/core/ai/__init__.py` | new | Package marker. |
 | `opds_sync/core/ai/client.py` | new | `AIClient` — OpenAI-compatible chat completions with structured output + one validation retry. |
 | `opds_sync/core/ai/retrieval.py` | new | `lookup_wikipedia`, `lookup_openlibrary`, cache helpers, `Citation` model. |
@@ -138,6 +138,13 @@ class Settings(BaseSettings):
     ai_retrieval_timeout_s: float = 8.0
     ai_prompt_version: str = "1"
 
+    # Quota protection — important when AI_BASE_URL points at a metered/cloud provider
+    # (Ollama Cloud subscription, OpenAI, Anthropic, OpenRouter, …). Free-tier Ollama
+    # Cloud burns quota the same as a paid API.
+    ai_rate_per_min: int = 10          # process-wide token bucket against AI_BASE_URL
+    ai_daily_budget: int = 200         # generations per user per UTC day; 0 disables
+    ai_regen_daily_limit: int = 3      # tighter ceiling for /insights/regenerate per user/day
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
@@ -146,8 +153,8 @@ def get_settings() -> Settings:
 
 - [ ] **Step 2: Sanity check**
 
-Run: `cd server && python -c "from opds_sync.config import get_settings; s = get_settings(); print(s.ai_enabled, s.ai_max_concurrency, s.ai_sources)"`
-Expected: `False 4 wikipedia,openlibrary`
+Run: `cd server && python -c "from opds_sync.config import get_settings; s = get_settings(); print(s.ai_enabled, s.ai_max_concurrency, s.ai_rate_per_min, s.ai_daily_budget)"`
+Expected: `False 4 10 200`
 
 - [ ] **Step 3: Commit**
 
@@ -158,7 +165,7 @@ git commit -m ":sparkles: feat(server): add AI substrate settings"
 
 ---
 
-## Task 2: Alembic migration for the three AI tables
+## Task 2: Alembic migration for the four AI tables
 
 **Why now:** Models in Task 3 are easier to write once the migration shape is agreed.
 
@@ -203,6 +210,12 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("generated_by", sa.String(), nullable=False),
+        # Regeneration lineage. When a user requests a re-do via /insights/regenerate
+        # with a `reason`, the previous row is kept (auditable, rollback-friendly) but
+        # marked `superseded_at`. The fresh row records the previous id chain in
+        # `previous_insight_ids` so we can show "v2 of 3" in the UI if we ever want to.
+        sa.Column("superseded_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("previous_insight_ids", sa.JSON(), nullable=True),
         sa.UniqueConstraint(
             "content_hash",
             "model_id",
@@ -211,25 +224,34 @@ def upgrade() -> None:
         ),
     )
     # Partial unique index: metadata_id is nullable but where present must be unique per (model, prompt).
+    # Only the live (non-superseded) row counts; superseded rows are history.
     op.create_index(
         "uq_book_insights_metadata_id_model_prompt",
         "book_insights",
         ["metadata_id", "model_id", "prompt_version"],
         unique=True,
-        postgresql_where=sa.text("metadata_id IS NOT NULL"),
+        postgresql_where=sa.text("metadata_id IS NOT NULL AND superseded_at IS NULL"),
     )
-    op.create_index("ix_book_insights_content_hash", "book_insights", ["content_hash"])
+    op.create_index(
+        "ix_book_insights_content_hash",
+        "book_insights",
+        ["content_hash"],
+        postgresql_where=sa.text("superseded_at IS NULL"),
+    )
     op.create_index(
         "ix_book_insights_metadata_id",
         "book_insights",
         ["metadata_id"],
-        postgresql_where=sa.text("metadata_id IS NOT NULL"),
+        postgresql_where=sa.text("metadata_id IS NOT NULL AND superseded_at IS NULL"),
     )
 
     op.create_table(
         "user_ai_preferences",
         sa.Column("user_id", sa.String(), primary_key=True),
         sa.Column("ai_enabled", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+        # Free-form style/personalization preferences. Nullable: defaults applied in code so
+        # we can iterate on the shape without migration churn. See ai_schemas.AiStyle.
+        sa.Column("style", sa.JSON(), nullable=True),
         sa.Column(
             "updated_at",
             sa.DateTime(timezone=True),
@@ -252,8 +274,21 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("source", "key", name="pk_external_source_cache"),
     )
 
+    # Per-user, per-UTC-day counter for the AI_DAILY_BUDGET gate. Incremented on every
+    # successful generation (lookup miss → generate, or regenerate). Cache hits don't
+    # count. Cleaned up lazily; old rows are harmless.
+    op.create_table(
+        "ai_usage_daily",
+        sa.Column("user_id", sa.String(), nullable=False),
+        sa.Column("day", sa.Date(), nullable=False),
+        sa.Column("count", sa.Integer(), nullable=False, server_default=sa.text("0")),
+        sa.Column("regen_count", sa.Integer(), nullable=False, server_default=sa.text("0")),
+        sa.PrimaryKeyConstraint("user_id", "day", name="pk_ai_usage_daily"),
+    )
+
 
 def downgrade() -> None:
+    op.drop_table("ai_usage_daily")
     op.drop_table("external_source_cache")
     op.drop_table("user_ai_preferences")
     op.drop_index("ix_book_insights_metadata_id", table_name="book_insights")
@@ -271,7 +306,7 @@ If `test_schema.py` asserts on the exact set of tables, extend it to include the
 
 ```python
 # Look at the existing test; if it has an `expected_tables = {...}` set, add:
-"book_insights", "user_ai_preferences", "external_source_cache"
+"book_insights", "user_ai_preferences", "external_source_cache", "ai_usage_daily"
 ```
 
 - [ ] **Step 3: Commit**
@@ -292,7 +327,8 @@ git commit -m ":sparkles: feat(server): migration for AI tables"
 - [ ] **Step 1: Append to `server/opds_sync/db/models.py`**
 
 ```python
-from sqlalchemy import ARRAY, JSON, Boolean
+from datetime import date
+from sqlalchemy import ARRAY, JSON, Boolean, Date, Integer
 
 class BookInsight(Base):
     __tablename__ = "book_insights"
@@ -303,7 +339,6 @@ class BookInsight(Base):
             "prompt_version",
             name="uq_book_insights_content_hash_model_prompt",
         ),
-        Index("ix_book_insights_content_hash", "content_hash"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
@@ -318,6 +353,8 @@ class BookInsight(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     generated_by: Mapped[str] = mapped_column(String, nullable=False)
+    superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    previous_insight_ids: Mapped[list[int] | None] = mapped_column(JSON, nullable=True)
 
 
 class UserAIPreference(Base):
@@ -325,6 +362,9 @@ class UserAIPreference(Base):
 
     user_id: Mapped[str] = mapped_column(String, primary_key=True)
     ai_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Persisted as JSON; defaults live in api/ai_schemas.AiStyle so the migration
+    # never needs to change when we add a new knob.
+    style: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -339,13 +379,22 @@ class ExternalSourceCacheEntry(Base):
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class AIUsageDaily(Base):
+    __tablename__ = "ai_usage_daily"
+
+    user_id: Mapped[str] = mapped_column(String, primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    regen_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 ```
 
-The partial-unique index on `metadata_id` is created by the migration only — it can't be expressed declaratively on the model.
+The partial unique/filter indexes on `book_insights` are created by the migration only — they can't be expressed declaratively on the model.
 
 - [ ] **Step 2: Sanity check imports**
 
-Run: `cd server && python -c "from opds_sync.db.models import BookInsight, UserAIPreference, ExternalSourceCacheEntry; print('ok')"`
+Run: `cd server && python -c "from opds_sync.db.models import BookInsight, UserAIPreference, ExternalSourceCacheEntry, AIUsageDaily; print('ok')"`
 Expected: `ok`
 
 - [ ] **Step 3: Commit**
@@ -458,19 +507,61 @@ class InsightInvalidateBody(BaseModel):
     identity: DocumentIdentity
 
 
+class InsightRegenerateBody(BaseModel):
+    """Force a fresh generation, marking the existing row as superseded.
+
+    `reason` is appended to the user prompt so the model knows what to fix.
+    Rate-limited harder than regular lookup (AI_REGEN_DAILY_LIMIT per user/day).
+    """
+
+    identity: DocumentIdentity
+    bundle: MetadataBundle
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class AiStyle(BaseModel):
+    """User-facing personalization knobs. Deliberately small; extend via JSON migration-free.
+
+    `interests` is a free-form list (e.g. ["themes", "writing_style", "historical_context",
+    "comparable_books"]). The prompt composer turns it into a short "focus on …" line.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    tone: Literal["neutral", "enthusiastic", "scholarly", "casual"] = "neutral"
+    length: Literal["brief", "standard", "deep"] = "standard"
+    author_focus: Literal["none", "moderate", "detailed"] = "moderate"
+    include_spoilers: bool = False
+    interests: list[str] = Field(default_factory=lambda: ["themes", "writing_style"])
+
+
 class ConfigResponse(BaseModel):
     configured: bool
     base_url_host: str | None = None
     model_id: str | None = None
     sources_enabled: list[str]
+    daily_budget: int                   # echoes AI_DAILY_BUDGET so the app can show "X/Y today"
+    regen_daily_limit: int
 
 
 class PreferencesResponse(BaseModel):
     ai_enabled: bool
+    style: AiStyle
 
 
 class PreferencesBody(BaseModel):
-    ai_enabled: bool
+    """PUT body. Both fields optional so the app can update one without touching the other."""
+
+    ai_enabled: bool | None = None
+    style: AiStyle | None = None
+
+
+class QuotaResponse(BaseModel):
+    """Body of the 429 response so the app can show a useful message."""
+
+    used: int
+    limit: int
+    resets_at: str  # ISO-8601, next UTC midnight
 ```
 
 - [ ] **Step 2: Create `server/tests/unit/test_ai_schemas.py`**
@@ -514,12 +605,38 @@ def test_lookup_body_metadata_id_optional():
     )
     assert b.identity.metadata_id is None
     assert b.bundle.title == "Foundation"
+
+
+def test_style_defaults():
+    from opds_sync.api.ai_schemas import AiStyle
+    s = AiStyle()
+    assert s.tone == "neutral"
+    assert s.length == "standard"
+    assert s.author_focus == "moderate"
+    assert s.include_spoilers is False
+    assert "themes" in s.interests
+
+
+def test_style_rejects_unknown_tone():
+    from opds_sync.api.ai_schemas import AiStyle
+    with pytest.raises(ValidationError):
+        AiStyle.model_validate({"tone": "snarky"})
+
+
+def test_regenerate_requires_reason():
+    from opds_sync.api.ai_schemas import InsightRegenerateBody
+    with pytest.raises(ValidationError):
+        InsightRegenerateBody.model_validate({
+            "identity": {"content_hash": "abc"},
+            "bundle": {"title": "y"},
+            "reason": "",
+        })
 ```
 
 - [ ] **Step 3: Run tests**
 
 Run: `cd server && pytest tests/unit/test_ai_schemas.py -v`
-Expected: 4 PASS.
+Expected: 7 PASS.
 
 - [ ] **Step 4: Commit**
 
@@ -1249,7 +1366,7 @@ git commit -m ":sparkles: feat(server): Wikipedia + OpenLibrary retrieval with c
 - [ ] **Step 1: Failing test (`tests/unit/test_ai_prompts.py`)**
 
 ```python
-from opds_sync.api.ai_schemas import Citation, MetadataBundle
+from opds_sync.api.ai_schemas import AiStyle, Citation, MetadataBundle
 from opds_sync.core.ai.prompts import (
     PROMPT_VERSION,
     compose_user_prompt,
@@ -1306,6 +1423,33 @@ def test_user_prompt_marks_series_authoritative_when_in_bundle():
 def test_system_prompt_describes_role_and_output_constraints():
     assert "book" in SYSTEM_PROMPT.lower()
     assert "json" in SYSTEM_PROMPT.lower()
+
+
+def test_style_block_emitted_when_non_default():
+    bundle = MetadataBundle(title="Foundation")
+    style = AiStyle(tone="scholarly", length="deep", author_focus="detailed",
+                    include_spoilers=True, interests=["historical_context"])
+    text = compose_user_prompt(bundle, citations=[], style=style)
+    low = text.lower()
+    assert "scholarly" in low
+    assert "deep" in low or "detailed" in low
+    assert "historical_context" in low or "historical context" in low
+    assert "spoiler" in low  # spoilers permitted line
+
+
+def test_style_omitted_when_all_defaults():
+    """Defaults must not bloat the prompt — quota matters."""
+    bundle = MetadataBundle(title="Foundation")
+    text_no_style = compose_user_prompt(bundle, citations=[])
+    text_default_style = compose_user_prompt(bundle, citations=[], style=AiStyle())
+    assert text_no_style == text_default_style
+
+
+def test_feedback_block_appended_on_regeneration():
+    bundle = MetadataBundle(title="Foundation")
+    text = compose_user_prompt(bundle, citations=[], feedback="Author bio was wrong.")
+    assert "feedback" in text.lower()
+    assert "Author bio was wrong." in text
 ```
 
 - [ ] **Step 2: Run (expect failure)**
@@ -1325,9 +1469,15 @@ output. Do NOT bump it for typo fixes or whitespace.
 
 from __future__ import annotations
 
-from opds_sync.api.ai_schemas import Citation, MetadataBundle
+from opds_sync.api.ai_schemas import AiStyle, Citation, MetadataBundle
 
 PROMPT_VERSION = "1"
+
+# `style` and `feedback` deliberately do NOT participate in the cache key
+# (PROMPT_VERSION is the only knob there). Personalization is a presentation
+# concern; if quality is poor the user regenerates, which writes a new row
+# under a new id but the same (content_hash, model_id, prompt_version) — the
+# old row is marked superseded by the orchestrator.
 
 SYSTEM_PROMPT = """You write structured insights about books for a privacy-first reading app.
 
@@ -1353,7 +1503,42 @@ Rules:
   prose, no markdown, no code fences."""
 
 
-def compose_user_prompt(bundle: MetadataBundle, citations: list[Citation]) -> str:
+_DEFAULT_STYLE = AiStyle()
+
+
+def _style_block(style: AiStyle) -> list[str]:
+    """Emit a short style guide. Returns [] if style is the default — keep tokens lean."""
+    if style == _DEFAULT_STYLE:
+        return []
+    lines = ["", "## Style preferences (apply to summary, themes, suggested_for)"]
+    lines.append(f"- Tone: {style.tone}")
+    lines.append(
+        {
+            "brief": "- Length: keep it short — 2-3 sentence summary, terse themes.",
+            "standard": "- Length: standard — 4-6 sentence summary.",
+            "deep": "- Length: deep dive — 6-10 sentences, richer themes.",
+        }[style.length]
+    )
+    if style.author_focus == "none":
+        lines.append("- Author: leave author fields null.")
+    elif style.author_focus == "detailed":
+        lines.append("- Author: detailed — fill bio, nationality, active years, notable works.")
+    if style.include_spoilers:
+        lines.append("- Spoilers: permitted — discuss plot points freely.")
+    else:
+        lines.append("- Spoilers: avoid — no plot points past the inciting incident.")
+    if style.interests:
+        lines.append(f"- Focus on: {', '.join(style.interests)}.")
+    return lines
+
+
+def compose_user_prompt(
+    bundle: MetadataBundle,
+    citations: list[Citation],
+    *,
+    style: AiStyle | None = None,
+    feedback: str | None = None,
+) -> str:
     lines: list[str] = []
     lines.append("Generate a book insight for the following work.")
     lines.append("")
@@ -1396,6 +1581,15 @@ def compose_user_prompt(bundle: MetadataBundle, citations: list[Citation]) -> st
             if c.snippet:
                 lines.append(f"  > {c.snippet.strip()}")
 
+    if style is not None:
+        lines.extend(_style_block(style))
+
+    if feedback:
+        lines.append("")
+        lines.append("## User feedback on the previous attempt")
+        lines.append(f"> {feedback.strip()}")
+        lines.append("Address the feedback above when generating this new version.")
+
     lines.append("")
     lines.append(
         "Return a single JSON object matching the BookInsightPayload schema. "
@@ -1407,7 +1601,7 @@ def compose_user_prompt(bundle: MetadataBundle, citations: list[Citation]) -> st
 - [ ] **Step 4: Run tests**
 
 Run: `cd server && pytest tests/unit/test_ai_prompts.py -v`
-Expected: 5 PASS.
+Expected: 8 PASS.
 
 - [ ] **Step 5: Commit**
 
@@ -1423,6 +1617,13 @@ git commit -m ":sparkles: feat(server): book-insight prompt composer"
 **Files:**
 - Create: `server/opds_sync/core/ai/service.py`
 - Create: `server/tests/unit/test_ai_service.py`
+
+> **Scope note (added in revision):** the orchestrator owns four
+> responsibilities: cache, coalescing, semaphore, and (new) **quota**. The
+> quota subsystem has two layers — a process-wide **token bucket** against
+> `AI_BASE_URL` to protect the provider, and a per-user **daily budget**
+> persisted in `ai_usage_daily`. Cache hits bypass both. See "Step 6"
+> below for the quota implementation and tests.
 
 - [ ] **Step 1: Failing test (`tests/unit/test_ai_service.py`)**
 
@@ -1608,7 +1809,10 @@ from typing import Protocol
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datetime import UTC, date, datetime, timedelta
+
 from opds_sync.api.ai_schemas import (
+    AiStyle,
     BookInsightPayload,
     BookInsightResponse,
     Citation,
@@ -1617,9 +1821,44 @@ from opds_sync.api.ai_schemas import (
     SeriesInsight,
 )
 from opds_sync.core.ai.prompts import SYSTEM_PROMPT, compose_user_prompt
-from opds_sync.db.models import BookInsight
+from opds_sync.db.models import AIUsageDaily, BookInsight
 
 logger = logging.getLogger(__name__)
+
+
+class QuotaExceeded(Exception):
+    """Raised when the per-user daily budget is full. Carries values for the 429 body."""
+
+    def __init__(self, *, used: int, limit: int, resets_at: datetime) -> None:
+        self.used = used
+        self.limit = limit
+        self.resets_at = resets_at
+        super().__init__(f"daily budget exhausted: {used}/{limit}")
+
+
+class TokenBucket:
+    """Process-wide async token bucket. Smooths bursts against AI_BASE_URL."""
+
+    def __init__(self, *, rate_per_min: int) -> None:
+        self._capacity = float(max(rate_per_min, 1))
+        self._refill_per_s = self._capacity / 60.0
+        self._tokens = self._capacity
+        self._last = time.monotonic()
+        self._lock = asyncio.Lock()
+
+    async def acquire(self) -> None:
+        while True:
+            async with self._lock:
+                now = time.monotonic()
+                self._tokens = min(
+                    self._capacity, self._tokens + (now - self._last) * self._refill_per_s
+                )
+                self._last = now
+                if self._tokens >= 1.0:
+                    self._tokens -= 1.0
+                    return
+                wait_s = (1.0 - self._tokens) / self._refill_per_s
+            await asyncio.sleep(wait_s)
 
 
 class _AIClientLike(Protocol):
@@ -1649,6 +1888,9 @@ class InsightOrchestrator:
         prompt_version: str,
         max_concurrency: int,
         ai_timeout_s: float,
+        rate_per_min: int = 10,
+        daily_budget: int = 200,
+        regen_daily_limit: int = 3,
     ) -> None:
         self.ai = ai
         self.retriever_factory = retriever_factory
@@ -1659,6 +1901,9 @@ class InsightOrchestrator:
         self._locks: dict[str, asyncio.Lock] = {}
         self._locks_master = asyncio.Lock()
         self._ai_timeout_s = ai_timeout_s
+        self._bucket = TokenBucket(rate_per_min=rate_per_min)
+        self._daily_budget = daily_budget
+        self._regen_daily_limit = regen_daily_limit
 
     # ------- public API -------
 
@@ -1677,8 +1922,9 @@ class InsightOrchestrator:
         bundle: MetadataBundle,
         *,
         user_id: str,
+        style: AiStyle | None = None,
     ) -> BookInsightResponse:
-        # Fast path
+        # Fast path — cache hits bypass budget *and* rate limit.
         row = await self._cache_lookup(session, ident, allow_backfill=True)
         if row is not None:
             return self._row_to_response(row)
@@ -1690,50 +1936,151 @@ class InsightOrchestrator:
             if row is not None:
                 return self._row_to_response(row)
 
-            async with self._sem:
-                citations = await self._retrieve(session, bundle)
-                user_prompt = compose_user_prompt(bundle, citations)
-                t0 = time.monotonic()
-                payload = await self.ai.chat_structured(
-                    system=SYSTEM_PROMPT,
-                    user=user_prompt,
-                    schema=BookInsightPayload,
-                    timeout_s=self._ai_timeout_s,
-                )
-                latency_ms = int((time.monotonic() - t0) * 1000)
-                logger.info(
-                    "ai.generate content_hash=%s model=%s latency_ms=%d sources=%s",
-                    ident.content_hash,
-                    self.model_id,
-                    latency_ms,
-                    ",".join(sorted({c.kind for c in citations})) or "-",
-                )
-
-            # Series override: bundle is authoritative.
-            if bundle.series_name:
-                payload.series = SeriesInsight(
-                    name=bundle.series_name,
-                    position=bundle.series_position,
-                )
-
-            sources = list(citations)
-            sources.append(
-                Citation(kind="model", title=self.model_id, snippet="generated")
+            await self._reserve_budget(session, user_id=user_id, is_regen=False)
+            await self._bucket.acquire()
+            row = await self._do_generate(
+                session, ident, bundle, user_id=user_id, style=style, feedback=None,
+                previous_insight_ids=None,
             )
-            row = BookInsight(
-                metadata_id=ident.metadata_id,
-                content_hash=ident.content_hash,
-                model_id=self.model_id,
-                prompt_version=self.prompt_version,
-                sources_used=list({c.kind for c in citations}),
-                payload=payload.model_dump(),
-                sources=[c.model_dump() for c in sources],
-                generated_by=user_id,
-            )
-            session.add(row)
-            await session.commit()
-            await session.refresh(row)
             return self._row_to_response(row)
+
+    async def regenerate(
+        self,
+        session: AsyncSession,
+        ident: DocumentIdentity,
+        bundle: MetadataBundle,
+        *,
+        user_id: str,
+        reason: str,
+        style: AiStyle | None = None,
+    ) -> BookInsightResponse:
+        """Supersede the existing live row (if any) and generate a fresh one.
+
+        Counts against `regen_count` in `ai_usage_daily` (tighter limit than
+        regular generation). The previous row is kept for audit; its id chain
+        is recorded in `previous_insight_ids` of the new row.
+        """
+        lock = await self._acquire_identity_lock(ident)
+        async with lock:
+            existing = await self._cache_lookup(session, ident, allow_backfill=False)
+            previous_ids: list[int] = []
+            if existing is not None:
+                previous_ids = list(existing.previous_insight_ids or [])
+                previous_ids.append(existing.id)
+                existing.superseded_at = datetime.now(UTC)
+                await session.commit()
+
+            await self._reserve_budget(session, user_id=user_id, is_regen=True)
+            await self._bucket.acquire()
+            row = await self._do_generate(
+                session, ident, bundle, user_id=user_id, style=style, feedback=reason,
+                previous_insight_ids=previous_ids or None,
+            )
+            return self._row_to_response(row)
+
+    async def _do_generate(
+        self,
+        session: AsyncSession,
+        ident: DocumentIdentity,
+        bundle: MetadataBundle,
+        *,
+        user_id: str,
+        style: AiStyle | None,
+        feedback: str | None,
+        previous_insight_ids: list[int] | None,
+    ) -> BookInsight:
+        async with self._sem:
+            citations = await self._retrieve(session, bundle)
+            user_prompt = compose_user_prompt(
+                bundle, citations, style=style, feedback=feedback
+            )
+            t0 = time.monotonic()
+            payload = await self.ai.chat_structured(
+                system=SYSTEM_PROMPT,
+                user=user_prompt,
+                schema=BookInsightPayload,
+                timeout_s=self._ai_timeout_s,
+            )
+            latency_ms = int((time.monotonic() - t0) * 1000)
+            logger.info(
+                "ai.generate content_hash=%s model=%s latency_ms=%d sources=%s regen=%s",
+                ident.content_hash,
+                self.model_id,
+                latency_ms,
+                ",".join(sorted({c.kind for c in citations})) or "-",
+                bool(feedback),
+            )
+
+        if bundle.series_name:
+            payload.series = SeriesInsight(
+                name=bundle.series_name,
+                position=bundle.series_position,
+            )
+
+        sources = list(citations)
+        sources.append(
+            Citation(kind="model", title=self.model_id, snippet="generated")
+        )
+        row = BookInsight(
+            metadata_id=ident.metadata_id,
+            content_hash=ident.content_hash,
+            model_id=self.model_id,
+            prompt_version=self.prompt_version,
+            sources_used=list({c.kind for c in citations}),
+            payload=payload.model_dump(),
+            sources=[c.model_dump() for c in sources],
+            generated_by=user_id,
+            previous_insight_ids=previous_insight_ids,
+        )
+        session.add(row)
+        await session.commit()
+        await session.refresh(row)
+        return row
+
+    async def _reserve_budget(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: str,
+        is_regen: bool,
+    ) -> None:
+        """Atomically increment the day's count for this user and enforce limits.
+
+        Raises QuotaExceeded if the relevant ceiling would be crossed. `count`
+        and `regen_count` both increment on a regen (regenerations also burn
+        daily budget) — only the ceiling differs.
+        """
+        if self._daily_budget <= 0 and not is_regen:
+            return  # disabled
+        today = datetime.now(UTC).date()
+        usage = (
+            await session.execute(
+                select(AIUsageDaily).where(
+                    AIUsageDaily.user_id == user_id, AIUsageDaily.day == today
+                )
+            )
+        ).scalar_one_or_none()
+        if usage is None:
+            usage = AIUsageDaily(user_id=user_id, day=today, count=0, regen_count=0)
+            session.add(usage)
+            await session.flush()
+
+        # Hard ceilings
+        if self._daily_budget > 0 and usage.count >= self._daily_budget:
+            raise QuotaExceeded(
+                used=usage.count, limit=self._daily_budget,
+                resets_at=_next_utc_midnight(today),
+            )
+        if is_regen and usage.regen_count >= self._regen_daily_limit:
+            raise QuotaExceeded(
+                used=usage.regen_count, limit=self._regen_daily_limit,
+                resets_at=_next_utc_midnight(today),
+            )
+
+        usage.count += 1
+        if is_regen:
+            usage.regen_count += 1
+        await session.commit()
 
     async def invalidate(
         self, session: AsyncSession, ident: DocumentIdentity
@@ -1841,23 +2188,144 @@ class InsightOrchestrator:
             prompt_version=row.prompt_version,
             generated_at=row.generated_at.isoformat(),
         )
+
+
+def _next_utc_midnight(today: date) -> datetime:
+    return datetime.combine(today + timedelta(days=1), datetime.min.time(), tzinfo=UTC)
 ```
 
 - [ ] **Step 4: Run tests**
 
 Run: `cd server && pytest tests/unit/test_ai_service.py -v`
-Expected: 6 PASS.
+Expected: 6 PASS (existing tests). New quota tests added in Step 6.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Update existing `_cache_lookup` to ignore superseded rows**
+
+Insert `BookInsight.superseded_at.is_(None)` into both queries in `_cache_lookup`
+so the look-up always returns the live row. (Migration's partial index already
+enforces uniqueness on the live row only.)
+
+```python
+# In both select(...) calls inside _cache_lookup, add:
+BookInsight.superseded_at.is_(None),
+```
+
+- [ ] **Step 6: Add quota + style tests (`tests/unit/test_ai_service.py`)**
+
+Append the following tests. They exercise the new `TokenBucket`, the
+daily budget, regeneration lineage, and style threading.
+
+```python
+import time as _time
+from datetime import UTC, date, datetime
+
+from opds_sync.api.ai_schemas import AiStyle
+from opds_sync.core.ai.service import QuotaExceeded, TokenBucket
+from opds_sync.db.models import AIUsageDaily
+
+
+@pytest.mark.asyncio
+async def test_token_bucket_smooths_bursts():
+    bucket = TokenBucket(rate_per_min=60)  # 1 per second
+    start = _time.monotonic()
+    # Capacity is 60, so the first 60 should be instant.
+    for _ in range(3):
+        await bucket.acquire()
+    assert _time.monotonic() - start < 0.05
+
+
+@pytest.mark.asyncio
+async def test_daily_budget_blocks_after_limit(session, make_orchestrator):
+    orch = make_orchestrator()
+    orch._daily_budget = 2
+    # First two go through.
+    for i in range(2):
+        ident = DocumentIdentity(metadata_id=None, content_hash=f"ch-budget-{i}")
+        await orch.generate(session, ident, MetadataBundle(title=f"B{i}"), user_id="u-quota")
+    # Third raises QuotaExceeded.
+    with pytest.raises(QuotaExceeded) as exc:
+        await orch.generate(
+            session,
+            DocumentIdentity(metadata_id=None, content_hash="ch-budget-3"),
+            MetadataBundle(title="B3"),
+            user_id="u-quota",
+        )
+    assert exc.value.used == 2
+    assert exc.value.limit == 2
+
+
+@pytest.mark.asyncio
+async def test_cache_hits_bypass_budget(session, make_orchestrator):
+    orch = make_orchestrator()
+    orch._daily_budget = 1
+    ident = DocumentIdentity(metadata_id=None, content_hash="ch-cache-hit")
+    await orch.generate(session, ident, MetadataBundle(title="X"), user_id="u-cache")
+    # Budget is now exhausted, but a cache hit must still serve.
+    out = await orch.generate(session, ident, MetadataBundle(title="X"), user_id="u-cache")
+    assert out.payload.summary == "A foundational sci-fi novel."
+
+
+@pytest.mark.asyncio
+async def test_regenerate_supersedes_and_records_lineage(session, make_orchestrator):
+    orch = make_orchestrator()
+    ident = DocumentIdentity(metadata_id=None, content_hash="ch-regen")
+    first = await orch.generate(session, ident, MetadataBundle(title="X"), user_id="u1")
+    orch.ai.next_payload = {"schema_version": 1, "summary": "fixed", "confidence": "high"}
+    second = await orch.regenerate(
+        session, ident, MetadataBundle(title="X"),
+        user_id="u1", reason="Author bio was wrong.",
+    )
+    assert second.payload.summary == "fixed"
+
+    rows = (await session.execute(
+        select(BookInsight).where(BookInsight.content_hash == "ch-regen").order_by(BookInsight.id)
+    )).scalars().all()
+    assert len(rows) == 2
+    assert rows[0].superseded_at is not None
+    assert rows[1].superseded_at is None
+    assert rows[1].previous_insight_ids == [rows[0].id]
+
+
+@pytest.mark.asyncio
+async def test_regen_has_tighter_daily_limit(session, make_orchestrator):
+    orch = make_orchestrator()
+    orch._regen_daily_limit = 1
+    ident = DocumentIdentity(metadata_id=None, content_hash="ch-regen-limit")
+    await orch.generate(session, ident, MetadataBundle(title="X"), user_id="u-regen")
+    await orch.regenerate(session, ident, MetadataBundle(title="X"),
+                          user_id="u-regen", reason="no good")
+    with pytest.raises(QuotaExceeded):
+        await orch.regenerate(session, ident, MetadataBundle(title="X"),
+                              user_id="u-regen", reason="still no good")
+
+
+@pytest.mark.asyncio
+async def test_style_threaded_into_prompt(session, make_orchestrator):
+    orch = make_orchestrator()
+    ident = DocumentIdentity(metadata_id=None, content_hash="ch-style")
+    await orch.generate(
+        session, ident, MetadataBundle(title="X"), user_id="u-style",
+        style=AiStyle(tone="scholarly", include_spoilers=True),
+    )
+    # Verify the user prompt actually included the style block.
+    assert any("scholarly" in call["user"].lower() for call in orch.ai.calls)
+```
+
+- [ ] **Step 7: Run tests**
+
+Run: `cd server && pytest tests/unit/test_ai_service.py -v`
+Expected: 12 PASS (6 original + 6 new quota/regen/style tests).
+
+- [ ] **Step 8: Commit**
 
 ```bash
 git add server/opds_sync/core/ai/service.py server/tests/unit/test_ai_service.py
-git commit -m ":sparkles: feat(server): insight orchestrator with coalescing and alias reconciliation"
+git commit -m ":sparkles: feat(server): insight orchestrator with coalescing, quotas, regen lineage"
 ```
 
 ---
 
-## Task 9: AI router with all six endpoints
+## Task 9: AI router with all seven endpoints
 
 **Files:**
 - Create: `server/opds_sync/api/ai.py`
@@ -1869,6 +2337,7 @@ git commit -m ":sparkles: feat(server): insight orchestrator with coalescing and
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Annotated
 from urllib.parse import urlparse
 
@@ -1877,16 +2346,19 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from opds_sync.api.ai_schemas import (
+    AiStyle,
     BookInsightResponse,
     ConfigResponse,
     InsightGetBody,
     InsightInvalidateBody,
     InsightLookupBody,
+    InsightRegenerateBody,
     PreferencesBody,
     PreferencesResponse,
+    QuotaResponse,
 )
 from opds_sync.config import get_settings
-from opds_sync.core.ai.service import InsightOrchestrator
+from opds_sync.core.ai.service import InsightOrchestrator, QuotaExceeded
 from opds_sync.core.auth import current_user_id
 from opds_sync.db.models import UserAIPreference
 from opds_sync.db.session import get_session
@@ -1912,7 +2384,7 @@ def _base_url_host() -> str | None:
     return urlparse(base).hostname
 
 
-async def _require_opt_in(session: AsyncSession, user_id: str) -> None:
+async def _require_opt_in(session: AsyncSession, user_id: str) -> UserAIPreference:
     pref = (
         await session.execute(
             select(UserAIPreference).where(UserAIPreference.user_id == user_id)
@@ -1920,6 +2392,29 @@ async def _require_opt_in(session: AsyncSession, user_id: str) -> None:
     ).scalar_one_or_none()
     if pref is None or not pref.ai_enabled:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="not_opted_in")
+    return pref
+
+
+def _style_from_pref(pref: UserAIPreference) -> AiStyle:
+    """Build a validated AiStyle from the user's stored prefs, falling back to defaults."""
+    if not pref.style:
+        return AiStyle()
+    try:
+        return AiStyle.model_validate(pref.style)
+    except Exception:
+        # Old / malformed prefs row → use defaults rather than 500-ing the read.
+        return AiStyle()
+
+
+def _quota_http_exception(exc: QuotaExceeded) -> HTTPException:
+    body = QuotaResponse(
+        used=exc.used, limit=exc.limit, resets_at=exc.resets_at.isoformat()
+    )
+    return HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail=body.model_dump(),
+        headers={"Retry-After": str(max(int((exc.resets_at - datetime.now(UTC)).total_seconds()), 60))},
+    )
 
 
 @router.get("/config", response_model=ConfigResponse)
@@ -1935,6 +2430,8 @@ async def get_config(
         base_url_host=_base_url_host() if settings.ai_enabled else None,
         model_id=settings.ai_model if settings.ai_enabled else None,
         sources_enabled=_enabled_sources() if settings.ai_enabled else [],
+        daily_budget=settings.ai_daily_budget,
+        regen_daily_limit=settings.ai_regen_daily_limit,
     )
 
 
@@ -1948,7 +2445,12 @@ async def get_preferences(
             select(UserAIPreference).where(UserAIPreference.user_id == user_id)
         )
     ).scalar_one_or_none()
-    return PreferencesResponse(ai_enabled=bool(pref and pref.ai_enabled))
+    if pref is None:
+        return PreferencesResponse(ai_enabled=False, style=AiStyle())
+    return PreferencesResponse(
+        ai_enabled=pref.ai_enabled,
+        style=_style_from_pref(pref),
+    )
 
 
 @router.put("/preferences", response_model=PreferencesResponse)
@@ -1963,12 +2465,23 @@ async def put_preferences(
         )
     ).scalar_one_or_none()
     if pref is None:
-        pref = UserAIPreference(user_id=user_id, ai_enabled=body.ai_enabled)
+        pref = UserAIPreference(
+            user_id=user_id,
+            ai_enabled=body.ai_enabled if body.ai_enabled is not None else False,
+            style=body.style.model_dump() if body.style else None,
+        )
         session.add(pref)
     else:
-        pref.ai_enabled = body.ai_enabled
+        if body.ai_enabled is not None:
+            pref.ai_enabled = body.ai_enabled
+        if body.style is not None:
+            pref.style = body.style.model_dump()
     await session.commit()
-    return PreferencesResponse(ai_enabled=body.ai_enabled)
+    await session.refresh(pref)
+    return PreferencesResponse(
+        ai_enabled=pref.ai_enabled,
+        style=_style_from_pref(pref),
+    )
 
 
 @router.post("/insights/lookup", response_model=BookInsightResponse)
@@ -1981,13 +2494,43 @@ async def lookup_insight(
     orch = _orchestrator(request)
     if orch is None:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="ai_disabled")
-    await _require_opt_in(session, user_id)
-    return await orch.generate(
-        session,
-        body.identity,
-        body.bundle,
-        user_id=user_id,
-    )
+    pref = await _require_opt_in(session, user_id)
+    try:
+        return await orch.generate(
+            session,
+            body.identity,
+            body.bundle,
+            user_id=user_id,
+            style=_style_from_pref(pref),
+        )
+    except QuotaExceeded as exc:
+        raise _quota_http_exception(exc) from exc
+
+
+@router.post("/insights/regenerate", response_model=BookInsightResponse)
+async def regenerate_insight(
+    request: Request,
+    body: InsightRegenerateBody,
+    user_id: Annotated[str, Depends(current_user_id)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> BookInsightResponse:
+    """Mark the existing live row as superseded and generate a fresh one
+    incorporating the user's `reason`. Counts against regen budget."""
+    orch = _orchestrator(request)
+    if orch is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="ai_disabled")
+    pref = await _require_opt_in(session, user_id)
+    try:
+        return await orch.regenerate(
+            session,
+            body.identity,
+            body.bundle,
+            user_id=user_id,
+            reason=body.reason,
+            style=_style_from_pref(pref),
+        )
+    except QuotaExceeded as exc:
+        raise _quota_http_exception(exc) from exc
 
 
 @router.post("/insights/get", response_model=BookInsightResponse)
@@ -2078,6 +2621,9 @@ def create_app() -> FastAPI:
             prompt_version=settings.ai_prompt_version,
             max_concurrency=settings.ai_max_concurrency,
             ai_timeout_s=settings.ai_timeout_s,
+            rate_per_min=settings.ai_rate_per_min,
+            daily_budget=settings.ai_daily_budget,
+            regen_daily_limit=settings.ai_regen_daily_limit,
         )
         app.state.ai_orchestrator = orch
 
@@ -3288,7 +3834,18 @@ fun toggleAi(enabled: Boolean) {
         runCatching { aiRepository.setEnabled(enabled) }
     }
 }
+
+fun setStyleTone(tone: String) {
+    viewModelScope.launch {
+        runCatching { aiRepository.setStyleTone(tone) }
+    }
+}
 ```
+
+`AiRepository.setStyleTone` reads the current preferences, mutates the `style.tone`
+field, and PUTs the result. Keep the rest of the style block untouched. The PUT body
+sends `{"style": { ...full style... }}` — server's `PreferencesBody.style` is optional
+but when present must be a full `AiStyle`.
 
 - [ ] **Step 3: Add the AI section to `SettingsScreen`**
 
@@ -3342,12 +3899,46 @@ if (aiState.config?.configured != true) {
             )
         },
     )
+
+    if (enabled) {
+        // Personalization — v0: just the Tone dropdown. Other knobs (length,
+        // author_focus, spoilers, interests) hidden until we've evaluated the
+        // first batch of insights and decided which actually move the needle.
+        val tone = aiState.preferences?.style?.tone ?: "neutral"
+        var menuOpen by remember { mutableStateOf(false) }
+        ListItem(
+            headlineContent = { Text("Insight tone") },
+            supportingContent = {
+                Text(
+                    "How book insights are written.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            },
+            trailingContent = {
+                TextButton(onClick = { menuOpen = true }) { Text(tone.replaceFirstChar { it.uppercase() }) }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    listOf("neutral", "enthusiastic", "scholarly", "casual").forEach { option ->
+                        DropdownMenuItem(
+                            text = { Text(option.replaceFirstChar { it.uppercase() }) },
+                            onClick = {
+                                viewModel.setStyleTone(option)
+                                menuOpen = false
+                            },
+                        )
+                    }
+                }
+            },
+        )
+        // (Advanced knobs — length, author focus, spoilers, interests — deliberately
+        // omitted from v0. Add when we have user feedback on insight quality.)
+    }
 }
 ```
 
 If the screen uses a different list-item primitive than Material 3
 `ListItem`, adapt accordingly. The composable layout doesn't matter — what
-matters is that the Switch calls `viewModel.toggleAi(it)`.
+matters is that the Switch calls `viewModel.toggleAi(it)` and the dropdown
+calls `viewModel.setStyleTone(option)`.
 
 - [ ] **Step 4: Compile and run lint**
 
@@ -3364,6 +3955,13 @@ git commit -m ":sparkles: feat(android): Settings AI section with disclosure + o
 ---
 
 ## Task 16: BookDetailScreen + viewmodel + insight cards
+
+> **UX direction (revision):** BookDetailScreen is **off the read path** — it
+> is reached only via an explicit info icon on library tiles, never via a
+> plain tap. Tap-to-read remains a single gesture (Task 17). The screen
+> therefore does NOT need a "Read" button as its primary action; reading is
+> something the user does from the library, not from here. The screen is for
+> *inspecting* a book (insights, regenerate, future "find similar" hooks).
 
 **Files:**
 - Create: `app/src/main/java/io/theficos/ereader/ui/bookdetail/BookDetailScreen.kt`
@@ -3471,19 +4069,50 @@ class BookDetailViewModel(
         viewModelScope.launch { load() }
     }
 
-    fun regenerate() {
+    /** User reported the previous insight is wrong/unsatisfying. `reason` is required
+     *  (server validates min_length=1). Counts against the per-user regen daily limit
+     *  — surface 429 as a friendly message in the UI. */
+    fun regenerate(reason: String) {
         viewModelScope.launch {
             val doc = state.value.document ?: return@launch
             val ident = DocumentIdentity(
                 metadataId = doc.identity.metadataId,
                 contentHash = doc.identity.contentHash,
             )
-            runCatching { ai.invalidate(ident) }
-            load()
+            _state.value = _state.value.copy(insight = InsightUiState.Loading)
+            // The server needs the bundle again (regen body is identical shape to lookup)
+            // — reuse the same OPF extraction path. If OPF read fails fall back to the
+            // local doc fields.
+            val opfBytes = openOpfBytes(doc)
+            val bundle = if (opfBytes != null) {
+                OpfMetadataExtractor.extract(opfBytes, fallbackTitle = doc.title)
+            } else {
+                MetadataBundle(title = doc.title, author = doc.author)
+            }
+            runCatching { ai.regenerateInsight(ident, bundle, reason) }
+                .onSuccess { resp ->
+                    _state.value = _state.value.copy(
+                        insight = InsightUiState.Loaded(resp.payload, resp.sources),
+                    )
+                }
+                .onFailure { e ->
+                    val msg = when {
+                        e is AiHttpException && e.code == 429 ->
+                            "You've reached today's regeneration limit. Try again tomorrow."
+                        e is AiHttpException -> "Couldn't regenerate (${e.code})."
+                        else -> "Couldn't regenerate."
+                    }
+                    _state.value = _state.value.copy(insight = InsightUiState.Error(msg))
+                }
         }
     }
 }
 ```
+
+`AiRepository.regenerateInsight(ident, bundle, reason)` is a thin wrapper around
+`AiClient.regenerateInsight` (Task 13). Add a method there too — body shape is the
+same as `InsightLookupBody` plus a `reason: String` field. Server endpoint:
+`POST /ai/v1/insights/regenerate`.
 
 The `openOpfBytes` callback is wired by the screen's host (the nav graph or
 the app's container) — typically by opening the EPUB at `doc.localPath`,
@@ -3694,6 +4323,8 @@ fun BookDetailScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val doc = state.document
+    var regenDialogOpen by remember { mutableStateOf(false) }
+
     Scaffold(
         topBar = { TopAppBar(title = { Text(doc?.title ?: "Book") }) }
     ) { padding ->
@@ -3708,16 +4339,70 @@ fun BookDetailScreen(
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                     Text(doc.title, style = MaterialTheme.typography.headlineSmall)
                     doc.author?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
-                    Spacer(Modifier.height(8.dp))
-                    Button(onClick = { onOpenReader(doc.id) }) { Text("Read") }
+                    // Secondary action — primary read flow lives on the library tile.
+                    Spacer(Modifier.height(4.dp))
+                    TextButton(onClick = { onOpenReader(doc.id) }) { Text("Open in reader") }
                 }
             }
             InsightSection(state.insight, onRetry = { viewModel.retry() })
+            if (state.insight is InsightUiState.Loaded) {
+                TextButton(
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                    onClick = { regenDialogOpen = true },
+                ) { Text("Not quite right? Regenerate") }
+            }
             Spacer(Modifier.height(24.dp))
         }
     }
+
+    if (regenDialogOpen) {
+        RegenerateDialog(
+            onDismiss = { regenDialogOpen = false },
+            onSubmit = { reason ->
+                regenDialogOpen = false
+                viewModel.regenerate(reason)
+            },
+        )
+    }
+}
+
+@Composable
+private fun RegenerateDialog(onDismiss: () -> Unit, onSubmit: (String) -> Unit) {
+    var reason by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Regenerate insight") },
+        text = {
+            Column {
+                Text(
+                    "Tell the AI what was wrong or missing. This counts against your daily regeneration budget.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = reason,
+                    onValueChange = { reason = it.take(500) },
+                    label = { Text("Reason") },
+                    minLines = 2,
+                    maxLines = 4,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = reason.isNotBlank(),
+                onClick = { onSubmit(reason.trim()) },
+            ) { Text("Regenerate") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 ```
+
+Imports needed in addition to those already shown: `androidx.compose.material3.AlertDialog`,
+`androidx.compose.material3.OutlinedTextField`, `androidx.compose.material3.TextButton`,
+`androidx.compose.runtime.{mutableStateOf, remember, setValue, getValue}`.
 
 - [ ] **Step 4: Compile**
 
@@ -3733,23 +4418,34 @@ git commit -m ":sparkles: feat(android): BookDetailScreen + AI insight cards"
 
 ---
 
-## Task 17: Wire BookDetailScreen into navigation
+## Task 17: Wire BookDetailScreen into navigation (as a side branch)
+
+> **UX direction (revision):** The library tile's primary tap behavior is
+> **unchanged** — it still downloads-then-opens the reader in one gesture.
+> BookDetailScreen is reachable only via an explicit **info icon** on each
+> tile. Result: zero-friction reading for the common case, optional AI
+> inspection for users who want it. Long-press is reserved for future
+> selection / multi-select operations.
 
 **Files:**
 - Modify: `app/src/main/java/io/theficos/ereader/ui/AppNavGraph.kt`
-- Modify: `app/src/main/java/io/theficos/ereader/ui/library/LibraryScreen.kt` (only if the navigation callback shape changes)
+- Modify: `app/src/main/java/io/theficos/ereader/ui/library/LibraryScreen.kt` — add the info icon and an `onShowDetails` callback.
 - Modify: `app/src/main/java/io/theficos/ereader/di/AppContainer.kt` (add a viewmodel factory + opf-bytes helper)
 
-- [ ] **Step 1: Inspect existing nav graph**
+- [ ] **Step 1: Inspect existing nav graph + library screen**
 
 Run: `cat app/src/main/java/io/theficos/ereader/ui/AppNavGraph.kt`
+Run: `cat app/src/main/java/io/theficos/ereader/ui/library/LibraryScreen.kt | head -120`
 
 Identify the existing `library` and `reader/{id}` routes and the
-`onOpenBook = { id -> nav.navigate("reader/$id") }` callback.
+`onOpenBook = { id -> nav.navigate("reader/$id") }` callback. Note the
+component used to render each tile (often a `Card` or `ListItem` inside an
+`LazyColumn`/`LazyVerticalGrid`).
 
-- [ ] **Step 2: Add a `book/{id}` route**
+- [ ] **Step 2: Add a `book/{id}` route — non-replacing, parallel to `reader/{id}`**
 
-In `AppNavGraph.kt`, add a new composable destination:
+In `AppNavGraph.kt`, add a new composable destination *in addition to* the
+existing `reader/{id}` route. Do NOT change the existing route.
 
 ```kotlin
 composable(
@@ -3768,12 +4464,54 @@ composable(
 }
 ```
 
-- [ ] **Step 3: Reroute library taps to book detail**
+- [ ] **Step 3: Add an info icon to library tiles**
 
-Change the existing `onOpenBook = { id -> nav.navigate("reader/$id") }` to
-`onOpenBook = { id -> nav.navigate("book/$id") }` in the same file.
+In `LibraryScreen.kt`, extend the existing tile composable to take a new
+`onShowDetails: (Long) -> Unit` callback. Add a small `IconButton` showing
+`Icons.Outlined.Info` (or `Icons.Filled.InfoOutline` if your screen already
+imports a different icon set) in the trailing slot of each tile.
 
-- [ ] **Step 4: Add the viewmodel factory + OPF helper to `AppContainer`**
+```kotlin
+// Where each book row/card is built:
+ListItem(
+    headlineContent = { Text(book.title) },
+    supportingContent = { book.author?.let { Text(it) } },
+    leadingContent = { /* existing cover */ },
+    trailingContent = {
+        IconButton(onClick = { onShowDetails(book.id) }) {
+            Icon(Icons.Outlined.Info, contentDescription = "Book details and AI insights")
+        }
+    },
+    modifier = Modifier.clickable { onOpenBook(book.id) },  // unchanged primary action
+)
+```
+
+Notes:
+- The tile's `clickable { onOpenBook(book.id) }` is **unchanged** — primary tap
+  still triggers download/open as before.
+- Only the trailing slot is new. If the existing screen uses a `Card` instead
+  of `ListItem`, place the `IconButton` in the top-right corner using a `Box`
+  with `Modifier.align(Alignment.TopEnd)`.
+- Only render the info icon when AI is configured server-side (read
+  `aiRepository.config.value?.configured == true`). When AI is off, the icon is
+  pure clutter — hide it.
+
+- [ ] **Step 4: Pass `onShowDetails` through to the nav graph**
+
+In `AppNavGraph.kt`, where `LibraryScreen` is invoked:
+
+```kotlin
+LibraryScreen(
+    viewModel = libraryViewModel,
+    onOpenBook = { id -> nav.navigate("reader/$id") },        // unchanged
+    onShowDetails = { id -> nav.navigate("book/$id") },       // NEW — info-icon target
+)
+```
+
+The existing `onOpenBook` callback is preserved verbatim — only `onShowDetails`
+is new.
+
+- [ ] **Step 5: Add the viewmodel factory + OPF helper to `AppContainer`**
 
 ```kotlin
 class BookDetailViewModelFactory(
@@ -3817,34 +4555,48 @@ If `:core:identity` already exposes a function like
 `fun readOpfFromEpub(path: String): ByteArray?`, use that instead and delete
 the inline copy above.
 
-- [ ] **Step 5: Compile + manual smoke**
+- [ ] **Step 6: Compile + manual smoke**
 
 Run: `scripts/dgradle :app:assembleDebug`
 Expected: SUCCESS.
 
-Manually:
+Manually verify both the unchanged read path **and** the new inspect path:
 1. Install the debug APK on a device or emulator.
 2. Configure opds-sync env: `OPDS_SYNC_AI_ENABLED=true`,
-   `OPDS_SYNC_AI_BASE_URL=http://<ollama-host>:11434/v1`,
-   `OPDS_SYNC_AI_MODEL=llama3.1:8b` (or whatever model is available),
+   `OPDS_SYNC_AI_BASE_URL=http://<your-ai-endpoint>/v1`,
+   `OPDS_SYNC_AI_MODEL=<your-model-id>`,
    `OPDS_SYNC_AI_SOURCES=wikipedia,openlibrary`.
-3. In the app: Settings → AI features → toggle on. Verify the disclosure
-   text mentions the configured host and model.
-4. Tap a book in the library.
-5. New BookDetailScreen opens. After ≤60s the insight cards populate.
-6. Tap "Read" → reader opens (existing flow).
-7. Reopen the same book → insights load instantly from cache.
-8. Tap "Read" multiple times → no extra AI calls (verify by tailing
-   `opds-sync` logs for `ai.generate`).
+3. App with AI **off** in Settings: tap a book → reader opens directly,
+   one tap, no detail screen, no info icon visible on tiles.
+4. Settings → AI features → toggle on. Verify the disclosure text mentions
+   the configured host and model.
+5. Return to library: info icon appears in the trailing slot of each tile.
+6. Tap a tile (primary action): reader opens — **no detour through book detail**.
+   Confirm there is no extra latency vs. AI-off.
+7. Back out, tap the info icon on the same tile: BookDetailScreen opens. After
+   ≤60s the insight cards populate. Sources footer is clickable.
+8. Reopen the detail for the same book: insights load instantly from cache.
+9. Tap "Not quite right? Regenerate", enter a short reason, confirm. New cards
+   replace the old; the regen counter increments server-side. Repeat past the
+   `AI_REGEN_DAILY_LIMIT` ceiling and confirm the user-friendly 429 message.
+10. Tap "Open in reader" from the detail screen — reader opens as expected.
+
+Tail `opds-sync` logs for `ai.generate` lines to confirm:
+- Step 6 triggers zero `ai.generate` calls (tap-to-read does not fetch insights).
+- Step 7 triggers exactly one `ai.generate`.
+- Step 8 triggers zero (cache hit).
+- Step 9 triggers one with `regen=True`.
 
 If the manual run reveals UI bugs (cropping, missing fields, etc.), fix
 them before committing.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add app/src/main/java/io/theficos/ereader/ui/AppNavGraph.kt app/src/main/java/io/theficos/ereader/di/AppContainer.kt
-git commit -m ":sparkles: feat(android): route library taps to BookDetailScreen"
+git add app/src/main/java/io/theficos/ereader/ui/AppNavGraph.kt \
+        app/src/main/java/io/theficos/ereader/ui/library/LibraryScreen.kt \
+        app/src/main/java/io/theficos/ereader/di/AppContainer.kt
+git commit -m ":sparkles: feat(android): info-icon → BookDetailScreen (off the read path)"
 ```
 
 ---
@@ -3898,7 +4650,7 @@ For configuration details see [`server/README.md`](server/README.md).
 - [ ] **Step 2: Update `docs/sync-api.md`**
 
 Append a new top-level section documenting the `/ai/v1` surface. Document
-each of the six endpoints with method, path, body, response, and the opt-in
+each of the seven endpoints with method, path, body, response, and the opt-in
 gating rules. Use the existing tone/format of the doc.
 
 ```markdown
@@ -3907,6 +4659,19 @@ gating rules. Use the existing tone/format of the doc.
 Optional. Returns 503 when the server is not configured for AI
 (`OPDS_SYNC_AI_ENABLED=false` or missing `AI_BASE_URL`/`AI_MODEL`).
 
+### Quota model
+
+Two layers protect the configured AI endpoint:
+
+- **`AI_RATE_PER_MIN`** (default 10): process-wide token bucket against the
+  AI provider. Cache reads bypass it; first-time generations may queue
+  briefly under load.
+- **`AI_DAILY_BUDGET`** (default 200) and **`AI_REGEN_DAILY_LIMIT`**
+  (default 3): per-user counters in `ai_usage_daily`. Exceeding either
+  returns **429** with a JSON body `{ "used", "limit", "resets_at" }` and
+  a `Retry-After` header (seconds until next UTC midnight). Set
+  `AI_DAILY_BUDGET=0` to disable the per-user cap.
+
 ### `GET /ai/v1/config`
 
 Returns the user-visible AI configuration. Public to authed users.
@@ -3914,24 +4679,41 @@ Returns the user-visible AI configuration. Public to authed users.
 ```json
 {
   "configured": true,
-  "base_url_host": "ollama.lan",
+  "base_url_host": "ollama.example.lan",
   "model_id": "llama3.1:8b",
-  "sources_enabled": ["wikipedia", "openlibrary"]
+  "sources_enabled": ["wikipedia", "openlibrary"],
+  "daily_budget": 200,
+  "regen_daily_limit": 3
 }
 ```
 
 ### `GET /ai/v1/preferences` / `PUT /ai/v1/preferences`
 
-Per-user opt-in flag.
+Per-user opt-in flag plus style personalization knobs.
 
 ```json
-{ "ai_enabled": true }
+{
+  "ai_enabled": true,
+  "style": {
+    "tone": "neutral",
+    "length": "standard",
+    "author_focus": "moderate",
+    "include_spoilers": false,
+    "interests": ["themes", "writing_style"]
+  }
+}
 ```
+
+PUT accepts either field independently — send `{ "ai_enabled": true }` to flip
+the toggle without changing style, or `{ "style": { ... full AiStyle ... } }`
+to update preferences without touching opt-in. Response always returns the full
+resolved state.
 
 ### `POST /ai/v1/insights/lookup`
 
 Cache hit returns the existing insight; cache miss generates synchronously.
-Requires opt-in. Body:
+Requires opt-in. May return **429** with `{ "used", "limit", "resets_at" }`
+and `Retry-After` if the user's daily budget is exhausted. Body:
 
 ```json
 {
@@ -3944,6 +4726,28 @@ Response: a `BookInsight` with `payload`, `sources`, `model_id`,
 `prompt_version`, `generated_at`. See `opds_sync/api/ai_schemas.py` for
 the full payload schema.
 
+### `POST /ai/v1/insights/regenerate`
+
+Force a fresh generation. The existing live row is marked `superseded_at` (kept
+for audit; queries return the new live row only). The new row records the
+previous row's id in `previous_insight_ids`.
+
+Requires opt-in. Subject to a tighter daily ceiling
+(`AI_REGEN_DAILY_LIMIT`, default 3 per user). Returns 429 with the same body
+shape as `lookup` when exceeded.
+
+Body adds a required `reason`:
+
+```json
+{
+  "identity": { "metadata_id": "...", "content_hash": "..." },
+  "bundle":   { "title": "...", "...": "..." },
+  "reason":   "Author bio claimed they were French; Asimov was Russian-American."
+}
+```
+
+The reason is included in the prompt sent to the model so it knows what to fix.
+
 ### `POST /ai/v1/insights/get`
 
 Cache-only read. 404 on miss. Does NOT require opt-in (cached results are
@@ -3951,8 +4755,9 @@ shared across users and remain readable by users who later opt out).
 
 ### `POST /ai/v1/insights/invalidate`
 
-Drops the cached row for the current `(model_id, prompt_version)`.
-Requires opt-in. Returns `{"deleted": <int>}`.
+Drops the cached row for the current `(model_id, prompt_version)`. Use this
+for admin-style cache busting; users hit `regenerate` instead, which is
+budgeted. Requires opt-in. Returns `{"deleted": <int>}`.
 ```
 
 - [ ] **Step 3: Update `fastlane/metadata/android/en-US/full_description.txt`**
@@ -4073,6 +4878,73 @@ git diff --stat main...HEAD
 
 Skim the list. There should be no surprises (no random gradle.properties or
 keystore changes). If anything looks off, investigate before merging.
+
+---
+
+## Appendix A: Deployment notes
+
+The AI substrate is **off by default**. Enabling it requires three things in
+whatever environment you deploy opds-sync to:
+
+1. **AI env vars** on the opds-sync container:
+
+   ```
+   OPDS_SYNC_AI_ENABLED=true
+   OPDS_SYNC_AI_BASE_URL=http://<openai-compatible-endpoint>/v1
+   OPDS_SYNC_AI_MODEL=<model-id>
+   OPDS_SYNC_AI_API_KEY=<secret>          # may be empty for local Ollama
+   OPDS_SYNC_AI_SOURCES=wikipedia,openlibrary
+   OPDS_SYNC_AI_RATE_PER_MIN=10
+   OPDS_SYNC_AI_DAILY_BUDGET=200
+   OPDS_SYNC_AI_REGEN_DAILY_LIMIT=3
+   ```
+
+   Store the API key in your secrets system (Kubernetes Secret / Docker Compose
+   env-file / systemd EnvironmentFile). Never commit it.
+
+2. **Network reachability** from opds-sync to:
+
+   - The AI endpoint (host:port of whatever `AI_BASE_URL` points to).
+   - `en.wikipedia.org:443` and `openlibrary.org:443` for grounding citations.
+     Set `OPDS_SYNC_AI_SOURCES=""` to disable retrieval and rely on the model
+     alone if outbound egress is restricted.
+
+   On Kubernetes with NetworkPolicy enforcement (Calico, Cilium, etc.), add
+   the corresponding `egress:` rules to the opds-sync namespace and, if your
+   AI provider is in-cluster, an `ingress:` rule on its side.
+
+3. **Model choice.** Any OpenAI-compatible chat-completions endpoint works:
+   Ollama, llama.cpp, vLLM, OpenAI, Anthropic via its OpenAI shim, OpenRouter.
+   For self-hosted Ollama, models with `tools` capability handle the structured
+   JSON output more reliably (e.g. recent `llama3.1`, `qwen2.5`, `gpt-oss`
+   variants). Verify with:
+
+   ```bash
+   curl -s http://<your-ai-host>/v1/models | jq
+   ```
+
+### Tuning guidance
+
+| Var | Default | Tune up if … | Tune down if … |
+|---|---|---|---|
+| `AI_RATE_PER_MIN` | 10 | Provider is happy under load | Latency spikes / 429s from provider |
+| `AI_DAILY_BUDGET` | 200 | Active users hit the limit | Quota burns faster than expected |
+| `AI_REGEN_DAILY_LIMIT` | 3 | Trusted users / curated library | Users fishing for better answers |
+| `AI_MAX_CONCURRENCY` | 4 | CPU/RAM headroom on opds-sync | Memory pressure on opds-sync pod |
+| `AI_TIMEOUT_S` | 120 | Large/reasoning models under load | Want faster failure for retries |
+
+### Smoke test
+
+After deployment, from a host that can reach the service:
+
+```bash
+USER=<your-user>
+read -s PASS
+curl -s -u "$USER:$PASS" http://<opds-sync-host>/ai/v1/config | jq
+```
+
+Expected: `configured: true`, `model_id` matches your config,
+`daily_budget` and `regen_daily_limit` echo the env vars.
 
 ---
 
