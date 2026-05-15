@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -90,7 +91,9 @@ class UserAIPreference(Base):
     __tablename__ = "user_ai_preferences"
 
     user_id: Mapped[str] = mapped_column(String, primary_key=True)
-    ai_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    ai_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"), default=False
+    )
     # Persisted as JSON; defaults live in api/ai_schemas.AiStyle so the migration
     # never needs to change when we add a new knob.
     style: Mapped[dict | None] = mapped_column(JSON, nullable=True)
@@ -115,5 +118,9 @@ class AIUsageDaily(Base):
 
     user_id: Mapped[str] = mapped_column(String, primary_key=True)
     day: Mapped[date] = mapped_column(Date, primary_key=True)
-    count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    regen_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0"), default=0
+    )
+    regen_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0"), default=0
+    )
