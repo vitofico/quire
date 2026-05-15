@@ -2,6 +2,9 @@ package io.theficos.ereader.di
 
 import android.content.Context
 import io.theficos.ereader.auth.CalibreCredentialStore
+import io.theficos.ereader.core.model.Document
+import io.theficos.ereader.data.ai.AiClient
+import io.theficos.ereader.data.ai.AiRepository
 import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.ProgressRepository
 import io.theficos.ereader.data.local.db.EReaderDatabase
@@ -13,9 +16,12 @@ import io.theficos.ereader.data.sync.SyncDependencies
 import io.theficos.ereader.data.sync.SyncOrchestrator
 import io.theficos.ereader.reader.ReaderPreferencesStore
 import io.theficos.ereader.reader.ReadiumFactory
+import io.theficos.ereader.ui.bookdetail.BookDetailViewModel
 import io.theficos.ereader.ui.catalog.CatalogPreferencesStore
 import io.theficos.ereader.ui.library.LibraryPreferencesStore
 import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class AppContainer(context: Context) {
     private val appContext = context.applicationContext
@@ -51,7 +57,46 @@ class AppContainer(context: Context) {
         syncState = syncStateDao,
     )
 
+    val aiClient: AiClient = AiClient(
+        baseUrlProvider = { credentialStore.get()?.baseUrl },
+        http = opdsHttp.okHttp,
+    )
+    val aiRepository: AiRepository = AiRepository(aiClient)
+
+    val bookDetailViewModelFactory: BookDetailViewModelFactory = BookDetailViewModelFactory(
+        documents = documentRepository,
+        ai = aiRepository,
+        openOpfBytes = ::readOpfBytes,
+    )
+
+    private suspend fun readOpfBytes(doc: Document): ByteArray? = withContext(Dispatchers.IO) {
+        runCatching {
+            java.util.zip.ZipFile(doc.localPath).use { zip ->
+                val container = zip.getEntry("META-INF/container.xml") ?: return@use null
+                val containerXml = zip.getInputStream(container).readBytes().decodeToString()
+                val opfPath = Regex("""full-path="([^"]+)"""")
+                    .find(containerXml)?.groupValues?.get(1)
+                    ?: return@use null
+                val opfEntry = zip.getEntry(opfPath) ?: return@use null
+                zip.getInputStream(opfEntry).readBytes()
+            }
+        }.getOrNull()
+    }
+
     init {
         SyncDependencies.holder = SyncDependencies.Holder(syncOrchestrator)
     }
+}
+
+class BookDetailViewModelFactory(
+    private val documents: DocumentRepository,
+    private val ai: AiRepository,
+    private val openOpfBytes: suspend (Document) -> ByteArray?,
+) {
+    fun create(documentId: Long) = BookDetailViewModel(
+        documentId = documentId,
+        documents = documents,
+        ai = ai,
+        openOpfBytes = openOpfBytes,
+    )
 }

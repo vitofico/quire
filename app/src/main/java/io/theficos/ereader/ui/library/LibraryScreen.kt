@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
@@ -72,6 +73,8 @@ private val sortLabels: List<Pair<LibrarySort, String>> = listOf(
 fun LibraryScreen(
     viewModel: LibraryViewModel,
     onOpenBook: (documentId: Long) -> Unit,
+    onShowDetails: (documentId: Long) -> Unit = {},
+    aiConfigured: Boolean = false,
     contentPadding: PaddingValues,
 ) {
     val context = LocalContext.current
@@ -194,6 +197,22 @@ fun LibraryScreen(
                                 .fillMaxWidth()
                                 .aspectRatio(2f / 3f),
                         )
+                        // Info icon: top-left, tap target for AI insights. Only when
+                        // AI is configured server-side; suppressed otherwise to keep
+                        // tiles clean.
+                        if (aiConfigured) {
+                            IconButton(
+                                onClick = { onShowDetails(row.document.id) },
+                                modifier = Modifier.align(Alignment.TopStart),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Info,
+                                    contentDescription = "Book details and AI insights",
+                                    tint = MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
+                        }
+                        // Finished badge: top-right, passive marker.
                         if (row.finishedAt != null) {
                             Surface(
                                 shape = CircleShape,

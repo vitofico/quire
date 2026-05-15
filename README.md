@@ -67,10 +67,32 @@ nothing in the server design is Quire-specific.
 ## Privacy
 
 - No analytics, no crash reporting, no third-party SDKs.
-- Network calls go to exactly two places: your calibre-web instance and
-  your opds-sync server. Both are configured by you, on first launch.
+- Network calls go to your calibre-web instance and your opds-sync server.
+  If your administrator has enabled AI features and you have opted in,
+  opds-sync will additionally call the AI endpoint your administrator
+  configured (such as a self-hosted Ollama, or a third-party provider you
+  have chosen) and the public Wikipedia and OpenLibrary APIs to ground the
+  generated insights. None of these AI-related calls happen unless you
+  opt in from Quire's settings; the Android app itself talks only to your
+  calibre-web instance and your opds-sync server.
 - Credentials are stored in Android Keystore (hardware-backed where the
   device supports it).
+
+## AI features (optional)
+
+Quire optionally calls AI for book insights and library analysis. AI is
+**off by default**. The opds-sync admin enables it server-side by
+configuring an OpenAI-compatible endpoint (Ollama, llama.cpp, vLLM,
+OpenAI, OpenRouter, …); each user then opts in from Quire's settings.
+
+When enabled, opds-sync sends the EPUB metadata (title, author,
+publisher, description, subjects) of books a user opens to the
+configured AI endpoint, plus deterministic queries to Wikipedia and
+OpenLibrary to ground the generated insights with citations. The
+generated insight is cached server-side per book and reused across all
+of that user's devices and other opted-in users on the same instance.
+
+For configuration details see [`server/README.md`](server/README.md).
 
 ## Install
 

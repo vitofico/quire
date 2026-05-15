@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="bookid">urn:isbn:9780553293357</dc:identifier>
+    <dc:title>Foundation</dc:title>
+    <dc:creator>Isaac Asimov</dc:creator>
+    <dc:language>en</dc:language>
+    <dc:publisher>Bantam Spectra</dc:publisher>
+    <dc:date>1991-10-01</dc:date>
+    <dc:subject>Science Fiction</dc:subject>
+    <dc:subject>Galactic empire</dc:subject>
+    <dc:description>The story of psychohistory and the fall of the Galactic Empire.</dc:description>
+    <meta name="calibre:series" content="Foundation"/>
+    <meta name="calibre:series_index" content="1.0"/>
+  </metadata>
+</package>
