@@ -21,6 +21,7 @@ include(
     ":app",
     ":core:model",
     ":core:identity",
+    ":core:metadata",
     ":data:local",
     ":data:opds",
     ":data:sync",
