@@ -17,13 +17,19 @@ object OpfMetadataExtractor {
             val factory = DocumentBuilderFactory.newInstance().apply {
                 isNamespaceAware = true
                 isValidating = false
-                setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+                isXIncludeAware = false
+                isExpandEntityReferences = false
+                // Hardening: block DOCTYPE entirely, then defence-in-depth for parsers that ignore the above.
+                safeSetFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+                safeSetFeature("http://xml.org/sax/features/external-general-entities", false)
+                safeSetFeature("http://xml.org/sax/features/external-parameter-entities", false)
+                safeSetFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
             }
             factory.newDocumentBuilder().parse(opfBytes.inputStream())
         } catch (_: Exception) {
             return MetadataBundle(title = fallbackTitle)
         }
-        val metadataElems = doc.getElementsByTagName("metadata")
+        val metadataElems = doc.getElementsByTagNameNS("*", "metadata")
         if (metadataElems.length == 0) {
             return MetadataBundle(title = fallbackTitle)
         }
@@ -129,5 +135,13 @@ object OpfMetadataExtractor {
             }
         }
         return name to position
+    }
+
+    private fun DocumentBuilderFactory.safeSetFeature(name: String, value: Boolean) {
+        try {
+            setFeature(name, value)
+        } catch (_: Exception) {
+            // Provider doesn't recognise this feature; the other hardening features will catch it.
+        }
     }
 }
