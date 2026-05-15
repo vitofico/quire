@@ -13,10 +13,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -43,6 +46,7 @@ fun SettingsScreen(
 ) {
     val calibre by viewModel.calibre.collectAsState()
     val reader by viewModel.readerPreferences.collectAsState()
+    val aiState by viewModel.ai.collectAsState()
 
     Column(
         modifier = Modifier
@@ -229,6 +233,90 @@ fun SettingsScreen(
                         TextButton(onClick = { pendingRemoveAll = false }) { Text("Cancel") }
                     },
                 )
+            }
+        }
+
+        SectionLabel("AI features")
+        QuireCard(modifier = Modifier.fillMaxWidth()) {
+            if (aiState.config?.configured != true) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("AI not configured", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Your administrator has not configured an AI endpoint on this server.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                val cfg = aiState.config!!
+                val enabled = aiState.preferences?.aiEnabled == true
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.Top,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+                            Text(
+                                "Enable AI features for this account",
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            Text(
+                                "When enabled, Quire sends the title, author, and other " +
+                                    "EPUB metadata of books you open to ${cfg.baseUrlHost ?: "the AI endpoint"} " +
+                                    "(model ${cfg.modelId ?: "unknown"}) to generate insights.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            if (cfg.sourcesEnabled.isNotEmpty()) {
+                                Text(
+                                    "External sources used: ${cfg.sourcesEnabled.joinToString(", ")}.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Text(
+                                "Nothing is sent until you opt in.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = enabled,
+                            onCheckedChange = { viewModel.toggleAi(it) },
+                        )
+                    }
+
+                    if (enabled) {
+                        val tone = aiState.preferences?.style?.tone ?: "neutral"
+                        var menuOpen by remember { mutableStateOf(false) }
+                        Column {
+                            Text("Insight tone", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                "How book insights are written.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            TextButton(onClick = { menuOpen = true }) {
+                                Text(tone.replaceFirstChar { it.uppercase() })
+                            }
+                            DropdownMenu(
+                                expanded = menuOpen,
+                                onDismissRequest = { menuOpen = false },
+                            ) {
+                                listOf("neutral", "enthusiastic", "scholarly", "casual").forEach { option ->
+                                    DropdownMenuItem(
+                                        text = { Text(option.replaceFirstChar { it.uppercase() }) },
+                                        onClick = {
+                                            viewModel.setStyleTone(option)
+                                            menuOpen = false
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 

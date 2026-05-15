@@ -43,6 +43,7 @@ fun AppNavGraph(container: AppContainer) {
                     syncStateDao = container.syncStateDao,
                     documentRepo = container.documentRepository,
                     booksDir = container.booksDir,
+                    aiRepository = container.aiRepository,
                 )
             }
             MainScaffold { tab, padding ->
