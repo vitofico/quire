@@ -118,7 +118,7 @@ async def test_config_endpoint_when_enabled(client_factory):
 async def test_lookup_blocked_when_not_opted_in(client_factory, configure_ai, app):
     async with client_factory(ai_enabled=True, ai_base_url="http://x", ai_model="m") as client:
         # Now that client_factory has populated app, install the fake AI.
-        configure_ai(app, {"schema_version": 1, "summary": "ok", "confidence": "low"})
+        configure_ai(app, {"schema_version": 2, "intro": "ok", "confidence": "low"})
         r = await client.post(
             "/ai/v1/insights/lookup",
             headers=_basic_header("alice"),
@@ -137,7 +137,7 @@ async def test_lookup_generates_then_get_serves_from_cache(
     async with client_factory(ai_enabled=True, ai_base_url="http://x", ai_model="m") as client:
         configure_ai(
             app,
-            {"schema_version": 1, "summary": "Foundational sci-fi.", "confidence": "high"},
+            {"schema_version": 2, "intro": "Foundational sci-fi.", "confidence": "high"},
         )
 
         # Opt alice in.
@@ -156,7 +156,7 @@ async def test_lookup_generates_then_get_serves_from_cache(
         # Alice generates an insight.
         r1 = await client.post("/ai/v1/insights/lookup", headers=_basic_header("alice"), json=body)
         assert r1.status_code == 200
-        assert r1.json()["payload"]["summary"] == "Foundational sci-fi."
+        assert r1.json()["payload"]["intro"] == "Foundational sci-fi."
 
         # Bob is not opted in: lookup must 409.
         r2 = await client.post("/ai/v1/insights/lookup", headers=_basic_header("bob"), json=body)
@@ -170,12 +170,12 @@ async def test_lookup_generates_then_get_serves_from_cache(
             json={"identity": {"metadata_id": "9780553293357", "content_hash": "ch1"}},
         )
         assert r3.status_code == 200
-        assert r3.json()["payload"]["summary"] == "Foundational sci-fi."
+        assert r3.json()["payload"]["intro"] == "Foundational sci-fi."
 
 
 async def test_invalidate_drops_cache(client_factory, configure_ai, app, session):
     async with client_factory(ai_enabled=True, ai_base_url="http://x", ai_model="m") as client:
-        configure_ai(app, {"schema_version": 1, "summary": "v1", "confidence": "low"})
+        configure_ai(app, {"schema_version": 2, "intro": "first version", "confidence": "low"})
 
         await client.put(
             "/ai/v1/preferences",

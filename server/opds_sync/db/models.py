@@ -77,6 +77,11 @@ class BookInsight(Base):
     content_hash: Mapped[str] = mapped_column(String, nullable=False)
     model_id: Mapped[str] = mapped_column(String, nullable=False)
     prompt_version: Mapped[str] = mapped_column(String, nullable=False)
+    # Part of the cache key so users with different AiStyle.tone get their own
+    # generations (`neutral` is the universal default).
+    tone: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("'neutral'"), default="neutral"
+    )
     sources_used: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False)
     payload: Mapped[dict] = mapped_column(JSON, nullable=False)
     sources: Mapped[list[dict]] = mapped_column(JSON, nullable=False)

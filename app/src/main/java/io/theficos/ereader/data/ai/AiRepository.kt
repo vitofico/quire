@@ -37,11 +37,8 @@ class AiRepository(
         _prefs.value = out
     }
 
-    /** Update only the tone, keeping the rest of the style intact. */
     suspend fun setStyleTone(tone: String) {
-        val current = _prefs.value?.style ?: AiStyle()
-        val newStyle = current.copy(tone = tone)
-        val out = client.setPreferences(style = newStyle)
+        val out = client.setPreferences(style = AiStyle(tone = tone))
         _prefs.value = out
     }
 

@@ -271,24 +271,25 @@ Returns the user-visible AI configuration. Public to authed users.
 
 ### `GET /ai/v1/preferences` / `PUT /ai/v1/preferences`
 
-Per-user opt-in flag plus style personalization knobs.
+Per-user opt-in flag plus a single personalization knob (`tone`). `tone`
+participates in the cache key for `book_insights` (via the `tone` column),
+so two users on the same instance with different tones get their own cached
+generations rather than one bleeding into the other.
 
 ```json
 {
   "ai_enabled": true,
   "style": {
-    "tone": "neutral",
-    "length": "standard",
-    "author_focus": "moderate",
-    "include_spoilers": false,
-    "interests": ["themes", "writing_style"]
+    "tone": "neutral"
   }
 }
 ```
 
+Allowed tones: `neutral`, `enthusiastic`, `scholarly`, `casual`.
+
 `PUT` accepts either field independently — send `{ "ai_enabled": true }` to flip
-the toggle without changing style, or `{ "style": { ... full AiStyle ... } }`
-to update preferences without touching opt-in. Response always returns the full
+the toggle without changing style, or `{ "style": { "tone": "scholarly" } }`
+to update tone without touching opt-in. Response always returns the full
 resolved state.
 
 ### `POST /ai/v1/insights/lookup`
@@ -307,6 +308,32 @@ header if the user's daily budget is exhausted. Body:
 Response: a `BookInsight` with `payload`, `sources`, `model_id`,
 `prompt_version`, `generated_at`. See `opds_sync/api/ai_schemas.py` for
 the full payload schema.
+
+`payload` is the structured `BookInsightPayload` (schema v2, the model
+generates keys in this order):
+
+```json
+{
+  "intro": "1-2 sentences saying what the book is and why it matters.",
+  "author": {
+    "bio": "Concise paragraph if confidence is high; otherwise null.",
+    "notable_works": ["…"]
+  },
+  "series": {
+    "name": "Foundation",
+    "position": 1,
+    "context": "Optional one-liner on how this volume fits."
+  },
+  "analysis": "One compact paragraph (~80–130 words) weaving synopsis, themes, tone, and reader fit.",
+  "content_warnings": ["graphic violence", "sexual content"],
+  "confidence": "high|medium|low",
+  "schema_version": 2
+}
+```
+
+`content_warnings` is scoped to concrete reader-safety concerns
+(violence, sexual content, abuse, self-harm, slurs, addiction, body horror) —
+**not** themes, genre, politics, or plot mechanics.
 
 ### `POST /ai/v1/insights/regenerate`
 

@@ -38,33 +38,37 @@ class Citation(BaseModel):
 
 
 class AuthorInsight(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     bio: str | None = None
     notable_works: list[str] | None = None
-    nationality: str | None = None
-    active_years: str | None = None
 
 
 class SeriesInsight(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str
     position: int | None = None
-    total_known: int | None = None
+    context: str | None = None
 
 
 class BookInsightPayload(BaseModel):
-    """The structured body of a book insight. Stored verbatim in book_insights.payload."""
+    """The structured body of a book insight. Stored verbatim in book_insights.payload.
 
-    model_config = ConfigDict(extra="forbid")  # tighten the model contract
+    Field order is the reading order for BookDetailScreen — the model is
+    instructed to generate keys in declared order, which keeps the streaming
+    narrative coherent (intro before analysis, etc.).
+    """
 
-    schema_version: int = 1
-    summary: str | None = None
+    model_config = ConfigDict(extra="forbid")
+
+    intro: str | None = None
     author: AuthorInsight | None = None
     series: SeriesInsight | None = None
-    themes: list[str] | None = None
-    tone: str | None = None
-    content_advisory: list[str] | None = None
-    suggested_for: str | None = None
+    analysis: str | None = None
+    content_warnings: list[str] | None = None
     confidence: Literal["high", "medium", "low"] = "low"
-    notes: str | None = None
+    schema_version: int = 2
 
 
 class BookInsightResponse(BaseModel):
@@ -103,19 +107,15 @@ class InsightRegenerateBody(BaseModel):
 
 
 class AiStyle(BaseModel):
-    """User-facing personalization knobs. Deliberately small; extend via JSON migration-free.
-
-    `interests` is a free-form list (e.g. ["themes", "writing_style", "historical_context",
-    "comparable_books"]). The prompt composer turns it into a short "focus on …" line.
+    """User-facing personalization. `tone` is the only knob that affects output:
+    it participates in the cache key (column `book_insights.tone`), so two users
+    on the same instance with different tones get separately-cached generations
+    rather than one bleeding into the other.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     tone: Literal["neutral", "enthusiastic", "scholarly", "casual"] = "neutral"
-    length: Literal["brief", "standard", "deep"] = "standard"
-    author_focus: Literal["none", "moderate", "detailed"] = "moderate"
-    include_spoilers: bool = False
-    interests: list[str] = Field(default_factory=lambda: ["themes", "writing_style"])
 
 
 class ConfigResponse(BaseModel):
