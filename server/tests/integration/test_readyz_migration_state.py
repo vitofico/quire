@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
+from alembic.config import Config as AlembicConfig
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -50,14 +53,26 @@ async def restore_after(postgres_url: str, alembic_upgrade):
 
 
 async def test_readyz_200_when_at_ai_head(monkeypatch, postgres_url, alembic_upgrade):
-    """With ai_003 materialized and ai mode on, the required head is ai@head."""
+    """With ai@head (ai_003) + progress@head (progress_001) materialized,
+    /readyz reports both heads.
+    """
+    # Some earlier test in the session may have downgraded the DB
+    # (test_migrate_script.py exercises rollback). Ensure both branches are
+    # up to head before asserting on heads_applied. alembic_upgrade is
+    # session-scoped, so it doesn't re-run between tests.
+    cfg = AlembicConfig("alembic.ini")
+    cfg.set_main_option("sqlalchemy.url", postgres_url)
+    from scripts.migrate import run_migrations
+
+    await asyncio.to_thread(run_migrations, cfg, progress_enabled=True, ai_enabled=True)
+
     app = _build_app(monkeypatch, postgres_url, progress=True, ai=True)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         r = await c.get("/readyz")
     assert r.status_code == 200
     body = r.json()
     assert body["ready"] is True
-    assert body["heads_applied"] == ["ai_003"]
+    assert body["heads_applied"] == ["ai_003", "progress_001"]
 
 
 async def test_readyz_503_when_db_below_backbone(

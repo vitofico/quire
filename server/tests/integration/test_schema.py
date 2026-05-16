@@ -95,6 +95,65 @@ async def test_book_insights_unique_indexes_include_language(engine) -> None:
     assert "uq_book_insights_metadata_id_model_prompt_tone" not in info["idx"]
 
 
+@pytest.mark.requires_progress
+async def test_library_items_table_exists(engine) -> None:
+    """progress_001 creates library_items with the right columns + partial indexes."""
+
+    def _introspect(sync_conn) -> dict:
+        insp = inspect(sync_conn)
+        cols = {c["name"]: c for c in insp.get_columns("library_items")}
+        idx = {i["name"]: i for i in insp.get_indexes("library_items")}
+        return {"cols": cols, "idx": idx}
+
+    async with engine.connect() as conn:
+        info = await conn.run_sync(_introspect)
+
+    expected_cols = {
+        "pk",
+        "user_id",
+        "metadata_id",
+        "content_hash",
+        "title",
+        "authors",
+        "series_name",
+        "series_index",
+        "isbn",
+        "language",
+        "subjects",
+        "opds_href",
+        "created_at",
+        "updated_at",
+        "deleted_at",
+    }
+    assert expected_cols.issubset(info["cols"].keys()), info["cols"].keys()
+
+    expected_indexes = {
+        "uq_library_items_user_content",
+        "uq_library_items_user_metadata",
+        "ix_library_items_user_series_alive",
+        "ix_library_items_user_updated",
+    }
+    assert expected_indexes.issubset(info["idx"].keys()), info["idx"].keys()
+
+    # Hard unique on (user_id, content_hash).
+    assert info["idx"]["uq_library_items_user_content"]["unique"] is True
+    assert info["idx"]["uq_library_items_user_content"]["column_names"] == [
+        "user_id",
+        "content_hash",
+    ]
+
+    # Partial unique on (user_id, metadata_id) WHERE metadata_id IS NOT NULL.
+    md = info["idx"]["uq_library_items_user_metadata"]
+    assert md["unique"] is True
+    where_md = (md.get("dialect_options") or {}).get("postgresql_where")
+    assert where_md is not None and "metadata_id" in str(where_md).lower()
+
+    # Partial alive series index.
+    sa_idx = info["idx"]["ix_library_items_user_series_alive"]
+    where_alive = (sa_idx.get("dialect_options") or {}).get("postgresql_where")
+    assert where_alive is not None and "deleted_at" in str(where_alive).lower()
+
+
 @pytest.mark.requires_ai
 async def test_ai_generation_log_round_trip(session) -> None:
     """ORM model writes and reads ai_generation_log rows."""

@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from decimal import Decimal
 
 from sqlalchemy import (
     ARRAY,
@@ -12,11 +13,13 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     String,
     UniqueConstraint,
     func,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -261,3 +264,53 @@ class InsightIdentityAlias(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+# ============================================================================
+# `library_items` (PR1, 2026-05-16) — `progress` branch.
+# ----------------------------------------------------------------------------
+# Per-user mirror of the on-device library. USER-SCOPED: `user_id` is part of
+# every uniqueness constraint and index. Not shared cache; the cache-key audit
+# does not cover this table.
+#
+# Identity contract (per `.claude/local/quire-ai/2026-05-16-next-deliverables.md`
+# §"Identity hierarchy"):
+# - `content_hash` is the floor and is mandatory.
+# - `metadata_id` is opportunistic; clients backfill it once OPF parsing yields
+#   one. PR2 (identity aliases) will reconcile conflicting metadata_ids; PR1
+#   refuses to silently merge and returns 409.
+#
+# Soft-delete only: PR1 never hard-deletes from this table. Every state change
+# (create / update / delete / reactivate) advances `updated_at` so the
+# `GET ?since=` delta endpoint can deliver tombstones reliably; idempotent
+# DELETE on an already-deleted row preserves both timestamps.
+# ============================================================================
+class LibraryItem(Base):
+    __tablename__ = "library_items"
+    # All uniqueness/indexes for this table are defined in the Alembic
+    # migration (partial unique on `metadata_id`, partial alive series index,
+    # etc.). Partial indexes can't be expressed declaratively on the model.
+
+    pk: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String, nullable=False)
+    metadata_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    content_hash: Mapped[str] = mapped_column(String, nullable=False)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    authors: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb"), default=list
+    )
+    series_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    series_index: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
+    isbn: Mapped[str | None] = mapped_column(String, nullable=True)
+    language: Mapped[str | None] = mapped_column(String, nullable=True)
+    subjects: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb"), default=list
+    )
+    opds_href: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
