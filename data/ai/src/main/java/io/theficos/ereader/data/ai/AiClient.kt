@@ -58,14 +58,6 @@ class AiClient(
     ): BookInsightResponse =
         post("/ai/v1/insights/lookup", InsightLookupBody(identity, bundle))
 
-    /** Force a fresh generation. Counts against regen daily limit. */
-    suspend fun regenerateInsight(
-        identity: DocumentIdentity,
-        bundle: MetadataBundle,
-        reason: String,
-    ): BookInsightResponse =
-        post("/ai/v1/insights/regenerate", InsightRegenerateBody(identity, bundle, reason))
-
     /** Cache-only read. Throws [InsightNotCachedException] on 404. */
     suspend fun getInsight(identity: DocumentIdentity): BookInsightResponse =
         try {

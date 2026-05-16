@@ -137,24 +137,6 @@ class AiClientTest {
     }
 
     @Test
-    fun `regenerateInsight sends reason`() = runTest {
-        server.enqueue(
-            MockResponse().setResponseCode(200).setBody(
-                """{"payload":{"schema_version":2,"intro":"fixed","confidence":"high"},"sources":[],"model_id":"m","prompt_version":"2","generated_at":"2026-05-09T00:00:00+00:00"}"""
-            )
-        )
-        val out = client.regenerateInsight(
-            DocumentIdentity(metadataId = null, contentHash = "ch"),
-            MetadataBundle(title = "Foundation"),
-            reason = "Author bio was wrong.",
-        )
-        val req = server.takeRequest()
-        assertThat(req.path).isEqualTo("/ai/v1/insights/regenerate")
-        assertThat(req.body.readUtf8()).contains("Author bio was wrong.")
-        assertThat(out.payload.intro).isEqualTo("fixed")
-    }
-
-    @Test
     fun `429 raises AiQuotaException with parsed info`() = runTest {
         server.enqueue(
             MockResponse().setResponseCode(429).setBody(

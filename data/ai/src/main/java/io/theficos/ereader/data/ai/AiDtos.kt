@@ -83,13 +83,6 @@ data class InsightLookupBody(
 @Serializable
 data class InsightGetBody(val identity: DocumentIdentity)
 
-@Serializable
-data class InsightRegenerateBody(
-    val identity: DocumentIdentity,
-    val bundle: MetadataBundle,
-    val reason: String,
-)
-
 /** Body of the inner detail object on a 429 response. */
 @Serializable
 data class QuotaInfo(

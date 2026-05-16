@@ -57,13 +57,6 @@ class AiRepository(
         bundle: MetadataBundle,
     ): BookInsightResponse = client.lookupInsight(identity, bundle)
 
-    /** User requested a re-generation with a reason. Counts against regen daily limit. */
-    suspend fun regenerateInsight(
-        identity: DocumentIdentity,
-        bundle: MetadataBundle,
-        reason: String,
-    ): BookInsightResponse = client.regenerateInsight(identity, bundle, reason)
-
     suspend fun getCachedInsight(identity: DocumentIdentity): BookInsightResponse? =
         try {
             client.getInsight(identity)
