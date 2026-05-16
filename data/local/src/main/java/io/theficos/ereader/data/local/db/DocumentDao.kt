@@ -27,6 +27,57 @@ interface DocumentDao {
     @Query("SELECT * FROM documents ORDER BY downloadedAt DESC")
     fun observeAll(): Flow<List<DocumentEntity>>
 
+    /**
+     * "Continue your series" candidates for PR8's library-home shelf.
+     *
+     * A candidate is any book where:
+     *   - the book itself has a non-empty `seriesName`,
+     *   - the user has neither finished nor meaningfully started it
+     *     (no progress row, or `percent < startedThreshold` and `finishedAt IS NULL`),
+     *   - at least one other book in the same `seriesName` (case-insensitive)
+     *     has a `progress.finishedAt` set.
+     *
+     * Order: series whose latest finish is most recent first, then ascending
+     * `seriesIndex` within a series, with NULL indices pushed to the end and a
+     * stable title/id tiebreaker.
+     */
+    @Query(
+        """
+        WITH finished_series AS (
+            SELECT sibling.seriesName       AS seriesName,
+                   MAX(sp.finishedAt)       AS lastFinishedAt
+            FROM documents AS sibling
+            JOIN progress  AS sp ON sp.documentId = sibling.id
+            WHERE sibling.seriesName IS NOT NULL
+              AND sibling.seriesName != ''
+              AND sp.finishedAt IS NOT NULL
+            GROUP BY sibling.seriesName COLLATE NOCASE
+        )
+        SELECT d.*
+        FROM documents AS d
+        JOIN finished_series fs
+          ON fs.seriesName = d.seriesName COLLATE NOCASE
+        WHERE d.seriesName IS NOT NULL
+          AND d.seriesName != ''
+          AND NOT EXISTS (
+              SELECT 1 FROM progress AS p
+              WHERE p.documentId = d.id
+                AND (p.finishedAt IS NOT NULL OR p.percent >= :startedThreshold)
+          )
+        ORDER BY
+          fs.lastFinishedAt DESC,
+          (d.seriesIndex IS NULL) ASC,
+          d.seriesIndex ASC,
+          d.title COLLATE NOCASE ASC,
+          d.id ASC
+        LIMIT :maxItems
+        """
+    )
+    fun observeSeriesContinuationCandidates(
+        startedThreshold: Double,
+        maxItems: Int,
+    ): Flow<List<DocumentEntity>>
+
     @Query("DELETE FROM documents WHERE id = :id")
     suspend fun deleteById(id: Long): Int
 

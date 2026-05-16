@@ -9,6 +9,10 @@ import androidx.room.PrimaryKey
     indices = [
         Index(value = ["metadataId"], unique = true),
         Index(value = ["contentHash"], unique = true),
+        Index(
+            value = ["seriesName", "seriesIndex"],
+            name = "index_documents_seriesName_seriesIndex",
+        ),
     ],
 )
 data class DocumentEntity(
@@ -21,4 +25,6 @@ data class DocumentEntity(
     val localPath: String,
     val coverPath: String?,
     val downloadedAt: Long,
+    val seriesName: String? = null,
+    val seriesIndex: Double? = null,
 )
