@@ -22,6 +22,11 @@ async def _truncate_external_source_cache(request, engine: AsyncEngine):
     if "session" not in request.fixturenames:
         return
     async with engine.begin() as conn:
+        # CASCADE because ai_generation_log has an FK on book_insights.id;
+        # truncating book_insights without CASCADE raises in PostgreSQL.
         await conn.execute(
-            text("TRUNCATE TABLE external_source_cache, book_insights, ai_usage_daily")
+            text(
+                "TRUNCATE TABLE ai_generation_log, external_source_cache, "
+                "book_insights, ai_usage_daily CASCADE"
+            )
         )

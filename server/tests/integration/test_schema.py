@@ -47,3 +47,40 @@ async def test_ai_generation_log_table_exists(engine) -> None:
     assert fk is not None, "expected FK to book_insights"
     assert fk["constrained_columns"] == ["book_insight_id"]
     assert fk["options"].get("ondelete", "").upper() == "CASCADE"
+
+
+@pytest.mark.requires_ai
+async def test_ai_generation_log_round_trip(session) -> None:
+    """ORM model writes and reads ai_generation_log rows."""
+    from opds_sync.db.models import AIGenerationLog, BookInsight
+
+    insight = BookInsight(
+        metadata_id=None,
+        content_hash="ch-rt-log",
+        model_id="m1",
+        prompt_version="p1",
+        tone="neutral",
+        sources_used=[],
+        payload={"schema_version": 2, "intro": "x", "confidence": "low"},
+        sources=[],
+        generated_by="legacy-write",
+    )
+    session.add(insight)
+    await session.flush()
+
+    log = AIGenerationLog(
+        book_insight_id=insight.id,
+        subject="alice",
+        model_id="m1",
+        prompt_version="p1",
+        status="miss",
+        latency_ms=123,
+    )
+    session.add(log)
+    await session.commit()
+    await session.refresh(log)
+
+    assert log.id is not None
+    assert log.tenant_id == "local"  # server default
+    assert log.created_at is not None
+    assert log.request_id is None
