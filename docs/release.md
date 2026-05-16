@@ -1,12 +1,27 @@
 # Release process
 
-Push-driven. Every push to `main` triggers `android-ci.yaml`. The
-`build` job bumps `VERSION_NAME` / `VERSION_CODE` in `gradle.properties`
-to the next CalVer (`YYYY.MM.DD.<run>` / `yyMMdd*100 + run%100`),
-commits with a `[bot]` author, tags `vYYYY.MM.DD.<run>`, and pushes
-both before Gradle runs. The `release` job then builds and signs a
-release APK from the freshly-pushed tag and attaches it to a GitHub
-Release.
+Push-driven. Pushes to `main` that touch Android-relevant paths
+(`app/**`, `auth/**`, `core/**`, `data/**`, `reader/**`, root Gradle
+files, or the workflow itself) trigger `android-ci.yaml`. The `build`
+job bumps `VERSION_NAME` / `VERSION_CODE` in `gradle.properties` to the
+next CalVer (`YYYY.MM.DD.<run>` / `yyMMdd*100 + run%100`), commits with
+a `[bot]` author, tags `vYYYY.MM.DD.<run>`, and pushes both before
+Gradle runs. The `release` job then builds and signs a release APK from
+the freshly-pushed tag and attaches it to a GitHub Release.
+
+Server-only PRs (everything under `server/**`) **do not cut a release**
+— the path filter excludes them. A batch of stacked server PRs that
+lands without any Android-relevant change produces no APK and no tag;
+the next Android-relevant push picks up the next CalVer slot. This is
+intentional and matches CalVer's "calendar + run number" semantics.
+
+### Mode-branched migrations on deploy
+
+Container starts run `python /app/scripts/migrate.py`, which upgrades
+the unlabeled `0001..0004` backbone and then `alembic upgrade
+<branch>@head` for each branch enabled by `OPDS_SYNC_PROGRESS_ENABLED`
+and `OPDS_SYNC_AI_ENABLED`. Sync-only and AI-only deployments skip the
+other branch's migrations silently. See `server/migrations/README.md`.
 
 ## One-time keystore setup
 

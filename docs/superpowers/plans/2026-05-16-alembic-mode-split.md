@@ -1,5 +1,7 @@
 # Plan — Alembic branch split + deploy mode flags (PR-A)
 
+> Shipped in 37c9845 on 2026-05-16 as PR #10.
+
 **Spec:** `docs/superpowers/specs/2026-05-16-alembic-mode-split-design.md`
 **Approach:** TDD where the seam allows (middleware, health, config), exec-test for the migrate script and lazy imports.
 

@@ -1,5 +1,7 @@
 # Spec — Alembic branch split + deploy mode flags (PR-A)
 
+> Shipped in 37c9845 on 2026-05-16 as PR #10.
+
 **Date:** 2026-05-16
 **Branch:** `feat/alembic-mode-split`
 **Roadmap reference:** `.claude/local/quire-ai/2026-05-16-next-deliverables.md` §PR-A

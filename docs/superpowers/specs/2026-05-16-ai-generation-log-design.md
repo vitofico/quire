@@ -1,5 +1,7 @@
 # Spec — `ai_generation_log` table + cache-key tenant audit (PR-C)
 
+> Shipped in 1c17f51 on 2026-05-16 as PR #11.
+
 **Date:** 2026-05-16
 **Branch:** `feat/ai-generation-log` (stacked on `feat/alembic-mode-split` / PR-A)
 **Roadmap reference:** `.claude/local/quire-ai/2026-05-16-next-deliverables.md` §PR-C

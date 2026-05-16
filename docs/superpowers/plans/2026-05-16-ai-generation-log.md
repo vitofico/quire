@@ -1,5 +1,7 @@
 # `ai_generation_log` Table + Cache-Key Tenant Audit Implementation Plan
 
+> Shipped in 1c17f51 on 2026-05-16 as PR #11.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Introduce the `ai_generation_log` table on the `ai` alembic branch as the per-call tenant audit trail, codify the cache-integrity invariant as a regression test, fix PR-A test fallout from materializing the first `ai` branch, and stop reading `book_insights.generated_by` for any decision.

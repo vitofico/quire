@@ -120,7 +120,17 @@ OPDS_SYNC_CWA_PROBE_PATH=/opds
 OPDS_SYNC_CWA_PROBE_TIMEOUT_S=3.0
 OPDS_SYNC_AUTH_CACHE_POSITIVE_TTL_S=60
 OPDS_SYNC_AUTH_CACHE_NEGATIVE_TTL_S=10
+# Deploy-mode flags (PR-A). Both default true → full-stack.
+OPDS_SYNC_PROGRESS_ENABLED=true
+OPDS_SYNC_AI_ENABLED=true
+# Request-size cap enforced by RequestSizeMiddleware (default 1 MiB). Bodies
+# above this return 413.
+OPDS_SYNC_MAX_REQUEST_BYTES=1048576
 ```
+
+Every request flows through `RequestIDMiddleware`, which reads or generates an
+`X-Request-ID` header, binds it into a `contextvars` ContextVar so logs include
+it, and echoes it back on the response (including error responses).
 
 ### Tests
 
@@ -140,6 +150,12 @@ uv run alembic revision --autogenerate -m "add foo"
 uv run alembic upgrade head
 ```
 
+In containers, the entrypoint calls `python /app/scripts/migrate.py`, a wrapper
+that upgrades the unlabeled `0001..0004` backbone, then runs
+`alembic upgrade <branch>@head` for each enabled+materialized branch
+(`progress`, `ai`). See `server/migrations/README.md` for the branch-label
+convention.
+
 ### Lint / format
 
 ```sh
@@ -152,8 +168,11 @@ uv run ruff format
 ```
 opds_sync/
   api/
-    health.py        /healthz, /readyz
+    health.py        /health, /readyz (root-mounted, no /sync prefix)
     progress.py      /sync/v1/progress
+    middleware/
+      request_id.py  X-Request-ID propagation
+      request_size.py 413 on bodies above OPDS_SYNC_MAX_REQUEST_BYTES
     # bookmarks.py — planned
     # documents.py   — /documents/alias, alias reconciliation (planned)
   core/
@@ -177,10 +196,13 @@ Two workflows in `.github/workflows/`:
 - `android-ci.yaml` — fires on Android-relevant paths. Assembles debug APK,
   runs `test` and `lint`, uploads the APK and tags `vYYYY.MM.DD.<run>` on
   pushes to `main`.
-- `server-ci.yaml` — fires on `server/**`. Runs `pytest` and `ruff`.
+- `server-ci.yaml` — fires on `server/**`. Runs `pytest` and `ruff`, plus a
+  three-mode boot smoke (full / sync-only / AI-only) that verifies each mode's
+  router set and migration heads against a fresh Postgres.
 
 Both workflows use path filters so an Android-only change doesn't run server
-CI and vice versa.
+CI and vice versa. A consequence: server-only PRs do NOT cut a release —
+release tagging is gated on Android-relevant paths.
 
 ## Releases
 
