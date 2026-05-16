@@ -29,8 +29,10 @@ severity issues, longer for lower-severity ones.
 In scope:
 
 - Android app (`app/`, `auth/`, `core/`, `data/`, `reader/`).
-- Sync server (`server/`).
-- The HTTP surface between them and calibre-web.
+- Sync server (`server/`), including the `/sync/v1/*` and `/ai/v1/*`
+  surfaces, the request-size + request-id middleware, and the
+  three deploy modes (full, sync-only, AI-only).
+- The HTTP surface between the app, the sync server, and calibre-web.
 
 Out of scope:
 

@@ -100,6 +100,21 @@ in the same PR**, and update the fixtures.
 - For Android, Robolectric tests are fine for module-level work; the
   app module currently has no instrumented tests.
 
+### Load-bearing regressions (don't break these)
+
+- **`tests/integration/test_cache_key_audit.py`** asserts that the
+  shared-cache tables (`book_insights`, `external_source_cache`, and
+  future PR-added cache tables) carry **no** principal columns
+  (`user_id`, `tenant_id`, `subject`, …). The cross-tenant cache-hit
+  property is load-bearing for hosted Quire Cloud AI economics. Any PR
+  that adds a tenant column to a shared cache, or adds a new shared
+  cache without registering it in this test, will break it on purpose.
+  Per-call audit data goes on `ai_generation_log` instead.
+- **`tests/integration/test_modes.py`** boots the app in each of the
+  three deploy modes (full / sync-only / AI-only) against a fresh DB
+  and verifies the router set and migration heads. New routers must
+  declare their mode gate.
+
 ## Code of Conduct
 
 By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).

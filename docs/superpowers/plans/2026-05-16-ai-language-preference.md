@@ -1,5 +1,7 @@
 # Plan — AI insight language preference (PR4)
 
+> Shipped in e3ab148 on 2026-05-16 as PR #12.
+
 **Date:** 2026-05-16
 **Spec:** `docs/superpowers/specs/2026-05-16-ai-language-preference-design.md`
 **Branch:** `feat/ai-language-preference` (stacked on `feat/ai-generation-log`)

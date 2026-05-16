@@ -89,6 +89,25 @@ fixture set so they cannot drift.
 2. Else → look up by `content_hash`. Match wins.
 3. Else → no match; create new record.
 
+### Identity hierarchy (forward-looking)
+
+The two columns above are what ships today. A wider identity hierarchy is
+planned to support pre-download flows (catalog preview, library upload) where
+the EPUB body isn't on the device yet:
+
+1. **`metadata_id`** — normalized first non-empty `dc:identifier` from the
+   EPUB OPF. Stable across re-downloads.
+2. **`content_hash`** — KOReader-style sampled MD5 of the EPUB body. Stable
+   across metadata edits.
+3. **OPDS `dc:identifier`** — when present on the catalog entry. Pre-download.
+4. **Atom entry id / `calibre:<book id>`** — scoped alias from the catalog
+   entry. Pre-download.
+5. **`opds-href:<sha256(canonical href)>`** — last-resort fallback.
+
+Aliases reconcile into the canonical row when a stronger identity is later
+observed for the same book (planned in PR2 of the next batch). Title+author
+hashes are explicitly NOT identity — they collide on common titles.
+
 ### Reconciliation
 
 When a record was first written by hash alone and the client later learns the
@@ -243,6 +262,27 @@ Every inbound HTTP request passes through (innermost first):
 2. `RequestIDMiddleware` — reads or generates `X-Request-ID`, binds it to a
    `contextvars` ContextVar so logs include it, and echoes it back on every
    response (including 413 / 4xx / 5xx).
+
+### AI cache integrity
+
+`book_insights` and `external_source_cache` are a **shared cache**: one row
+serves every tenant who requests the same identity + model + prompt_version +
+tone + language. The cross-tenant cache-hit property is load-bearing for
+hosted Quire Cloud AI economics, so those tables MUST NOT carry `user_id`,
+`tenant_id`, or any other principal column read for cache decisions.
+
+Per-call audit and (future) billing attribution live in **`ai_generation_log`**
+— one row per `lookup` / `generate` / `regenerate` call with
+`book_insight_id` (FK, cascade), `tenant_id`, `subject`, `request_id`,
+`model_id`, `prompt_version`, `latency_ms`, `status` (`hit` / `miss` /
+`error`), `error_class`, `created_at`. Indexed by `(tenant_id, created_at)`
+for future billing rollups and by `book_insight_id` for the audit UI.
+
+`book_insights.generated_by` is a grandfathered NOT NULL column from before
+this invariant existed. PR-C stopped reading it; it remains write-only legacy
+until a follow-up migration nulls and drops it. A regression test
+(`tests/integration/test_cache_key_audit.py`) asserts no new tenant column
+sneaks onto the shared-cache tables — keep it green.
 
 ## Decision log
 
