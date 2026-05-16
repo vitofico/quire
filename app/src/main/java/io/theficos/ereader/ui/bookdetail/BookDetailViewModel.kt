@@ -98,38 +98,4 @@ class BookDetailViewModel(
     fun retry() {
         viewModelScope.launch { load() }
     }
-
-    fun regenerate(reason: String) {
-        viewModelScope.launch {
-            val doc = state.value.document ?: return@launch
-            val ident = DocumentIdentity(
-                metadataId = doc.identity.metadataId,
-                contentHash = doc.identity.contentHash,
-            )
-            _state.value = _state.value.copy(insight = InsightUiState.Loading)
-            val opfBytes = openOpfBytes(doc)
-            val bundle = if (opfBytes != null) {
-                OpfMetadataExtractor.extract(opfBytes, fallbackTitle = doc.title)
-            } else {
-                MetadataBundle(title = doc.title, author = doc.author)
-            }
-            runCatching { ai.regenerateInsight(ident, bundle, reason) }
-                .onSuccess { resp ->
-                    _state.value = _state.value.copy(
-                        insight = InsightUiState.Loaded(resp.payload, resp.sources),
-                    )
-                }
-                .onFailure { e ->
-                    val msg = when {
-                        e is AiQuotaException ->
-                            "You've reached today's regeneration limit. Try again after ${e.info.resetsAt.take(10)}."
-                        e is AiHttpException && e.code == 429 ->
-                            "You've reached today's regeneration limit. Try again tomorrow."
-                        e is AiHttpException -> "Couldn't regenerate (${e.code})."
-                        else -> "Couldn't regenerate."
-                    }
-                    _state.value = _state.value.copy(insight = InsightUiState.Error(msg))
-                }
-        }
-    }
 }

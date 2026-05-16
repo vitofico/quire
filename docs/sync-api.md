@@ -514,9 +514,13 @@ shared across users and remain readable by users who later opt out).
 
 ### `POST /ai/v1/insights/invalidate`
 
-Drops the cached row for the current `(model_id, prompt_version)`. Use this
-for admin-style cache busting; users hit `regenerate` instead, which is
-budgeted. Requires opt-in. Returns `{"deleted": <int>}`.
+Drops the cached row for the current `(model_id, prompt_version)`. Used by
+the app's "Invalidate insight" action (PR6 audit UI) and by admin-style cache
+busting. After invalidation the next `lookup` regenerates naturally, which is
+the user-facing path now that the in-app "Regenerate" affordance has been
+removed (PR11). The budgeted `POST /ai/v1/insights/regenerate` endpoint
+remains available for admin/cluster tooling. Requires opt-in. Returns
+`{"deleted": <int>}`.
 
 ### `GET /ai/v1/health`
 
