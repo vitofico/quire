@@ -97,6 +97,12 @@ class BookInsight(Base):
     tone: Mapped[str] = mapped_column(
         String, nullable=False, server_default=text("'neutral'"), default="neutral"
     )
+    # Part of the cache key so users with different AiStyle.language get their
+    # own generations. `'auto'` (the universal default) emits no language clause
+    # in the prompt and preserves the pre-PR4 behavior byte-for-byte.
+    language: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("'auto'"), default="auto"
+    )
     sources_used: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False)
     payload: Mapped[dict] = mapped_column(JSON, nullable=False)
     sources: Mapped[list[dict]] = mapped_column(JSON, nullable=False)

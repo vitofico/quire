@@ -9,12 +9,13 @@ from __future__ import annotations
 
 from opds_sync.api.ai_schemas import AiStyle, Citation, MetadataBundle
 
-PROMPT_VERSION = "2"
+PROMPT_VERSION = "3"
 
-# `tone` (from AiStyle) participates in the cache key via the `book_insights.tone`
-# column, so emitting tone-specific instructions in the prompt is safe across
-# users. `feedback` does NOT participate in the cache key — it's a one-shot input
-# on /insights/regenerate that produces a new row marked superseded against the
+# `tone` and `language` (from AiStyle) participate in the cache key via the
+# `book_insights.tone` and `book_insights.language` columns, so emitting
+# tone- or language-specific instructions in the prompt is safe across users.
+# `feedback` does NOT participate in the cache key — it's a one-shot input on
+# /insights/regenerate that produces a new row marked superseded against the
 # previous one.
 
 SYSTEM_PROMPT = (
@@ -106,6 +107,14 @@ def compose_user_prompt(
         if hint:
             lines.append("")
             lines.append(hint)
+        # `auto` is the universal default and emits no language clause —
+        # preserves pre-PR4 prompt body byte-for-byte. Non-auto codes are
+        # validated to ISO 639-1 in AiStyle._validate_language.
+        if style.language != "auto":
+            lines.append("")
+            lines.append(
+                f'Respond in the language identified by ISO 639-1 code "{style.language}".'
+            )
 
     if feedback:
         lines.append("")

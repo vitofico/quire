@@ -50,21 +50,21 @@ async def restore_after(postgres_url: str, alembic_upgrade):
 
 
 async def test_readyz_200_when_at_ai_head(monkeypatch, postgres_url, alembic_upgrade):
-    """With ai_001 materialized and ai mode on, the required head is ai@head."""
+    """With ai_002 materialized and ai mode on, the required head is ai@head."""
     app = _build_app(monkeypatch, postgres_url, progress=True, ai=True)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         r = await c.get("/readyz")
     assert r.status_code == 200
     body = r.json()
     assert body["ready"] is True
-    assert body["heads_applied"] == ["ai_001"]
+    assert body["heads_applied"] == ["ai_002"]
 
 
 async def test_readyz_503_when_db_below_backbone(
     monkeypatch, postgres_url, alembic_upgrade, restore_after
 ):
     """DB stamped below backbone; with both modes enabled, required head is
-    ai_001 (ai@head) — that's what should be reported missing."""
+    ai_002 (ai@head) — that's what should be reported missing."""
     await _stamp(postgres_url, "0003")
     app = _build_app(monkeypatch, postgres_url, progress=True, ai=True)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
@@ -72,7 +72,7 @@ async def test_readyz_503_when_db_below_backbone(
     assert r.status_code == 503
     body = r.json()
     assert body["ready"] is False
-    assert "ai_001" in body["missing"]
+    assert "ai_002" in body["missing"]
 
 
 async def test_readyz_200_with_neither_mode_at_backbone(

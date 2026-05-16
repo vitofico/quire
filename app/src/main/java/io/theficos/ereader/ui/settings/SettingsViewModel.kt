@@ -128,6 +128,12 @@ class SettingsViewModel(
             runCatching { aiRepository.setStyleTone(tone) }
         }
     }
+
+    fun setStyleLanguage(language: String) {
+        viewModelScope.launch {
+            runCatching { aiRepository.setStyleLanguage(language) }
+        }
+    }
 }
 
 data class CalibreUiState(

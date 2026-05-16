@@ -50,6 +50,52 @@ async def test_ai_generation_log_table_exists(engine) -> None:
 
 
 @pytest.mark.requires_ai
+async def test_book_insights_has_language_column(engine) -> None:
+    """ai_002 migration adds `language` to book_insights, NOT NULL, default 'auto'."""
+
+    def _introspect(sync_conn) -> dict:
+        insp = inspect(sync_conn)
+        cols = {c["name"]: c for c in insp.get_columns("book_insights")}
+        return {"cols": cols}
+
+    async with engine.connect() as conn:
+        info = await conn.run_sync(_introspect)
+
+    assert "language" in info["cols"]
+    lang = info["cols"]["language"]
+    assert lang["nullable"] is False
+    # Postgres reports server defaults as strings like "'auto'::character varying"
+    assert "auto" in str(lang.get("default", ""))
+
+
+@pytest.mark.requires_ai
+async def test_book_insights_unique_indexes_include_language(engine) -> None:
+    """ai_002 drops the tone-keyed unique indexes and recreates them with `language` appended."""
+
+    def _introspect(sync_conn) -> dict:
+        insp = inspect(sync_conn)
+        idx = {i["name"]: i for i in insp.get_indexes("book_insights")}
+        return {"idx": idx}
+
+    async with engine.connect() as conn:
+        info = await conn.run_sync(_introspect)
+
+    expected_names = {
+        "uq_book_insights_content_hash_model_prompt_tone_language",
+        "uq_book_insights_metadata_id_model_prompt_tone_language",
+    }
+    assert expected_names.issubset(info["idx"].keys()), info["idx"].keys()
+    # Confirm `language` is in the column list of both new indexes.
+    for name in expected_names:
+        cols = info["idx"][name]["column_names"]
+        assert "language" in cols, (name, cols)
+        assert "tone" in cols, (name, cols)
+    # And the old tone-only indexes are gone.
+    assert "uq_book_insights_content_hash_model_prompt_tone" not in info["idx"]
+    assert "uq_book_insights_metadata_id_model_prompt_tone" not in info["idx"]
+
+
+@pytest.mark.requires_ai
 async def test_ai_generation_log_round_trip(session) -> None:
     """ORM model writes and reads ai_generation_log rows."""
     from opds_sync.db.models import AIGenerationLog, BookInsight

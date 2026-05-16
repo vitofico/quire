@@ -38,6 +38,23 @@ import io.theficos.ereader.reader.ReaderTheme
 import io.theficos.ereader.ui.components.QuireCard
 import io.theficos.ereader.ui.components.SectionLabel
 
+/**
+ * Curated languages shown in the AI insight language dropdown. The server
+ * accepts any ISO 639-1 code; this list is the UI surface. Labels are the
+ * native names of each language so users in the target locale recognize
+ * them even before the app itself is localized.
+ */
+private val LANGUAGE_OPTIONS: List<Pair<String, String>> = listOf(
+    "auto" to "Auto",
+    "en" to "English",
+    "it" to "Italiano",
+    "es" to "Español",
+    "fr" to "Français",
+    "de" to "Deutsch",
+    "pt" to "Português",
+    "nl" to "Nederlands",
+)
+
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel,
@@ -310,6 +327,38 @@ fun SettingsScreen(
                                         onClick = {
                                             viewModel.setStyleTone(option)
                                             menuOpen = false
+                                        },
+                                    )
+                                }
+                            }
+                        }
+
+                        val language = aiState.preferences?.style?.language ?: "auto"
+                        var langMenuOpen by remember { mutableStateOf(false) }
+                        Column {
+                            Text("Insight language", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                "Language the model writes insights in. " +
+                                    "Auto follows the model's default.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            TextButton(onClick = { langMenuOpen = true }) {
+                                Text(
+                                    LANGUAGE_OPTIONS.firstOrNull { it.first == language }?.second
+                                        ?: language,
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = langMenuOpen,
+                                onDismissRequest = { langMenuOpen = false },
+                            ) {
+                                LANGUAGE_OPTIONS.forEach { (code, label) ->
+                                    DropdownMenuItem(
+                                        text = { Text(label) },
+                                        onClick = {
+                                            viewModel.setStyleLanguage(code)
+                                            langMenuOpen = false
                                         },
                                     )
                                 }

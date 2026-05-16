@@ -279,26 +279,41 @@ Returns the user-visible AI configuration. Public to authed users.
 
 ### `GET /ai/v1/preferences` / `PUT /ai/v1/preferences`
 
-Per-user opt-in flag plus a single personalization knob (`tone`). `tone`
-participates in the cache key for `book_insights` (via the `tone` column),
-so two users on the same instance with different tones get their own cached
-generations rather than one bleeding into the other.
+Per-user opt-in flag plus two personalization knobs: `tone` and `language`.
+Both participate in the cache key for `book_insights` (via the `tone` and
+`language` columns), so users on the same instance with different combinations
+get their own cached generations rather than one bleeding into the other.
 
 ```json
 {
   "ai_enabled": true,
   "style": {
-    "tone": "neutral"
+    "tone": "neutral",
+    "language": "auto"
   }
 }
 ```
 
-Allowed tones: `neutral`, `enthusiastic`, `scholarly`, `casual`.
+| Field            | Default     | Allowed values                                                   |
+| ---------------- | ----------- | ---------------------------------------------------------------- |
+| `style.tone`     | `"neutral"` | `neutral`, `enthusiastic`, `scholarly`, `casual`                 |
+| `style.language` | `"auto"`    | `auto` plus any lowercase ISO 639-1 code (`en`, `it`, `es`, …)   |
+
+`language="auto"` (the default) emits no language clause in the prompt and
+preserves byte-for-byte the pre-PR4 prompt body. Any other value sends a
+`'Respond in the language identified by ISO 639-1 code "<code>".'` line to
+the model. Non-ISO-639-1 codes return **422**.
 
 `PUT` accepts either field independently — send `{ "ai_enabled": true }` to flip
 the toggle without changing style, or `{ "style": { "tone": "scholarly" } }`
-to update tone without touching opt-in. Response always returns the full
-resolved state.
+to update tone without touching opt-in (or `language`). Response always returns
+the full resolved state.
+
+**Cache key:** `book_insights` uniqueness is
+`(metadata_id|content_hash, model_id, prompt_version, tone, language)`. Bumping
+any of these dimensions (e.g. via PR-level `PROMPT_VERSION` bumps) does not
+delete old rows — they simply stop being read because the lookup filters on the
+new dimensions.
 
 ### `POST /ai/v1/insights/lookup`
 
