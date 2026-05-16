@@ -284,3 +284,61 @@ async def test_same_tone_shares_cache_across_users(session, make_orchestrator):
     await orch.generate(session, ident, bundle, user_id="u2", style=AiStyle(tone="scholarly"))
 
     assert len(orch.ai.calls) == 1
+
+
+# ---- PR-C: ai_generation_log assertions ------------------------------------
+
+from opds_sync.db.models import AIGenerationLog  # noqa: E402
+
+
+@pytest.mark.asyncio
+async def test_generate_miss_writes_log_row(session: AsyncSession, make_orchestrator):
+    orch = make_orchestrator()
+    ident = DocumentIdentity(metadata_id=None, content_hash="ch-log-miss")
+    await orch.generate(session, ident, MetadataBundle(title="X"), user_id="alice")
+
+    rows = (await session.execute(select(AIGenerationLog))).scalars().all()
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.status == "miss"
+    assert row.subject == "alice"
+    assert row.tenant_id == "local"  # default when kwarg omitted
+    assert row.model_id == "test-model"
+    assert row.prompt_version == "t1"
+    assert row.latency_ms is not None and row.latency_ms >= 0
+    assert row.error_class is None
+    assert row.book_insight_id is not None
+
+
+@pytest.mark.asyncio
+async def test_second_generate_writes_hit_row_with_same_fk(
+    session: AsyncSession, make_orchestrator
+):
+    orch = make_orchestrator()
+    ident = DocumentIdentity(metadata_id=None, content_hash="ch-log-hit")
+    await orch.generate(session, ident, MetadataBundle(title="X"), user_id="alice")
+    await orch.generate(session, ident, MetadataBundle(title="X"), user_id="bob")
+
+    rows = (
+        (await session.execute(select(AIGenerationLog).order_by(AIGenerationLog.id)))
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 2
+    assert [r.status for r in rows] == ["miss", "hit"]
+    assert [r.subject for r in rows] == ["alice", "bob"]
+    assert rows[0].book_insight_id == rows[1].book_insight_id
+    assert rows[1].latency_ms == 0  # cache lookup cost
+
+
+@pytest.mark.asyncio
+async def test_log_uses_passed_tenant_id(session: AsyncSession, make_orchestrator):
+    orch = make_orchestrator()
+    ident = DocumentIdentity(metadata_id=None, content_hash="ch-tenant-kwarg")
+    await orch.generate(
+        session, ident, MetadataBundle(title="X"), user_id="alice", tenant_id="acme"
+    )
+
+    rows = (await session.execute(select(AIGenerationLog))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].tenant_id == "acme"
