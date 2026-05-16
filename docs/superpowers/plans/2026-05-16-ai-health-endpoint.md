@@ -1,5 +1,7 @@
 # Plan — PR5 AI provider health endpoint
 
+> Shipped in ca23ded on 2026-05-16 as PR #15.
+
 **Spec:** [`2026-05-16-ai-health-endpoint-design.md`](../specs/2026-05-16-ai-health-endpoint-design.md)
 **Branch:** `feat/ai-health-endpoint`
 **Author/Owner:** PR5 agent

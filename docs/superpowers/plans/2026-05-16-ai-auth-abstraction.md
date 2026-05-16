@@ -1,5 +1,7 @@
 # Plan — AI auth abstraction (PR-B)
 
+> Shipped in 3641c70 on 2026-05-16 as PR #14.
+
 **Spec:** `docs/superpowers/specs/2026-05-16-ai-auth-abstraction-design.md`
 **Approach:** TDD throughout. The unit/integration seams are clean (auth
 dependency, settings, principal dataclass), so failing tests come first;

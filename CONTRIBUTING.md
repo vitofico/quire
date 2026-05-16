@@ -102,18 +102,32 @@ in the same PR**, and update the fixtures.
 
 ### Load-bearing regressions (don't break these)
 
-- **`tests/integration/test_cache_key_audit.py`** asserts that the
-  shared-cache tables (`book_insights`, `external_source_cache`, and
-  future PR-added cache tables) carry **no** principal columns
-  (`user_id`, `tenant_id`, `subject`, …). The cross-tenant cache-hit
-  property is load-bearing for hosted Quire Cloud AI economics. Any PR
-  that adds a tenant column to a shared cache, or adds a new shared
-  cache without registering it in this test, will break it on purpose.
-  Per-call audit data goes on `ai_generation_log` instead.
+- **`tests/integration/test_cache_key_audit.py`** splits the audit into
+  two parametrize lists (PR2, 2026-05-16):
+  - **`SHARED_CACHE_TABLES`** (`book_insights`, `external_source_cache`,
+    plus future shared-cache tables): rows reused across every tenant
+    requesting the same identity + model + prompt + tone + language.
+    Carry **no** principal columns (`user_id`, `tenant_id`, `subject`,
+    `principal_id`). The cross-tenant cache-hit property is load-bearing
+    for hosted Quire Cloud AI economics. Any PR that adds a tenant column
+    to a shared cache, or adds a new shared cache without registering it
+    in this list, will break it on purpose. Per-call audit data goes on
+    `ai_generation_log` instead.
+  - **`SCOPED_ALIAS_TABLES`** (`insight_identity_aliases`): rows whose
+    `user_id` is INTENTIONAL cache-key scoping, NOT a tenant-leak. The
+    inverse-property test asserts `user_id` IS present on these tables,
+    so removing it (which would let user A's OPDS aliases bleed into
+    user B's catalog) fails loudly. `tenant_id` / `subject` /
+    `principal_id` remain forbidden — only `user_id` is allow-listed.
 - **`tests/integration/test_modes.py`** boots the app in each of the
   three deploy modes (full / sync-only / AI-only) against a fresh DB
   and verifies the router set and migration heads. New routers must
   declare their mode gate.
+- **`tests/unit/test_ai_identity_resolution.py`** locks in the PR2
+  identity-resolution semantics: canonical short-circuit, user-scoped vs
+  global alias scope (`SCOPE_BY_SCHEME`), and `AliasConflict` on
+  disagreeing canonicals. Any change to the alias scope rules or the
+  resolution order must update this test deliberately.
 
 ## Code of Conduct
 

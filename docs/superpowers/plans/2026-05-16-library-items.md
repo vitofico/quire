@@ -1,5 +1,7 @@
 # PR1 — `library_items` table + Android upload — Implementation Plan
 
+> Shipped in 4a79c7c on 2026-05-16 as PR #16.
+
 **Spec:** `docs/superpowers/specs/2026-05-16-library-items-design.md`
 **Branch:** `feat/library-items` (in worktree `.claude/worktrees/pr1-library-items`)
 **Base:** `main` at `769e9e4`

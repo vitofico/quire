@@ -1,5 +1,7 @@
 # Plan — Generic identity aliases (PR2)
 
+> Shipped in 193a01d on 2026-05-16 as PR #17.
+
 **Spec:** `docs/superpowers/specs/2026-05-16-identity-aliases-design.md`
 **Branch:** `feat/identity-aliases`
 **Worktree:** `.claude/worktrees/pr2-identity-aliases`
