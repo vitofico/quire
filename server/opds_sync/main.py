@@ -144,6 +144,7 @@ def create_app() -> FastAPI:
             # the Wikipedia/OpenLibrary clients out of sync-only deploys.
             from opds_sync.api.ai import router as ai_router
             from opds_sync.core.ai.client import AIClient
+            from opds_sync.core.ai.health_state import AiHealthState
             from opds_sync.core.ai.retrieval import Retriever
             from opds_sync.core.ai.service import InsightOrchestrator
 
@@ -155,10 +156,16 @@ def create_app() -> FastAPI:
             sources_enabled = tuple(
                 s.strip() for s in (settings.ai_sources or "").split(",") if s.strip()
             )
+            # PR5: process-local reachability holder, fed by chat_structured +
+            # retrieval calls. Exposed via GET /ai/v1/health.
+            ai_health = AiHealthState()
+            app.state.ai_health = ai_health
             orch = InsightOrchestrator(
                 ai=ai_client,
                 retriever_factory=lambda s: Retriever(
-                    session=s, timeout_s=settings.ai_retrieval_timeout_s
+                    session=s,
+                    timeout_s=settings.ai_retrieval_timeout_s,
+                    health_state=ai_health,
                 ),
                 sources_enabled=sources_enabled,
                 model_id=settings.ai_model,
@@ -168,6 +175,7 @@ def create_app() -> FastAPI:
                 rate_per_min=settings.ai_rate_per_min,
                 daily_budget=settings.ai_daily_budget,
                 regen_daily_limit=settings.ai_regen_daily_limit,
+                health_state=ai_health,
             )
             app.state.ai_orchestrator = orch
             app.include_router(ai_router, prefix="/ai/v1")
@@ -177,7 +185,11 @@ def create_app() -> FastAPI:
             # The authenticator is already wired above, so token-mode deploys
             # still require valid Bearer tokens on /config (no silent downgrade).
             from opds_sync.api.ai import router as ai_router
+            from opds_sync.core.ai.health_state import AiHealthState
 
+            # Attach an empty holder so GET /ai/v1/health returns an all-null
+            # snapshot rather than the "defensive empty body" branch.
+            app.state.ai_health = AiHealthState()
             app.include_router(ai_router, prefix="/ai/v1")
 
     # Middleware: registered LAST is OUTERMOST in ASGI execution order.

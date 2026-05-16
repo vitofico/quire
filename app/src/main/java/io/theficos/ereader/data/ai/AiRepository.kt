@@ -74,4 +74,14 @@ class AiRepository(
     suspend fun invalidate(identity: DocumentIdentity) {
         client.invalidateInsight(identity)
     }
+
+    /**
+     * One-shot fetch of the server's AI-provider and retrieval-source health.
+     *
+     * Returns `null` on any HTTP error (including a 404 when the server runs
+     * with AI disabled). The Settings screen treats `null` as "hide the
+     * status row" — never surfaces a stack trace.
+     */
+    suspend fun fetchHealth(): AiHealthResponse? =
+        runCatching { client.getHealth() }.getOrNull()
 }

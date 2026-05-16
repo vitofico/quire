@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.auth.CalibreCredentials
 import io.theficos.ereader.data.ai.AiConfig
+import io.theficos.ereader.data.ai.AiHealthResponse
 import io.theficos.ereader.data.ai.AiPreferences
 import io.theficos.ereader.data.ai.AiRepository
 import io.theficos.ereader.data.local.DocumentRepository
@@ -33,6 +34,7 @@ data class AiState(
     val config: AiConfig? = null,
     val preferences: AiPreferences? = null,
     val toggling: Boolean = false,
+    val health: AiHealthResponse? = null,
 )
 
 class SettingsViewModel(
@@ -52,17 +54,30 @@ class SettingsViewModel(
     private val _sync = MutableStateFlow(SyncUiState(hasCredentials = store.get() != null, lastSyncedAtMs = null))
     val sync: StateFlow<SyncUiState> = _sync.asStateFlow()
 
+    private val _aiHealth = MutableStateFlow<AiHealthResponse?>(null)
+
     val ai: StateFlow<AiState> = combine(
         aiRepository.config,
         aiRepository.preferences,
-    ) { c, p -> AiState(config = c, preferences = p) }.stateIn(
+        _aiHealth,
+    ) { c, p, h -> AiState(config = c, preferences = p, health = h) }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),
         AiState(),
     )
 
     init {
-        viewModelScope.launch { aiRepository.refresh() }
+        viewModelScope.launch {
+            aiRepository.refresh()
+            _aiHealth.value = aiRepository.fetchHealth()
+        }
+    }
+
+    /** Refresh the AI health snapshot. Safe to call from the UI on screen entry. */
+    fun refreshAiHealth() {
+        viewModelScope.launch {
+            _aiHealth.value = aiRepository.fetchHealth()
+        }
     }
 
     private fun loadInitialCalibre(): CalibreUiState {

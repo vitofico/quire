@@ -5,6 +5,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from opds_sync.core.ai.health_state import AiHealthState
 from opds_sync.core.ai.retrieval import (
     Retriever,
     _normalize_key,
@@ -156,3 +157,136 @@ async def test_lookup_wikipedia_percent_encodes_special_chars(session: AsyncSess
     assert any("C%23" in u or "C%23" in str(u) for u in seen_urls), (
         f"expected percent-encoded C# in URL, got: {seen_urls}"
     )
+
+
+# ---------------------------------------------------------------------------
+# PR5: health-state hooks
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_wikipedia_200_records_reachable_true(session: AsyncSession):
+    health = AiHealthState()
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=_wiki_summary_response("Foundation", "ext"))
+
+    r = Retriever(
+        session=session,
+        transport=httpx.MockTransport(handler),
+        timeout_s=5.0,
+        health_state=health,
+    )
+    await r.lookup_wikipedia(author=None, title="Foundation")
+    snap = await health.snapshot()
+    assert snap.retrieval_sources["wikipedia"].reachable is True
+
+
+@pytest.mark.asyncio
+async def test_wikipedia_404_records_reachable_true(session: AsyncSession):
+    """404 still means the network reached Wikipedia. Reachability is True."""
+    health = AiHealthState()
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"detail": "missing"})
+
+    r = Retriever(
+        session=session,
+        transport=httpx.MockTransport(handler),
+        timeout_s=5.0,
+        health_state=health,
+    )
+    cites = await r.lookup_wikipedia(author=None, title="DefinitelyNotAPage")
+    assert cites == []
+    snap = await health.snapshot()
+    assert snap.retrieval_sources["wikipedia"].reachable is True
+
+
+@pytest.mark.asyncio
+async def test_wikipedia_timeout_records_reachable_false(session: AsyncSession):
+    health = AiHealthState()
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("simulated")
+
+    r = Retriever(
+        session=session,
+        transport=httpx.MockTransport(handler),
+        timeout_s=1.0,
+        health_state=health,
+    )
+    cites = await r.lookup_wikipedia(author=None, title="X")
+    assert cites == []
+    snap = await health.snapshot()
+    assert snap.retrieval_sources["wikipedia"].reachable is False
+
+
+@pytest.mark.asyncio
+async def test_openlibrary_200_records_reachable_true(session: AsyncSession):
+    health = AiHealthState()
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=_ol_search_response([]))
+
+    r = Retriever(
+        session=session,
+        transport=httpx.MockTransport(handler),
+        timeout_s=5.0,
+        health_state=health,
+    )
+    await r.lookup_openlibrary(author="Asimov", title="Foundation", isbn=None)
+    snap = await health.snapshot()
+    assert snap.retrieval_sources["openlibrary"].reachable is True
+
+
+@pytest.mark.asyncio
+async def test_openlibrary_timeout_records_reachable_false(session: AsyncSession):
+    health = AiHealthState()
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("simulated")
+
+    r = Retriever(
+        session=session,
+        transport=httpx.MockTransport(handler),
+        timeout_s=1.0,
+        health_state=health,
+    )
+    cites = await r.lookup_openlibrary(author="X", title="Y", isbn=None)
+    assert cites == []
+    snap = await health.snapshot()
+    assert snap.retrieval_sources["openlibrary"].reachable is False
+
+
+@pytest.mark.asyncio
+async def test_cache_hit_does_not_update_health(session: AsyncSession):
+    """A second lookup that hits the cache must NOT call record_retrieval.
+
+    The network wasn't reached on the second call, so reachability stays as
+    it was after the first call.
+    """
+    health = AiHealthState()
+    call_count = 0
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        return httpx.Response(200, json=_wiki_summary_response("Foundation", "ext"))
+
+    r = Retriever(
+        session=session,
+        transport=httpx.MockTransport(handler),
+        timeout_s=5.0,
+        health_state=health,
+    )
+    await r.lookup_wikipedia(author=None, title="Foundation")
+    snap1 = await health.snapshot()
+    first_ts = snap1.retrieval_sources["wikipedia"].last_checked_at
+
+    # Second lookup: should hit cache.
+    await r.lookup_wikipedia(author=None, title="Foundation")
+    assert call_count == 1  # confirm cache hit
+
+    snap2 = await health.snapshot()
+    # Timestamp unchanged because the second call didn't touch the network.
+    assert snap2.retrieval_sources["wikipedia"].last_checked_at == first_ts

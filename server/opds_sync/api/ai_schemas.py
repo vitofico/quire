@@ -353,3 +353,46 @@ class QuotaResponse(BaseModel):
     used: int
     limit: int
     resets_at: str  # ISO-8601, next UTC midnight
+
+
+class RetrievalSourceHealth(BaseModel):
+    """One row in ``AiHealthResponse.retrieval_sources``.
+
+    Tri-state ``reachable``:
+      * ``null`` — never observed by this process (fresh start, or no
+        lookup has ever consulted this source).
+      * ``true`` — last HTTP call to this source completed (any status code).
+      * ``false`` — last attempt failed at the transport level (timeout, DNS,
+        connection reset, etc.).
+    """
+
+    name: str
+    reachable: bool | None = None
+    last_checked_at: str | None = None  # ISO-8601
+
+
+class AiHealthResponse(BaseModel):
+    """Body of ``GET /ai/v1/health``.
+
+    Process-local snapshot of the most recently observed reachability of the
+    AI provider and configured retrieval sources. Reset to all-null on
+    process restart. Multi-replica deployments report per-replica state.
+
+    Field semantics:
+      * ``provider_reachable`` — tri-state, same shape as
+        ``RetrievalSourceHealth.reachable``.
+      * ``provider_last_checked_at`` — non-null whenever
+        ``provider_reachable`` is non-null.
+      * ``model_id`` — most recently observed model on a successful chat
+        completion (NOT the configured ``AI_MODEL``; see ``/ai/v1/config``
+        for that). Null until the first success.
+      * ``last_failure_at`` / ``last_failure_class`` — set when
+        ``provider_reachable=false``; cleared on the next success.
+    """
+
+    provider_reachable: bool | None = None
+    provider_last_checked_at: str | None = None  # ISO-8601
+    model_id: str | None = None
+    last_failure_at: str | None = None  # ISO-8601
+    last_failure_class: str | None = None
+    retrieval_sources: list[RetrievalSourceHealth] = Field(default_factory=list)
