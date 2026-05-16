@@ -373,3 +373,64 @@ async def test_get_miss_writes_no_log_row(session: AsyncSession, make_orchestrat
 
     rows = (await session.execute(select(AIGenerationLog))).scalars().all()
     assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_concurrent_generations_emit_one_miss_and_n_minus_one_hits(
+    session: AsyncSession, make_orchestrator
+):
+    """Coalesced waiters: one model call but N log rows, one per waiter."""
+    orch = make_orchestrator()
+    ident = DocumentIdentity(metadata_id=None, content_hash="ch-coalesce-log")
+    bundle = MetadataBundle(title="Coalesce")
+
+    await asyncio.gather(
+        orch.generate(session, ident, bundle, user_id="u1"),
+        orch.generate(session, ident, bundle, user_id="u2"),
+        orch.generate(session, ident, bundle, user_id="u3"),
+    )
+
+    assert len(orch.ai.calls) == 1
+
+    rows = (
+        (await session.execute(select(AIGenerationLog).order_by(AIGenerationLog.id)))
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 3
+    statuses = sorted(r.status for r in rows)
+    assert statuses == ["hit", "hit", "miss"]
+    # All three FK the same insight
+    assert len({r.book_insight_id for r in rows}) == 1
+    # Three distinct subjects
+    assert sorted(r.subject for r in rows) == ["u1", "u2", "u3"]
+
+
+@pytest.mark.asyncio
+async def test_log_carries_request_id_when_set(
+    session: AsyncSession, make_orchestrator
+):
+    from opds_sync.core.logging_ctx import request_id_var
+
+    token = request_id_var.set("test-req-abc123")
+    try:
+        orch = make_orchestrator()
+        ident = DocumentIdentity(metadata_id=None, content_hash="ch-req-id")
+        await orch.generate(session, ident, MetadataBundle(title="X"), user_id="alice")
+    finally:
+        request_id_var.reset(token)
+
+    rows = (await session.execute(select(AIGenerationLog))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].request_id == "test-req-abc123"
+
+
+@pytest.mark.asyncio
+async def test_log_default_tenant_id_is_local(session: AsyncSession, make_orchestrator):
+    orch = make_orchestrator()
+    ident = DocumentIdentity(metadata_id=None, content_hash="ch-tenant-default")
+    await orch.generate(session, ident, MetadataBundle(title="X"), user_id="alice")
+
+    rows = (await session.execute(select(AIGenerationLog))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].tenant_id == "local"
