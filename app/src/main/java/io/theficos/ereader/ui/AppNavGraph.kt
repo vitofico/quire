@@ -1,6 +1,7 @@
 package io.theficos.ereader.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -11,6 +12,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import io.theficos.ereader.di.AppContainer
 import io.theficos.ereader.ui.bookdetail.BookDetailScreen
+import io.theficos.ereader.ui.bookdetail.InsightAuditScreen
 import io.theficos.ereader.ui.catalog.CatalogScreen
 import io.theficos.ereader.ui.catalog.CatalogViewModel
 import io.theficos.ereader.ui.library.LibraryScreen
@@ -103,10 +105,42 @@ fun AppNavGraph(container: AppContainer) {
             val vm = remember(id) {
                 container.bookDetailViewModelFactory.create(id)
             }
+            // Re-run load() after the audit screen invalidates the cached row,
+            // so the book detail naturally regenerates (or shows nothing) on
+            // return.
+            val savedStateHandle = backStack.savedStateHandle
+            val invalidatedFlow = savedStateHandle
+                .getStateFlow("insight_invalidated", false)
+            val invalidated by invalidatedFlow.collectAsState()
+            LaunchedEffect(invalidated) {
+                if (invalidated) {
+                    savedStateHandle["insight_invalidated"] = false
+                    vm.retry()
+                }
+            }
             BookDetailScreen(
                 viewModel = vm,
                 onOpenReader = { docId -> nav.navigate("reader/$docId") },
+                onInspectInsight = { docId -> nav.navigate("book/$docId/inspect-insight") },
                 onBack = { nav.popBackStack() },
+            )
+        }
+        composable(
+            "book/{id}/inspect-insight",
+            arguments = listOf(navArgument("id") { type = NavType.LongType }),
+        ) { backStack ->
+            val id = backStack.arguments!!.getLong("id")
+            val vm = remember(id) {
+                container.insightAuditViewModelFactory.create(id)
+            }
+            InsightAuditScreen(
+                viewModel = vm,
+                onBack = { nav.popBackStack() },
+                onInvalidated = {
+                    nav.previousBackStackEntry?.savedStateHandle
+                        ?.set("insight_invalidated", true)
+                    nav.popBackStack()
+                },
             )
         }
         composable("licenses") {
