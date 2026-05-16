@@ -72,10 +72,7 @@ def _good_claims(*, sub: str = "acme:alice", tenant: str = "acme", lifetime_s: i
 
 
 def _basic_header(user: str, password: str = "p") -> dict:
-    return {
-        "Authorization": "Basic "
-        + base64.b64encode(f"{user}:{password}".encode()).decode()
-    }
+    return {"Authorization": "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()}
 
 
 # ---------------------------------------------------------------------------
@@ -126,9 +123,7 @@ async def test_token_mode_valid_token_returns_200(client_factory):
         ai_token_audience=_AUD,
         skip_auth_overrides=True,
     ) as client:
-        r = await client.get(
-            "/ai/v1/config", headers={"Authorization": f"Bearer {token}"}
-        )
+        r = await client.get("/ai/v1/config", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 200, r.text
 
 
@@ -145,15 +140,11 @@ async def test_token_mode_kid_rotation_old_kid_accepted(client_factory):
     ) as client:
         # Sign under the older kid.
         t1 = _sign_token(_good_claims(), secret=_SECRET_1, kid="k1")
-        r1 = await client.get(
-            "/ai/v1/config", headers={"Authorization": f"Bearer {t1}"}
-        )
+        r1 = await client.get("/ai/v1/config", headers={"Authorization": f"Bearer {t1}"})
         assert r1.status_code == 200, r1.text
         # Sign under the newer kid.
         t2 = _sign_token(_good_claims(), secret=_SECRET_2, kid="k2")
-        r2 = await client.get(
-            "/ai/v1/config", headers={"Authorization": f"Bearer {t2}"}
-        )
+        r2 = await client.get("/ai/v1/config", headers={"Authorization": f"Bearer {t2}"})
         assert r2.status_code == 200, r2.text
 
 
@@ -206,9 +197,7 @@ def _install_fake_orchestrator(app, payload: dict) -> None:
 
 
 @pytest.mark.requires_ai
-async def test_token_auth_writes_tenant_id_to_generation_log(
-    client_factory, app, session
-):
+async def test_token_auth_writes_tenant_id_to_generation_log(client_factory, app, session):
     """End-to-end proof that PR-B's principal.tenant_id flows into PR-C's log."""
     async with client_factory(
         ai_enabled=True,
@@ -251,13 +240,9 @@ async def test_token_auth_writes_tenant_id_to_generation_log(
         )
         assert r2.status_code == 200, r2.text
 
-    logs = (
-        (await session.execute(select(AIGenerationLog))).scalars().all()
-    )
+    logs = (await session.execute(select(AIGenerationLog))).scalars().all()
     assert len(logs) >= 1
-    assert any(
-        log.tenant_id == "acme" and log.subject == "acme:alice" for log in logs
-    ), [
+    assert any(log.tenant_id == "acme" and log.subject == "acme:alice" for log in logs), [
         (log.tenant_id, log.subject, log.status) for log in logs
     ]
     # And critically: nothing was logged under the legacy "local" tenant.
@@ -265,9 +250,7 @@ async def test_token_auth_writes_tenant_id_to_generation_log(
 
 
 @pytest.mark.requires_ai
-async def test_token_auth_propagates_request_id_to_generation_log(
-    client_factory, app, session
-):
+async def test_token_auth_propagates_request_id_to_generation_log(client_factory, app, session):
     """X-Request-ID set by the client flows through to ai_generation_log."""
     async with client_factory(
         ai_enabled=True,
@@ -289,9 +272,7 @@ async def test_token_auth_propagates_request_id_to_generation_log(
             "Authorization": f"Bearer {token}",
             "X-Request-ID": "rid-test-pr-b",
         }
-        r = await client.put(
-            "/ai/v1/preferences", headers=headers, json={"ai_enabled": True}
-        )
+        r = await client.put("/ai/v1/preferences", headers=headers, json={"ai_enabled": True})
         assert r.status_code == 200
 
         r2 = await client.post(
@@ -305,6 +286,4 @@ async def test_token_auth_propagates_request_id_to_generation_log(
         assert r2.status_code == 200
 
     logs = (await session.execute(select(AIGenerationLog))).scalars().all()
-    assert any(log.request_id == "rid-test-pr-b" for log in logs), [
-        log.request_id for log in logs
-    ]
+    assert any(log.request_id == "rid-test-pr-b" for log in logs), [log.request_id for log in logs]

@@ -76,9 +76,7 @@ def test_ai_auth_mode_env_override(monkeypatch):
 
 
 def test_ai_token_secrets_parses_json_object(monkeypatch):
-    monkeypatch.setenv(
-        "OPDS_SYNC_AI_TOKEN_SECRETS", '{"k1": "a" , "k2": "b"}'
-    )
+    monkeypatch.setenv("OPDS_SYNC_AI_TOKEN_SECRETS", '{"k1": "a" , "k2": "b"}')
     s = Settings()
     assert s.ai_token_secrets == {"k1": "a", "k2": "b"}
 

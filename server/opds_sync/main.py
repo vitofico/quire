@@ -47,26 +47,19 @@ def _validate_ai_auth_settings(settings: Settings) -> None:
     for kid, secret in secrets.items():
         if not isinstance(kid, str) or not kid:
             raise RuntimeError(
-                "OPDS_SYNC_AI_TOKEN_SECRETS has an empty kid; every kid must "
-                "be a non-empty string"
+                "OPDS_SYNC_AI_TOKEN_SECRETS has an empty kid; every kid must be a non-empty string"
             )
         if not isinstance(secret, str):
-            raise RuntimeError(
-                f"OPDS_SYNC_AI_TOKEN_SECRETS[{kid!r}] must be a string"
-            )
+            raise RuntimeError(f"OPDS_SYNC_AI_TOKEN_SECRETS[{kid!r}] must be a string")
         if len(secret.encode("utf-8")) < 32:
             raise RuntimeError(
                 f"OPDS_SYNC_AI_TOKEN_SECRETS[{kid!r}] is shorter than 32 bytes; "
                 "use a random 32+ byte secret"
             )
     if not settings.ai_token_issuer or not settings.ai_token_issuer.strip():
-        raise RuntimeError(
-            "OPDS_SYNC_AI_AUTH_MODE=token requires OPDS_SYNC_AI_TOKEN_ISSUER"
-        )
+        raise RuntimeError("OPDS_SYNC_AI_AUTH_MODE=token requires OPDS_SYNC_AI_TOKEN_ISSUER")
     if not settings.ai_token_audience or not settings.ai_token_audience.strip():
-        raise RuntimeError(
-            "OPDS_SYNC_AI_AUTH_MODE=token requires OPDS_SYNC_AI_TOKEN_AUDIENCE"
-        )
+        raise RuntimeError("OPDS_SYNC_AI_AUTH_MODE=token requires OPDS_SYNC_AI_TOKEN_AUDIENCE")
 
 
 def _build_ai_authenticator(settings: Settings, validator: CalibreAuthValidator):
@@ -142,9 +135,7 @@ def create_app() -> FastAPI:
         # crashloop here — never silently downgrade to basic. Sync-only
         # deploys (ai_enabled=false) skip this block entirely.
         _validate_ai_auth_settings(settings)
-        app.state.ai_authenticator = _build_ai_authenticator(
-            settings, app.state.auth_validator
-        )
+        app.state.ai_authenticator = _build_ai_authenticator(settings, app.state.auth_validator)
 
         if settings.ai_base_url and settings.ai_model:
             # Lazy imports: only pull AI modules when AI mode is on AND configured.

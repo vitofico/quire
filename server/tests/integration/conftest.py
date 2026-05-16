@@ -146,6 +146,8 @@ def client_factory(monkeypatch, postgres_url, alembic_upgrade, app: _AppProxy):
             try:
                 from opds_sync.api.ai_auth import (
                     AiPrincipal,
+                )
+                from opds_sync.api.ai_auth import (
                     get_ai_principal as _real_principal,
                 )
             except ImportError:

@@ -10,6 +10,7 @@ Covers:
 from __future__ import annotations
 
 import base64
+import dataclasses
 import hashlib
 import hmac
 import json
@@ -27,7 +28,6 @@ from opds_sync.api.ai_auth import (
 )
 from opds_sync.core.auth import CalibreAuthValidator
 from opds_sync.core.logging_ctx import request_id_var
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -156,16 +156,14 @@ def test_principal_shape_is_frozen_and_hashable():
     assert p.auth_mode == "basic"
     assert p.request_id == "rid-1"
     # frozen → cannot mutate
-    with pytest.raises(Exception):
+    with pytest.raises(dataclasses.FrozenInstanceError):
         p.subject = "bob"  # type: ignore[misc]
-    # hashable (scopes is a tuple, not a list)
-    {p}
+    # hashable (scopes is a tuple, not a list) — must not raise
+    hash(p)
 
 
 def test_principal_request_id_defaults_none():
-    p = AiPrincipal(
-        subject="a", tenant_id="t", scopes=(), auth_mode="basic"
-    )
+    p = AiPrincipal(subject="a", tenant_id="t", scopes=(), auth_mode="basic")
     assert p.request_id is None
 
 
@@ -374,9 +372,7 @@ async def test_token_exp_equals_now_rejected():
 async def test_token_iat_too_far_in_future_rejected():
     now = 1_700_000_000
     auth = _token_auth(now=now)
-    token = _sign_token(
-        _good_claims(now, iat=now + 3600, exp=now + 3700), secret=_SECRET
-    )
+    token = _sign_token(_good_claims(now, iat=now + 3600, exp=now + 3700), secret=_SECRET)
     await _expect_401(auth, _make_token_req({"authorization": f"Bearer {token}"}))
 
 
@@ -390,9 +386,7 @@ async def test_token_exp_lte_iat_rejected():
 async def test_token_lifetime_over_24h_rejected():
     now = 1_700_000_000
     auth = _token_auth(now=now)
-    token = _sign_token(
-        _good_claims(now, iat=now, exp=now + 86_401), secret=_SECRET
-    )
+    token = _sign_token(_good_claims(now, iat=now, exp=now + 86_401), secret=_SECRET)
     await _expect_401(auth, _make_token_req({"authorization": f"Bearer {token}"}))
 
 
@@ -443,9 +437,7 @@ async def test_token_signature_wrong_length_rejected():
 
 
 # Claim validation
-@pytest.mark.parametrize(
-    "drop", ["iss", "aud", "exp", "iat", "sub", "tenant_id"]
-)
+@pytest.mark.parametrize("drop", ["iss", "aud", "exp", "iat", "sub", "tenant_id"])
 async def test_token_missing_required_claim_rejected(drop):
     now = 1_700_000_000
     auth = _token_auth(now=now)
@@ -523,9 +515,7 @@ async def test_token_bearer_extra_tokens_rejected():
     now = 1_700_000_000
     auth = _token_auth(now=now)
     token = _sign_token(_good_claims(now), secret=_SECRET)
-    await _expect_401(
-        auth, _make_token_req({"authorization": f"Bearer {token} extra"})
-    )
+    await _expect_401(auth, _make_token_req({"authorization": f"Bearer {token} extra"}))
 
 
 async def test_token_segment_count_wrong_rejected():
@@ -560,9 +550,7 @@ async def test_token_non_base64url_chars_rejected():
     h, p, s = token.split(".")
     # Inject a `+` (standard base64, NOT url-safe).
     tampered_p = "+" + p[1:]
-    await _expect_401(
-        auth, _make_token_req({"authorization": f"Bearer {h}.{tampered_p}.{s}"})
-    )
+    await _expect_401(auth, _make_token_req({"authorization": f"Bearer {h}.{tampered_p}.{s}"}))
 
 
 async def test_token_header_array_rejected():
@@ -570,9 +558,7 @@ async def test_token_header_array_rejected():
     auth = _token_auth(now=now)
     # Build by hand: header is a JSON array, not an object.
     header_b64 = _b64url(json.dumps(["HS256", "k1"]).encode("utf-8"))
-    payload_b64 = _b64url(
-        json.dumps(_good_claims(now), separators=(",", ":")).encode("utf-8")
-    )
+    payload_b64 = _b64url(json.dumps(_good_claims(now), separators=(",", ":")).encode("utf-8"))
     sig_b64 = _b64url(b"\x00" * 32)
     token = f"{header_b64}.{payload_b64}.{sig_b64}"
     await _expect_401(auth, _make_token_req({"authorization": f"Bearer {token}"}))
