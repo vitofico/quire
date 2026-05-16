@@ -1,6 +1,10 @@
 import base64
 
+import pytest
 from httpx import ASGITransport, AsyncClient
+
+# All tests in this file hit /sync/v1/* and so require the progress router.
+pytestmark = pytest.mark.requires_progress
 
 
 def _basic(user: str, pw: str) -> dict[str, str]:

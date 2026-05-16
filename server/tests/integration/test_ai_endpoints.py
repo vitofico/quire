@@ -17,6 +17,9 @@ from opds_sync.core.ai.client import AIClient
 from opds_sync.core.ai.service import InsightOrchestrator
 from opds_sync.db.models import BookInsight
 
+# All tests in this file hit /ai/v1/* and so require the ai router.
+pytestmark = pytest.mark.requires_ai
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -86,15 +89,25 @@ def configure_ai():
 # ---------------------------------------------------------------------------
 
 
-async def test_config_endpoint_when_disabled(client_factory):
+async def test_ai_router_not_mounted_when_disabled(client_factory):
+    """PR-A: ai_enabled=false means the entire /ai/v1/* namespace is unmounted."""
     async with client_factory(ai_enabled=False) as client:
+        r = await client.get("/ai/v1/config", headers=_basic_header("alice"))
+    assert r.status_code == 404
+
+
+async def test_config_endpoint_when_enabled_but_unconfigured(client_factory):
+    """ai_enabled=true with base_url/model unset: router mounts, config reports unconfigured."""
+    async with client_factory(ai_enabled=True) as client:
         r = await client.get("/ai/v1/config", headers=_basic_header("alice"))
     assert r.status_code == 200
     body = r.json()
     assert body["configured"] is False
     assert body["base_url_host"] is None
     assert body["model_id"] is None
-    assert body["sources_enabled"] == []
+    # sources_enabled reflects the configured sources string regardless of
+    # whether the provider is reachable — it's a static config view.
+    assert body["sources_enabled"] == ["wikipedia", "openlibrary"]
     assert body["daily_budget"] == 200
     assert body["regen_daily_limit"] == 3
 

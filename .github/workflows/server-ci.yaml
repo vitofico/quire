@@ -20,9 +20,21 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [full, sync_only, ai_only]
     defaults:
       run:
         working-directory: server
+    env:
+      # Deploy mode matrix: each cell exports the env vars that gate the app.
+      # Tests that depend on a specific mode (lazy-imports, modes, readyz)
+      # parameterize their own expectations; mode-agnostic tests run in every
+      # cell to surface any regression that only shows up under a non-default
+      # configuration.
+      OPDS_SYNC_PROGRESS_ENABLED: ${{ matrix.mode != 'ai_only' && 'true' || 'false' }}
+      OPDS_SYNC_AI_ENABLED: ${{ matrix.mode != 'sync_only' && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
@@ -33,6 +45,7 @@ jobs:
           uv venv
           uv pip install -e ".[dev]"
       - name: Lint
+        if: matrix.mode == 'full'
         run: uv run ruff check . && uv run ruff format --check .
       - name: Test
         run: uv run pytest -v
