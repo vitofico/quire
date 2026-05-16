@@ -14,8 +14,33 @@ from sqlalchemy.ext.asyncio import (
 from testcontainers.postgres import PostgresContainer
 
 
-def pytest_collection_modifyitems(items):
-    """Ensure test_schema runs before test_progress to avoid committed-row cross-pollution."""
+def pytest_collection_modifyitems(config, items):
+    """Ordering + mode-marker skipping.
+
+    Ordering: ensure test_schema runs before test_progress to avoid
+    committed-row cross-pollution.
+
+    Mode markers: tests marked `requires_progress` or `requires_ai` are
+    skipped when the corresponding env flag is false (so the CI mode matrix
+    can run the same suite under each mode without spurious failures from
+    routers that aren't mounted).
+    """
+    import os
+
+    def _flag(name: str) -> bool:
+        return os.environ.get(name, "true").strip().lower() in {"1", "true", "yes", "on"}
+
+    progress_on = _flag("OPDS_SYNC_PROGRESS_ENABLED")
+    ai_on = _flag("OPDS_SYNC_AI_ENABLED")
+
+    skip_progress = pytest.mark.skip(reason="OPDS_SYNC_PROGRESS_ENABLED=false")
+    skip_ai = pytest.mark.skip(reason="OPDS_SYNC_AI_ENABLED=false")
+
+    for item in items:
+        if "requires_progress" in item.keywords and not progress_on:
+            item.add_marker(skip_progress)
+        if "requires_ai" in item.keywords and not ai_on:
+            item.add_marker(skip_ai)
 
     def _key(item):
         path = item.nodeid

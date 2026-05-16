@@ -198,6 +198,52 @@ calibre-web username and password; everything else flows from that.
 - On `401` the app prompts re-auth (no refresh token to rotate).
 - Logout clears the Keystore entry.
 
+## Deploy modes
+
+The opds-sync server supports three deploy modes from a single codebase and
+container image. Modes are controlled by two env-var flags:
+
+| Mode             | `OPDS_SYNC_PROGRESS_ENABLED` | `OPDS_SYNC_AI_ENABLED` | Mounted endpoints                                |
+| ---------------- | ---------------------------- | ---------------------- | ------------------------------------------------ |
+| Full stack       | `true` (default)             | `true` (default)       | `/health`, `/readyz`, `/sync/v1/*`, `/ai/v1/*`   |
+| Sync only        | `true`                       | `false`                | `/health`, `/readyz`, `/sync/v1/*`               |
+| AI only          | `false`                      | `true`                 | `/health`, `/readyz`, `/ai/v1/*`                 |
+
+`/health` and `/readyz` are always mounted on the root path (no prefix) so k8s
+liveness/readiness probes work in every mode. `/health` returns liveness plus
+the active modes list. `/readyz` performs DB connectivity + an alembic-head
+check that verifies all required migration heads (per the enabled modes and
+the currently-materialized branches) are applied.
+
+The container entrypoint runs `python /app/scripts/migrate.py`, which:
+
+- Always upgrades the unlabeled migration backbone (today: revision `0004`).
+- Per enabled+materialized branch (`core`, `progress`, `ai`), runs
+  `alembic upgrade <branch>@head`. Branches that don't exist yet are skipped
+  silently.
+
+Migrations split into three forward-only branches off the `0001..0004` linear
+backbone. See `server/migrations/README.md` for the branch-label convention
+and the splice rule for adding the first migration on a new branch.
+
+### Provider lazy-import boundary
+
+Modules importing AI provider clients (httpx-based today; the `openai` SDK
+when it lands) and Wikipedia/OpenLibrary retrieval HTTP clients load lazily
+inside `create_app()` under the AI-enabled guard. Sync-only deploys never pull
+those modules. The test suite enforces this via subprocess introspection of
+`sys.modules`.
+
+### Request middleware
+
+Every inbound HTTP request passes through (innermost first):
+
+1. `RequestSizeMiddleware` — rejects bodies larger than
+   `OPDS_SYNC_MAX_REQUEST_BYTES` (default 1 MiB) with HTTP 413.
+2. `RequestIDMiddleware` — reads or generates `X-Request-ID`, binds it to a
+   `contextvars` ContextVar so logs include it, and echoes it back on every
+   response (including 413 / 4xx / 5xx).
+
 ## Decision log
 
 | # | Decision | Rationale |
@@ -210,3 +256,4 @@ calibre-web username and password; everything else flows from that.
 | 6 | Python FastAPI for the sync server | Fastest to write; traffic is trivial; deploys cleanly into the existing cluster. |
 | 7 | Bookmarks are the only synced reading artifact beyond progress | Smallest scope that's actually useful; record-level LWW is sufficient; matches the author's actual reading workflow. |
 | 8 | Calibre plugin as a later read-only consumer | Validates API shape; non-blocking; clean separation. |
+| 9 | Single image, three deploy modes (full / sync-only / AI-only) gated by env-var flags | One codebase, one container; lets the future hosted Quire Cloud AI ship the same image. Migrations branch per-domain so each mode applies only what it needs. |

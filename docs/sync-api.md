@@ -31,8 +31,8 @@ returns `503`.
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| `GET` | `/healthz` | none | Liveness probe |
-| `GET` | `/readyz` | none | Readiness probe (checks Postgres) |
+| `GET` | `/health` | none | Liveness probe; returns `{ready, modes}` (always mounted) |
+| `GET` | `/readyz` | none | Readiness probe; checks Postgres and that enabled-branch migrations are applied (always mounted) |
 | `POST` | `/sync/v1/progress` | yes | Push progress for one or more documents |
 | `GET` | `/sync/v1/progress` | yes | Pull progress deltas |
 | `POST` | `/sync/v1/documents/alias` | yes | Reconcile a hash-keyed record with a newly-known metadata-id (planned) |
@@ -210,13 +210,21 @@ Returns rows where `updated_at > since`, **including tombstones**
 ## Health
 
 ```
-GET /healthz
+GET /health
 GET /readyz
 ```
 
-`/healthz` is liveness; it returns 200 unless the process is broken.
-`/readyz` opens a Postgres connection and returns 200 only if the database is
-reachable.
+Both endpoints mount on the root path (no `/sync/v1` prefix) and are always
+available regardless of deploy mode. The previous `/sync/v1/healthz` was
+removed in PR-A; cluster manifests must point at `/health` going forward.
+
+- `/health` is liveness. Returns `{ "ready": true, "modes": ["progress","ai"] }`
+  where `modes` reflects `OPDS_SYNC_PROGRESS_ENABLED` and `OPDS_SYNC_AI_ENABLED`.
+  Returns 200 unless the process is broken.
+- `/readyz` is readiness. Opens a Postgres connection and verifies that all
+  required migration heads (for the enabled modes) are present in
+  `alembic_version`. Returns 200 with `heads_applied` listing current heads,
+  or 503 with `missing` listing migrations the DB has not yet applied.
 
 ## Errors
 

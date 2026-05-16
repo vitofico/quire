@@ -15,8 +15,21 @@ class Settings(BaseSettings):
     auth_cache_max_entries: int = 1024
     log_level: str = "INFO"
 
-    # AI substrate (Phase 1)
-    ai_enabled: bool = False
+    # Deploy mode flags (PR-A). Both default true → full-stack mode. Flip to
+    # `false` to disable a domain entirely (router not mounted, migration
+    # branch skipped, lazy provider imports inhibited).
+    progress_enabled: bool = True
+
+    # Maximum allowed request body size in bytes (default 1 MiB). Bounds the
+    # hosted cost surface and protects against accidental large uploads.
+    # Enforced by RequestSizeMiddleware; oversized requests get 413.
+    max_request_bytes: int = 1_048_576
+
+    # AI substrate (Phase 1). Default flipped from False → True in PR-A so the
+    # full-stack mode is the documented default. Existing prod deployments
+    # already set OPDS_SYNC_AI_ENABLED=true explicitly, so this flip is
+    # invisible there; sync-only deploys must now explicitly set false.
+    ai_enabled: bool = True
     ai_base_url: str | None = None
     ai_api_key: str | None = None
     ai_model: str | None = None

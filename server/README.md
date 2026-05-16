@@ -24,11 +24,28 @@ cd server
 cp .env.example .env
 # Edit .env: at minimum set OPDS_SYNC_CWA_BASE_URL and POSTGRES_PASSWORD.
 docker compose up -d
-curl http://localhost:8000/healthz
+curl http://localhost:8000/health
 ```
 
-Migrations run automatically on container start. The image is published
-to `ghcr.io/vitofico/opds-sync:latest` by `server-ci.yaml`.
+Migrations run automatically on container start via `scripts/migrate.py`,
+which respects the deploy-mode flags `OPDS_SYNC_PROGRESS_ENABLED` and
+`OPDS_SYNC_AI_ENABLED` (both default `true`). See `migrations/README.md`
+for the branch-label convention. The image is published to
+`ghcr.io/vitofico/opds-sync:latest` by `server-ci.yaml`.
+
+### Deploy modes
+
+| Mode             | `OPDS_SYNC_PROGRESS_ENABLED` | `OPDS_SYNC_AI_ENABLED` | Mounts                          |
+| ---------------- | ---------------------------- | ---------------------- | ------------------------------- |
+| Full stack       | `true` (default)             | `true` (default)       | `/sync/v1/*`, `/ai/v1/*`        |
+| Sync only        | `true`                       | `false`                | `/sync/v1/*`                    |
+| AI only          | `false`                      | `true`                 | `/ai/v1/*`                      |
+
+`/health` and `/readyz` are mounted on the root in every mode.
+
+Update the health-probe path: it moved from `/sync/v1/healthz` (pre-PR-A) to
+`/health` in PR-A. The k8s manifests in `theficos-cluster` need a one-line
+bump alongside this release.
 
 ## AI smoke test
 

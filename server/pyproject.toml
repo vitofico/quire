@@ -31,3 +31,7 @@ include = ["opds_sync*"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "requires_progress: test exercises the /sync/v1 progress router and must skip when OPDS_SYNC_PROGRESS_ENABLED=false",
+    "requires_ai: test exercises the /ai/v1 router and must skip when OPDS_SYNC_AI_ENABLED=false",
+]
