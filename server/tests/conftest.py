@@ -3,7 +3,6 @@ from collections.abc import AsyncIterator, Iterator
 
 import httpx
 import pytest
-from alembic import command
 from alembic.config import Config as AlembicConfig
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -63,9 +62,15 @@ def postgres_url() -> Iterator[str]:
 
 @pytest.fixture(scope="session")
 def alembic_upgrade(postgres_url: str) -> None:
+    # Use the production mode-aware wrapper instead of `alembic upgrade head`.
+    # `head` is ambiguous once multiple branches exist; the wrapper handles
+    # backbone + per-branch upgrades correctly. We pass both flags true so
+    # the test schema reaches `ai@head` and (eventually) `progress@head`.
     cfg = AlembicConfig("alembic.ini")
     cfg.set_main_option("sqlalchemy.url", postgres_url)
-    command.upgrade(cfg, "head")
+    from scripts.migrate import run_migrations
+
+    run_migrations(cfg, progress_enabled=True, ai_enabled=True)
 
 
 @pytest.fixture
