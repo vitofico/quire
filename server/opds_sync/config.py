@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -45,6 +46,32 @@ class Settings(BaseSettings):
     ai_rate_per_min: int = 10  # process-wide token bucket against AI_BASE_URL
     ai_daily_budget: int = 200  # generations per user per UTC day; 0 disables
     ai_regen_daily_limit: int = 3  # tighter ceiling for /insights/regenerate per user/day
+
+    # ---------------------------------------------------------------------
+    # PR-B: AI auth abstraction (seam-only). Sync routes unaffected.
+    # ---------------------------------------------------------------------
+    # Mode of the /ai/v1/* authenticator:
+    #   * "basic"  – wraps the existing calibre-web Basic-auth verifier;
+    #                tenant_id is always "local". Default.
+    #   * "token"  – validates HMAC-SHA256 bearer tokens with claims
+    #                {iss, aud, exp, iat, sub, tenant_id, scope?} and a
+    #                header {alg=HS256, kid}. Multi-tenant.
+    ai_auth_mode: Literal["basic", "token"] = "basic"
+
+    # JSON object env var mapping `kid -> secret` (UTF-8 string >= 32 bytes).
+    # Required when ai_auth_mode == "token". Multiple kids enable rotation:
+    # tokens signed under any listed kid are accepted. Token issuance is NOT
+    # implemented here — this server only verifies. Token `sub` claims must
+    # be globally unique under the issuer (e.g. tenant-qualified at
+    # issuance) since `principal.subject` is stored verbatim in user-scoped
+    # tables (preferences, daily quota).
+    ai_token_secrets: dict[str, str] | None = None
+
+    # Required when ai_auth_mode == "token". Validated against token `iss`.
+    ai_token_issuer: str | None = None
+
+    # Required when ai_auth_mode == "token". Validated against token `aud`.
+    ai_token_audience: str | None = None
 
 
 @lru_cache(maxsize=1)

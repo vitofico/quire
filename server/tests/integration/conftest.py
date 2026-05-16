@@ -92,7 +92,7 @@ def client_factory(monkeypatch, postgres_url, alembic_upgrade, app: _AppProxy):
             r = await client.get("/ai/v1/config", headers=_basic_header("alice"))
     """
 
-    def _factory(**env_kwargs):
+    def _factory(*, skip_auth_overrides: bool = False, **env_kwargs):
         # --- 1. Configure environment ----------------------------------------
         monkeypatch.setenv("OPDS_SYNC_DATABASE_URL", postgres_url)
         monkeypatch.setenv("OPDS_SYNC_CWA_BASE_URL", "http://test-cwa")
@@ -112,30 +112,60 @@ def client_factory(monkeypatch, postgres_url, alembic_upgrade, app: _AppProxy):
         app._set(real_app)
 
         # --- 3. Stub auth via dependency_overrides ---------------------------
-        from opds_sync.core.auth import current_user_id as _real_cuid
+        # Tests that exercise REAL auth (PR-B token-mode tests, for example)
+        # pass `skip_auth_overrides=True` to opt out of the fakes.
+        if not skip_auth_overrides:
+            from opds_sync.core.auth import current_user_id as _real_cuid
 
-        async def _fake_current_user_id(request: Request) -> str:
-            header = request.headers.get("Authorization", "")
-            if not header.lower().startswith("basic "):
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="missing credentials",
-                )
+            async def _fake_current_user_id(request: Request) -> str:
+                header = request.headers.get("Authorization", "")
+                if not header.lower().startswith("basic "):
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="missing credentials",
+                    )
+                try:
+                    decoded = base64.b64decode(header[6:].strip()).decode("utf-8")
+                except Exception:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="malformed credentials",
+                    ) from None
+                if ":" not in decoded:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="malformed credentials",
+                    )
+                return decoded.split(":", 1)[0].lower()
+
+            real_app.dependency_overrides[_real_cuid] = _fake_current_user_id
+
+            # PR-B: AI routes depend on get_ai_principal instead of
+            # current_user_id. Mirror the basic-auth fake so existing tests
+            # that use _basic_header() keep working without modification.
             try:
-                decoded = base64.b64decode(header[6:].strip()).decode("utf-8")
-            except Exception:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="malformed credentials",
-                ) from None
-            if ":" not in decoded:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="malformed credentials",
+                from opds_sync.api.ai_auth import (
+                    AiPrincipal,
                 )
-            return decoded.split(":", 1)[0].lower()
+                from opds_sync.api.ai_auth import (
+                    get_ai_principal as _real_principal,
+                )
+            except ImportError:
+                _real_principal = None
 
-        real_app.dependency_overrides[_real_cuid] = _fake_current_user_id
+            if _real_principal is not None:
+
+                async def _fake_ai_principal(request: Request) -> AiPrincipal:
+                    subject = await _fake_current_user_id(request)
+                    return AiPrincipal(
+                        subject=subject,
+                        tenant_id="local",
+                        scopes=(),
+                        auth_mode="basic",
+                        request_id=None,
+                    )
+
+                real_app.dependency_overrides[_real_principal] = _fake_ai_principal
 
         # --- 4. Return async context manager ---------------------------------
         @asynccontextmanager
