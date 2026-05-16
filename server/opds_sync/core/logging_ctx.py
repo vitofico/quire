@@ -17,8 +17,11 @@ request_id_var: ContextVar[str] = ContextVar("request_id", default="")
 class RequestIdLogFilter(logging.Filter):
     """Inject the current request_id into every log record.
 
-    Use by attaching to the relevant logger / handler:
-        logging.getLogger().addFilter(RequestIdLogFilter())
+    IMPORTANT: attach to HANDLERS, not to loggers. Logger-level filters do
+    NOT apply to records propagated up from child loggers — only to records
+    logged directly to that logger. The production wiring lives in
+    `main.py::create_app()`; mirror it in tests by adding the filter to
+    `caplog.handler` or to your own handler instance.
     """
 
     def filter(self, record: logging.LogRecord) -> bool:

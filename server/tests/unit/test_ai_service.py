@@ -284,3 +284,225 @@ async def test_same_tone_shares_cache_across_users(session, make_orchestrator):
     await orch.generate(session, ident, bundle, user_id="u2", style=AiStyle(tone="scholarly"))
 
     assert len(orch.ai.calls) == 1
+
+
+# ---- PR-C: ai_generation_log assertions ------------------------------------
+
+from opds_sync.db.models import AIGenerationLog  # noqa: E402
+
+
+@pytest.mark.asyncio
+async def test_generate_miss_writes_log_row(session: AsyncSession, make_orchestrator):
+    orch = make_orchestrator()
+    ident = DocumentIdentity(metadata_id=None, content_hash="ch-log-miss")
+    await orch.generate(session, ident, MetadataBundle(title="X"), user_id="alice")
+
+    rows = (await session.execute(select(AIGenerationLog))).scalars().all()
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.status == "miss"
+    assert row.subject == "alice"
+    assert row.tenant_id == "local"  # default when kwarg omitted
+    assert row.model_id == "test-model"
+    assert row.prompt_version == "t1"
+    assert row.latency_ms is not None and row.latency_ms >= 0
+    assert row.error_class is None
+    assert row.book_insight_id is not None
+
+
+@pytest.mark.asyncio
+async def test_second_generate_writes_hit_row_with_same_fk(
+    session: AsyncSession, make_orchestrator
+):
+    orch = make_orchestrator()
+    ident = DocumentIdentity(metadata_id=None, content_hash="ch-log-hit")
+    await orch.generate(session, ident, MetadataBundle(title="X"), user_id="alice")
+    await orch.generate(session, ident, MetadataBundle(title="X"), user_id="bob")
+
+    rows = (
+        (await session.execute(select(AIGenerationLog).order_by(AIGenerationLog.id)))
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 2
+    assert [r.status for r in rows] == ["miss", "hit"]
+    assert [r.subject for r in rows] == ["alice", "bob"]
+    assert rows[0].book_insight_id == rows[1].book_insight_id
+    assert rows[1].latency_ms == 0  # cache lookup cost
+
+
+@pytest.mark.asyncio
+async def test_log_uses_passed_tenant_id(session: AsyncSession, make_orchestrator):
+    orch = make_orchestrator()
+    ident = DocumentIdentity(metadata_id=None, content_hash="ch-tenant-kwarg")
+    await orch.generate(
+        session, ident, MetadataBundle(title="X"), user_id="alice", tenant_id="acme"
+    )
+
+    rows = (await session.execute(select(AIGenerationLog))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].tenant_id == "acme"
+
+
+@pytest.mark.asyncio
+async def test_get_hit_writes_log_row(session: AsyncSession, make_orchestrator):
+    orch = make_orchestrator()
+    ident = DocumentIdentity(metadata_id=None, content_hash="ch-get-hit")
+    await orch.generate(session, ident, MetadataBundle(title="X"), user_id="alice")
+    # baseline: one miss row from the generate
+    assert len((await session.execute(select(AIGenerationLog))).scalars().all()) == 1
+
+    out = await orch.get(session, ident, user_id="alice")
+    assert out is not None
+
+    rows = (
+        (await session.execute(select(AIGenerationLog).order_by(AIGenerationLog.id)))
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 2
+    assert rows[1].status == "hit"
+    assert rows[1].latency_ms == 0
+
+
+@pytest.mark.asyncio
+async def test_get_miss_writes_no_log_row(session: AsyncSession, make_orchestrator):
+    orch = make_orchestrator()
+    ident = DocumentIdentity(metadata_id=None, content_hash="ch-get-miss")
+    assert await orch.get(session, ident) is None
+
+    rows = (await session.execute(select(AIGenerationLog))).scalars().all()
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_concurrent_generations_emit_one_miss_and_n_minus_one_hits(
+    session: AsyncSession, make_orchestrator
+):
+    """Coalesced waiters: one model call but N log rows, one per waiter."""
+    orch = make_orchestrator()
+    ident = DocumentIdentity(metadata_id=None, content_hash="ch-coalesce-log")
+    bundle = MetadataBundle(title="Coalesce")
+
+    await asyncio.gather(
+        orch.generate(session, ident, bundle, user_id="u1"),
+        orch.generate(session, ident, bundle, user_id="u2"),
+        orch.generate(session, ident, bundle, user_id="u3"),
+    )
+
+    assert len(orch.ai.calls) == 1
+
+    rows = (
+        (await session.execute(select(AIGenerationLog).order_by(AIGenerationLog.id)))
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 3
+    statuses = sorted(r.status for r in rows)
+    assert statuses == ["hit", "hit", "miss"]
+    # All three FK the same insight
+    assert len({r.book_insight_id for r in rows}) == 1
+    # Three distinct subjects
+    assert sorted(r.subject for r in rows) == ["u1", "u2", "u3"]
+
+
+@pytest.mark.asyncio
+async def test_log_carries_request_id_when_set(session: AsyncSession, make_orchestrator):
+    from opds_sync.core.logging_ctx import request_id_var
+
+    token = request_id_var.set("test-req-abc123")
+    try:
+        orch = make_orchestrator()
+        ident = DocumentIdentity(metadata_id=None, content_hash="ch-req-id")
+        await orch.generate(session, ident, MetadataBundle(title="X"), user_id="alice")
+    finally:
+        request_id_var.reset(token)
+
+    rows = (await session.execute(select(AIGenerationLog))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].request_id == "test-req-abc123"
+
+
+@pytest.mark.asyncio
+async def test_log_default_tenant_id_is_local(session: AsyncSession, make_orchestrator):
+    orch = make_orchestrator()
+    ident = DocumentIdentity(metadata_id=None, content_hash="ch-tenant-default")
+    await orch.generate(session, ident, MetadataBundle(title="X"), user_id="alice")
+
+    rows = (await session.execute(select(AIGenerationLog))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].tenant_id == "local"
+
+
+class _ExplodingAIClient:
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    async def chat_structured(self, *, system, user, schema, timeout_s):
+        self.calls.append({"system": system, "user": user})
+        raise RuntimeError("simulated provider failure")
+
+
+@pytest.mark.asyncio
+async def test_generate_error_emits_structured_log(session: AsyncSession, caplog):
+    """Errors emit a structured `event=ai.generate.error` warning carrying
+    tenant_id, subject, model, prompt_version, error_class. The request_id
+    ContextVar is read by the log filter (attached to caplog's handler to
+    mirror the production handler-level attachment) and surfaces as
+    record.request_id. No ai_generation_log row is written.
+    """
+    import logging
+
+    from opds_sync.core.ai.service import InsightOrchestrator
+    from opds_sync.core.logging_ctx import RequestIdLogFilter, request_id_var
+
+    # Set level on BOTH the root and the specific service logger; pytest-asyncio
+    # plus testcontainers fixtures can leave child-logger levels in unexpected
+    # states across tests, so be explicit.
+    caplog.set_level(logging.WARNING, logger="opds_sync.core.ai.service")
+    caplog.set_level(logging.WARNING)
+    filt = RequestIdLogFilter()
+    caplog.handler.addFilter(filt)
+
+    token = request_id_var.set("req-err-xyz")
+    try:
+        orch = InsightOrchestrator(
+            ai=_ExplodingAIClient(),
+            retriever_factory=lambda s: FakeRetriever(),
+            sources_enabled=(),
+            model_id="boom-model",
+            prompt_version="t1",
+            max_concurrency=1,
+            ai_timeout_s=5.0,
+        )
+        ident = DocumentIdentity(metadata_id=None, content_hash="ch-error")
+
+        with pytest.raises(RuntimeError, match="simulated provider failure"):
+            await orch.generate(
+                session,
+                ident,
+                MetadataBundle(title="X"),
+                user_id="alice",
+                tenant_id="acme",
+            )
+    finally:
+        request_id_var.reset(token)
+        caplog.handler.removeFilter(filt)
+
+    rows = (await session.execute(select(AIGenerationLog))).scalars().all()
+    assert rows == []  # no DB row for errors
+
+    error_records = [r for r in caplog.records if "event=ai.generate.error" in r.getMessage()]
+    assert len(error_records) == 1, (
+        f"expected exactly one ai.generate.error log record, got {len(error_records)} "
+        f"out of {[r.getMessage() for r in caplog.records]}"
+    )
+    rec = error_records[0]
+    msg = rec.getMessage()
+    assert "tenant_id=acme" in msg
+    assert "subject=alice" in msg
+    assert "model=boom-model" in msg
+    assert "prompt_version=t1" in msg
+    assert "error_class=RuntimeError" in msg
+    # request_id surfaces on the record because the filter is on caplog.handler.
+    assert getattr(rec, "request_id", "") == "req-err-xyz"

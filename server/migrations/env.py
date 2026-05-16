@@ -9,7 +9,12 @@ from opds_sync.db.models import Base
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False: without this, fileConfig DISABLES every
+    # logger that was created before alembic ran (including all `opds_sync.*`
+    # loggers). The migrate.py wrapper invokes env.py during container start,
+    # so production process loggers would arrive at request-handling time
+    # already disabled — silencing structured logs like `event=ai.generate.error`.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 

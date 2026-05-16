@@ -30,8 +30,15 @@ from opds_sync.db.session import configure, make_engine
 def create_app() -> FastAPI:
     settings = get_settings()
     logging.basicConfig(level=settings.log_level)
-    # Inject request_id into every log record produced after this point.
-    logging.getLogger().addFilter(RequestIdLogFilter())
+    # Inject request_id into every log record routed through the root
+    # handlers. Logger-level filters on the root logger do NOT apply to
+    # records propagated up from child loggers, so we attach the filter to
+    # the handlers themselves. Idempotent if create_app() runs more than
+    # once (e.g., in tests).
+    _filter = RequestIdLogFilter()
+    for _h in logging.getLogger().handlers:
+        if not any(isinstance(f, RequestIdLogFilter) for f in _h.filters):
+            _h.addFilter(_filter)
 
     configure(make_engine(settings.database_url))
 

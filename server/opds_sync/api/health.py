@@ -102,6 +102,55 @@ def _required_heads(script, progress_enabled: bool, ai_enabled: bool) -> set[str
     return required
 
 
+def _is_at_or_past(script, current: str, target: str) -> bool:
+    """Return True if `current` is `target` or any descendant of `target`."""
+    if current == target:
+        return True
+    rev = script.get_revision(current)
+    if rev is None:
+        return False
+    # Walk down_revisions backward to base; if we encounter `target`, current
+    # descends from it.
+    seen: set[str] = set()
+    stack: list[str] = list(rev.down_revision or [])
+    if isinstance(rev.down_revision, str):
+        stack = [rev.down_revision]
+    elif rev.down_revision is None:
+        stack = []
+    else:
+        stack = list(rev.down_revision)
+    while stack:
+        rid = stack.pop()
+        if rid in seen:
+            continue
+        seen.add(rid)
+        if rid == target:
+            return True
+        parent = script.get_revision(rid)
+        if parent is None:
+            continue
+        if isinstance(parent.down_revision, str):
+            stack.append(parent.down_revision)
+        elif parent.down_revision:
+            stack.extend(parent.down_revision)
+    return False
+
+
+def _missing(script, required: set[str], current: set[str]) -> set[str]:
+    """Return required revisions not satisfied by any current revision.
+
+    A required revision R is satisfied if any current revision C equals R or
+    descends from R. This handles the "DB has ai_001, neither mode enabled,
+    fallback required is 0004" case: 0004 is an ancestor of ai_001, so the
+    backbone is satisfied even though current != required.
+    """
+    out: set[str] = set()
+    for r in required:
+        if not any(_is_at_or_past(script, c, r) for c in current):
+            out.add(r)
+    return out
+
+
 async def _db_alembic_heads() -> set[str]:
     """Return the set of revisions in the DB's alembic_version table."""
     async with session_scope() as s:
@@ -150,7 +199,7 @@ async def readyz():
             content={"ready": False, "detail": "alembic state unreadable", "modes": modes},
         )
 
-    missing = required - current
+    missing = _missing(script, required, current)
     if missing:
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

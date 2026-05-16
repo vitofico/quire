@@ -66,6 +66,21 @@ class Progress(Base):
     document: Mapped[Document] = relationship(back_populates="progress")
 
 
+# ============================================================================
+# Cache-integrity invariant (PR-C, 2026-05-16)
+# ----------------------------------------------------------------------------
+# `book_insights` is a SHARED CACHE: one row serves every tenant who requests
+# the same identity+model+prompt+tone. The cross-tenant cache-hit property is
+# load-bearing for hosted Quire Cloud AI economics.
+#
+# Therefore this table MUST NOT carry `user_id`, `tenant_id`, `subject`, or
+# any other principal column read for cache decisions. Per-call audit and
+# billing attribution live in `ai_generation_log` (FK to book_insights.id).
+#
+# `generated_by` is grandfathered: a NOT NULL column from before this
+# invariant existed. PR-C stops reading it; a follow-up will null it; a
+# later migration will drop it. Until then it is write-only legacy.
+# ============================================================================
 class BookInsight(Base):
     __tablename__ = "book_insights"
     # All uniqueness/indexes for this table are PARTIAL (depend on `superseded_at`).
@@ -108,6 +123,8 @@ class UserAIPreference(Base):
     )
 
 
+# Cache-integrity invariant: shared cache, MUST NOT carry tenant columns.
+# See the comment above BookInsight for the full rule.
 class ExternalSourceCacheEntry(Base):
     __tablename__ = "external_source_cache"
 
@@ -127,4 +144,47 @@ class AIUsageDaily(Base):
     count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"), default=0)
     regen_count: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0"), default=0
+    )
+
+
+class AIGenerationLog(Base):
+    """Per-call audit row anchored to `book_insights.id`.
+
+    One row per `get()`-hit / `generate()` / `regenerate()` call, regardless of
+    cache state. Future billing rollups query `(tenant_id, created_at)`; the
+    audit UI queries `(book_insight_id)`.
+
+    `status` is permissive ('hit' | 'miss' | 'error') so a future PR can
+    introduce error rows without a schema bump. PR-C only emits 'hit' and
+    'miss'; errors go to structured logs because they have no FK target.
+    """
+
+    __tablename__ = "ai_generation_log"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('hit', 'miss', 'error')",
+            name="ck_ai_generation_log_status",
+        ),
+        Index("ix_ai_generation_log_tenant_created", "tenant_id", "created_at"),
+        Index("ix_ai_generation_log_book_insight", "book_insight_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    book_insight_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("book_insights.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("'local'"), default="local"
+    )
+    subject: Mapped[str] = mapped_column(String, nullable=False)
+    request_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    model_id: Mapped[str] = mapped_column(String, nullable=False)
+    prompt_version: Mapped[str] = mapped_column(String, nullable=False)
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    error_class: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )

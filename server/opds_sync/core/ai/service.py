@@ -35,7 +35,8 @@ from opds_sync.api.ai_schemas import (
     SeriesInsight,
 )
 from opds_sync.core.ai.prompts import SYSTEM_PROMPT, compose_user_prompt
-from opds_sync.db.models import AIUsageDaily, BookInsight
+from opds_sync.core.logging_ctx import request_id_var
+from opds_sync.db.models import AIGenerationLog, AIUsageDaily, BookInsight
 
 logger = logging.getLogger(__name__)
 
@@ -122,12 +123,24 @@ class InsightOrchestrator:
         session: AsyncSession,
         ident: DocumentIdentity,
         *,
+        user_id: str | None = None,
         style: AiStyle | None = None,
+        tenant_id: str = "local",
     ) -> BookInsightResponse | None:
         tone = _tone_of(style)
         row = await self._cache_lookup(session, ident, tone=tone, allow_backfill=False)
         if row is None:
             return None
+        if user_id is not None:
+            await self._log_generation(
+                session,
+                book_insight_id=row.id,
+                subject=user_id,
+                tenant_id=tenant_id,
+                status="hit",
+                latency_ms=0,
+            )
+            await session.commit()
         return self._row_to_response(row)
 
     async def generate(
@@ -138,16 +151,35 @@ class InsightOrchestrator:
         *,
         user_id: str,
         style: AiStyle | None = None,
+        tenant_id: str = "local",
     ) -> BookInsightResponse:
         tone = _tone_of(style)
         row = await self._cache_lookup(session, ident, tone=tone, allow_backfill=True)
         if row is not None:
+            await self._log_generation(
+                session,
+                book_insight_id=row.id,
+                subject=user_id,
+                tenant_id=tenant_id,
+                status="hit",
+                latency_ms=0,
+            )
+            await session.commit()
             return self._row_to_response(row)
 
         lock = await self._acquire_identity_lock(ident, tone=tone)
         async with lock:
             row = await self._cache_lookup(session, ident, tone=tone, allow_backfill=True)
             if row is not None:
+                await self._log_generation(
+                    session,
+                    book_insight_id=row.id,
+                    subject=user_id,
+                    tenant_id=tenant_id,
+                    status="hit",
+                    latency_ms=0,
+                )
+                await session.commit()
                 return self._row_to_response(row)
 
             await self._reserve_budget(session, user_id=user_id, is_regen=False)
@@ -157,6 +189,7 @@ class InsightOrchestrator:
                 ident,
                 bundle,
                 user_id=user_id,
+                tenant_id=tenant_id,
                 style=style,
                 tone=tone,
                 feedback=None,
@@ -173,6 +206,7 @@ class InsightOrchestrator:
         user_id: str,
         reason: str,
         style: AiStyle | None = None,
+        tenant_id: str = "local",
     ) -> BookInsightResponse:
         """Supersede the existing live row (if any) and generate a fresh one."""
         tone = _tone_of(style)
@@ -193,6 +227,7 @@ class InsightOrchestrator:
                 ident,
                 bundle,
                 user_id=user_id,
+                tenant_id=tenant_id,
                 style=style,
                 tone=tone,
                 feedback=reason,
@@ -218,6 +253,32 @@ class InsightOrchestrator:
 
     # ------- internals -------
 
+    async def _log_generation(
+        self,
+        session: AsyncSession,
+        *,
+        book_insight_id: int,
+        subject: str,
+        tenant_id: str,
+        status: str,
+        latency_ms: int | None,
+        error_class: str | None = None,
+    ) -> None:
+        """Stage one ai_generation_log row. Caller commits the surrounding tx."""
+        session.add(
+            AIGenerationLog(
+                book_insight_id=book_insight_id,
+                tenant_id=tenant_id,
+                subject=subject,
+                request_id=(request_id_var.get() or None),
+                model_id=self.model_id,
+                prompt_version=self.prompt_version,
+                latency_ms=latency_ms,
+                status=status,
+                error_class=error_class,
+            )
+        )
+
     async def _do_generate(
         self,
         session: AsyncSession,
@@ -225,6 +286,7 @@ class InsightOrchestrator:
         bundle: MetadataBundle,
         *,
         user_id: str,
+        tenant_id: str,
         style: AiStyle | None,
         tone: str,
         feedback: str | None,
@@ -234,12 +296,29 @@ class InsightOrchestrator:
             citations = await self._retrieve(session, bundle)
             user_prompt = compose_user_prompt(bundle, citations, style=style, feedback=feedback)
             t0 = time.monotonic()
-            payload = await self.ai.chat_structured(
-                system=SYSTEM_PROMPT,
-                user=user_prompt,
-                schema=BookInsightPayload,
-                timeout_s=self._ai_timeout_s,
-            )
+            try:
+                payload = await self.ai.chat_structured(
+                    system=SYSTEM_PROMPT,
+                    user=user_prompt,
+                    schema=BookInsightPayload,
+                    timeout_s=self._ai_timeout_s,
+                )
+            except Exception as e:
+                # Errors don't produce an ai_generation_log row (no FK target).
+                # The structured log line is the operator-facing audit trail;
+                # request_id is attached by RequestIdLogFilter (record.request_id).
+                latency_ms = int((time.monotonic() - t0) * 1000)
+                logger.warning(
+                    "event=ai.generate.error tenant_id=%s subject=%s model=%s "
+                    "prompt_version=%s latency_ms=%d error_class=%s",
+                    tenant_id,
+                    user_id,
+                    self.model_id,
+                    self.prompt_version,
+                    latency_ms,
+                    type(e).__name__,
+                )
+                raise
             latency_ms = int((time.monotonic() - t0) * 1000)
             logger.info(
                 "ai.generate content_hash=%s model=%s latency_ms=%d sources=%s regen=%s",
@@ -267,10 +346,23 @@ class InsightOrchestrator:
             sources_used=list({c.kind for c in citations}),
             payload=payload.model_dump(),
             sources=[c.model_dump() for c in sources],
+            # generated_by is grandfathered: NOT NULL legacy column. PR-C still
+            # WRITES it (to satisfy the constraint) but NEVER READS it. A
+            # follow-up PR will null then drop it. The replacement audit trail
+            # is AIGenerationLog (FK from book_insight_id).
             generated_by=user_id,
             previous_insight_ids=previous_insight_ids,
         )
         session.add(row)
+        await session.flush()  # populate row.id before logging
+        await self._log_generation(
+            session,
+            book_insight_id=row.id,
+            subject=user_id,
+            tenant_id=tenant_id,
+            status="miss",
+            latency_ms=latency_ms,
+        )
         await session.commit()
         await session.refresh(row)
         return row
