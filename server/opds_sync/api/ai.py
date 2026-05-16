@@ -211,9 +211,7 @@ async def get_insight(
         await session.execute(select(UserAIPreference).where(UserAIPreference.user_id == user_id))
     ).scalar_one_or_none()
     style = _style_from_pref(pref) if pref is not None else AiStyle()
-    out = await orch.get(
-        session, body.identity, user_id=user_id, style=style, tenant_id="local"
-    )
+    out = await orch.get(session, body.identity, user_id=user_id, style=style, tenant_id="local")
     if out is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="not_cached")
     return out

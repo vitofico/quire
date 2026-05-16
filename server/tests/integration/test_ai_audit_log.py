@@ -142,10 +142,10 @@ async def test_two_tenants_share_one_insight_two_log_rows(session_factory):
             .all()
         )
         assert len(logs) == 2
-        assert {l.tenant_id for l in logs} == {"tenant-a", "tenant-b"}
-        assert [l.status for l in logs] == ["miss", "hit"]
-        assert {l.book_insight_id for l in logs} == {insight.id}
-        assert {l.subject for l in logs} == {"alice@tenant-a", "bob@tenant-b"}
+        assert {log.tenant_id for log in logs} == {"tenant-a", "tenant-b"}
+        assert [log.status for log in logs] == ["miss", "hit"]
+        assert {log.book_insight_id for log in logs} == {insight.id}
+        assert {log.subject for log in logs} == {"alice@tenant-a", "bob@tenant-b"}
 
 
 @pytest.mark.requires_ai
@@ -175,9 +175,7 @@ async def test_concurrent_waiters_coalesce_across_sessions(session_factory):
 
     async def _one_waiter(user_id: str, tenant_id: str):
         async with session_factory() as s:
-            return await orch.generate(
-                s, ident, bundle, user_id=user_id, tenant_id=tenant_id
-            )
+            return await orch.generate(s, ident, bundle, user_id=user_id, tenant_id=tenant_id)
 
     # Launch three waiters concurrently. They will all queue on the lock;
     # the lock-holder will block on slow_client.release.
@@ -190,7 +188,7 @@ async def test_concurrent_waiters_coalesce_across_sessions(session_factory):
     # Wait until exactly one model call is in flight (the lock-holder reached
     # chat_structured). Bounded loop avoids `sleep(0.05)` flakiness.
     deadline = asyncio.get_event_loop().time() + 5.0
-    while len(slow_client.calls) == 0 and asyncio.get_event_loop().time() < deadline:
+    while len(slow_client.calls) == 0 and asyncio.get_event_loop().time() < deadline:  # noqa: ASYNC110 — poll a counter, not a single Event
         await asyncio.sleep(0.005)
     # Give other tasks one more scheduling slice so any racing waiter would
     # have had time to also enter chat_structured. Then assert exactly one.
@@ -225,8 +223,8 @@ async def test_concurrent_waiters_coalesce_across_sessions(session_factory):
             .all()
         )
         assert len(logs) == 3
-        statuses = sorted(l.status for l in logs)
+        statuses = sorted(log.status for log in logs)
         assert statuses == ["hit", "hit", "miss"]
-        assert {l.book_insight_id for l in logs} == {insights[0].id}
-        assert sorted(l.subject for l in logs) == ["u1", "u2", "u3"]
-        assert sorted(l.tenant_id for l in logs) == ["t1", "t2", "t3"]
+        assert {log.book_insight_id for log in logs} == {insights[0].id}
+        assert sorted(log.subject for log in logs) == ["u1", "u2", "u3"]
+        assert sorted(log.tenant_id for log in logs) == ["t1", "t2", "t3"]

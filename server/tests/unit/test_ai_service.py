@@ -407,9 +407,7 @@ async def test_concurrent_generations_emit_one_miss_and_n_minus_one_hits(
 
 
 @pytest.mark.asyncio
-async def test_log_carries_request_id_when_set(
-    session: AsyncSession, make_orchestrator
-):
+async def test_log_carries_request_id_when_set(session: AsyncSession, make_orchestrator):
     from opds_sync.core.logging_ctx import request_id_var
 
     token = request_id_var.set("test-req-abc123")
@@ -494,9 +492,7 @@ async def test_generate_error_emits_structured_log(session: AsyncSession, caplog
     rows = (await session.execute(select(AIGenerationLog))).scalars().all()
     assert rows == []  # no DB row for errors
 
-    error_records = [
-        r for r in caplog.records if "event=ai.generate.error" in r.getMessage()
-    ]
+    error_records = [r for r in caplog.records if "event=ai.generate.error" in r.getMessage()]
     assert len(error_records) == 1, (
         f"expected exactly one ai.generate.error log record, got {len(error_records)} "
         f"out of {[r.getMessage() for r in caplog.records]}"
