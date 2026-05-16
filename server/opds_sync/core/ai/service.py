@@ -34,6 +34,7 @@ from opds_sync.api.ai_schemas import (
     MetadataBundle,
     SeriesInsight,
 )
+from opds_sync.core.ai.health_state import AiHealthState
 from opds_sync.core.ai.prompts import SYSTEM_PROMPT, compose_user_prompt
 from opds_sync.core.logging_ctx import request_id_var
 from opds_sync.db.models import AIGenerationLog, AIUsageDaily, BookInsight
@@ -102,6 +103,7 @@ class InsightOrchestrator:
         rate_per_min: int = 10,
         daily_budget: int = 200,
         regen_daily_limit: int = 3,
+        health_state: AiHealthState | None = None,
     ) -> None:
         self.ai = ai
         self.retriever_factory = retriever_factory
@@ -115,6 +117,9 @@ class InsightOrchestrator:
         self._bucket = TokenBucket(rate_per_min=rate_per_min)
         self._daily_budget = daily_budget
         self._regen_daily_limit = regen_daily_limit
+        # When None, the orchestrator silently skips health updates. Tests
+        # that don't care about reachability state can omit it.
+        self._health = health_state
 
     # ------- public API -------
 
@@ -332,7 +337,13 @@ class InsightOrchestrator:
                     latency_ms,
                     type(e).__name__,
                 )
+                # PR5: surface provider reachability to GET /ai/v1/health.
+                if self._health is not None:
+                    await self._health.record_provider_failure(error_class=type(e).__name__)
                 raise
+            # PR5: chat_structured succeeded → provider is reachable now.
+            if self._health is not None:
+                await self._health.record_provider_success(model_id=self.model_id)
             latency_ms = int((time.monotonic() - t0) * 1000)
             logger.info(
                 "ai.generate content_hash=%s model=%s latency_ms=%d sources=%s regen=%s",

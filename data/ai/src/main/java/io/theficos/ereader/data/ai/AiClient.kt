@@ -40,6 +40,10 @@ class AiClient(
     suspend fun getPreferences(): AiPreferences =
         get("/ai/v1/preferences")
 
+    /** Operational health snapshot for the AI provider + retrieval sources. */
+    suspend fun getHealth(): AiHealthResponse =
+        get("/ai/v1/health")
+
     /** PUT preferences. Either or both fields may be sent; pass nulls for unchanged. */
     suspend fun setPreferences(
         enabled: Boolean? = null,

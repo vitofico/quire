@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from opds_sync.api.ai_auth import AiPrincipal, get_ai_principal
 from opds_sync.api.ai_schemas import (
+    AiHealthResponse,
     AiStyle,
     BookInsightResponse,
     ConfigResponse,
@@ -30,8 +31,10 @@ from opds_sync.api.ai_schemas import (
     PreferencesBody,
     PreferencesResponse,
     QuotaResponse,
+    RetrievalSourceHealth,
 )
 from opds_sync.config import get_settings
+from opds_sync.core.ai.health_state import AiHealthState
 from opds_sync.core.ai.service import InsightOrchestrator, QuotaExceeded
 from opds_sync.db.models import UserAIPreference
 from opds_sync.db.session import get_session
@@ -251,3 +254,53 @@ async def invalidate_insight(
     await _require_opt_in(session, principal.subject)
     n = await orch.invalidate(session, body.identity)
     return {"deleted": n}
+
+
+@router.get("/health", response_model=AiHealthResponse)
+async def get_ai_health(request: Request) -> AiHealthResponse:
+    """Operational visibility for AI provider + retrieval reachability.
+
+    Unauthenticated by design — operators and the Android Settings screen
+    poll this without going through Basic auth (consistent with the
+    always-on root ``/health`` and ``/readyz`` probes; nothing in the body
+    is more sensitive than ``/ai/v1/config`` already exposes).
+
+    Snapshot semantics:
+      * Process-local: each replica reports its own state. Reset to all-null
+        on restart.
+      * Passive: state updates only as a side effect of real user-driven
+        chat_structured + retrieval calls. We never actively ping providers.
+      * Tri-state ``reachable``: see ``AiHealthResponse`` and
+        ``RetrievalSourceHealth`` for the contract.
+    """
+    state: AiHealthState | None = getattr(request.app.state, "ai_health", None)
+    sources_seed = _enabled_sources()
+    if state is None:
+        # AI router mounted but no health holder was wired (the
+        # "enabled-but-unconfigured" branch of main.py before this PR ran;
+        # defensive in case any future wiring forgets to attach the holder).
+        return AiHealthResponse(
+            retrieval_sources=[RetrievalSourceHealth(name=n) for n in sources_seed],
+        )
+    snap = await state.snapshot()
+    # Seed configured sources so the UI always sees a row per source, even
+    # before the first call. Observed sources override seeded null entries.
+    sources: dict[str, RetrievalSourceHealth] = {
+        n: RetrievalSourceHealth(name=n) for n in sources_seed
+    }
+    for name, s in snap.retrieval_sources.items():
+        sources[name] = RetrievalSourceHealth(
+            name=name,
+            reachable=s.reachable,
+            last_checked_at=s.last_checked_at.isoformat() if s.last_checked_at else None,
+        )
+    return AiHealthResponse(
+        provider_reachable=snap.provider_reachable,
+        provider_last_checked_at=(
+            snap.provider_last_checked_at.isoformat() if snap.provider_last_checked_at else None
+        ),
+        model_id=snap.model_id,
+        last_failure_at=snap.last_failure_at.isoformat() if snap.last_failure_at else None,
+        last_failure_class=snap.last_failure_class,
+        retrieval_sources=list(sources.values()),
+    )

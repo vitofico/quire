@@ -33,10 +33,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import io.theficos.ereader.data.ai.AiHealthResponse
+import io.theficos.ereader.data.ai.RetrievalSourceHealth
 import io.theficos.ereader.reader.ReaderFontFamily
 import io.theficos.ereader.reader.ReaderTheme
 import io.theficos.ereader.ui.components.QuireCard
 import io.theficos.ereader.ui.components.SectionLabel
+import java.time.Instant
+import java.time.format.DateTimeParseException
 
 /**
  * Curated languages shown in the AI insight language dropdown. The server
@@ -267,7 +271,11 @@ fun SettingsScreen(
             } else {
                 val cfg = aiState.config!!
                 val enabled = aiState.preferences?.aiEnabled == true
+                val health = aiState.health
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    if (health != null) {
+                        AiHealthStatusBlock(health)
+                    }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.Top,
@@ -400,5 +408,67 @@ private fun formatRelative(epochMs: Long): String {
         deltaSec < 3600 -> "${deltaSec / 60}m ago"
         deltaSec < 86_400 -> "${deltaSec / 3600}h ago"
         else -> "${deltaSec / 86_400}d ago"
+    }
+}
+
+/** Parse an ISO-8601 timestamp into epoch millis, returning null on failure. */
+private fun parseIsoOrNull(iso: String?): Long? {
+    if (iso == null) return null
+    return try {
+        Instant.parse(iso).toEpochMilli()
+    } catch (_: DateTimeParseException) {
+        null
+    }
+}
+
+@Composable
+private fun AiHealthStatusBlock(health: AiHealthResponse) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("Status", style = MaterialTheme.typography.titleMedium)
+
+        // Provider row.
+        val providerCheckedMs = parseIsoOrNull(health.providerLastCheckedAt)
+        val providerFailureMs = parseIsoOrNull(health.lastFailureAt)
+        val (providerText, providerColor) = when (health.providerReachable) {
+            null -> "Provider: not yet checked" to MaterialTheme.colorScheme.onSurfaceVariant
+            true -> {
+                val modelSuffix = health.modelId?.let { " (model: $it)" } ?: ""
+                val whenSuffix = providerCheckedMs?.let { ", checked ${formatRelative(it)}" } ?: ""
+                "Provider: reachable$modelSuffix$whenSuffix" to MaterialTheme.colorScheme.onSurface
+            }
+            false -> {
+                val errClass = health.lastFailureClass ?: "unknown error"
+                val whenSuffix = providerFailureMs?.let { ", ${formatRelative(it)}" } ?: ""
+                "Provider: unreachable — $errClass$whenSuffix" to MaterialTheme.colorScheme.error
+            }
+        }
+        Text(
+            providerText,
+            style = MaterialTheme.typography.bodyMedium,
+            color = providerColor,
+        )
+
+        // Retrieval sources, one row each.
+        health.retrievalSources.forEach { source ->
+            val (text, color) = formatRetrievalSource(source)
+            Text(text, style = MaterialTheme.typography.bodyMedium, color = color)
+        }
+    }
+}
+
+@Composable
+private fun formatRetrievalSource(source: RetrievalSourceHealth): Pair<String, androidx.compose.ui.graphics.Color> {
+    val label = source.name.replaceFirstChar { it.uppercase() }
+    val checkedMs = parseIsoOrNull(source.lastCheckedAt)
+    return when (source.reachable) {
+        null -> "$label: not yet checked" to MaterialTheme.colorScheme.onSurfaceVariant
+        true -> {
+            val whenSuffix = checkedMs?.let { ", checked ${formatRelative(it)}" } ?: ""
+            "$label: reachable$whenSuffix" to MaterialTheme.colorScheme.onSurface
+        }
+        false -> {
+            val whenSuffix = checkedMs?.let { ", ${formatRelative(it)}" } ?: ""
+            "$label: unreachable$whenSuffix" to MaterialTheme.colorScheme.error
+        }
     }
 }

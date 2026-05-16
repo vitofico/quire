@@ -97,3 +97,33 @@ data class QuotaInfo(
     val limit: Int,
     @SerialName("resets_at") val resetsAt: String,
 )
+
+/**
+ * One entry in [AiHealthResponse.retrievalSources].
+ *
+ * Tri-state [reachable]:
+ *  - `null`  → never observed this process lifetime.
+ *  - `true`  → last HTTP call to this source completed (any status code).
+ *  - `false` → last call failed at the transport level (timeout, DNS, …).
+ */
+@Serializable
+data class RetrievalSourceHealth(
+    val name: String,
+    val reachable: Boolean? = null,
+    @SerialName("last_checked_at") val lastCheckedAt: String? = null,
+)
+
+/**
+ * Body of `GET /ai/v1/health`. Process-local snapshot from one server replica.
+ * On process restart all fields reset to null; that is part of the contract
+ * and is rendered as "not yet checked" by the UI.
+ */
+@Serializable
+data class AiHealthResponse(
+    @SerialName("provider_reachable") val providerReachable: Boolean? = null,
+    @SerialName("provider_last_checked_at") val providerLastCheckedAt: String? = null,
+    @SerialName("model_id") val modelId: String? = null,
+    @SerialName("last_failure_at") val lastFailureAt: String? = null,
+    @SerialName("last_failure_class") val lastFailureClass: String? = null,
+    @SerialName("retrieval_sources") val retrievalSources: List<RetrievalSourceHealth> = emptyList(),
+)

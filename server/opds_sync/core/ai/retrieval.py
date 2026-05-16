@@ -27,6 +27,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from opds_sync.api.ai_schemas import Citation
+from opds_sync.core.ai.health_state import AiHealthState
 from opds_sync.db.models import ExternalSourceCacheEntry
 
 logger = logging.getLogger(__name__)
@@ -47,10 +48,18 @@ class Retriever:
         session: AsyncSession,
         transport: httpx.AsyncBaseTransport | None = None,
         timeout_s: float = 8.0,
+        health_state: AiHealthState | None = None,
     ) -> None:
         self._session = session
         self._transport = transport
         self._timeout_s = timeout_s
+        # When None, retrieval reachability updates are no-ops. Cache hits
+        # never touch health regardless — the network wasn't called.
+        self._health = health_state
+
+    async def _record_retrieval(self, *, name: str, success: bool) -> None:
+        if self._health is not None:
+            await self._health.record_retrieval(name=name, success=success)
 
     async def lookup_wikipedia(self, *, author: str | None, title: str) -> list[Citation]:
         key = f"title:{_normalize_key(title)}"
@@ -102,12 +111,15 @@ class Retriever:
         try:
             async with self._http() as http:
                 r = await http.get(f"{_OL_BASE}/search.json", params=params)
+                # OpenLibrary responded — reachable regardless of status code.
+                await self._record_retrieval(name="openlibrary", success=True)
                 if r.status_code != 200:
                     citations = []
                 else:
                     citations = self._parse_openlibrary_response(r.json())
         except httpx.HTTPError as e:
             logger.info("ai.retrieval.openlibrary.fail err=%s", e)
+            await self._record_retrieval(name="openlibrary", success=False)
             citations = []
 
         await self._write_cache(
@@ -123,6 +135,10 @@ class Retriever:
                 # Wikipedia's REST API takes a slug; URL-encode + replace spaces.
                 slug = quote(term.strip().replace(" ", "_"), safe="")
                 r = await http.get(f"{_WIKI_BASE}/page/summary/{slug}")
+                # We reached Wikipedia and got a response — regardless of
+                # status code (404 for unknown titles is normal). The
+                # reachability signal is "did the network call complete?".
+                await self._record_retrieval(name="wikipedia", success=True)
                 if r.status_code == 404:
                     return []
                 if r.status_code != 200:
@@ -133,6 +149,7 @@ class Retriever:
                 data = r.json()
         except httpx.HTTPError as e:
             logger.info("ai.retrieval.wikipedia.fail err=%s term=%s", e, term)
+            await self._record_retrieval(name="wikipedia", success=False)
             return []
 
         if data.get("type") == "disambiguation":
