@@ -8,8 +8,9 @@ output. Do NOT bump it for typo fixes or whitespace.
 from __future__ import annotations
 
 from opds_sync.api.ai_schemas import AiStyle, Citation, MetadataBundle
+from opds_sync.core.ai.themes import CONTROLLED_THEMES
 
-PROMPT_VERSION = "3"
+PROMPT_VERSION = "4"
 
 # `tone` and `language` (from AiStyle) participate in the cache key via the
 # `book_insights.tone` and `book_insights.language` columns, so emitting
@@ -18,11 +19,17 @@ PROMPT_VERSION = "3"
 # /insights/regenerate that produces a new row marked superseded against the
 # previous one.
 
+# Controlled themes vocabulary appended to SYSTEM_PROMPT so the model can
+# pick from it. Sorted for prompt stability across Python runs (frozenset
+# iteration order is otherwise hash-seed-dependent — would silently churn
+# every PROMPT_VERSION otherwise).
+_THEMES_VOCAB_BLOCK = "Controlled themes vocabulary:\n" + ", ".join(sorted(CONTROLLED_THEMES))
+
 SYSTEM_PROMPT = (
     "You write cached, user-agnostic book insights for Quire, a privacy-first reading app.\n"
     "\n"
     "JSON key order matters. Generate keys in this order: intro, author, series, analysis,"
-    " content_warnings, confidence.\n"
+    " content_warnings, themes, confidence.\n"
     "\n"
     "Rules:\n"
     "- Use the supplied EPUB metadata as the work's identity. If metadata names a series,"
@@ -40,11 +47,16 @@ SYSTEM_PROMPT = (
     "- `content_warnings`: only concrete reader-safety concerns — graphic violence, sexual"
     " content, abuse, self-harm, racism or slurs, addiction, body horror. Do NOT list themes,"
     " genre, politics, or plot mechanics here.\n"
+    "- `themes`: pick 1-5 tags from the controlled vocabulary listed at the end of this prompt."
+    " Prefer the listed names exactly. If a clearly-applicable concept is missing, you MAY emit"
+    " your own short snake_case string; the server preserves it with reduced confidence. Do NOT"
+    ' emit the literal string "other".\n'
     '- `confidence`: "high" only when at least one external citation grounds the central'
     ' book claims; "medium" when metadata plus reliable training knowledge is enough;'
     ' "low" otherwise.\n'
     "- Output strict JSON conforming exactly to the supplied JSON schema. No prose, no"
-    " markdown, no code fences."
+    " markdown, no code fences.\n"
+    "\n" + _THEMES_VOCAB_BLOCK
 )
 
 

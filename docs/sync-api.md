@@ -459,7 +459,7 @@ Response: a `BookInsight` with `payload`, `sources`, `model_id`,
 `prompt_version`, `generated_at`. See `opds_sync/api/ai_schemas.py` for
 the full payload schema.
 
-`payload` is the structured `BookInsightPayload` (schema v2, the model
+`payload` is the structured `BookInsightPayload` (schema v3, the model
 generates keys in this order):
 
 ```json
@@ -476,14 +476,46 @@ generates keys in this order):
   },
   "analysis": "One compact paragraph (~80–130 words) weaving synopsis, themes, tone, and reader fit.",
   "content_warnings": ["graphic violence", "sexual content"],
+  "themes": ["science_fiction", "epic"],
   "confidence": "high|medium|low",
-  "schema_version": 2
+  "schema_version": 3
 }
 ```
 
 `content_warnings` is scoped to concrete reader-safety concerns
 (violence, sexual content, abuse, self-harm, slurs, addiction, body horror) —
 **not** themes, genre, politics, or plot mechanics.
+
+`themes` (PR3, schema v3) is a list of 1-5 topic tags drawn from a controlled
+vocabulary (~57 entries — see `opds_sync/core/ai/themes.py::CONTROLLED_THEMES`,
+covering broad fiction buckets, speculative subgenres, genre fiction, and
+nonfiction categories). Vocab hits land in the side table `book_themes` at
+`confidence=1.0`; off-vocab strings are preserved verbatim at `confidence=0.5`
+so future vocabulary evolution doesn't lose data. The payload field is the
+source of truth for the client; `book_themes` is the SQL-queryable mirror
+that PR9 library stats reads. Old cached v2 payloads (no `themes` key)
+deserialize cleanly with `themes=null`; they contribute zero rows to
+`book_themes` until regenerated. The server pins `schema_version=3` after
+model return so cache rows never reflect a model's accidental version
+emission.
+
+Side-table schema:
+
+```sql
+CREATE TABLE book_themes (
+    book_insight_id  bigint  NOT NULL REFERENCES book_insights(id) ON DELETE CASCADE,
+    theme            text    NOT NULL,
+    confidence       real    NOT NULL DEFAULT 1.0,
+    PRIMARY KEY (book_insight_id, theme)
+);
+CREATE INDEX ix_book_themes_theme ON book_themes (theme);
+```
+
+`book_themes` is SHARED cache (no `user_id`/`tenant_id`); per-user filtering
+in PR9 happens by joining through `book_insights → library_items` on
+`metadata_id`/`content_hash`. PR9 MUST also filter
+`book_insights.superseded_at IS NULL` to avoid double-counting regenerated
+insights.
 
 ### `POST /ai/v1/insights/regenerate`
 
