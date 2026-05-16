@@ -38,7 +38,17 @@ class AiRepository(
     }
 
     suspend fun setStyleTone(tone: String) {
-        val out = client.setPreferences(style = AiStyle(tone = tone))
+        // Preserve `language` (and any other future style knobs) when only
+        // tone is being changed. Falls back to defaults if no prefs are
+        // loaded yet.
+        val current = _prefs.value?.style ?: AiStyle()
+        val out = client.setPreferences(style = current.copy(tone = tone))
+        _prefs.value = out
+    }
+
+    suspend fun setStyleLanguage(language: String) {
+        val current = _prefs.value?.style ?: AiStyle()
+        val out = client.setPreferences(style = current.copy(language = language))
         _prefs.value = out
     }
 

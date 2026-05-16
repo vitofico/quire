@@ -18,6 +18,7 @@ data class AiConfig(
 @Serializable
 data class AiStyle(
     val tone: String = "neutral",
+    val language: String = "auto",
 )
 
 @Serializable

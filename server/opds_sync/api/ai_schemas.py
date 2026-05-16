@@ -7,7 +7,199 @@ load-bearing on both ends.
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+# Full ISO 639-1 set (184 codes, current as of 2024). Frozen so a future
+# AiStyle.language="zz" (regex-valid but not a real language) gets a 422
+# instead of being silently accepted and propagated into the cache key.
+ISO_639_1_CODES: frozenset[str] = frozenset(
+    {
+        "aa",
+        "ab",
+        "ae",
+        "af",
+        "ak",
+        "am",
+        "an",
+        "ar",
+        "as",
+        "av",
+        "ay",
+        "az",
+        "ba",
+        "be",
+        "bg",
+        "bh",
+        "bi",
+        "bm",
+        "bn",
+        "bo",
+        "br",
+        "bs",
+        "ca",
+        "ce",
+        "ch",
+        "co",
+        "cr",
+        "cs",
+        "cu",
+        "cv",
+        "cy",
+        "da",
+        "de",
+        "dv",
+        "dz",
+        "ee",
+        "el",
+        "en",
+        "eo",
+        "es",
+        "et",
+        "eu",
+        "fa",
+        "ff",
+        "fi",
+        "fj",
+        "fo",
+        "fr",
+        "fy",
+        "ga",
+        "gd",
+        "gl",
+        "gn",
+        "gu",
+        "gv",
+        "ha",
+        "he",
+        "hi",
+        "ho",
+        "hr",
+        "ht",
+        "hu",
+        "hy",
+        "hz",
+        "ia",
+        "id",
+        "ie",
+        "ig",
+        "ii",
+        "ik",
+        "io",
+        "is",
+        "it",
+        "iu",
+        "ja",
+        "jv",
+        "ka",
+        "kg",
+        "ki",
+        "kj",
+        "kk",
+        "kl",
+        "km",
+        "kn",
+        "ko",
+        "kr",
+        "ks",
+        "ku",
+        "kv",
+        "kw",
+        "ky",
+        "la",
+        "lb",
+        "lg",
+        "li",
+        "ln",
+        "lo",
+        "lt",
+        "lu",
+        "lv",
+        "mg",
+        "mh",
+        "mi",
+        "mk",
+        "ml",
+        "mn",
+        "mr",
+        "ms",
+        "mt",
+        "my",
+        "na",
+        "nb",
+        "nd",
+        "ne",
+        "ng",
+        "nl",
+        "nn",
+        "no",
+        "nr",
+        "nv",
+        "ny",
+        "oc",
+        "oj",
+        "om",
+        "or",
+        "os",
+        "pa",
+        "pi",
+        "pl",
+        "ps",
+        "pt",
+        "qu",
+        "rm",
+        "rn",
+        "ro",
+        "ru",
+        "rw",
+        "sa",
+        "sc",
+        "sd",
+        "se",
+        "sg",
+        "si",
+        "sk",
+        "sl",
+        "sm",
+        "sn",
+        "so",
+        "sq",
+        "sr",
+        "ss",
+        "st",
+        "su",
+        "sv",
+        "sw",
+        "ta",
+        "te",
+        "tg",
+        "th",
+        "ti",
+        "tk",
+        "tl",
+        "tn",
+        "to",
+        "tr",
+        "ts",
+        "tt",
+        "tw",
+        "ty",
+        "ug",
+        "uk",
+        "ur",
+        "uz",
+        "ve",
+        "vi",
+        "vo",
+        "wa",
+        "wo",
+        "xh",
+        "yi",
+        "yo",
+        "za",
+        "zh",
+        "zu",
+    }
+)
 
 
 class DocumentIdentity(BaseModel):
@@ -107,15 +299,31 @@ class InsightRegenerateBody(BaseModel):
 
 
 class AiStyle(BaseModel):
-    """User-facing personalization. `tone` is the only knob that affects output:
-    it participates in the cache key (column `book_insights.tone`), so two users
-    on the same instance with different tones get separately-cached generations
-    rather than one bleeding into the other.
+    """User-facing personalization. `tone` and `language` are cache-key knobs:
+    they participate in the cache key (columns `book_insights.tone` and
+    `book_insights.language`), so users with different combinations get
+    separately-cached generations rather than one bleeding into the other.
+
+    `language="auto"` is the universal default and emits no language clause in
+    the prompt — preserves pre-PR4 behavior byte-for-byte. Any other value must
+    be a lowercase ISO 639-1 code (e.g. `"en"`, `"it"`, `"zh"`).
     """
 
     model_config = ConfigDict(extra="forbid")
 
     tone: Literal["neutral", "enthusiastic", "scholarly", "casual"] = "neutral"
+    language: str = "auto"
+
+    @field_validator("language")
+    @classmethod
+    def _validate_language(cls, v: str) -> str:
+        if v == "auto":
+            return v
+        if v not in ISO_639_1_CODES:
+            raise ValueError(
+                "language must be 'auto' or a lowercase ISO 639-1 code (e.g. 'en', 'it')"
+            )
+        return v
 
 
 class ConfigResponse(BaseModel):

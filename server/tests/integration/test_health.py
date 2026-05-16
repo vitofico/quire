@@ -29,9 +29,9 @@ async def test_readyz_returns_200_when_db_reachable_and_heads_applied(app_under_
     assert r.status_code == 200
     body = r.json()
     assert body["ready"] is True
-    # PR-C materialized the `ai` branch (ai_001 is its head); with the
-    # default-true mode flags, ai@head is now what's reported.
-    assert body["heads_applied"] == ["ai_001"]
+    # PR-C materialized the `ai` branch; PR4 added `ai_002` as the new head.
+    # With the default-true mode flags, ai@head is now what's reported.
+    assert body["heads_applied"] == ["ai_002"]
 
 
 async def test_old_sync_health_path_is_404(app_under_test):

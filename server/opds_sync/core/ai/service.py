@@ -128,7 +128,10 @@ class InsightOrchestrator:
         tenant_id: str = "local",
     ) -> BookInsightResponse | None:
         tone = _tone_of(style)
-        row = await self._cache_lookup(session, ident, tone=tone, allow_backfill=False)
+        language = _language_of(style)
+        row = await self._cache_lookup(
+            session, ident, tone=tone, language=language, allow_backfill=False
+        )
         if row is None:
             return None
         if user_id is not None:
@@ -154,7 +157,10 @@ class InsightOrchestrator:
         tenant_id: str = "local",
     ) -> BookInsightResponse:
         tone = _tone_of(style)
-        row = await self._cache_lookup(session, ident, tone=tone, allow_backfill=True)
+        language = _language_of(style)
+        row = await self._cache_lookup(
+            session, ident, tone=tone, language=language, allow_backfill=True
+        )
         if row is not None:
             await self._log_generation(
                 session,
@@ -167,9 +173,11 @@ class InsightOrchestrator:
             await session.commit()
             return self._row_to_response(row)
 
-        lock = await self._acquire_identity_lock(ident, tone=tone)
+        lock = await self._acquire_identity_lock(ident, tone=tone, language=language)
         async with lock:
-            row = await self._cache_lookup(session, ident, tone=tone, allow_backfill=True)
+            row = await self._cache_lookup(
+                session, ident, tone=tone, language=language, allow_backfill=True
+            )
             if row is not None:
                 await self._log_generation(
                     session,
@@ -192,6 +200,7 @@ class InsightOrchestrator:
                 tenant_id=tenant_id,
                 style=style,
                 tone=tone,
+                language=language,
                 feedback=None,
                 previous_insight_ids=None,
             )
@@ -210,9 +219,12 @@ class InsightOrchestrator:
     ) -> BookInsightResponse:
         """Supersede the existing live row (if any) and generate a fresh one."""
         tone = _tone_of(style)
-        lock = await self._acquire_identity_lock(ident, tone=tone)
+        language = _language_of(style)
+        lock = await self._acquire_identity_lock(ident, tone=tone, language=language)
         async with lock:
-            existing = await self._cache_lookup(session, ident, tone=tone, allow_backfill=False)
+            existing = await self._cache_lookup(
+                session, ident, tone=tone, language=language, allow_backfill=False
+            )
             previous_ids: list[int] = []
             if existing is not None:
                 previous_ids = list(existing.previous_insight_ids or [])
@@ -230,6 +242,7 @@ class InsightOrchestrator:
                 tenant_id=tenant_id,
                 style=style,
                 tone=tone,
+                language=language,
                 feedback=reason,
                 previous_insight_ids=previous_ids or None,
             )
@@ -289,6 +302,7 @@ class InsightOrchestrator:
         tenant_id: str,
         style: AiStyle | None,
         tone: str,
+        language: str,
         feedback: str | None,
         previous_insight_ids: list[int] | None,
     ) -> BookInsight:
@@ -343,6 +357,7 @@ class InsightOrchestrator:
             model_id=self.model_id,
             prompt_version=self.prompt_version,
             tone=tone,
+            language=language,
             sources_used=list({c.kind for c in citations}),
             payload=payload.model_dump(),
             sources=[c.model_dump() for c in sources],
@@ -435,6 +450,7 @@ class InsightOrchestrator:
         ident: DocumentIdentity,
         *,
         tone: str,
+        language: str,
         allow_backfill: bool,
     ) -> BookInsight | None:
         # Step 1: by metadata_id (live rows only)
@@ -446,6 +462,7 @@ class InsightOrchestrator:
                         BookInsight.model_id == self.model_id,
                         BookInsight.prompt_version == self.prompt_version,
                         BookInsight.tone == tone,
+                        BookInsight.language == language,
                         BookInsight.superseded_at.is_(None),
                     )
                 )
@@ -460,6 +477,7 @@ class InsightOrchestrator:
                     BookInsight.model_id == self.model_id,
                     BookInsight.prompt_version == self.prompt_version,
                     BookInsight.tone == tone,
+                    BookInsight.language == language,
                     BookInsight.superseded_at.is_(None),
                 )
             )
@@ -473,10 +491,12 @@ class InsightOrchestrator:
             await session.refresh(row)
         return row
 
-    async def _acquire_identity_lock(self, ident: DocumentIdentity, *, tone: str) -> asyncio.Lock:
-        # Per-(identity, tone): two users with different tones generating the
-        # same book in parallel should not serialize through one lock.
-        key = f"{ident.metadata_id or ident.content_hash}|{tone}"
+    async def _acquire_identity_lock(
+        self, ident: DocumentIdentity, *, tone: str, language: str
+    ) -> asyncio.Lock:
+        # Per-(identity, tone, language): users hitting the same book with
+        # different cache-key dimensions should not serialize through one lock.
+        key = f"{ident.metadata_id or ident.content_hash}|{tone}|{language}"
         async with self._locks_master:
             lock = self._locks.get(key)
             if lock is None:
@@ -500,3 +520,7 @@ def _next_utc_midnight(today: date) -> datetime:
 
 def _tone_of(style: AiStyle | None) -> str:
     return style.tone if style is not None else "neutral"
+
+
+def _language_of(style: AiStyle | None) -> str:
+    return style.language if style is not None else "auto"

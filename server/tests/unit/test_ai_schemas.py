@@ -76,10 +76,11 @@ def test_lookup_body_metadata_id_optional():
     assert b.bundle.title == "Foundation"
 
 
-def test_style_only_tone_remains():
+def test_style_has_tone_and_language():
     s = AiStyle()
     assert s.tone == "neutral"
-    assert list(AiStyle.model_fields.keys()) == ["tone"]
+    assert s.language == "auto"
+    assert list(AiStyle.model_fields.keys()) == ["tone", "language"]
 
 
 def test_style_rejects_unknown_tone():
@@ -91,6 +92,40 @@ def test_style_rejects_v1_knobs():
     for stale in ("length", "author_focus", "include_spoilers", "interests"):
         with pytest.raises(ValidationError):
             AiStyle.model_validate({"tone": "neutral", stale: "anything"})
+
+
+@pytest.mark.parametrize("code", ["en", "it", "es", "fr", "de", "pt", "nl", "zh", "ja"])
+def test_style_accepts_iso_639_1_languages(code):
+    s = AiStyle.model_validate({"tone": "neutral", "language": code})
+    assert s.language == code
+
+
+def test_style_accepts_auto_language():
+    s = AiStyle.model_validate({"tone": "neutral", "language": "auto"})
+    assert s.language == "auto"
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "invalid",  # not a code
+        "english",  # word, not a code
+        "",  # empty
+        "EN",  # uppercase
+        "e",  # too short
+        "eng",  # ISO 639-2/3, not 639-1
+    ],
+)
+def test_style_rejects_invalid_language(bad):
+    with pytest.raises(ValidationError):
+        AiStyle.model_validate({"tone": "neutral", "language": bad})
+
+
+@pytest.mark.parametrize("bad", ["zz", "xx", "qq"])
+def test_style_rejects_unknown_iso_code(bad):
+    """Proves the validation is an allowlist, not a `^[a-z]{2}$` regex."""
+    with pytest.raises(ValidationError):
+        AiStyle.model_validate({"tone": "neutral", "language": bad})
 
 
 def test_regenerate_requires_reason():

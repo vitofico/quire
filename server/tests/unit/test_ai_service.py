@@ -286,6 +286,131 @@ async def test_same_tone_shares_cache_across_users(session, make_orchestrator):
     assert len(orch.ai.calls) == 1
 
 
+@pytest.mark.asyncio
+async def test_different_languages_generate_separate_cache_rows(session, make_orchestrator):
+    """Two users with different languages must get their own rows — no cross-language leak."""
+    orch = make_orchestrator()
+    ident = DocumentIdentity(metadata_id=None, content_hash="ch-languages")
+    bundle = MetadataBundle(title="X")
+
+    await orch.generate(session, ident, bundle, user_id="u1", style=AiStyle(language="auto"))
+    await orch.generate(session, ident, bundle, user_id="u2", style=AiStyle(language="it"))
+
+    rows = (
+        (
+            await session.execute(
+                select(BookInsight).where(BookInsight.content_hash == "ch-languages")
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert {r.language for r in rows} == {"auto", "it"}
+    assert len(orch.ai.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_same_language_shares_cache_across_users(session, make_orchestrator):
+    orch = make_orchestrator()
+    ident = DocumentIdentity(metadata_id=None, content_hash="ch-shared-language")
+    bundle = MetadataBundle(title="X")
+
+    await orch.generate(session, ident, bundle, user_id="u1", style=AiStyle(language="it"))
+    await orch.generate(session, ident, bundle, user_id="u2", style=AiStyle(language="it"))
+
+    assert len(orch.ai.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_tone_and_language_orthogonal(session, make_orchestrator):
+    """Same identity, different (tone, language) combos → separate cache rows."""
+    orch = make_orchestrator()
+    ident = DocumentIdentity(metadata_id=None, content_hash="ch-orthogonal")
+    bundle = MetadataBundle(title="X")
+
+    await orch.generate(
+        session, ident, bundle, user_id="u1", style=AiStyle(tone="neutral", language="auto")
+    )
+    await orch.generate(
+        session, ident, bundle, user_id="u2", style=AiStyle(tone="neutral", language="it")
+    )
+    await orch.generate(
+        session, ident, bundle, user_id="u3", style=AiStyle(tone="scholarly", language="auto")
+    )
+    await orch.generate(
+        session, ident, bundle, user_id="u4", style=AiStyle(tone="scholarly", language="it")
+    )
+
+    rows = (
+        (
+            await session.execute(
+                select(BookInsight).where(BookInsight.content_hash == "ch-orthogonal")
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 4
+    assert {(r.tone, r.language) for r in rows} == {
+        ("neutral", "auto"),
+        ("neutral", "it"),
+        ("scholarly", "auto"),
+        ("scholarly", "it"),
+    }
+
+
+@pytest.mark.asyncio
+async def test_invalidate_does_not_touch_old_prompt_version_rows(
+    session: AsyncSession, make_orchestrator
+):
+    """Invalidate at prompt_version `t1` must leave rows at older prompt_versions alone.
+
+    Regression for the cache-version-bump contract: a user invalidate with the
+    new PROMPT_VERSION must not delete rows from before the bump. Models a
+    user on the new server invalidating their freshly-generated v3 row while
+    a stale v2 row from a previous deploy lingers (it'll never be read again
+    because the v3 lookup filters on prompt_version, but it must not be GC'd
+    by an unrelated invalidate call).
+    """
+    orch = make_orchestrator()
+    # Insert an "old" row directly with a stale prompt_version.
+    old_row = BookInsight(
+        metadata_id=None,
+        content_hash="ch-invalidate",
+        model_id="test-model",
+        prompt_version="t0_legacy",
+        tone="neutral",
+        language="auto",
+        sources_used=[],
+        payload={"schema_version": 2, "confidence": "low"},
+        sources=[],
+        generated_by="legacy",
+    )
+    session.add(old_row)
+    await session.commit()
+
+    # Generate a fresh row at the orchestrator's current prompt_version ("t1").
+    ident = DocumentIdentity(metadata_id=None, content_hash="ch-invalidate")
+    await orch.generate(session, ident, MetadataBundle(title="X"), user_id="u1")
+
+    # Invalidate via the orchestrator (scoped to current prompt_version).
+    deleted = await orch.invalidate(session, ident)
+    assert deleted == 1  # only the new row
+
+    rows = (
+        (
+            await session.execute(
+                select(BookInsight).where(BookInsight.content_hash == "ch-invalidate")
+            )
+        )
+        .scalars()
+        .all()
+    )
+    # Only the old row survives.
+    assert len(rows) == 1
+    assert rows[0].prompt_version == "t0_legacy"
+
+
 # ---- PR-C: ai_generation_log assertions ------------------------------------
 
 from opds_sync.db.models import AIGenerationLog  # noqa: E402

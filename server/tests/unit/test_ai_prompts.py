@@ -6,9 +6,9 @@ from opds_sync.core.ai.prompts import (
 )
 
 
-def test_prompt_version_is_v2():
-    """v2 schema requires v2 prompt — they share a cache key."""
-    assert PROMPT_VERSION == "2"
+def test_prompt_version_is_v3():
+    """PR4 bumped from v2 to v3 because the prompt body now varies on `language`."""
+    assert PROMPT_VERSION == "3"
 
 
 def test_user_prompt_includes_metadata_fields():
@@ -77,6 +77,33 @@ def test_tone_hint_omitted_when_default():
     text_no_style = compose_user_prompt(bundle, citations=[])
     text_default_style = compose_user_prompt(bundle, citations=[], style=AiStyle())
     assert text_no_style == text_default_style
+
+
+def test_language_clause_emitted_when_non_auto():
+    bundle = MetadataBundle(title="Foundation")
+    text = compose_user_prompt(bundle, citations=[], style=AiStyle(language="it"))
+    assert 'ISO 639-1 code "it"' in text
+
+
+def test_language_clause_omitted_when_auto():
+    """`auto` must produce a prompt byte-for-byte identical to the no-style call."""
+    bundle = MetadataBundle(title="Foundation")
+    text_no_style = compose_user_prompt(bundle, citations=[])
+    text_auto = compose_user_prompt(bundle, citations=[], style=AiStyle(language="auto"))
+    text_default = compose_user_prompt(bundle, citations=[], style=AiStyle())
+    assert text_no_style == text_auto == text_default
+
+
+def test_language_clause_independent_of_tone():
+    """Setting both tone and language emits both clauses."""
+    bundle = MetadataBundle(title="Foundation")
+    text = compose_user_prompt(
+        bundle,
+        citations=[],
+        style=AiStyle(tone="scholarly", language="fr"),
+    )
+    assert "analytical" in text.lower() or "scholarly" in text.lower()
+    assert 'ISO 639-1 code "fr"' in text
 
 
 def test_feedback_block_appended_on_regeneration():

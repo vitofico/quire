@@ -53,12 +53,39 @@ class AiClientTest {
     fun `getPreferences parses style`() = runTest {
         server.enqueue(
             MockResponse().setResponseCode(200).setBody(
-                """{"ai_enabled":true,"style":{"tone":"scholarly"}}"""
+                """{"ai_enabled":true,"style":{"tone":"scholarly","language":"it"}}"""
             )
         )
         val prefs = client.getPreferences()
         assertThat(prefs.aiEnabled).isTrue()
         assertThat(prefs.style.tone).isEqualTo("scholarly")
+        assertThat(prefs.style.language).isEqualTo("it")
+    }
+
+    @Test
+    fun `getPreferences defaults language to auto when server omits it`() = runTest {
+        // Forward-compat: legacy/older server responses without `language` must
+        // still deserialize, with the kotlinx default ("auto") filling in.
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"ai_enabled":true,"style":{"tone":"neutral"}}"""
+            )
+        )
+        val prefs = client.getPreferences()
+        assertThat(prefs.style.language).isEqualTo("auto")
+    }
+
+    @Test
+    fun `setPreferences with language sends it in body`() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"ai_enabled":true,"style":{"tone":"neutral","language":"es"}}"""
+            )
+        )
+        client.setPreferences(style = AiStyle(language = "es"))
+        val req = server.takeRequest()
+        val body = req.body.readUtf8()
+        assertThat(body).contains("\"language\":\"es\"")
     }
 
     @Test
