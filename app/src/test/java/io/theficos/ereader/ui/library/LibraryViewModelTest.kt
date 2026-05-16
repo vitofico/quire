@@ -240,4 +240,59 @@ class LibraryViewModelTest {
             cancelAndIgnoreRemainingEvents()
         }
     }
+
+    private suspend fun seedSeries(
+        contentHash: String,
+        title: String,
+        seriesName: String?,
+        seriesIndex: Double?,
+        percent: Double = 0.0,
+        finishedAt: Long? = null,
+        updatedAt: Long = 0L,
+    ): Long {
+        val docId = db.documentDao().insert(DocumentEntity(
+            metadataId = contentHash, contentHash = contentHash, title = title, author = null,
+            downloadUrl = "u", localPath = "p", coverPath = null, downloadedAt = 0,
+            seriesName = seriesName, seriesIndex = seriesIndex,
+        ))
+        if (percent > 0.0 || finishedAt != null) {
+            progress.save(DomainProgress(
+                documentId = docId, locator = "loc", percent = percent,
+                updatedAt = updatedAt, finishedAt = finishedAt,
+            ))
+        }
+        return docId
+    }
+
+    @Test fun `seriesContinuationCandidates emits the unread sibling-in-series`() = runTest {
+        seedSeries("h1", "Foundation 1", "Foundation", 1.0, percent = 1.0, finishedAt = 100L, updatedAt = 100L)
+        val candidateId = seedSeries("h2", "Foundation 2", "Foundation", 2.0)
+        vm.seriesContinuationCandidates.test {
+            var emission = awaitItem()
+            while (emission.size != 1) emission = awaitItem()
+            assertThat(emission.map { it.id }).containsExactly(candidateId)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test fun `seriesContinuationCandidates re-emits when a candidate is marked finished`() = runTest {
+        val sibling = seedSeries("h1", "Foundation 1", "Foundation", 1.0, percent = 1.0, finishedAt = 100L, updatedAt = 100L)
+        val candidate = seedSeries("h2", "Foundation 2", "Foundation", 2.0)
+        vm.seriesContinuationCandidates.test {
+            var emission = awaitItem()
+            while (emission.size != 1) emission = awaitItem()
+            assertThat(emission.map { it.id }).containsExactly(candidate)
+            // Mark the candidate finished; it should drop off the shelf.
+            progress.save(DomainProgress(
+                documentId = candidate, locator = "loc", percent = 1.0,
+                updatedAt = 999L, finishedAt = 999L,
+            ))
+            var next = awaitItem()
+            while (next.isNotEmpty()) next = awaitItem()
+            assertThat(next).isEmpty()
+            // Suppress unused-variable lint on `sibling` (kept for clarity).
+            assertThat(sibling).isGreaterThan(0L)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
 }

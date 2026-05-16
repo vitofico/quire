@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [DocumentEntity::class, ProgressEntity::class, SyncStateEntity::class],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class EReaderDatabase : RoomDatabase() {
@@ -43,9 +43,29 @@ abstract class EReaderDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Adds seriesName + seriesIndex columns to local `documents` and the
+         * composite index that PR8's "Continue your series" shelf uses to find
+         * sibling-in-series candidates.
+         *
+         * Note: PR1 (server-side library_items) was supposed to ship the Android
+         * half of this change, but its diff only landed the server migration. PR8
+         * picks it up.
+         */
+        internal val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE documents ADD COLUMN seriesName TEXT")
+                db.execSQL("ALTER TABLE documents ADD COLUMN seriesIndex REAL")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_documents_seriesName_seriesIndex " +
+                        "ON documents(seriesName, seriesIndex)"
+                )
+            }
+        }
+
         fun build(context: Context): EReaderDatabase =
             Room.databaseBuilder(context, EReaderDatabase::class.java, "ereader.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .build()
     }
 }

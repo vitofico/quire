@@ -13,6 +13,20 @@ class DocumentRepository(private val dao: DocumentDao) {
     fun observeLibrary(): Flow<List<Document>> =
         dao.observeAll().map { rows -> rows.map { it.toDomain() } }
 
+    /**
+     * Books eligible for the library home "Continue your series" shelf: any book
+     * the user has not finished and barely (or not at all) started, where some
+     * other book in the same `seriesName` (case-insensitive) has a finish.
+     *
+     * Capped at [SERIES_CONTINUATION_MAX_ITEMS]; "barely started" is governed
+     * by [SERIES_CONTINUATION_STARTED_THRESHOLD] on `progress.percent`.
+     */
+    fun observeSeriesContinuationCandidates(): Flow<List<Document>> =
+        dao.observeSeriesContinuationCandidates(
+            startedThreshold = SERIES_CONTINUATION_STARTED_THRESHOLD,
+            maxItems = SERIES_CONTINUATION_MAX_ITEMS,
+        ).map { rows -> rows.map { it.toDomain() } }
+
     suspend fun findByIdentity(identity: DocumentIdentity): Document? {
         identity.metadataId?.let { dao.findByMetadataId(it)?.let { return it.toDomain() } }
         return dao.findByContentHash(identity.contentHash)?.toDomain()
@@ -49,6 +63,8 @@ class DocumentRepository(private val dao: DocumentDao) {
         localPath: String,
         coverPath: String?,
         downloadedAt: Long,
+        seriesName: String? = null,
+        seriesIndex: Double? = null,
     ): Long = dao.insert(DocumentEntity(
         metadataId = identity.metadataId,
         contentHash = identity.contentHash,
@@ -58,6 +74,8 @@ class DocumentRepository(private val dao: DocumentDao) {
         localPath = localPath,
         coverPath = coverPath,
         downloadedAt = downloadedAt,
+        seriesName = seriesName?.takeIf { it.isNotBlank() },
+        seriesIndex = seriesIndex,
     ))
 
     private fun DocumentEntity.toDomain(): Document = Document(
@@ -69,5 +87,19 @@ class DocumentRepository(private val dao: DocumentDao) {
         localPath = localPath,
         coverPath = coverPath,
         downloadedAt = downloadedAt,
+        seriesName = seriesName,
+        seriesIndex = seriesIndex,
     )
+
+    companion object {
+        /** Per-tile cap on the "Continue your series" shelf — keeps the LazyRow bounded. */
+        const val SERIES_CONTINUATION_MAX_ITEMS: Int = 12
+
+        /**
+         * Books with `progress.percent` below this threshold are treated as
+         * "not really started" and remain eligible for the continuation shelf.
+         * Tolerates an accidental open without burying the prompt.
+         */
+        const val SERIES_CONTINUATION_STARTED_THRESHOLD: Double = 0.05
+    }
 }

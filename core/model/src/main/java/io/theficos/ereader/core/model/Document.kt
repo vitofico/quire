@@ -9,4 +9,6 @@ data class Document(
     val localPath: String,
     val coverPath: String?,
     val downloadedAt: Long,
+    val seriesName: String? = null,
+    val seriesIndex: Double? = null,
 )

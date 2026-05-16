@@ -82,6 +82,7 @@ fun LibraryScreen(
 
     val items by viewModel.items.collectAsState()
     val cont by viewModel.continueReading.collectAsState()
+    val seriesCandidates by viewModel.seriesContinuationCandidates.collectAsState()
     var menuFor by remember { mutableStateOf<Document?>(null) }
     var pendingDelete by remember { mutableStateOf<Document?>(null) }
     var pendingRestart by remember { mutableStateOf<Document?>(null) }
@@ -154,6 +155,14 @@ fun LibraryScreen(
             cont?.let { row ->
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     ContinueReadingCard(row = row, onClick = { onOpenBook(row.document.id) })
+                }
+            }
+            if (seriesCandidates.isNotEmpty()) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    SeriesContinuationShelf(
+                        books = seriesCandidates,
+                        onBookClick = { onOpenBook(it) },
+                    )
                 }
             }
             item(span = { GridItemSpan(maxLineSpan) }) {

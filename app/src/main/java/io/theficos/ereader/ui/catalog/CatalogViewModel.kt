@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.core.identity.extractIdentity
+import io.theficos.ereader.core.metadata.readOpfBundle
 import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.db.SyncStateDao
 import io.theficos.ereader.data.opds.BookDownloader
@@ -139,6 +140,10 @@ class CatalogViewModel(
                 val identity = extractIdentity(file)
                 val existing = docs.findByIdentity(identity)
                 if (existing == null) {
+                    // Best-effort: read the OPF for series metadata so PR8's
+                    // continuity shelf can include this book the moment it lands.
+                    // Failures fall back to a title-only bundle (no series).
+                    val opf = readOpfBundle(file, fallbackTitle = pub.title)
                     docs.insert(
                         identity = identity,
                         title = pub.title,
@@ -147,6 +152,8 @@ class CatalogViewModel(
                         localPath = file.absolutePath,
                         coverPath = coverFile?.absolutePath,
                         downloadedAt = System.currentTimeMillis(),
+                        seriesName = opf.seriesName,
+                        seriesIndex = opf.seriesPosition?.toDouble(),
                     )
                 } else {
                     file.delete()

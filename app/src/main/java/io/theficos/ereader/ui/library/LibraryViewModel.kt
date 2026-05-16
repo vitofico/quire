@@ -85,6 +85,16 @@ class LibraryViewModel(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    /**
+     * "Continue your series" candidates for the library home shelf. Reactive —
+     * re-emits when any `documents` or `progress` row changes.
+     *
+     * Pure local Room query, no AI, no server call. See PR8.
+     */
+    val seriesContinuationCandidates: StateFlow<List<Document>> =
+        docs.observeSeriesContinuationCandidates()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     private val _events = MutableSharedFlow<LibraryEvent>(extraBufferCapacity = 4)
     val events: SharedFlow<LibraryEvent> = _events.asSharedFlow()
 
