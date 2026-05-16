@@ -230,7 +230,14 @@ class DocumentIdentity(BaseModel):
     def alias_dict(self) -> dict[str, str]:
         """Return a dict of all non-None identity hints (canonicals + aliases)."""
         out: dict[str, str] = {}
-        for k in ("metadata_id", "content_hash", "opds_dc_id", "isbn", "calibre_book_id", "opds_href"):
+        for k in (
+            "metadata_id",
+            "content_hash",
+            "opds_dc_id",
+            "isbn",
+            "calibre_book_id",
+            "opds_href",
+        ):
             v = getattr(self, k, None)
             if v is not None:
                 out[k] = v

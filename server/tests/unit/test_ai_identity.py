@@ -25,7 +25,6 @@ from opds_sync.core.ai.identity import (
 )
 from opds_sync.db.models import InsightIdentityAlias
 
-
 # ---- Canonical short-circuit -----------------------------------------------
 
 
@@ -33,9 +32,7 @@ from opds_sync.db.models import InsightIdentityAlias
 @pytest.mark.asyncio
 async def test_canonical_metadata_id_short_circuits(session: AsyncSession) -> None:
     """A `metadata_id` input returns immediately, never touching the DB."""
-    c = await resolve_identity(
-        session, alias_scheme="metadata_id", alias_value="9780553293357"
-    )
+    c = await resolve_identity(session, alias_scheme="metadata_id", alias_value="9780553293357")
     assert c == CanonicalIdentity(scheme="metadata_id", value="9780553293357")
     # No alias row was written.
     rows = (await session.execute(select(InsightIdentityAlias))).all()
@@ -134,11 +131,7 @@ async def test_register_alias_is_idempotent(session: AsyncSession) -> None:
         )
     await session.commit()
 
-    rows = (
-        (await session.execute(select(InsightIdentityAlias)))
-        .scalars()
-        .all()
-    )
+    rows = (await session.execute(select(InsightIdentityAlias))).scalars().all()
     assert len(rows) == 1
     assert rows[0].canonical_value == "meta-Y"
 
@@ -194,11 +187,7 @@ async def test_reconcile_aliases_writes_multiple(session: AsyncSession) -> None:
     )
     await session.commit()
 
-    rows = (
-        (await session.execute(select(InsightIdentityAlias)))
-        .scalars()
-        .all()
-    )
+    rows = (await session.execute(select(InsightIdentityAlias))).scalars().all()
     # The canonical itself (metadata_id) is skipped; we expect 3 aliases:
     # opds_href (user-scoped), opds_dc_id (user-scoped), isbn (global).
     schemes = {r.alias_scheme for r in rows}
@@ -251,9 +240,7 @@ async def test_reconcile_aliases_atomicity_on_conflict(session: AsyncSession) ->
     rows = (
         (
             await session.execute(
-                select(InsightIdentityAlias).where(
-                    InsightIdentityAlias.alias_scheme == "opds_href"
-                )
+                select(InsightIdentityAlias).where(InsightIdentityAlias.alias_scheme == "opds_href")
             )
         )
         .scalars()

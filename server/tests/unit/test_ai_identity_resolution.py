@@ -40,7 +40,6 @@ from opds_sync.core.ai.service import (
 )
 from opds_sync.db.models import BookInsight, InsightIdentityAlias
 
-
 # ---- Fakes (mirror of test_ai_service.py) ----------------------------------
 
 
@@ -89,9 +88,7 @@ def make_orch(session):
 
 @pytest.mark.requires_ai
 @pytest.mark.asyncio
-async def test_reconciliation_collision_metadata_id_wins(
-    session: AsyncSession, make_orch
-) -> None:
+async def test_reconciliation_collision_metadata_id_wins(session: AsyncSession, make_orch) -> None:
     """Two pre-existing live insights belong to the same book. A later
     request supplies BOTH hints. The metadata_id-keyed row wins; the
     other row is superseded; lineage on the winner includes the loser's
@@ -111,11 +108,7 @@ async def test_reconciliation_collision_metadata_id_wins(
 
     # Confirm two live insights exist.
     live_rows = (
-        (
-            await session.execute(
-                select(BookInsight).where(BookInsight.superseded_at.is_(None))
-            )
-        )
+        (await session.execute(select(BookInsight).where(BookInsight.superseded_at.is_(None))))
         .scalars()
         .all()
     )
@@ -147,11 +140,7 @@ async def test_reconciliation_collision_metadata_id_wins(
 
     # One live row remains.
     live_after = (
-        (
-            await session.execute(
-                select(BookInsight).where(BookInsight.superseded_at.is_(None))
-            )
-        )
+        (await session.execute(select(BookInsight).where(BookInsight.superseded_at.is_(None))))
         .scalars()
         .all()
     )
@@ -161,11 +150,7 @@ async def test_reconciliation_collision_metadata_id_wins(
 
     # The loser's id is in the winner's previous_insight_ids.
     superseded = (
-        (
-            await session.execute(
-                select(BookInsight).where(BookInsight.superseded_at.is_not(None))
-            )
-        )
+        (await session.execute(select(BookInsight).where(BookInsight.superseded_at.is_not(None))))
         .scalars()
         .all()
     )
@@ -204,9 +189,7 @@ async def test_catalog_preview_then_download_converges_to_one_row(
         session,
         alias_scheme="opds_dc_id",
         alias_value="urn:isbn:9780553293357",
-        canonical=CanonicalIdentity(
-            scheme="metadata_id", value="9780553293357"
-        ),
+        canonical=CanonicalIdentity(scheme="metadata_id", value="9780553293357"),
         source="opds_feed",
         user_id="alice",
     )
@@ -224,11 +207,7 @@ async def test_catalog_preview_then_download_converges_to_one_row(
 
     # Confirm one insight exists, under the canonical metadata_id.
     rows = (
-        (
-            await session.execute(
-                select(BookInsight).where(BookInsight.superseded_at.is_(None))
-            )
-        )
+        (await session.execute(select(BookInsight).where(BookInsight.superseded_at.is_(None))))
         .scalars()
         .all()
     )
@@ -241,9 +220,7 @@ async def test_catalog_preview_then_download_converges_to_one_row(
     aliases = (
         (
             await session.execute(
-                select(InsightIdentityAlias).where(
-                    InsightIdentityAlias.alias_scheme == "opds_href"
-                )
+                select(InsightIdentityAlias).where(InsightIdentityAlias.alias_scheme == "opds_href")
             )
         )
         .scalars()
@@ -255,9 +232,7 @@ async def test_catalog_preview_then_download_converges_to_one_row(
 
     # Step 2: post-download generate. Supplies metadata_id + real content_hash.
     orch_b = make_orch()
-    download_ident = DocumentIdentity(
-        metadata_id="9780553293357", content_hash="real-sha256"
-    )
+    download_ident = DocumentIdentity(metadata_id="9780553293357", content_hash="real-sha256")
     second = await orch_b.generate(session, download_ident, bundle, user_id="alice")
     assert second is not None
 
@@ -269,11 +244,7 @@ async def test_catalog_preview_then_download_converges_to_one_row(
     # content_hash with the real sha256 (out of scope for PR2 — we
     # care about convergence, not backfill semantics).
     live = (
-        (
-            await session.execute(
-                select(BookInsight).where(BookInsight.superseded_at.is_(None))
-            )
-        )
+        (await session.execute(select(BookInsight).where(BookInsight.superseded_at.is_(None))))
         .scalars()
         .all()
     )
@@ -287,9 +258,7 @@ async def test_catalog_preview_then_download_converges_to_one_row(
 
 @pytest.mark.requires_ai
 @pytest.mark.asyncio
-async def test_user_scoped_alias_does_not_bleed(
-    session: AsyncSession, make_orch
-) -> None:
+async def test_user_scoped_alias_does_not_bleed(session: AsyncSession, make_orch) -> None:
     """Alice and Bob register the SAME opds_href but on different
     calibre-web instances pointing at different books. Bob's resolver
     must NOT see Alice's alias.
@@ -314,28 +283,16 @@ async def test_user_scoped_alias_does_not_bleed(
 
     # Alice generates; should land under "alice-book".
     orch_a = make_orch()
-    ident_a = DocumentIdentity(
-        metadata_id=None, content_hash=None, opds_href="ambiguous-href"
-    )
-    await orch_a.generate(
-        session, ident_a, MetadataBundle(title="Alice's Book"), user_id="alice"
-    )
+    ident_a = DocumentIdentity(metadata_id=None, content_hash=None, opds_href="ambiguous-href")
+    await orch_a.generate(session, ident_a, MetadataBundle(title="Alice's Book"), user_id="alice")
 
     # Bob generates; should land under "bob-book", NOT alice-book.
     orch_b = make_orch()
-    ident_b = DocumentIdentity(
-        metadata_id=None, content_hash=None, opds_href="ambiguous-href"
-    )
-    await orch_b.generate(
-        session, ident_b, MetadataBundle(title="Bob's Book"), user_id="bob"
-    )
+    ident_b = DocumentIdentity(metadata_id=None, content_hash=None, opds_href="ambiguous-href")
+    await orch_b.generate(session, ident_b, MetadataBundle(title="Bob's Book"), user_id="bob")
 
     rows = (
-        (
-            await session.execute(
-                select(BookInsight).where(BookInsight.superseded_at.is_(None))
-            )
-        )
+        (await session.execute(select(BookInsight).where(BookInsight.superseded_at.is_(None))))
         .scalars()
         .all()
     )
@@ -363,6 +320,4 @@ async def test_generate_raises_identity_unresolvable_when_no_canonical(
         opds_href="unregistered-href",
     )
     with pytest.raises(IdentityUnresolvable):
-        await orch.generate(
-            session, ident, MetadataBundle(title="Unknown"), user_id="alice"
-        )
+        await orch.generate(session, ident, MetadataBundle(title="Unknown"), user_id="alice")

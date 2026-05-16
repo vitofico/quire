@@ -88,8 +88,8 @@ class AliasConflict(Exception):
         alias_scheme: str,
         alias_value: str,
         user_id: str | None,
-        existing: "CanonicalIdentity",
-        proposed: "CanonicalIdentity",
+        existing: CanonicalIdentity,
+        proposed: CanonicalIdentity,
     ) -> None:
         self.alias_scheme = alias_scheme
         self.alias_value = alias_value
@@ -149,9 +149,7 @@ async def resolve_identity(
 
     # User-scoped read FIRST (when applicable), then global fallback.
     if _is_scoped(alias_scheme) and user_id is not None:
-        row = (
-            await session.execute(base.where(Alias.user_id == user_id).limit(1))
-        ).one_or_none()
+        row = (await session.execute(base.where(Alias.user_id == user_id).limit(1))).one_or_none()
         if row is not None:
             return CanonicalIdentity(scheme=row[0], value=row[1])
 

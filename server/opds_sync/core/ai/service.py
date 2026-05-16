@@ -774,9 +774,7 @@ def _canonical_from_row(row: BookInsight) -> CanonicalIdentity:
     return CanonicalIdentity(scheme="content_hash", value=row.content_hash)
 
 
-def _synthetic_content_hash(
-    ident: DocumentIdentity, original_hints: dict[str, str] | None
-) -> str:
+def _synthetic_content_hash(ident: DocumentIdentity, original_hints: dict[str, str] | None) -> str:
     """Build a deterministic synthetic content_hash for catalog-preview rows.
 
     The schema's `content_hash NOT NULL` invariant predates PR2's alias-only
