@@ -314,3 +314,43 @@ class LibraryItem(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+# ============================================================================
+# `book_themes` (PR3, 2026-05-17) — `ai` branch.
+# ----------------------------------------------------------------------------
+# SHARED CACHE side-table for `book_insights`. Per the cache-integrity
+# invariant (see the BookInsight block comment): NO `user_id`, NO
+# `tenant_id`, NO `subject`. Per-tenant audit lives in
+# `ai_generation_log`; per-user library filtering happens via the join to
+# `library_items` in PR9.
+#
+# Cascade: `ON DELETE CASCADE` on the FK to `book_insights.id` means
+# `invalidate` (which DELETEs the parent) drops the children for free.
+# `regenerate` is supersede-not-delete, so old theme rows survive for
+# audit history alongside the new live row's themes. PR9 MUST filter
+# `book_insights.superseded_at IS NULL` on the join to avoid
+# double-counting regenerated insights.
+#
+# Composite PK `(book_insight_id, theme)`: one row per (insight, theme)
+# pair, no duplicates. The PK's leftmost column covers the FK cascade
+# lookup, so we do NOT need a separate index on `book_insight_id`. The
+# `theme` index covers PR9-style `GROUP BY theme` queries.
+#
+# Confidence band semantics (see opds_sync.core.ai.themes.normalize_theme):
+#   * 1.0 — the model picked a controlled-vocab term
+#   * 0.5 — off-vocab raw passthrough (or empty-input fallback to "other")
+# ============================================================================
+class BookTheme(Base):
+    __tablename__ = "book_themes"
+    __table_args__ = (Index("ix_book_themes_theme", "theme"),)
+
+    book_insight_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("book_insights.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    theme: Mapped[str] = mapped_column(String, primary_key=True)
+    confidence: Mapped[float] = mapped_column(
+        Float, nullable=False, server_default=text("1.0"), default=1.0
+    )

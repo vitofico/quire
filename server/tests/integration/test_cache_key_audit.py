@@ -28,6 +28,7 @@ from sqlalchemy import inspect
 
 from opds_sync.db.models import (
     BookInsight,
+    BookTheme,
     ExternalSourceCacheEntry,
     InsightIdentityAlias,
 )
@@ -48,8 +49,7 @@ GRANDFATHERED: dict[str, frozenset[str]] = {
 SHARED_CACHE_TABLES = [
     pytest.param(BookInsight, id="book_insights"),
     pytest.param(ExternalSourceCacheEntry, id="external_source_cache"),
-    # Future entries (add when the model lands):
-    # pytest.param(BookTheme, id="book_themes"),           # PR3
+    pytest.param(BookTheme, id="book_themes"),  # PR3 (2026-05-17)
 ]
 
 # Tables where `user_id` is INTENTIONAL cache-key scoping, NOT a tenant-leak.

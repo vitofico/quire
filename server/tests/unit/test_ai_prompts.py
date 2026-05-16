@@ -6,9 +6,27 @@ from opds_sync.core.ai.prompts import (
 )
 
 
-def test_prompt_version_is_v3():
-    """PR4 bumped from v2 to v3 because the prompt body now varies on `language`."""
-    assert PROMPT_VERSION == "3"
+def test_prompt_version_is_v4():
+    """PR3 (2026-05-17) bumped from v3 to v4 because the prompt body now
+    instructs the model to emit `themes` and includes the controlled vocabulary.
+    """
+    assert PROMPT_VERSION == "4"
+
+
+def test_system_prompt_includes_themes_vocab():
+    """PR3: the controlled vocabulary must be inlined in SYSTEM_PROMPT so the
+    model can pick from it. We don't pin the exact wording (avoids brittle
+    diff churn on vocab tweaks), but a sample of representative entries plus
+    the section header must be present.
+    """
+    low = SYSTEM_PROMPT.lower()
+    assert "controlled themes vocabulary" in low
+    # Sample a handful of stable vocab entries (renames cost data migration,
+    # so these should not move casually).
+    for entry in ("mystery", "science_fiction", "biography", "poetry"):
+        assert entry in low
+    # The model must NOT be told to emit the literal "other".
+    assert '"other"' in SYSTEM_PROMPT  # the "Do NOT emit ... other" line
 
 
 def test_user_prompt_includes_metadata_fields():

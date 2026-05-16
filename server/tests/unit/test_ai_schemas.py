@@ -14,21 +14,40 @@ def test_payload_round_trip_minimal():
     p = BookInsightPayload(confidence="high")
     again = BookInsightPayload.model_validate_json(p.model_dump_json())
     assert again.confidence == "high"
-    assert again.schema_version == 2
+    assert again.schema_version == 3
     assert again.intro is None
     assert again.analysis is None
+    assert again.themes is None
 
 
 def test_payload_extra_fields_rejected():
     with pytest.raises(ValidationError):
-        BookInsightPayload.model_validate({"schema_version": 2, "fictional_field": "no"})
+        BookInsightPayload.model_validate({"schema_version": 3, "fictional_field": "no"})
 
 
 def test_payload_dropped_v1_fields_rejected():
-    # v1 had summary/themes/tone/suggested_for/notes — none should validate under v2.
-    for stale in ("summary", "themes", "tone", "suggested_for", "notes", "content_advisory"):
+    # v1 had summary/tone/suggested_for/notes — none should validate under v3.
+    # `themes` was re-introduced in PR3 (v3) and is intentionally NOT in this list.
+    for stale in ("summary", "tone", "suggested_for", "notes", "content_advisory"):
         with pytest.raises(ValidationError):
             BookInsightPayload.model_validate({stale: "x"})
+
+
+def test_payload_accepts_themes_field():
+    """PR3 (v3) re-introduces `themes` as a first-class output."""
+    p = BookInsightPayload.model_validate({"themes": ["mystery", "noir"], "confidence": "low"})
+    assert p.themes == ["mystery", "noir"]
+    assert p.schema_version == 3
+
+
+def test_payload_v2_no_themes_still_deserializes():
+    """Old cached v2 payloads (no `themes` key, `schema_version=2`) must still
+    deserialize cleanly. `themes` defaults to None; `schema_version` reads back
+    as 2 because the model honors the supplied value over the default.
+    """
+    p = BookInsightPayload.model_validate({"schema_version": 2, "confidence": "low"})
+    assert p.schema_version == 2
+    assert p.themes is None
 
 
 def test_payload_key_order_matches_reading_order():
@@ -40,6 +59,7 @@ def test_payload_key_order_matches_reading_order():
         "series",
         "analysis",
         "content_warnings",
+        "themes",
         "confidence",
         "schema_version",
     ]

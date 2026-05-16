@@ -43,8 +43,9 @@ from opds_sync.core.ai.identity import (
     resolve_identity,
 )
 from opds_sync.core.ai.prompts import SYSTEM_PROMPT, compose_user_prompt
+from opds_sync.core.ai.themes import normalize_theme
 from opds_sync.core.logging_ctx import request_id_var
-from opds_sync.db.models import AIGenerationLog, AIUsageDaily, BookInsight
+from opds_sync.db.models import AIGenerationLog, AIUsageDaily, BookInsight, BookTheme
 
 logger = logging.getLogger(__name__)
 
@@ -418,6 +419,11 @@ class InsightOrchestrator:
             # PR5: chat_structured succeeded → provider is reachable now.
             if self._health is not None:
                 await self._health.record_provider_success(model_id=self.model_id)
+            # PR3: pin schema_version server-side. The model may emit `2` by
+            # mistake (or copy it from cached examples); the cache row must
+            # always reflect the schema we generated under, not whatever the
+            # model guessed.
+            payload.schema_version = 3
             latency_ms = int((time.monotonic() - t0) * 1000)
             logger.info(
                 "ai.generate content_hash=%s model=%s latency_ms=%d sources=%s regen=%s",
@@ -466,6 +472,31 @@ class InsightOrchestrator:
         )
         session.add(row)
         await session.flush()  # populate row.id before logging
+
+        # PR3: persist themes as side-table rows. FK + ON DELETE CASCADE means
+        # invalidate (DELETE on the parent) drops these for free. Regenerate is
+        # supersede-not-delete, so old theme rows survive for audit alongside
+        # the new row's themes; PR9's top_themes query must filter
+        # `book_insights.superseded_at IS NULL` on the join to avoid double-
+        # counting. Dedup via `seen` so model quirks like ["mystery", "Mystery"]
+        # don't trip the composite PK constraint with an IntegrityError.
+        if payload.themes:
+            seen: set[str] = set()
+            for raw in payload.themes:
+                if not isinstance(raw, str):
+                    continue
+                normalized, conf = normalize_theme(raw)
+                if normalized in seen:
+                    continue
+                seen.add(normalized)
+                session.add(
+                    BookTheme(
+                        book_insight_id=row.id,
+                        theme=normalized,
+                        confidence=conf,
+                    )
+                )
+
         await self._log_generation(
             session,
             book_insight_id=row.id,
