@@ -434,3 +434,79 @@ async def test_log_default_tenant_id_is_local(session: AsyncSession, make_orches
     rows = (await session.execute(select(AIGenerationLog))).scalars().all()
     assert len(rows) == 1
     assert rows[0].tenant_id == "local"
+
+
+class _ExplodingAIClient:
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    async def chat_structured(self, *, system, user, schema, timeout_s):
+        self.calls.append({"system": system, "user": user})
+        raise RuntimeError("simulated provider failure")
+
+
+@pytest.mark.asyncio
+async def test_generate_error_emits_structured_log(session: AsyncSession, caplog):
+    """Errors emit a structured `event=ai.generate.error` warning carrying
+    tenant_id, subject, model, prompt_version, error_class. The request_id
+    ContextVar is read by the log filter (attached to caplog's handler to
+    mirror the production handler-level attachment) and surfaces as
+    record.request_id. No ai_generation_log row is written.
+    """
+    import logging
+
+    from opds_sync.core.ai.service import InsightOrchestrator
+    from opds_sync.core.logging_ctx import RequestIdLogFilter, request_id_var
+
+    # Set level on BOTH the root and the specific service logger; pytest-asyncio
+    # plus testcontainers fixtures can leave child-logger levels in unexpected
+    # states across tests, so be explicit.
+    caplog.set_level(logging.WARNING, logger="opds_sync.core.ai.service")
+    caplog.set_level(logging.WARNING)
+    filt = RequestIdLogFilter()
+    caplog.handler.addFilter(filt)
+
+    token = request_id_var.set("req-err-xyz")
+    try:
+        orch = InsightOrchestrator(
+            ai=_ExplodingAIClient(),
+            retriever_factory=lambda s: FakeRetriever(),
+            sources_enabled=(),
+            model_id="boom-model",
+            prompt_version="t1",
+            max_concurrency=1,
+            ai_timeout_s=5.0,
+        )
+        ident = DocumentIdentity(metadata_id=None, content_hash="ch-error")
+
+        with pytest.raises(RuntimeError, match="simulated provider failure"):
+            await orch.generate(
+                session,
+                ident,
+                MetadataBundle(title="X"),
+                user_id="alice",
+                tenant_id="acme",
+            )
+    finally:
+        request_id_var.reset(token)
+        caplog.handler.removeFilter(filt)
+
+    rows = (await session.execute(select(AIGenerationLog))).scalars().all()
+    assert rows == []  # no DB row for errors
+
+    error_records = [
+        r for r in caplog.records if "event=ai.generate.error" in r.getMessage()
+    ]
+    assert len(error_records) == 1, (
+        f"expected exactly one ai.generate.error log record, got {len(error_records)} "
+        f"out of {[r.getMessage() for r in caplog.records]}"
+    )
+    rec = error_records[0]
+    msg = rec.getMessage()
+    assert "tenant_id=acme" in msg
+    assert "subject=alice" in msg
+    assert "model=boom-model" in msg
+    assert "prompt_version=t1" in msg
+    assert "error_class=RuntimeError" in msg
+    # request_id surfaces on the record because the filter is on caplog.handler.
+    assert getattr(rec, "request_id", "") == "req-err-xyz"
