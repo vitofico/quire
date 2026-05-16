@@ -2,7 +2,7 @@
 
 Cases covered:
 1. Default state with real migrations: wrapper upgrades backbone + ai branch,
-   DB ends at ai@head (currently `ai_002`).
+   DB ends at ai@head (currently `ai_003`).
 2. Idempotent: running twice in a row is a no-op.
 3. Synthetic branched script directory (tmp copy of migrations + an ai_test_003
    revision chained off the current ai@head):
@@ -67,7 +67,7 @@ async def test_default_state_upgrades_backbone_then_ai_branch(postgres_url: str)
     versions = await _alembic_versions(eng)
     await eng.dispose()
     # PR-C materialized the `ai` branch; ai_enabled=True advances to ai@head.
-    assert versions == {"ai_002"}
+    assert versions == {"ai_003"}
 
 
 async def test_idempotent_second_run(postgres_url: str):
@@ -80,14 +80,14 @@ async def test_idempotent_second_run(postgres_url: str):
     eng = create_async_engine(postgres_url, future=True)
     versions = await _alembic_versions(eng)
     await eng.dispose()
-    assert versions == {"ai_002"}
+    assert versions == {"ai_003"}
 
 
 async def test_synthetic_ai_branch_upgrades_when_enabled(postgres_url: str, tmp_path: Path):
     """Copy real migrations to tmp + add a synthetic ai_test_003 chained off
-    ai_002; verify enabled run advances to ai_test_003 (the new ai@head)."""
+    ai_003; verify enabled run advances to ai_test_003 (the new ai@head)."""
 
-    # First, ensure DB is at ai@head (real migrations include ai_001 + ai_002).
+    # First, ensure DB is at ai@head (real migrations include ai_001 + ai_003).
     real_cfg = _make_cfg(postgres_url)
     await _run_migrations_in_thread(real_cfg, progress_enabled=True, ai_enabled=True)
 
@@ -95,7 +95,7 @@ async def test_synthetic_ai_branch_upgrades_when_enabled(postgres_url: str, tmp_
     synth_dir = tmp_path / "migrations"
     shutil.copytree("migrations", synth_dir)
     versions_dir = synth_dir / "versions"
-    # Chain off ai_002 (the current ai@head) with branch_labels=None — the `ai`
+    # Chain off ai_003 (the current ai@head) with branch_labels=None — the `ai`
     # label is already claimed by ai_001.
     (versions_dir / "ai_test_003.py").write_text(
         textwrap.dedent(
@@ -103,7 +103,7 @@ async def test_synthetic_ai_branch_upgrades_when_enabled(postgres_url: str, tmp_
             """synthetic ai branch test migration.
 
             Revision ID: ai_test_003
-            Revises: ai_002
+            Revises: ai_003
             Create Date: 2026-05-16 00:00:00.000000
             """
 
@@ -111,7 +111,7 @@ async def test_synthetic_ai_branch_upgrades_when_enabled(postgres_url: str, tmp_
             from alembic import op
 
             revision = "ai_test_003"
-            down_revision = "ai_002"
+            down_revision = "ai_003"
             branch_labels = None
             depends_on = None
 
@@ -136,7 +136,7 @@ async def test_synthetic_ai_branch_upgrades_when_enabled(postgres_url: str, tmp_
     await eng.dispose()
 
     # Cleanup: roll back the synthetic migration so other tests aren't affected.
-    await _downgrade_in_thread(cfg, "ai_002")
+    await _downgrade_in_thread(cfg, "ai_003")
 
 
 async def test_synthetic_ai_branch_skipped_when_disabled(postgres_url: str, tmp_path: Path):
@@ -160,7 +160,7 @@ async def test_synthetic_ai_branch_skipped_when_disabled(postgres_url: str, tmp_
             from alembic import op
 
             revision = "ai_test_003"
-            down_revision = "ai_002"
+            down_revision = "ai_003"
             branch_labels = None
             depends_on = None
 
@@ -179,10 +179,10 @@ async def test_synthetic_ai_branch_skipped_when_disabled(postgres_url: str, tmp_
     eng = create_async_engine(postgres_url, future=True)
     versions = await _alembic_versions(eng)
     await eng.dispose()
-    # ai branch skipped → ai_test_003 not applied, ai_002 not applied,
+    # ai branch skipped → ai_test_003 not applied, ai_003 not applied,
     # ai_001 not applied. Only the backbone advanced.
     assert "ai_test_003" not in versions
-    assert "ai_002" not in versions
+    assert "ai_003" not in versions
     assert "ai_001" not in versions
     # Backbone still at 0004.
     assert "0004" in versions
