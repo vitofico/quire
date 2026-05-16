@@ -123,12 +123,24 @@ class InsightOrchestrator:
         session: AsyncSession,
         ident: DocumentIdentity,
         *,
+        user_id: str | None = None,
         style: AiStyle | None = None,
+        tenant_id: str = "local",
     ) -> BookInsightResponse | None:
         tone = _tone_of(style)
         row = await self._cache_lookup(session, ident, tone=tone, allow_backfill=False)
         if row is None:
             return None
+        if user_id is not None:
+            await self._log_generation(
+                session,
+                book_insight_id=row.id,
+                subject=user_id,
+                tenant_id=tenant_id,
+                status="hit",
+                latency_ms=0,
+            )
+            await session.commit()
         return self._row_to_response(row)
 
     async def generate(

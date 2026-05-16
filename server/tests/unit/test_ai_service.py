@@ -342,3 +342,34 @@ async def test_log_uses_passed_tenant_id(session: AsyncSession, make_orchestrato
     rows = (await session.execute(select(AIGenerationLog))).scalars().all()
     assert len(rows) == 1
     assert rows[0].tenant_id == "acme"
+
+
+@pytest.mark.asyncio
+async def test_get_hit_writes_log_row(session: AsyncSession, make_orchestrator):
+    orch = make_orchestrator()
+    ident = DocumentIdentity(metadata_id=None, content_hash="ch-get-hit")
+    await orch.generate(session, ident, MetadataBundle(title="X"), user_id="alice")
+    # baseline: one miss row from the generate
+    assert len((await session.execute(select(AIGenerationLog))).scalars().all()) == 1
+
+    out = await orch.get(session, ident, user_id="alice")
+    assert out is not None
+
+    rows = (
+        (await session.execute(select(AIGenerationLog).order_by(AIGenerationLog.id)))
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 2
+    assert rows[1].status == "hit"
+    assert rows[1].latency_ms == 0
+
+
+@pytest.mark.asyncio
+async def test_get_miss_writes_no_log_row(session: AsyncSession, make_orchestrator):
+    orch = make_orchestrator()
+    ident = DocumentIdentity(metadata_id=None, content_hash="ch-get-miss")
+    assert await orch.get(session, ident) is None
+
+    rows = (await session.execute(select(AIGenerationLog))).scalars().all()
+    assert rows == []
