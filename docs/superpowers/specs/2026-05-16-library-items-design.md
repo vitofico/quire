@@ -1,5 +1,7 @@
 # PR1 — `library_items` table + Android upload
 
+> Shipped in 4a79c7c on 2026-05-16 as PR #16.
+
 **Date:** 2026-05-16
 **Status:** Design locked in `.claude/local/quire-ai/2026-05-16-next-deliverables.md` §"PR1". This spec captures execution-level detail. No re-design is in scope; only the small implementation choices needed to write the plan and code.
 

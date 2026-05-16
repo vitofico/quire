@@ -27,6 +27,37 @@ multi-user from day one.
 A failed lookup returns `401`. If calibre-web is unreachable the server
 returns `503`.
 
+### AI auth mode (PR-B, 2026-05-16)
+
+`/sync/v1/*` and `/library/v1/*` always use the Basic auth flow above.
+`/ai/v1/*` routes go through an `AiAuthenticator` seam that selects the
+verifier per the `OPDS_SYNC_AI_AUTH_MODE` env var:
+
+| Mode (`OPDS_SYNC_AI_AUTH_MODE`) | Header                            | Principal                              |
+| ------------------------------- | --------------------------------- | -------------------------------------- |
+| `basic` (default)               | `Authorization: Basic …`          | `tenant_id="local"`, `auth_mode=basic` |
+| `token`                         | `Authorization: Bearer <jwt-ish>` | claims from token; `auth_mode=token`   |
+
+Token mode is a stub for the hosted-AI future: HMAC-SHA256 over `header.payload`
+with header `{alg=HS256, kid}` and payload claims `{iss, aud, exp, iat, sub,
+tenant_id, scope?}`. Each segment is URL-safe base64 with no padding. The
+server only verifies — issuance is out of scope. Multiple `kid → secret`
+entries (set via the JSON env var `OPDS_SYNC_AI_TOKEN_SECRETS`) enable
+rotation: tokens signed under any registered kid are accepted; mint with
+the newest. `OPDS_SYNC_AI_TOKEN_ISSUER` and `OPDS_SYNC_AI_TOKEN_AUDIENCE`
+must match `iss` / `aud` exactly. Verification failures all collapse to a
+single `401 invalid credentials` — failure reasons live in structured logs
+only.
+
+Token-mode misconfiguration (missing secrets, secret shorter than 32 bytes,
+missing issuer/audience) crashloops the process on startup. There is no
+silent downgrade to basic.
+
+`AiPrincipal.tenant_id` flows ONLY into `ai_generation_log` per-call audit;
+it never participates in any shared-cache key. See `docs/architecture.md`
+§"AI auth seam" for the rationale and `server/opds_sync/api/ai_auth.py` for
+the implementation.
+
 ## Endpoints
 
 | Method | Path | Auth | Purpose |
@@ -38,6 +69,10 @@ returns `503`.
 | `POST` | `/sync/v1/documents/alias` | yes | Reconcile a hash-keyed record with a newly-known metadata-id (planned) |
 | `POST` | `/sync/v1/bookmarks` | yes | Push bookmark create/delete (planned) |
 | `GET` | `/sync/v1/bookmarks` | yes | Pull bookmark deltas (planned) |
+| `PUT` | `/library/v1/items` | yes | Upsert one library item (mode-gated on `OPDS_SYNC_PROGRESS_ENABLED`) |
+| `GET` | `/library/v1/items` | yes | List items, optional `since=<ISO>` cursor with tombstones |
+| `DELETE` | `/library/v1/items` | yes | Soft-delete one library item by `content_hash` |
+| `GET` | `/ai/v1/health` | none | AI provider + retrieval reachability snapshot (mode-gated on `OPDS_SYNC_AI_ENABLED`) |
 
 Currently shipped: health probes and progress. The rest are designed; see
 phasing in the project README.
@@ -161,6 +196,79 @@ In one transaction the server:
 3. If both exist and differ, merges: record-level LWW for scalars, set union
    with tombstone resolution for bookmarks.
 4. Deletes the orphan, returns the surviving record's identity.
+
+## Library items (`/library/v1`)
+
+Per-user mirror of the on-device library. Mounted only when
+`OPDS_SYNC_PROGRESS_ENABLED=true`. USER-SCOPED — `library_items.user_id` is
+part of every uniqueness constraint and not shared cache.
+
+Identity travels in the request body (URL-encoded sha256s in paths are a
+footgun). Single-item-per-request today; a future bulk endpoint can ship
+as `{"items": [...]}` without breaking clients.
+
+### `PUT /library/v1/items`
+
+Idempotent upsert keyed by `(user_id, content_hash)`. Soft-deleted rows
+reactivate on PUT. If the payload supplies a `metadata_id` that conflicts
+with a different content-hash row, the server returns `409` with
+`{ "error": "metadata_id_conflict", "existing_content_hash": "..." }`
+(PR2's identity aliases own the merge case; PR1 refuses to silently merge).
+
+```json
+{
+  "item": {
+    "metadata_id": "9780141036144",
+    "content_hash": "8e3a...",
+    "title": "Crime and Punishment",
+    "authors": ["Fyodor Dostoevsky"],
+    "series_name": null,
+    "series_index": null,
+    "isbn": "9780141036144",
+    "language": "en",
+    "subjects": ["Fiction", "Classics"],
+    "opds_href": "/opds/book/42/download"
+  }
+}
+```
+
+Response: the persisted row, including server-assigned `created_at`,
+`updated_at`, and `deleted_at` (null on a live row).
+
+### `GET /library/v1/items`
+
+```
+GET /library/v1/items[?since=<ISO8601>][&limit=200][&offset=0]
+```
+
+- Without `since`: returns alive rows only (`deleted_at IS NULL`) —
+  reconcile-pass shape.
+- With `since`: returns rows where `updated_at > since`, **including
+  tombstones** (`deleted_at IS NOT NULL`) so clients can mirror deletes.
+- Ordering is `(updated_at ASC, pk ASC)`; the pk tiebreaker prevents
+  same-timestamp collisions from skipping rows across pages.
+- `server_time` in the response is captured BEFORE the SELECT and bounds
+  the current page so concurrent writes don't leak in. Clients persist it
+  and use it as the next `since`.
+- `limit` defaults to 200, capped at 1000. `offset` defaults to 0.
+
+```json
+{
+  "items": [ ... ],
+  "server_time": "2026-05-16T21:33:25.000+00:00"
+}
+```
+
+### `DELETE /library/v1/items`
+
+```json
+{ "item": { "content_hash": "8e3a..." } }
+```
+
+Sets `deleted_at = now()` on the matching row. `404` if no row matches.
+Idempotent: DELETE on an already-deleted row is a no-op (both timestamps
+preserved — refreshing `updated_at` here would re-deliver the tombstone on
+every subsequent `GET ?since=<old_cursor>`).
 
 ## Bookmarks (planned)
 
@@ -328,6 +436,25 @@ header if the user's daily budget is exhausted. Body:
 }
 ```
 
+**Identity fields (PR2 update, 2026-05-16).** `identity.content_hash` is now
+**optional** so the catalog-preview flow can request insights before the EPUB
+body is downloaded. The full set of accepted hints is:
+
+| Field             | Scope          | Notes                                              |
+| ----------------- | -------------- | -------------------------------------------------- |
+| `metadata_id`     | canonical      | Normalized OPF `dc:identifier`.                    |
+| `content_hash`    | canonical      | sha256 of the EPUB body. Optional since PR2.       |
+| `opds_dc_id`      | user-scoped    | `dc:identifier` from the catalog entry.            |
+| `isbn`            | global         | Same ISBN means the same book everywhere.          |
+| `calibre_book_id` | user-scoped    | calibre-web book id; not portable across servers.  |
+| `opds_href`       | user-scoped    | OPDS acquisition href; last-resort fallback.       |
+
+At least one hint must be present. The server walks the hierarchy in the
+order above and resolves to a canonical via the `insight_identity_aliases`
+table. If no hint resolves on a write path the server returns `422`.
+`reconcile_aliases` writes alias rows for every hint that is NOT already the
+canonical, so subsequent calls with weaker hints hit the same cache row.
+
 Response: a `BookInsight` with `payload`, `sources`, `model_id`,
 `prompt_version`, `generated_at`. See `opds_sync/api/ai_schemas.py` for
 the full payload schema.
@@ -390,3 +517,41 @@ shared across users and remain readable by users who later opt out).
 Drops the cached row for the current `(model_id, prompt_version)`. Use this
 for admin-style cache busting; users hit `regenerate` instead, which is
 budgeted. Requires opt-in. Returns `{"deleted": <int>}`.
+
+### `GET /ai/v1/health`
+
+Operational visibility for AI provider + retrieval reachability. **Unauthenticated**
+by design — operators and the Android Settings status row poll it without going
+through Basic auth (consistent with the always-on root `/health` and `/readyz`
+probes; nothing in the body is more sensitive than `/ai/v1/config` already
+exposes). Mounted only when `OPDS_SYNC_AI_ENABLED=true`.
+
+Snapshot semantics:
+
+- **Process-local.** Each replica reports its own state. Reset to all-null on
+  process restart.
+- **Passive.** State updates only as a side effect of real user-driven
+  chat-completion + retrieval calls. The server never actively pings providers.
+- **Tri-state `reachable`.** `null` = never observed by this process;
+  `true` = last call succeeded; `false` = last call failed.
+
+```json
+{
+  "provider_reachable": true,
+  "provider_last_checked_at": "2026-05-16T21:25:00+00:00",
+  "model_id": "gpt-oss:120b-cloud",
+  "last_failure_at": null,
+  "last_failure_class": null,
+  "retrieval_sources": [
+    { "name": "wikipedia",   "reachable": true,  "last_checked_at": "2026-05-16T21:24:30+00:00" },
+    { "name": "openlibrary", "reachable": null,  "last_checked_at": null }
+  ]
+}
+```
+
+`retrieval_sources` is seeded from `OPDS_SYNC_AI_SOURCES` so the UI always
+has a row per configured source even before the first call. `model_id` is the
+most recently observed model on a successful chat completion (not necessarily
+equal to `AI_MODEL`; see `/ai/v1/config` for the configured value). On
+failure, `last_failure_at` and `last_failure_class` are set and cleared on
+the next success.

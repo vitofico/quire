@@ -89,32 +89,55 @@ fixture set so they cannot drift.
 2. Else → look up by `content_hash`. Match wins.
 3. Else → no match; create new record.
 
-### Identity hierarchy (forward-looking)
+### Identity hierarchy
 
-The two columns above are what ships today. A wider identity hierarchy is
-planned to support pre-download flows (catalog preview, library upload) where
-the EPUB body isn't on the device yet:
+The two canonical columns above always identify a row. On the AI surface the
+server additionally accepts a wider set of identity hints so pre-download
+flows (catalog preview, library upload) work before the EPUB body is on the
+device. PR2 (2026-05-16) materialized this as the `insight_identity_aliases`
+table and the `resolve_identity` / `register_alias` / `reconcile_aliases`
+API in `server/opds_sync/core/ai/identity.py`.
 
-1. **`metadata_id`** — normalized first non-empty `dc:identifier` from the
-   EPUB OPF. Stable across re-downloads.
-2. **`content_hash`** — KOReader-style sampled MD5 of the EPUB body. Stable
-   across metadata edits.
-3. **OPDS `dc:identifier`** — when present on the catalog entry. Pre-download.
-4. **Atom entry id / `calibre:<book id>`** — scoped alias from the catalog
-   entry. Pre-download.
-5. **`opds-href:<sha256(canonical href)>`** — last-resort fallback.
+1. **`metadata_id`** — canonical. Normalized first non-empty `dc:identifier`
+   from the EPUB OPF. Stable across re-downloads.
+2. **`content_hash`** — canonical. KOReader-style sampled MD5 of the EPUB
+   body. Stable across metadata edits.
+3. **`opds_dc_id`** — alias. `dc:identifier` from the catalog entry.
+   Pre-download.
+4. **`isbn`** — alias. Global (a given ISBN means the same book everywhere).
+5. **`calibre_book_id`** — alias. Pre-download. User-scoped (book #42 in one
+   calibre-web is not book #42 in another).
+6. **`opds_href`** — alias. Last-resort fallback. User-scoped.
 
-Aliases reconcile into the canonical row when a stronger identity is later
-observed for the same book (planned in PR2 of the next batch). Title+author
-hashes are explicitly NOT identity — they collide on common titles.
+Scope policy (`SCOPE_BY_SCHEME` in `core/ai/identity.py`): `metadata_id`,
+`content_hash`, `isbn` are GLOBAL aliases (`user_id IS NULL` in the alias
+row). `opds_href`, `opds_dc_id`, `calibre_book_id` are USER-SCOPED — the same
+OPDS string can mean different books on different calibre-web instances and
+must not cross-contaminate.
+
+`InsightLookupBody.identity.content_hash` is now optional (PR2) so catalog-
+preview requests can resolve via any alias hint. The orchestrator's
+`_resolve_canonical` step walks the hierarchy and raises 422 if no hint
+resolves on a write path. Title+author hashes are explicitly NOT identity —
+they collide on common titles.
 
 ### Reconciliation
 
-When a record was first written by hash alone and the client later learns the
-metadata-id, the client calls `POST /sync/v1/documents/alias` once per
-document. In one transaction the server merges any pre-existing
-metadata-id-keyed and hash-keyed records: record-level LWW for scalars, set
-union + tombstone resolution for bookmarks.
+Two distinct surfaces today:
+
+- **Sync (`/sync/v1/documents/alias`, planned).** When a `progress` row was
+  first written by hash alone and the client later learns the metadata-id,
+  the client calls this endpoint once per document. In one transaction the
+  server merges any pre-existing metadata-id-keyed and hash-keyed records:
+  record-level LWW for scalars, set union + tombstone resolution for
+  bookmarks.
+- **AI (`insight_identity_aliases`, shipped PR2 2026-05-16).** The AI
+  surface accepts any of `metadata_id`, `content_hash`, `opds_dc_id`,
+  `isbn`, `calibre_book_id`, `opds_href` and resolves to a canonical via
+  the alias table before touching the shared cache. See
+  `server/opds_sync/core/ai/identity.py` for the resolver + register +
+  reconcile API. Per-user OPDS aliases stay user-scoped; global hints like
+  ISBN are shared.
 
 ### Known limitations
 
@@ -222,11 +245,11 @@ calibre-web username and password; everything else flows from that.
 The opds-sync server supports three deploy modes from a single codebase and
 container image. Modes are controlled by two env-var flags:
 
-| Mode             | `OPDS_SYNC_PROGRESS_ENABLED` | `OPDS_SYNC_AI_ENABLED` | Mounted endpoints                                |
-| ---------------- | ---------------------------- | ---------------------- | ------------------------------------------------ |
-| Full stack       | `true` (default)             | `true` (default)       | `/health`, `/readyz`, `/sync/v1/*`, `/ai/v1/*`   |
-| Sync only        | `true`                       | `false`                | `/health`, `/readyz`, `/sync/v1/*`               |
-| AI only          | `false`                      | `true`                 | `/health`, `/readyz`, `/ai/v1/*`                 |
+| Mode             | `OPDS_SYNC_PROGRESS_ENABLED` | `OPDS_SYNC_AI_ENABLED` | Mounted endpoints                                                          |
+| ---------------- | ---------------------------- | ---------------------- | -------------------------------------------------------------------------- |
+| Full stack       | `true` (default)             | `true` (default)       | `/health`, `/readyz`, `/sync/v1/*`, `/library/v1/*`, `/ai/v1/*`            |
+| Sync only        | `true`                       | `false`                | `/health`, `/readyz`, `/sync/v1/*`, `/library/v1/*`                        |
+| AI only          | `false`                      | `true`                 | `/health`, `/readyz`, `/ai/v1/*`                                            |
 
 `/health` and `/readyz` are always mounted on the root path (no prefix) so k8s
 liveness/readiness probes work in every mode. `/health` returns liveness plus
@@ -283,6 +306,73 @@ this invariant existed. PR-C stopped reading it; it remains write-only legacy
 until a follow-up migration nulls and drops it. A regression test
 (`tests/integration/test_cache_key_audit.py`) asserts no new tenant column
 sneaks onto the shared-cache tables — keep it green.
+
+PR2 (2026-05-16) split that audit into two parametrize lists:
+
+- **`SHARED_CACHE_TABLES`** (`book_insights`, `external_source_cache`): rows
+  reused across every tenant requesting the same identity + model + prompt +
+  tone + language. MUST NOT carry `user_id`, `tenant_id`, `subject`, or
+  `principal_id`.
+- **`SCOPED_ALIAS_TABLES`** (`insight_identity_aliases`): rows whose
+  `user_id` is INTENTIONAL cache-key scoping, NOT a tenant-leak. An inverse-
+  property test asserts `user_id` IS present on these tables, so a future
+  refactor that removes the scoping fails loudly. Tenant columns
+  (`tenant_id`, `subject`, `principal_id`) remain forbidden.
+
+### AI auth seam (PR-B, 2026-05-16)
+
+`/ai/v1/*` routes depend on `AiPrincipal{subject, tenant_id, scopes,
+auth_mode, request_id}` via an `AiAuthenticator` Protocol, not on
+`current_user_id` directly. Two implementations ship today:
+
+- **`BasicAuthAiAuthenticator`** — wraps the existing calibre-web Basic-auth
+  verifier. `tenant_id` is always `"local"`. Default.
+- **`TokenAiAuthenticator`** — HMAC-SHA256 bearer-token verifier with `kid`
+  rotation. Wire format: header `{alg=HS256, kid}` + payload
+  `{iss, aud, exp, iat, sub, tenant_id, scope?}`, each segment URL-safe
+  base64 with no padding. Issuance is out of scope; the server only
+  verifies. Token-mode misconfiguration (missing `OPDS_SYNC_AI_TOKEN_SECRETS`,
+  short secret, missing issuer/audience) crashloops the process — never
+  silently downgrades to basic.
+
+`AiPrincipal.tenant_id` flows ONLY into `ai_generation_log` for per-call
+audit. It MUST NOT participate in any shared-cache key. Sync routes
+(`/sync/v1/*`, `/library/v1/*`) continue to depend on `current_user_id`
+directly — the seam only swings on `/ai/v1/*`.
+
+Env vars: `OPDS_SYNC_AI_AUTH_MODE` (`basic|token`, default `basic`),
+`OPDS_SYNC_AI_TOKEN_SECRETS` (JSON object `{kid: secret}`),
+`OPDS_SYNC_AI_TOKEN_ISSUER`, `OPDS_SYNC_AI_TOKEN_AUDIENCE`. See
+`server/opds_sync/api/ai_auth.py` for the verifier and
+`server/README.md` for rotation guidance.
+
+### AI provider health (PR5, 2026-05-16)
+
+`GET /ai/v1/health` returns a process-local snapshot of the most recently
+observed reachability of the AI provider and configured retrieval sources.
+Unauthenticated by design — operators and the Android Settings screen poll
+it without going through Basic auth (consistent with the always-on root
+`/health` and `/readyz` probes; nothing in the body is more sensitive than
+`/ai/v1/config` already exposes).
+
+Mounted only when `OPDS_SYNC_AI_ENABLED=true`. State is held in
+`AiHealthState` (`server/opds_sync/core/ai/health_state.py`), updated as a
+side effect of real user-driven chat-completion and retrieval calls. We
+never actively ping providers. Reachability is tri-state (`None` until first
+observation, then `True`/`False`); reset to all-null on process restart.
+Multi-replica deployments report per-replica state — multi-replica
+observability is out of scope (in-process state stays).
+
+### Per-user library mirror (PR1, 2026-05-16)
+
+`/library/v1/items` (PUT / GET / DELETE) mounts when
+`OPDS_SYNC_PROGRESS_ENABLED=true`. The `library_items` table (on the
+`progress` alembic branch) is the server-side per-user mirror of every book
+on the device, populated by Android's `DocumentRepository` after every
+successful download via the existing sync retry queue. Identity travels in
+the request body. Soft-deletes via `deleted_at`; `GET ?since=<ISO>` returns
+delta rows including tombstones for sync. The table is USER-SCOPED — not
+shared cache — so the cache-key audit does not cover it.
 
 ## Decision log
 

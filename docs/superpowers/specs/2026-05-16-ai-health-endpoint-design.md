@@ -1,5 +1,7 @@
 # PR5 — AI provider health endpoint
 
+> Shipped in ca23ded on 2026-05-16 as PR #15.
+
 **Date:** 2026-05-16
 **Branch:** code-only (no migration)
 **Effort:** Short

@@ -1,5 +1,7 @@
 # Spec — Generic identity aliases (PR2)
 
+> Shipped in 193a01d on 2026-05-16 as PR #17.
+
 **Date:** 2026-05-16
 **Branch:** `feat/identity-aliases` (stacked on `main` after PR-A / PR-C / PR4)
 **Roadmap reference:** `.claude/local/quire-ai/2026-05-16-next-deliverables.md` §PR2

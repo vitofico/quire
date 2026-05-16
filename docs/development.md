@@ -126,6 +126,14 @@ OPDS_SYNC_AI_ENABLED=true
 # Request-size cap enforced by RequestSizeMiddleware (default 1 MiB). Bodies
 # above this return 413.
 OPDS_SYNC_MAX_REQUEST_BYTES=1048576
+# AI auth seam (PR-B). Default 'basic' wraps the calibre-web Basic verifier;
+# 'token' enables HMAC-SHA256 bearer-token verification for hosted multi-tenant.
+OPDS_SYNC_AI_AUTH_MODE=basic
+# Required only when AI_AUTH_MODE=token. JSON object mapping kid -> secret
+# (UTF-8 string, >= 32 bytes). Multiple kids enable rotation:
+# OPDS_SYNC_AI_TOKEN_SECRETS='{"v1":"…32+ bytes…","v2":"…"}'.
+# OPDS_SYNC_AI_TOKEN_ISSUER and OPDS_SYNC_AI_TOKEN_AUDIENCE are also required
+# in token mode; missing/short config crashloops the process on startup.
 ```
 
 Every request flows through `RequestIDMiddleware`, which reads or generates an
@@ -153,8 +161,10 @@ uv run alembic upgrade head
 In containers, the entrypoint calls `python /app/scripts/migrate.py`, a wrapper
 that upgrades the unlabeled `0001..0004` backbone, then runs
 `alembic upgrade <branch>@head` for each enabled+materialized branch
-(`progress`, `ai`). See `server/migrations/README.md` for the branch-label
-convention.
+(`progress`, `ai`). Today's heads: `ai@head=ai_003_identity_aliases`,
+`progress@head=progress_001_library_items`. See `server/migrations/README.md`
+for the branch-label convention and the `--splice` rule for adding the first
+migration on a new branch.
 
 ### Lint / format
 
@@ -170,6 +180,11 @@ opds_sync/
   api/
     health.py        /health, /readyz (root-mounted, no /sync prefix)
     progress.py      /sync/v1/progress
+    library.py       /library/v1/items (PUT/GET/DELETE; progress-mode-gated)
+    library_schemas.py
+    ai.py            /ai/v1/* (config, preferences, insights/*, health)
+    ai_schemas.py
+    ai_auth.py       AiPrincipal + BasicAuthAiAuthenticator + TokenAiAuthenticator (PR-B seam)
     middleware/
       request_id.py  X-Request-ID propagation
       request_size.py 413 on bodies above OPDS_SYNC_MAX_REQUEST_BYTES
@@ -178,12 +193,19 @@ opds_sync/
   core/
     auth.py          Basic-header validator (probes calibre-web /opds, TTL-cached)
     identity.py      Identity normalization (mirrors :core:identity)
+    ai/
+      identity.py    resolve_identity / register_alias / reconcile_aliases (PR2)
+      health_state.py In-memory tri-state provider + retrieval reachability holder (PR5)
+      service.py     InsightOrchestrator
+      retrieval.py   Wikipedia + OpenLibrary grounding clients
+      client.py      OpenAI-compatible chat client
+      prompts.py     PROMPT_VERSION + prompt assembly
     # merge.py       — record-level LWW for bookmark alias merge (planned)
   db/
     models.py        SQLAlchemy models
     session.py
   main.py            FastAPI app factory
-migrations/          Alembic
+migrations/          Alembic (backbone 0001..0004 + branches: progress_*, ai_*)
 tests/
   unit/
   integration/       Real Postgres via testcontainers

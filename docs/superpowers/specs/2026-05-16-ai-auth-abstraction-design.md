@@ -1,5 +1,7 @@
 # Spec — AI auth abstraction (PR-B)
 
+> Shipped in 3641c70 on 2026-05-16 as PR #14.
+
 **Date:** 2026-05-16
 **Branch:** `feat/ai-auth-abstraction`
 **Roadmap reference:** `.claude/local/quire-ai/2026-05-16-next-deliverables.md` §PR-B
