@@ -35,6 +35,13 @@ from opds_sync.api.ai_schemas import (
     SeriesInsight,
 )
 from opds_sync.core.ai.health_state import AiHealthState
+from opds_sync.core.ai.identity import (
+    IDENTITY_HIERARCHY,
+    CanonicalIdentity,
+    load_live_insight_ids_for_canonicals,
+    reconcile_aliases,
+    resolve_identity,
+)
 from opds_sync.core.ai.prompts import SYSTEM_PROMPT, compose_user_prompt
 from opds_sync.core.logging_ctx import request_id_var
 from opds_sync.db.models import AIGenerationLog, AIUsageDaily, BookInsight
@@ -50,6 +57,17 @@ class QuotaExceeded(Exception):
         self.limit = limit
         self.resets_at = resets_at
         super().__init__(f"daily budget exhausted: {used}/{limit}")
+
+
+class IdentityUnresolvable(Exception):
+    """No canonical identity could be derived from the supplied hints.
+
+    Raised on write paths (`generate`, `regenerate`) when neither a
+    canonical (metadata_id/content_hash) was supplied directly nor an
+    alias hint resolved to one via `insight_identity_aliases`. Read
+    paths (`get`, `invalidate`) treat this as a cache miss / no-op
+    respectively rather than raising.
+    """
 
 
 class TokenBucket:
@@ -134,6 +152,14 @@ class InsightOrchestrator:
     ) -> BookInsightResponse | None:
         tone = _tone_of(style)
         language = _language_of(style)
+        # PR2: resolve any alias hints to canonical(s); also handles the
+        # rare collision where two pre-existing insights resolve to the
+        # same book by superseding the loser in a single transaction.
+        ident, _hints = await self._resolve_canonical(
+            session, ident, user_id=user_id, tone=tone, language=language
+        )
+        if not _has_canonical(ident):
+            return None  # treat as cache miss on the read path
         row = await self._cache_lookup(
             session, ident, tone=tone, language=language, allow_backfill=False
         )
@@ -163,6 +189,18 @@ class InsightOrchestrator:
     ) -> BookInsightResponse:
         tone = _tone_of(style)
         language = _language_of(style)
+        # PR2: pre-resolve aliases. The original hints are captured so the
+        # post-generation `reconcile_aliases` step can write alias rows
+        # for every non-canonical hint atomically with the insight row.
+        original_hints = ident.alias_dict()
+        ident, _collided = await self._resolve_canonical(
+            session, ident, user_id=user_id, tone=tone, language=language
+        )
+        if not _has_canonical(ident):
+            raise IdentityUnresolvable(
+                "no canonical identity (metadata_id or content_hash) supplied "
+                "and no alias hint resolved to one"
+            )
         row = await self._cache_lookup(
             session, ident, tone=tone, language=language, allow_backfill=True
         )
@@ -208,6 +246,7 @@ class InsightOrchestrator:
                 language=language,
                 feedback=None,
                 previous_insight_ids=None,
+                original_hints=original_hints,
             )
             return self._row_to_response(row)
 
@@ -225,6 +264,18 @@ class InsightOrchestrator:
         """Supersede the existing live row (if any) and generate a fresh one."""
         tone = _tone_of(style)
         language = _language_of(style)
+        # PR2: resolve aliases BEFORE acquiring the lock so two requests
+        # for the same book via different alias schemes serialize on the
+        # same canonical-keyed lock.
+        original_hints = ident.alias_dict()
+        ident, _collided = await self._resolve_canonical(
+            session, ident, user_id=user_id, tone=tone, language=language
+        )
+        if not _has_canonical(ident):
+            raise IdentityUnresolvable(
+                "no canonical identity (metadata_id or content_hash) supplied "
+                "and no alias hint resolved to one"
+            )
         lock = await self._acquire_identity_lock(ident, tone=tone, language=language)
         async with lock:
             existing = await self._cache_lookup(
@@ -250,19 +301,41 @@ class InsightOrchestrator:
                 language=language,
                 feedback=reason,
                 previous_insight_ids=previous_ids or None,
+                original_hints=original_hints,
             )
             return self._row_to_response(row)
 
-    async def invalidate(self, session: AsyncSession, ident: DocumentIdentity) -> int:
+    async def invalidate(
+        self,
+        session: AsyncSession,
+        ident: DocumentIdentity,
+        *,
+        user_id: str | None = None,
+    ) -> int:
+        # PR2: resolve aliases first so DELETE finds the row even when
+        # the caller only knows an alias (catalog-preview invalidate).
+        tone_unused = "neutral"
+        language_unused = "auto"
+        ident, _collided = await self._resolve_canonical(
+            session,
+            ident,
+            user_id=user_id,
+            tone=tone_unused,
+            language=language_unused,
+        )
+        if not _has_canonical(ident):
+            return 0  # nothing to invalidate
         stmt = delete(BookInsight).where(
             BookInsight.model_id == self.model_id,
             BookInsight.prompt_version == self.prompt_version,
         )
-        if ident.metadata_id:
+        if ident.metadata_id and ident.content_hash:
             stmt = stmt.where(
                 (BookInsight.metadata_id == ident.metadata_id)
                 | (BookInsight.content_hash == ident.content_hash)
             )
+        elif ident.metadata_id:
+            stmt = stmt.where(BookInsight.metadata_id == ident.metadata_id)
         else:
             stmt = stmt.where(BookInsight.content_hash == ident.content_hash)
         result = await session.execute(stmt)
@@ -310,6 +383,7 @@ class InsightOrchestrator:
         language: str,
         feedback: str | None,
         previous_insight_ids: list[int] | None,
+        original_hints: dict[str, str] | None = None,
     ) -> BookInsight:
         async with self._sem:
             citations = await self._retrieve(session, bundle)
@@ -362,9 +436,20 @@ class InsightOrchestrator:
 
         sources = list(citations)
         sources.append(Citation(kind="model", title=self.model_id, snippet="generated"))
+
+        # `BookInsight.content_hash` is NOT NULL (legacy schema invariant).
+        # On the catalog-preview path the caller may have no real content_hash
+        # because the EPUB hasn't been downloaded yet. We persist a synthetic
+        # placeholder so the row is unique and roundtrippable; when the user
+        # later downloads and the real content_hash arrives, the collision-
+        # detection path in `_resolve_canonical` finds the synthetic row,
+        # marks it superseded, and merges its lineage onto the real row.
+        effective_content_hash = ident.content_hash or _synthetic_content_hash(
+            ident, original_hints
+        )
         row = BookInsight(
             metadata_id=ident.metadata_id,
-            content_hash=ident.content_hash,
+            content_hash=effective_content_hash,
             model_id=self.model_id,
             prompt_version=self.prompt_version,
             tone=tone,
@@ -389,6 +474,23 @@ class InsightOrchestrator:
             status="miss",
             latency_ms=latency_ms,
         )
+
+        # PR2: write alias rows for every non-canonical original hint in the
+        # SAME transaction as the insight row. If any alias write raises
+        # (AliasConflict, integrity error), the whole insight insert rolls
+        # back. This is the load-bearing atomicity invariant for the
+        # catalog-preview-then-download convergence flow.
+        if original_hints:
+            canonical = _canonical_from_row(row)
+            source_tag = "opf_extracted" if ident.metadata_id else "opds_feed"
+            await reconcile_aliases(
+                session,
+                hints=original_hints,
+                canonical=canonical,
+                source=source_tag,
+                user_id=user_id,
+            )
+
         await session.commit()
         await session.refresh(row)
         return row
@@ -481,6 +583,8 @@ class InsightOrchestrator:
             if row is not None:
                 return row
         # Step 2: by content_hash (live rows only)
+        if not ident.content_hash:
+            return None
         row = (
             await session.execute(
                 select(BookInsight).where(
@@ -502,12 +606,117 @@ class InsightOrchestrator:
             await session.refresh(row)
         return row
 
+    async def _resolve_canonical(
+        self,
+        session: AsyncSession,
+        ident: DocumentIdentity,
+        *,
+        user_id: str | None,
+        tone: str,
+        language: str,
+    ) -> tuple[DocumentIdentity, bool]:
+        """Walk all supplied identity hints, resolve aliases, detect collisions.
+
+        Returns the populated `DocumentIdentity` plus a flag indicating
+        whether a collision was detected and resolved (superseded a row).
+
+        Algorithm (per spec §3.6):
+          1. For each hint in IDENTITY_HIERARCHY, call `resolve_identity`
+             and collect canonicals.
+          2. If 0 or 1 distinct canonicals: merge into ident and return.
+          3. If 2+ distinct canonicals: load live BookInsight rows for
+             each. If 2+ live rows, the metadata_id-keyed row wins; the
+             rest are marked superseded and their lineage merged onto
+             the winner. Commit, then return.
+        """
+        # Collect canonicals from every supplied hint.
+        canonicals: list[CanonicalIdentity] = []
+        seen: set[tuple[str, str]] = set()
+        for scheme in IDENTITY_HIERARCHY:
+            value = getattr(ident, scheme, None)
+            if value is None:
+                continue
+            c = await resolve_identity(
+                session, alias_scheme=scheme, alias_value=value, user_id=user_id
+            )
+            if c is None:
+                continue
+            key = (c.scheme, c.value)
+            if key in seen:
+                continue
+            seen.add(key)
+            canonicals.append(c)
+
+        if not canonicals:
+            return ident, False
+
+        if len(canonicals) == 1:
+            return _populate_ident(ident, canonicals[0]), False
+
+        # 2+ distinct canonicals: collision-detection.
+        rows = await load_live_insight_ids_for_canonicals(
+            session,
+            canonicals=canonicals,
+            model_id=self.model_id,
+            prompt_version=self.prompt_version,
+            tone=tone,
+            language=language,
+        )
+        if len(rows) <= 1:
+            # No collision in cache — just merge the strongest canonical
+            # (metadata_id wins over content_hash by hierarchy order).
+            best = next(
+                (c for c in canonicals if c.scheme == "metadata_id"),
+                canonicals[0],
+            )
+            return _populate_ident(ident, best), False
+
+        # Collision: 2+ live rows for what we now know is the same book.
+        winner_pair = next(
+            (pair for pair in rows if pair[1].metadata_id is not None),
+            rows[0],
+        )
+        winner_row = winner_pair[1]
+        losers = [r for c, r in rows if r.id != winner_row.id]
+
+        # Merge lineage with stable de-dupe.
+        merged: list[int] = []
+        seen_ids: set[int] = set()
+
+        def _append_unique(seq: list[int] | None) -> None:
+            for x in seq or []:
+                if x not in seen_ids:
+                    seen_ids.add(x)
+                    merged.append(x)
+
+        _append_unique(winner_row.previous_insight_ids)
+        for loser in losers:
+            _append_unique(loser.previous_insight_ids)
+            if loser.id not in seen_ids:
+                seen_ids.add(loser.id)
+                merged.append(loser.id)
+            loser.superseded_at = datetime.now(UTC)
+            # Also propagate metadata_id onto the winner if the winner lacks it
+            # and a loser carries it. (Defensive: in practice the winner is
+            # selected because it already has metadata_id.)
+            if winner_row.metadata_id is None and loser.metadata_id is not None:
+                winner_row.metadata_id = loser.metadata_id
+        winner_row.previous_insight_ids = merged or None
+        await session.commit()
+        await session.refresh(winner_row)
+
+        return _populate_ident(ident, _canonical_from_row(winner_row)), True
+
     async def _acquire_identity_lock(
         self, ident: DocumentIdentity, *, tone: str, language: str
     ) -> asyncio.Lock:
         # Per-(identity, tone, language): users hitting the same book with
         # different cache-key dimensions should not serialize through one lock.
-        key = f"{ident.metadata_id or ident.content_hash}|{tone}|{language}"
+        # The canonical key is metadata_id-preferred (falls back to content_hash)
+        # so two requests for the same book via different alias schemes
+        # serialize through one lock after `_resolve_canonical` runs.
+        canonical_value = ident.metadata_id or ident.content_hash or ""
+        key = f"{canonical_value}|{tone}|{language}"
         async with self._locks_master:
             lock = self._locks.get(key)
             if lock is None:
@@ -535,3 +744,58 @@ def _tone_of(style: AiStyle | None) -> str:
 
 def _language_of(style: AiStyle | None) -> str:
     return style.language if style is not None else "auto"
+
+
+# ---------- PR2 identity-resolution helpers ---------------------------------
+
+
+def _has_canonical(ident: DocumentIdentity) -> bool:
+    return bool(ident.metadata_id or ident.content_hash)
+
+
+def _populate_ident(ident: DocumentIdentity, canonical: CanonicalIdentity) -> DocumentIdentity:
+    """Return a copy of `ident` with the canonical scheme populated.
+
+    Does NOT clobber an already-set canonical field (caller-supplied data
+    takes precedence). Preserves all alias fields.
+    """
+    out = ident.model_copy()
+    if canonical.scheme == "metadata_id" and out.metadata_id is None:
+        out.metadata_id = canonical.value
+    elif canonical.scheme == "content_hash" and out.content_hash is None:
+        out.content_hash = canonical.value
+    return out
+
+
+def _canonical_from_row(row: BookInsight) -> CanonicalIdentity:
+    """Pick the strongest canonical present on a persisted insight row."""
+    if row.metadata_id:
+        return CanonicalIdentity(scheme="metadata_id", value=row.metadata_id)
+    return CanonicalIdentity(scheme="content_hash", value=row.content_hash)
+
+
+def _synthetic_content_hash(
+    ident: DocumentIdentity, original_hints: dict[str, str] | None
+) -> str:
+    """Build a deterministic synthetic content_hash for catalog-preview rows.
+
+    The schema's `content_hash NOT NULL` invariant predates PR2's alias-only
+    flow. When the caller has no real content_hash (catalog preview, before
+    download), we synthesize one from the strongest available alias hint so
+    the row is unique and roundtrippable. The collision-detection path will
+    later supersede this row when the user downloads and supplies the real
+    sha256.
+
+    Format: `synthetic:<scheme>:<value>` — readable, debuggable, and
+    obviously not a real sha256.
+    """
+    if ident.metadata_id:
+        return f"synthetic:metadata_id:{ident.metadata_id}"
+    if original_hints:
+        for scheme in ("opds_dc_id", "isbn", "calibre_book_id", "opds_href"):
+            v = original_hints.get(scheme)
+            if v:
+                return f"synthetic:{scheme}:{v}"
+    # Last-resort: title-less, completely unidentifiable. Should be
+    # impossible because IdentityUnresolvable would have fired earlier.
+    raise IdentityUnresolvable("cannot synthesize content_hash without any identity hint")

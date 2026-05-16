@@ -35,7 +35,7 @@ from opds_sync.api.ai_schemas import (
 )
 from opds_sync.config import get_settings
 from opds_sync.core.ai.health_state import AiHealthState
-from opds_sync.core.ai.service import InsightOrchestrator, QuotaExceeded
+from opds_sync.core.ai.service import IdentityUnresolvable, InsightOrchestrator, QuotaExceeded
 from opds_sync.db.models import UserAIPreference
 from opds_sync.db.session import get_session
 
@@ -184,6 +184,12 @@ async def lookup_insight(
         )
     except QuotaExceeded as exc:
         raise _quota_http_exception(exc) from exc
+    except IdentityUnresolvable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="no canonical identity (metadata_id or content_hash) supplied "
+            "and no alias hint resolved to one",
+        ) from exc
 
 
 @router.post("/insights/regenerate", response_model=BookInsightResponse)
@@ -211,6 +217,12 @@ async def regenerate_insight(
         )
     except QuotaExceeded as exc:
         raise _quota_http_exception(exc) from exc
+    except IdentityUnresolvable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="no canonical identity (metadata_id or content_hash) supplied "
+            "and no alias hint resolved to one",
+        ) from exc
 
 
 @router.post("/insights/get", response_model=BookInsightResponse)
@@ -252,7 +264,7 @@ async def invalidate_insight(
     if orch is None:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="ai_disabled")
     await _require_opt_in(session, principal.subject)
-    n = await orch.invalidate(session, body.identity)
+    n = await orch.invalidate(session, body.identity, user_id=principal.subject)
     return {"deleted": n}
 
 

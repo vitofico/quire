@@ -194,3 +194,70 @@ class AIGenerationLog(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+# ============================================================================
+# Scoped alias table (PR2, 2026-05-16)
+# ----------------------------------------------------------------------------
+# `insight_identity_aliases` maps non-canonical identity hints (`opds_href`,
+# `opds_dc_id`, `calibre_book_id`, `isbn`) to canonical schemes
+# (`metadata_id`, `content_hash`). The resolver runs BEFORE every cache
+# lookup, generation-lock acquisition, regenerate, and invalidate.
+#
+# `user_id` is INTENTIONAL cache-key scoping, NOT a tenant-leak:
+#   - Global aliases (user_id IS NULL): `metadata_id`, `content_hash`,
+#     `isbn`. These are universally stable across instances.
+#   - User-scoped aliases (user_id = <calibre-web user>): `opds_href`,
+#     `opds_dc_id`, `calibre_book_id`. The same OPDS string can mean
+#     different books on different calibre-web instances, so they must
+#     not cross-contaminate.
+#
+# Cache-key audit test split (PR2 §4): this table appears in
+# `SCOPED_ALIAS_TABLES`, NOT `SHARED_CACHE_TABLES`. The `user_id` column
+# is required (the inverse-property test catches a refactor that removes
+# it); tenant columns (`tenant_id`, `subject`, `principal_id`) are still
+# forbidden.
+# ============================================================================
+class InsightIdentityAlias(Base):
+    __tablename__ = "insight_identity_aliases"
+    __table_args__ = (
+        CheckConstraint(
+            "canonical_scheme IN ('metadata_id', 'content_hash')",
+            name="ck_insight_identity_aliases_canonical_scheme",
+        ),
+        CheckConstraint(
+            "alias_scheme <> canonical_scheme OR alias_value <> canonical_value",
+            name="ck_insight_identity_aliases_alias_not_canonical",
+        ),
+        Index(
+            "uq_insight_identity_aliases_scoped",
+            "alias_scheme",
+            "alias_value",
+            "user_id",
+            unique=True,
+            postgresql_where=text("user_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_insight_identity_aliases_global",
+            "alias_scheme",
+            "alias_value",
+            unique=True,
+            postgresql_where=text("user_id IS NULL"),
+        ),
+        Index(
+            "ix_insight_identity_aliases_canonical",
+            "canonical_scheme",
+            "canonical_value",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    alias_scheme: Mapped[str] = mapped_column(String, nullable=False)
+    alias_value: Mapped[str] = mapped_column(String, nullable=False)
+    canonical_scheme: Mapped[str] = mapped_column(String, nullable=False)
+    canonical_value: Mapped[str] = mapped_column(String, nullable=False)
+    source: Mapped[str] = mapped_column(String, nullable=False)
+    user_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

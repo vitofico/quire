@@ -27,6 +27,6 @@ async def _truncate_external_source_cache(request, engine: AsyncEngine):
         await conn.execute(
             text(
                 "TRUNCATE TABLE ai_generation_log, external_source_cache, "
-                "book_insights, ai_usage_daily CASCADE"
+                "book_insights, ai_usage_daily, insight_identity_aliases CASCADE"
             )
         )

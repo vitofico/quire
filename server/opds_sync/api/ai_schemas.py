@@ -203,10 +203,38 @@ ISO_639_1_CODES: frozenset[str] = frozenset(
 
 
 class DocumentIdentity(BaseModel):
-    """Mirrors api.progress.DocumentIdentity. Keep separate to avoid cross-router import."""
+    """Identifier(s) for a book on the AI surface.
 
+    The two canonical schemes are `metadata_id` (derived from EPUB OPF)
+    and `content_hash` (sha256 of the EPUB body). PR2 makes `content_hash`
+    OPTIONAL so the catalog-preview flow (PR7) can request insights before
+    the book is downloaded, using only alias fields.
+
+    The orchestrator's `_resolve_canonical` step walks all supplied hints
+    in identity-hierarchy order and resolves to a canonical via the
+    `insight_identity_aliases` table; the API layer raises 422 if no hint
+    can be resolved on a write path.
+    """
+
+    # Canonicals (at least one of these OR a resolvable alias must be set)
     metadata_id: str | None = None
-    content_hash: str
+    content_hash: str | None = None
+
+    # Alias hints (PR2). All optional. The resolver maps them to a
+    # canonical via insight_identity_aliases when present.
+    opds_href: str | None = None
+    opds_dc_id: str | None = None
+    calibre_book_id: str | None = None
+    isbn: str | None = None
+
+    def alias_dict(self) -> dict[str, str]:
+        """Return a dict of all non-None identity hints (canonicals + aliases)."""
+        out: dict[str, str] = {}
+        for k in ("metadata_id", "content_hash", "opds_dc_id", "isbn", "calibre_book_id", "opds_href"):
+            v = getattr(self, k, None)
+            if v is not None:
+                out[k] = v
+        return out
 
 
 class MetadataBundle(BaseModel):

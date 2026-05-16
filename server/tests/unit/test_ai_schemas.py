@@ -58,11 +58,18 @@ def test_series_insight_rejects_v1_total_known():
         SeriesInsight.model_validate({"name": "Foundation", "total_known": 7})
 
 
-def test_lookup_body_requires_content_hash():
-    with pytest.raises(ValidationError):
-        InsightLookupBody.model_validate(
-            {"identity": {"metadata_id": "x"}, "bundle": {"title": "y"}}
-        )
+def test_lookup_body_accepts_metadata_id_only_identity():
+    """PR2 relaxed `content_hash` from required to optional so the
+    catalog-preview flow (pre-download) can carry only `metadata_id` (or
+    an alias hint). The orchestrator's `_resolve_canonical` enforces that
+    at least one resolvable hint is present; the schema layer no longer
+    rejects metadata_id-only payloads.
+    """
+    b = InsightLookupBody.model_validate(
+        {"identity": {"metadata_id": "x"}, "bundle": {"title": "y"}}
+    )
+    assert b.identity.metadata_id == "x"
+    assert b.identity.content_hash is None
 
 
 def test_lookup_body_metadata_id_optional():
