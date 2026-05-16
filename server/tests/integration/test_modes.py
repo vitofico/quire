@@ -42,6 +42,10 @@ async def test_full_mode_mounts_everything(monkeypatch, postgres_url: str, alemb
         prog = await c.get("/sync/v1/progress", headers=_basic_header("alice"))
         assert prog.status_code != 404
 
+        # Library router also rides on the progress gate.
+        lib = await c.get("/library/v1/items", headers=_basic_header("alice"))
+        assert lib.status_code != 404
+
         # AI router mounted: any response other than 404 confirms routing.
         ai = await c.get("/ai/v1/config", headers=_basic_header("alice"))
         assert ai.status_code != 404
@@ -70,6 +74,10 @@ async def test_ai_only_mode_excludes_progress(monkeypatch, postgres_url: str, al
         prog = await c.get("/sync/v1/progress", headers=_basic_header("alice"))
         assert prog.status_code == 404
 
+        # Library namespace unmounted in AI-only mode.
+        lib = await c.get("/library/v1/items", headers=_basic_header("alice"))
+        assert lib.status_code == 404
+
 
 async def test_neither_mode_only_mounts_health(monkeypatch, postgres_url: str, alembic_upgrade):
     app = _build_app(monkeypatch, postgres_url, progress_enabled=False, ai_enabled=False)
@@ -81,8 +89,10 @@ async def test_neither_mode_only_mounts_health(monkeypatch, postgres_url: str, a
         r = await c.get("/readyz")
         assert r.status_code == 200
 
-        # Both router namespaces unmounted.
+        # All mode-gated namespaces unmounted.
         prog = await c.get("/sync/v1/progress", headers=_basic_header("alice"))
         assert prog.status_code == 404
+        lib = await c.get("/library/v1/items", headers=_basic_header("alice"))
+        assert lib.status_code == 404
         ai = await c.get("/ai/v1/config", headers=_basic_header("alice"))
         assert ai.status_code == 404

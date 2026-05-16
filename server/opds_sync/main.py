@@ -124,10 +124,14 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
 
     if settings.progress_enabled:
-        # Lazy import: only pull progress router when progress mode is on.
+        # Lazy import: only pull progress + library routers when progress mode
+        # is on. The `library_items` migration lives on the `progress` alembic
+        # branch, so the gate must match for the table to exist.
+        from opds_sync.api.library import router as library_router
         from opds_sync.api.progress import router as progress_router
 
         app.include_router(progress_router, prefix="/sync/v1")
+        app.include_router(library_router, prefix="/library/v1")
 
     if settings.ai_enabled:
         # PR-B: validate AI auth settings and build the authenticator BEFORE

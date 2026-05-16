@@ -66,12 +66,14 @@ async def test_default_state_upgrades_backbone_then_ai_branch(postgres_url: str)
 
     versions = await _alembic_versions(eng)
     await eng.dispose()
-    # PR-C materialized the `ai` branch; ai_enabled=True advances to ai@head.
-    assert versions == {"ai_003"}
+    # ai branch is at ai_003 (PR-C → PR4 → PR2); PR1 materialized the
+    # `progress` branch with progress_001. With both modes enabled, both
+    # heads are present.
+    assert versions == {"ai_003", "progress_001"}
 
 
 async def test_idempotent_second_run(postgres_url: str):
-    """Running the wrapper twice in a row → still at ai@head, no errors."""
+    """Running the wrapper twice in a row → still at every branch head, no errors."""
 
     cfg = _make_cfg(postgres_url)
     await _run_migrations_in_thread(cfg, progress_enabled=True, ai_enabled=True)
@@ -80,7 +82,7 @@ async def test_idempotent_second_run(postgres_url: str):
     eng = create_async_engine(postgres_url, future=True)
     versions = await _alembic_versions(eng)
     await eng.dispose()
-    assert versions == {"ai_003"}
+    assert versions == {"ai_003", "progress_001"}
 
 
 async def test_synthetic_ai_branch_upgrades_when_enabled(postgres_url: str, tmp_path: Path):
@@ -180,12 +182,13 @@ async def test_synthetic_ai_branch_skipped_when_disabled(postgres_url: str, tmp_
     versions = await _alembic_versions(eng)
     await eng.dispose()
     # ai branch skipped → ai_test_003 not applied, ai_003 not applied,
-    # ai_001 not applied. Only the backbone advanced.
+    # ai_001 not applied. PR1: the `progress` branch still advanced.
     assert "ai_test_003" not in versions
     assert "ai_003" not in versions
     assert "ai_001" not in versions
-    # Backbone still at 0004.
-    assert "0004" in versions
+    # PR1: progress branch advanced (progress_enabled=True). The backbone
+    # itself is no longer a head once progress_001 sits on top of 0004.
+    assert "progress_001" in versions
 
     # Restore DB for subsequent tests.
     await _run_migrations_in_thread(real_cfg, progress_enabled=True, ai_enabled=True)
