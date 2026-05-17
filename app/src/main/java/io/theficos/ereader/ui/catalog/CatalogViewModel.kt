@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.core.identity.extractIdentity
 import io.theficos.ereader.core.metadata.readOpfBundle
+import io.theficos.ereader.data.library.LibraryUploader
 import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.db.SyncStateDao
 import io.theficos.ereader.data.opds.BookDownloader
@@ -32,6 +33,7 @@ class CatalogViewModel(
     private val credentialStore: CalibreCredentialStore,
     private val syncStateDao: SyncStateDao,
     private val catalogPreferencesStore: CatalogPreferencesStore,
+    private val libraryUploader: LibraryUploader? = null,
     private val syncEnqueuer: (Context) -> Unit =
         { ctx -> SyncEnqueuer.enqueue(ctx, expedited = true, replaceExisting = true) },
 ) : ViewModel() {
@@ -144,7 +146,7 @@ class CatalogViewModel(
                     // continuity shelf can include this book the moment it lands.
                     // Failures fall back to a title-only bundle (no series).
                     val opf = readOpfBundle(file, fallbackTitle = pub.title)
-                    docs.insert(
+                    val insertedId = docs.insert(
                         identity = identity,
                         title = pub.title,
                         author = pub.author,
@@ -155,6 +157,11 @@ class CatalogViewModel(
                         seriesName = opf.seriesName,
                         seriesIndex = opf.seriesPosition?.toDouble(),
                     )
+                    // Fire-and-forget upload to /library/v1/items so the server
+                    // can include this book in stats / aggregates. Failures are
+                    // logged inside the uploader; the row stays unsynced and
+                    // the next app-start pass retries.
+                    libraryUploader?.enqueueOne(insertedId)
                 } else {
                     file.delete()
                     coverFile?.delete()

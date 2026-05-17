@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [DocumentEntity::class, ProgressEntity::class, SyncStateEntity::class],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class EReaderDatabase : RoomDatabase() {
@@ -63,9 +63,22 @@ abstract class EReaderDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Adds nullable `librarySyncedAt` to `documents`. The `/library/v1/items`
+         * uploader treats `NULL` as "not yet uploaded", so this migration leaves
+         * the column null for every existing row — the next app start backfills
+         * the entire library to the server. No backfill SQL needed; the absence
+         * of a value IS the signal.
+         */
+        internal val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE documents ADD COLUMN librarySyncedAt INTEGER")
+            }
+        }
+
         fun build(context: Context): EReaderDatabase =
             Room.databaseBuilder(context, EReaderDatabase::class.java, "ereader.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .build()
     }
 }
