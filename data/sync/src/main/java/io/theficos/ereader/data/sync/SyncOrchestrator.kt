@@ -26,7 +26,12 @@ class SyncOrchestrator(
                 val doc = documentRepo.findById(progress.documentId)
                     ?: return SyncResult.HttpFailure(0, "missing document for documentId=${progress.documentId}")
                 ProgressItemDto(
-                    document = DocumentIdDto(metadataId = doc.identity.metadataId, contentHash = doc.identity.contentHash),
+                    document = DocumentIdDto(
+                        metadataId = doc.identity.metadataId,
+                        contentHash = requireNotNull(doc.identity.contentHash) {
+                            "downloaded document must have a contentHash"
+                        },
+                    ),
                     locator = progress.locator,
                     percent = progress.percent,
                     clientUpdatedAt = Instant.ofEpochMilli(progress.updatedAt).toString(),
