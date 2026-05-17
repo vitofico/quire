@@ -19,6 +19,15 @@ Tests require Docker (testcontainers spins up Postgres).
 
 ## Self-hosting via docker-compose
 
+Two reference composes ship in this directory. Pick one:
+
+| File                       | Brings up                                             | Use when                                                                                  |
+| -------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `docker-compose.yml`       | postgres + opds-sync                                  | You already run calibre-web (and maybe TLS) elsewhere and only want the sync/AI server.   |
+| `docker-compose.full.yml`  | postgres + calibre-web + opds-sync + Caddy (TLS)      | You want the whole stack behind a single base URL with TLS, matching the production k8s ingress. |
+
+### Minimal: bring your own proxy
+
 ```sh
 cd server
 cp .env.example .env
@@ -26,6 +35,109 @@ cp .env.example .env
 docker compose up -d
 curl http://localhost:8000/health
 ```
+
+opds-sync listens on `${OPDS_SYNC_PORT:-8000}`. Point Quire's "sync
+URL" at it and Quire's "OPDS URL" at your existing calibre-web. Two
+URLs to configure in the app; you handle TLS yourself if exposing to
+the internet.
+
+### Full-stack reference compose
+
+A Caddy front-end with path-based routing that mirrors the production
+Kubernetes ingress, so the Android app only needs to know one base URL
+(the Caddy hostname) — calibre-web's OPDS catalog AND opds-sync's
+`/sync/*`, `/library/*`, `/ai/*` endpoints all live under the same
+origin.
+
+```sh
+cd server
+cp .env.example .env
+# Edit .env. At minimum:
+#   - POSTGRES_PASSWORD
+#   - PUID/PGID (your host user)
+#   - QUIRE_SITE_ADDRESS (or leave `localhost` for self-signed reference setup)
+#   - mount your calibre library: uncomment the library volume in
+#     docker-compose.full.yml and edit the host path
+#   - if AI is enabled (default), uncomment + fill the OPDS_SYNC_AI_* vars
+docker compose -f docker-compose.full.yml up -d
+curl -fsSk https://localhost/health
+```
+
+Routing inside the Caddy front-end (`caddy/Caddyfile`):
+
+```caddyfile
+{$QUIRE_SITE_ADDRESS:localhost} {
+    tls internal
+
+    @opds path /sync/* /ai/* /library/* /health /readyz
+    handle @opds {
+        reverse_proxy opds-sync:8000
+    }
+
+    handle {
+        reverse_proxy calibre-web:8083
+    }
+}
+```
+
+Smoke commands (replace `https://localhost` with `https://<your-host>`
+for non-default `QUIRE_SITE_ADDRESS`; `-k` skips cert verification
+against `tls internal`):
+
+```sh
+# Unauth health probes (opds-sync mounts these at the root)
+curl -fsSk https://localhost/health
+curl -fsSk https://localhost/readyz
+
+# AI provider health (unauth — see PR5)
+curl -fsSk https://localhost/ai/v1/health | jq
+
+# Authenticated sync surfaces (Basic auth proxied to calibre-web)
+USER=admin
+read -rs PASS && echo
+AUTH=$(printf '%s' "$USER:$PASS" | base64)
+curl -fsSk -H "Authorization: Basic $AUTH" "https://localhost/library/v1/items"
+curl -fsSk -H "Authorization: Basic $AUTH" "https://localhost/sync/v1/progress?since=0"
+
+# Calibre-web root (fall-through)
+curl -fsSkI https://localhost/
+```
+
+#### `tls internal` caveat
+
+The reference Caddyfile uses `tls internal`, which issues a
+self-signed certificate from Caddy's built-in CA. This is fine for
+localhost and lab setups (Caddy persists the CA in the `caddy_data`
+volume), but browsers and Android will reject the certificate until
+either:
+
+- You install Caddy's root CA on each client. With the Caddy
+  container running, `docker compose -f docker-compose.full.yml exec
+  caddy cat /data/caddy/pki/authorities/local/root.crt` prints it.
+- You replace `tls internal` with a real-cert directive. The simplest
+  swap is to set `QUIRE_SITE_ADDRESS` to a public hostname (e.g.
+  `ebooks.example.com`) AND drop the `tls internal` line from
+  `caddy/Caddyfile` — Caddy then provisions a Let's Encrypt cert
+  automatically via ACME (port 80 must be reachable from the
+  internet for HTTP-01). For DNS-01, BYO certs, or other strategies
+  see the Caddy docs.
+
+#### Deploy modes in the full-stack compose
+
+The same image supports three modes via env flags. The defaults below
+match the table in [Deploy modes](#deploy-modes).
+
+| Mode       | `OPDS_SYNC_PROGRESS_ENABLED` | `OPDS_SYNC_AI_ENABLED` | What the Caddy front-end serves                                  |
+| ---------- | ---------------------------- | ---------------------- | ---------------------------------------------------------------- |
+| Full stack | `true` (default)             | `true` (default)       | `/sync/v1/*` + `/library/v1/*` + `/ai/v1/*` + calibre-web at `/` |
+| Sync only  | `true`                       | `false`                | `/sync/v1/*` + `/library/v1/*` + calibre-web at `/`              |
+| AI only    | `false`                      | `true`                 | `/ai/v1/*` only — drop the `calibre-web` service from the compose for a leaner stack |
+
+Set both flags in `.env`. Sync-only deploys don't need
+`OPDS_SYNC_AI_*`; AI-only deploys don't need calibre-web auth once
+PR-B's token mode is selected (`OPDS_SYNC_AI_AUTH_MODE=token`).
+
+### Migrations
 
 Migrations run automatically on container start via `scripts/migrate.py`,
 which respects the deploy-mode flags `OPDS_SYNC_PROGRESS_ENABLED` and

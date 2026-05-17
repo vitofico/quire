@@ -1,0 +1,107 @@
+# Quire full-stack reference compose.
+#
+# Brings up postgres + calibre-web + opds-sync + Caddy with path-based
+# routing identical to the production Kubernetes ingress. Use this if
+# you want a single base URL with TLS in front of everything.
+#
+# For "I'll bring my own proxy / I already run calibre-web elsewhere",
+# use the minimal `docker-compose.yml` in this directory instead.
+#
+# Usage:
+#   cp .env.example .env
+#   # edit .env (set POSTGRES_PASSWORD, mount your calibre library, etc.)
+#   docker compose -f docker-compose.full.yml up -d
+#
+# See server/README.md "Full-stack reference compose" for smoke
+# commands and the TLS swap for production.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: opds_sync
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: opds_sync
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opds_sync"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  calibre-web:
+    image: crocodilestick/calibre-web-automated:latest
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-UTC}
+      # Caddy is the only upstream proxy in this stack.
+      TRUSTED_PROXY_COUNT: "1"
+    volumes:
+      - calibre_config:/config
+      # Mount your existing calibre library here. The path inside the
+      # container must stay `/calibre-library` for calibre-web-automated.
+      # Uncomment and edit:
+      # - /path/to/your/calibre-library:/calibre-library
+      # Optional: ingest folder for drop-in book imports.
+      # - /path/to/your/ingest:/cwa-book-ingest
+
+  opds-sync:
+    image: ghcr.io/vitofico/opds-sync:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      OPDS_SYNC_DATABASE_URL: postgresql+asyncpg://opds_sync:${POSTGRES_PASSWORD:-changeme}@postgres:5432/opds_sync
+      OPDS_SYNC_CWA_BASE_URL: http://calibre-web:8083
+      OPDS_SYNC_LOG_LEVEL: ${OPDS_SYNC_LOG_LEVEL:-INFO}
+      # Deploy mode flags. Defaults give the full-stack experience; flip
+      # one of these to false for sync-only or AI-only mode (see README).
+      OPDS_SYNC_PROGRESS_ENABLED: ${OPDS_SYNC_PROGRESS_ENABLED:-true}
+      OPDS_SYNC_AI_ENABLED: ${OPDS_SYNC_AI_ENABLED:-true}
+      # AI provider configuration. Required when AI_ENABLED=true.
+      # Point this at any OpenAI-compatible endpoint (Ollama, llama.cpp,
+      # vLLM, hosted OpenAI/Anthropic-compatible gateways, …).
+      OPDS_SYNC_AI_BASE_URL: ${OPDS_SYNC_AI_BASE_URL:-}
+      OPDS_SYNC_AI_MODEL: ${OPDS_SYNC_AI_MODEL:-}
+      OPDS_SYNC_AI_API_KEY: ${OPDS_SYNC_AI_API_KEY:-}
+      OPDS_SYNC_AI_SOURCES: ${OPDS_SYNC_AI_SOURCES:-wikipedia,openlibrary}
+      OPDS_SYNC_AI_RATE_PER_MIN: ${OPDS_SYNC_AI_RATE_PER_MIN:-10}
+      OPDS_SYNC_AI_DAILY_BUDGET: ${OPDS_SYNC_AI_DAILY_BUDGET:-200}
+      OPDS_SYNC_AI_REGEN_DAILY_LIMIT: ${OPDS_SYNC_AI_REGEN_DAILY_LIMIT:-3}
+    # No `ports:` mapping — opds-sync is reached through Caddy only.
+    # Add `ports: ["8000:8000"]` temporarily for direct debugging.
+    command: >
+      sh -c "python /app/scripts/migrate.py &&
+             uvicorn opds_sync.main:app --host 0.0.0.0 --port 8000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - opds-sync
+      - calibre-web
+    environment:
+      # Set to your hostname (e.g. ebooks.example.com) for a real cert
+      # via ACME. Defaults to `localhost` with self-signed `tls internal`.
+      QUIRE_SITE_ADDRESS: ${QUIRE_SITE_ADDRESS:-localhost}
+    ports:
+      - "${CADDY_HTTPS_PORT:-443}:443"
+      - "${CADDY_HTTP_PORT:-80}:80"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Persist Caddy's local CA + cert cache. Without this, `tls
+      # internal` regenerates a fresh root CA on every container
+      # recreation and clients re-prompt about trust.
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  pg_data:
+  calibre_config:
+  caddy_data:
+  caddy_config:
