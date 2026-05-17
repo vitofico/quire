@@ -19,6 +19,20 @@ data class OpdsPublication(
     val coverUrl: String?,
     /** OPDS `rel=alternate type=text/html` href — the book's web detail page on the OPDS server (calibre-web's `/book/{id}`). Null if the feed didn't expose one. */
     val webUrl: String? = null,
+    /**
+     * Trimmed `<dc:identifier>` text from the Atom entry (e.g. `urn:uuid:…`).
+     * Surfaced when the OPDS feed includes one; calibre-web's stock template
+     * does NOT, so this is null on most real feeds. Used as the `opds_dc_id`
+     * alias hint by the catalog-preview AI lookup (PR7).
+     */
+    val opdsDcId: String? = null,
+    /**
+     * Numeric book id parsed from a calibre-web-style acquisition href
+     * (`…/opds/download/<id>/<format>`). Used as the `calibre_book_id`
+     * alias hint by the catalog-preview AI lookup (PR7). Null for non-
+     * calibre-web feeds.
+     */
+    val calibreBookId: String? = null,
 )
 
 data class OpdsSearchLink(
