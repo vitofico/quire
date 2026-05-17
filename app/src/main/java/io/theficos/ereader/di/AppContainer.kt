@@ -16,7 +16,9 @@ import io.theficos.ereader.data.sync.SyncDependencies
 import io.theficos.ereader.data.sync.SyncOrchestrator
 import io.theficos.ereader.reader.ReaderPreferencesStore
 import io.theficos.ereader.reader.ReadiumFactory
+import io.theficos.ereader.ui.bookdetail.AppInsightAuditSource
 import io.theficos.ereader.ui.bookdetail.BookDetailViewModel
+import io.theficos.ereader.ui.bookdetail.InsightAuditViewModel
 import io.theficos.ereader.ui.catalog.CatalogPreferencesStore
 import io.theficos.ereader.ui.library.LibraryPreferencesStore
 import java.io.File
@@ -69,6 +71,12 @@ class AppContainer(context: Context) {
         openOpfBytes = ::readOpfBytes,
     )
 
+    val insightAuditViewModelFactory: InsightAuditViewModelFactory =
+        InsightAuditViewModelFactory(
+            documents = documentRepository,
+            ai = aiRepository,
+        )
+
     private suspend fun readOpfBytes(doc: Document): ByteArray? = withContext(Dispatchers.IO) {
         runCatching {
             java.util.zip.ZipFile(doc.localPath).use { zip ->
@@ -98,5 +106,15 @@ class BookDetailViewModelFactory(
         documents = documents,
         ai = ai,
         openOpfBytes = openOpfBytes,
+    )
+}
+
+class InsightAuditViewModelFactory(
+    private val documents: DocumentRepository,
+    private val ai: AiRepository,
+) {
+    fun create(documentId: Long) = InsightAuditViewModel(
+        documentId = documentId,
+        source = AppInsightAuditSource(documents = documents, ai = ai),
     )
 }
