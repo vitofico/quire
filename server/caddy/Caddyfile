@@ -1,0 +1,30 @@
+# Quire reference Caddyfile (full-stack compose).
+#
+# Mirrors the production Kubernetes ingress in `theficos-cluster`:
+# path-based routing puts opds-sync's `/sync/*`, `/library/*`, `/ai/*`,
+# `/health`, and `/readyz` in front of calibre-web, with everything else
+# falling through to calibre-web on `/`.
+#
+# This file is intended for `docker-compose.full.yml`. For production
+# behind a real domain, swap `:443 { tls internal }` for a hostname
+# block (e.g. `ebooks.example.com { ... }`) so Caddy provisions a real
+# certificate via ACME. See server/README.md "Full-stack reference
+# compose" for the swap instructions.
+
+{$QUIRE_SITE_ADDRESS:localhost} {
+	tls internal
+
+	# Paths handled by opds-sync. `handle` preserves the full request
+	# path (unlike `handle_path`, which strips the matched prefix);
+	# FastAPI mounts routers at `/sync/v1`, `/library/v1`, and
+	# `/ai/v1`, so we must forward the prefix intact.
+	@opds path /sync/* /ai/* /library/* /health /readyz
+	handle @opds {
+		reverse_proxy opds-sync:8000
+	}
+
+	# Everything else falls through to calibre-web.
+	handle {
+		reverse_proxy calibre-web:8083
+	}
+}
