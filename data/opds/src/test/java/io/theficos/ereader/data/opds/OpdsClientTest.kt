@@ -46,6 +46,8 @@ class OpdsClientTest {
                         .setBody(resource("/opds/catalog-feed-thumbnail-and-image.xml"))
                     "/opds/thumb-only" -> MockResponse().setHeader("Content-Type", "application/atom+xml")
                         .setBody(resource("/opds/catalog-feed-thumbnail-only.xml"))
+                    "/opds/calibre-style" -> MockResponse().setHeader("Content-Type", "application/atom+xml")
+                        .setBody(resource("/opds/catalog-feed-calibre-no-dc.xml"))
                     else -> MockResponse().setResponseCode(404)
                 }
             }
@@ -152,4 +154,31 @@ class OpdsClientTest {
         assertThat(pub.coverUrl).endsWith("/opds/cover/42")
     }
 
+    @Test fun `extracts dc identifier when present on entry`() = runTest {
+        val feed = client.fetch(server.url("/opds/new").toString())
+        val pub = feed.publications.single()
+        assertThat(pub.opdsDcId).isEqualTo("urn:uuid:550e8400-e29b-41d4-a716-446655440000")
+    }
+
+    @Test fun `extracts calibreBookId when href matches calibre-web pattern`() = runTest {
+        val feed = client.fetch(server.url("/opds/new").toString())
+        val pub = feed.publications.single()
+        assertThat(pub.calibreBookId).isEqualTo("42")
+    }
+
+    @Test fun `opdsDcId is null when entry has no dc identifier (calibre-web stock template)`() = runTest {
+        val feed = client.fetch(server.url("/opds/calibre-style").toString())
+        val matched = feed.publications.first { it.title == "Pattern-matched book" }
+        val unmatched = feed.publications.first { it.title == "Non-calibre href book" }
+        assertThat(matched.opdsDcId).isNull()
+        assertThat(unmatched.opdsDcId).isNull()
+    }
+
+    @Test fun `calibreBookId set only when acquisition href matches pattern`() = runTest {
+        val feed = client.fetch(server.url("/opds/calibre-style").toString())
+        val matched = feed.publications.first { it.title == "Pattern-matched book" }
+        val unmatched = feed.publications.first { it.title == "Non-calibre href book" }
+        assertThat(matched.calibreBookId).isEqualTo("77")
+        assertThat(unmatched.calibreBookId).isNull()
+    }
 }

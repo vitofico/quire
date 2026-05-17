@@ -29,7 +29,10 @@ class DocumentRepository(private val dao: DocumentDao) {
 
     suspend fun findByIdentity(identity: DocumentIdentity): Document? {
         identity.metadataId?.let { dao.findByMetadataId(it)?.let { return it.toDomain() } }
-        return dao.findByContentHash(identity.contentHash)?.toDomain()
+        // Post-download identity always carries a contentHash; pre-download identity
+        // (catalog-preview) never reaches this DAO. The null branch is defensive.
+        val hash = identity.contentHash ?: return null
+        return dao.findByContentHash(hash)?.toDomain()
     }
 
     suspend fun findById(id: Long): Document? = dao.findById(id)?.toDomain()
@@ -67,7 +70,9 @@ class DocumentRepository(private val dao: DocumentDao) {
         seriesIndex: Double? = null,
     ): Long = dao.insert(DocumentEntity(
         metadataId = identity.metadataId,
-        contentHash = identity.contentHash,
+        contentHash = requireNotNull(identity.contentHash) {
+            "documents.content_hash is NOT NULL; the downloaded EPUB must have a sha256."
+        },
         title = title,
         author = author,
         downloadUrl = downloadUrl,

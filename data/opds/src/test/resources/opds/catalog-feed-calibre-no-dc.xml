@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/terms/" xmlns:dcterms="http://purl.org/dc/terms/">
+  <id>urn:uuid:feed-no-dc</id>
+  <title>Calibre-web style (no dc:identifier)</title>
+  <updated>2026-05-17T00:00:00Z</updated>
+  <link rel="self" href="/opds/calibre-style" type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+  <entry>
+    <title>Pattern-matched book</title>
+    <id>urn:uuid:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee</id>
+    <updated>2026-05-17T00:00:00Z</updated>
+    <author><name>Author A</name></author>
+    <link rel="http://opds-spec.org/acquisition" href="/opds/download/77/epub" type="application/epub+zip"/>
+  </entry>
+  <entry>
+    <title>Non-calibre href book</title>
+    <id>urn:uuid:11111111-2222-3333-4444-555555555555</id>
+    <updated>2026-05-17T00:00:00Z</updated>
+    <author><name>Author B</name></author>
+    <link rel="http://opds-spec.org/acquisition" href="/files/random.epub" type="application/epub+zip"/>
+  </entry>
+</feed>

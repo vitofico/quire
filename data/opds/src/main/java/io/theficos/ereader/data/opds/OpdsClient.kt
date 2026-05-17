@@ -32,6 +32,10 @@ class OpdsClient(
             // The `rel=alternate type=text/html` link points at the OPDS server's web detail page
             // (e.g. calibre-web's `/book/{id}`); Readium doesn't surface it, so we read raw XML too.
             val webUrlsByEpubHref = parseWebUrls(bytes, absoluteUrl)
+            // PR7: dc:identifier per entry, used as the opds_dc_id alias hint
+            // for the AI catalog-preview lookup. Readium doesn't surface DC
+            // elements either.
+            val dcIdsByEpubHref = parseDcIdentifiers(bytes, absoluteUrl)
             OpdsFeed(
                 title = feed.metadata.title,
                 navigation = feed.navigation.map { link ->
@@ -53,6 +57,8 @@ class OpdsClient(
                         coverUrl = coversByEpubHref[absoluteEpubHref],
                         webUrl = webUrlsByEpubHref[absoluteEpubHref]
                             ?: deriveCalibreWebDetailUrl(absoluteEpubHref),
+                        opdsDcId = dcIdsByEpubHref[absoluteEpubHref],
+                        calibreBookId = extractCalibreBookId(absoluteEpubHref),
                     )
                 },
                 searchLink = searchLink,
@@ -147,6 +153,66 @@ class OpdsClient(
         return "$origin/book/$bookId"
     }
 
+    /** Extract the numeric book id from a calibre-web acquisition href. Null on non-match. */
+    private fun extractCalibreBookId(absoluteEpubHref: String): String? =
+        CALIBRE_DOWNLOAD_REGEX.find(absoluteEpubHref)?.groupValues?.get(1)
+
+    /**
+     * Walk each Atom entry looking for `<dc:identifier>` (under either the
+     * `http://purl.org/dc/terms/` or `http://purl.org/dc/elements/1.1/`
+     * namespace). Returns a map keyed by the absolute acquisition href so
+     * the caller can join by epubDownloadHref. Entries with no identifier
+     * or only blank ones are skipped.
+     *
+     * Calibre-web's stock OPDS template emits the book uuid in the Atom
+     * `<id>`, not in `<dc:identifier>`. Other OPDS producers (some library
+     * exporters, koreader's CalibreSync, etc.) do emit `<dc:identifier>`,
+     * so this parser stays useful even if calibre-web users see nothing.
+     */
+    private fun parseDcIdentifiers(bytes: ByteArray, feedUrl: String): Map<String, String> {
+        val doc = runCatching {
+            DocumentBuilderFactory.newInstance()
+                .apply { isNamespaceAware = true }
+                .newDocumentBuilder()
+                .parse(ByteArrayInputStream(bytes))
+        }.getOrNull() ?: return emptyMap()
+        val entries = doc.getElementsByTagNameNS("http://www.w3.org/2005/Atom", "entry")
+        val result = mutableMapOf<String, String>()
+        for (i in 0 until entries.length) {
+            val entry = entries.item(i) as org.w3c.dom.Element
+            val links = entry.getElementsByTagNameNS("http://www.w3.org/2005/Atom", "link")
+            var epubHref: String? = null
+            for (j in 0 until links.length) {
+                val el = links.item(j) as org.w3c.dom.Element
+                if (el.getAttribute("rel") == "http://opds-spec.org/acquisition" &&
+                    el.getAttribute("type") == "application/epub+zip"
+                ) {
+                    epubHref = el.getAttribute("href").takeIf { it.isNotBlank() }
+                    break
+                }
+            }
+            if (epubHref == null) continue
+            val dcId = firstNonBlankChildText(entry, DC_TERMS_NS, "identifier")
+                ?: firstNonBlankChildText(entry, DC_ELEMENTS_NS, "identifier")
+                ?: continue
+            result[absolutize(feedUrl, epubHref)] = dcId
+        }
+        return result
+    }
+
+    private fun firstNonBlankChildText(
+        entry: org.w3c.dom.Element,
+        ns: String,
+        name: String,
+    ): String? {
+        val list = entry.getElementsByTagNameNS(ns, name)
+        for (i in 0 until list.length) {
+            val text = (list.item(i) as org.w3c.dom.Element).textContent?.trim()
+            if (!text.isNullOrEmpty()) return text
+        }
+        return null
+    }
+
     private fun parseSearchLink(bytes: ByteArray, feedUrl: String): OpdsSearchLink? {
         val doc = runCatching {
             DocumentBuilderFactory.newInstance()
@@ -217,5 +283,7 @@ class OpdsClient(
     private companion object {
         private val OPTIONAL_PARAM = Regex("""\{[^{}]+\?\}""")
         private val CALIBRE_DOWNLOAD_REGEX = Regex("""/opds/download/(\d+)/[^/?]+/?(?:\?.*)?$""")
+        private const val DC_TERMS_NS = "http://purl.org/dc/terms/"
+        private const val DC_ELEMENTS_NS = "http://purl.org/dc/elements/1.1/"
     }
 }

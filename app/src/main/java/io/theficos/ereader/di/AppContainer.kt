@@ -21,6 +21,10 @@ import io.theficos.ereader.ui.bookdetail.AppInsightAuditSource
 import io.theficos.ereader.ui.bookdetail.BookDetailViewModel
 import io.theficos.ereader.ui.bookdetail.InsightAuditViewModel
 import io.theficos.ereader.ui.catalog.CatalogPreferencesStore
+import io.theficos.ereader.ui.catalogdetail.AiRepositoryAdapter
+import io.theficos.ereader.ui.catalogdetail.CatalogAiPort
+import io.theficos.ereader.ui.catalogdetail.CatalogDetailRegistry
+import io.theficos.ereader.ui.catalogdetail.CatalogDetailViewModel
 import io.theficos.ereader.ui.library.LibraryPreferencesStore
 import io.theficos.ereader.ui.library.LibraryStatsViewModel
 import java.io.File
@@ -87,6 +91,14 @@ class AppContainer(context: Context) {
             ai = aiRepository,
         )
 
+    val catalogDetailRegistry: CatalogDetailRegistry = CatalogDetailRegistry()
+
+    val catalogDetailViewModelFactory: CatalogDetailViewModelFactory =
+        CatalogDetailViewModelFactory(
+            ai = AiRepositoryAdapter(aiRepository),
+            registry = catalogDetailRegistry,
+        )
+
     private suspend fun readOpfBytes(doc: Document): ByteArray? = withContext(Dispatchers.IO) {
         runCatching {
             java.util.zip.ZipFile(doc.localPath).use { zip ->
@@ -127,6 +139,22 @@ class InsightAuditViewModelFactory(
         documentId = documentId,
         source = AppInsightAuditSource(documents = documents, ai = ai),
     )
+}
+
+class CatalogDetailViewModelFactory(
+    private val ai: CatalogAiPort,
+    private val registry: CatalogDetailRegistry,
+) {
+    /**
+     * Look up the [OpdsPublication] by nav key and build the viewmodel.
+     * Returns null if the key is unknown (typically because the process
+     * died and the in-memory registry was reset). Callers render a
+     * graceful fallback in that case.
+     */
+    fun create(key: String): CatalogDetailViewModel? {
+        val pub = registry.get(key) ?: return null
+        return CatalogDetailViewModel(publication = pub, ai = ai)
+    }
 }
 
 class LibraryStatsViewModelFactory(

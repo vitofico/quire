@@ -1,10 +1,20 @@
 package io.theficos.ereader.ui
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -15,6 +25,7 @@ import io.theficos.ereader.ui.bookdetail.BookDetailScreen
 import io.theficos.ereader.ui.bookdetail.InsightAuditScreen
 import io.theficos.ereader.ui.catalog.CatalogScreen
 import io.theficos.ereader.ui.catalog.CatalogViewModel
+import io.theficos.ereader.ui.catalogdetail.CatalogDetailScreen
 import io.theficos.ereader.ui.library.LibraryScreen
 import io.theficos.ereader.ui.library.LibraryStatsScreen
 import io.theficos.ereader.ui.library.LibraryViewModel
@@ -74,6 +85,10 @@ fun AppNavGraph(container: AppContainer) {
                     Tab.CATALOG -> CatalogScreen(
                         viewModel = catVm,
                         contentPadding = padding,
+                        onShowDetails = { pub ->
+                            val key = container.catalogDetailRegistry.put(pub)
+                            nav.navigate("catalog-detail/$key")
+                        },
                     )
                     Tab.SETTINGS -> SettingsScreen(
                         viewModel = setVm,
@@ -145,6 +160,18 @@ fun AppNavGraph(container: AppContainer) {
                 },
             )
         }
+        composable(
+            "catalog-detail/{key}",
+            arguments = listOf(navArgument("key") { type = NavType.StringType }),
+        ) { backStack ->
+            val key = backStack.arguments!!.getString("key")!!
+            val vm = remember(key) { container.catalogDetailViewModelFactory.create(key) }
+            if (vm == null) {
+                CatalogDetailUnavailable(onBack = { nav.popBackStack() })
+            } else {
+                CatalogDetailScreen(viewModel = vm, onBack = { nav.popBackStack() })
+            }
+        }
         composable("licenses") {
             LicensesScreen(onBack = { nav.popBackStack() })
         }
@@ -154,6 +181,22 @@ fun AppNavGraph(container: AppContainer) {
                 viewModel = vm,
                 onBack = { nav.popBackStack() },
             )
+        }
+    }
+}
+
+@Composable
+private fun CatalogDetailUnavailable(onBack: () -> Unit) {
+    Surface(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier.padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = "This catalog entry is no longer available. Reload the catalog from the Catalog tab.",
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            TextButton(onClick = onBack) { Text("Back") }
         }
     }
 }
