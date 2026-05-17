@@ -5,6 +5,7 @@ import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.core.model.Document
 import io.theficos.ereader.data.ai.AiClient
 import io.theficos.ereader.data.ai.AiRepository
+import io.theficos.ereader.data.library.LibraryClient
 import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.ProgressRepository
 import io.theficos.ereader.data.local.db.EReaderDatabase
@@ -21,6 +22,7 @@ import io.theficos.ereader.ui.bookdetail.BookDetailViewModel
 import io.theficos.ereader.ui.bookdetail.InsightAuditViewModel
 import io.theficos.ereader.ui.catalog.CatalogPreferencesStore
 import io.theficos.ereader.ui.library.LibraryPreferencesStore
+import io.theficos.ereader.ui.library.LibraryStatsViewModel
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -64,6 +66,14 @@ class AppContainer(context: Context) {
         http = opdsHttp.okHttp,
     )
     val aiRepository: AiRepository = AiRepository(aiClient)
+
+    val libraryClient: LibraryClient = LibraryClient(
+        baseUrlProvider = { credentialStore.get()?.baseUrl },
+        http = opdsHttp.okHttp,
+    )
+
+    val libraryStatsViewModelFactory: LibraryStatsViewModelFactory =
+        LibraryStatsViewModelFactory(client = libraryClient)
 
     val bookDetailViewModelFactory: BookDetailViewModelFactory = BookDetailViewModelFactory(
         documents = documentRepository,
@@ -117,4 +127,10 @@ class InsightAuditViewModelFactory(
         documentId = documentId,
         source = AppInsightAuditSource(documents = documents, ai = ai),
     )
+}
+
+class LibraryStatsViewModelFactory(
+    private val client: LibraryClient,
+) {
+    fun create() = LibraryStatsViewModel(fetch = { client.getStats() })
 }

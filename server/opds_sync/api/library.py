@@ -30,18 +30,28 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import and_, select
+from sqlalchemy import and_, case, func, literal_column, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from opds_sync.api.library_schemas import (
+    LIBRARY_STATS_THEMES_CAVEAT,
     LibraryItemDeleteBody,
     LibraryItemListResponse,
     LibraryItemPutBody,
     LibraryItemRequest,
     LibraryItemResponse,
+    LibraryStatsResponse,
+    TopAuthor,
+    TopTheme,
 )
 from opds_sync.core.auth import current_user_id
-from opds_sync.db.models import LibraryItem
+from opds_sync.db.models import (
+    BookInsight,
+    BookTheme,
+    Document,
+    LibraryItem,
+    Progress,
+)
 from opds_sync.db.session import get_session
 
 router = APIRouter(tags=["library"])
@@ -221,3 +231,190 @@ async def delete_item(
         await session.refresh(row)
 
     return _to_response(row)
+
+
+# ---------------------------------------------------------------------------
+# GET /stats — PR9 library stats v0.
+# ---------------------------------------------------------------------------
+# User-scoped throughout. The three load-bearing theme-join filters
+# (documented in PR3's body and architecture.md):
+#
+#   1. `book_insights.superseded_at IS NULL` — regenerate is supersede-not-
+#      delete; FK CASCADE only fires on actual DELETE. Without this,
+#      regenerated insights double-count.
+#   2. `book_themes.confidence >= 1.0` — off-vocab passthroughs and the
+#      empty-input "other" fallback live at 0.5. Filter excludes them from
+#      the controlled-vocab top-N.
+#   3. `COUNT(DISTINCT library_items.pk)` per theme — combined with the
+#      pick-one CTE below, this prevents a book with multiple cache
+#      variants (different tone/language/model_id, all `superseded_at IS
+#      NULL`) from contributing to multiple theme keys.
+#
+# Architect finding (2026-05-17): a naive `JOIN ... ON metadata_id OR
+# content_hash` plus `COUNT(DISTINCT li.pk)` can still attribute one book
+# to MULTIPLE theme keys when variants emit different theme sets (variant
+# A says {mystery}, variant B says {noir, crime}). The DISTINCT-ON CTE
+# below picks exactly one insight row per library item before aggregating
+# themes; pick order mirrors the orchestrator's lookup hierarchy
+# (metadata_id > content_hash; most-recent generated_at as tiebreaker).
+@router.get("/stats", response_model=LibraryStatsResponse)
+async def get_stats(
+    user_id: Annotated[str, Depends(current_user_id)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> LibraryStatsResponse:
+    # 1. total_books: alive library items for this user.
+    total_books = (
+        await session.scalar(
+            select(func.count())
+            .select_from(LibraryItem)
+            .where(LibraryItem.user_id == user_id, LibraryItem.deleted_at.is_(None))
+        )
+    ) or 0
+
+    # 2a. finished_count: library_items JOIN documents JOIN progress, where
+    #     finished_at IS NOT NULL. The (user_id, content_hash) join is the
+    #     only correct way to bridge — library_items.pk and documents.pk are
+    #     independent identifiers.
+    finished_count = (
+        await session.scalar(
+            select(func.count())
+            .select_from(LibraryItem)
+            .join(
+                Document,
+                and_(
+                    Document.user_id == LibraryItem.user_id,
+                    Document.content_hash == LibraryItem.content_hash,
+                ),
+            )
+            .join(Progress, Progress.document_pk == Document.pk)
+            .where(
+                LibraryItem.user_id == user_id,
+                LibraryItem.deleted_at.is_(None),
+                Progress.finished_at.is_not(None),
+            )
+        )
+    ) or 0
+
+    # 2b. in_progress_count: started but not finished. We do NOT cap at
+    #     percent < 1: a book at percent=1 with finished_at IS NULL still
+    #     counts as in-progress ("not done until the device says so").
+    in_progress_count = (
+        await session.scalar(
+            select(func.count())
+            .select_from(LibraryItem)
+            .join(
+                Document,
+                and_(
+                    Document.user_id == LibraryItem.user_id,
+                    Document.content_hash == LibraryItem.content_hash,
+                ),
+            )
+            .join(Progress, Progress.document_pk == Document.pk)
+            .where(
+                LibraryItem.user_id == user_id,
+                LibraryItem.deleted_at.is_(None),
+                Progress.finished_at.is_(None),
+                Progress.percent > 0,
+            )
+        )
+    ) or 0
+
+    # 3. top_authors: unnest the JSONB `authors` array via LATERAL and group.
+    #    `jsonb_array_elements_text` returns typed text — no quoting weirdness.
+    #    COUNT(DISTINCT LibraryItem.pk) defends against an upstream OPF
+    #    parser ever emitting the same author twice in one array (it doesn't
+    #    today, but cheaper to defend than to debug later). Secondary alpha
+    #    sort is load-bearing for deterministic tiebreaks.
+    author_col = (
+        func.jsonb_array_elements_text(LibraryItem.authors)
+        .table_valued("value")
+        .render_derived(name="author")
+    )
+    author_value = literal_column("author.value")
+    author_count = func.count(func.distinct(LibraryItem.pk))
+    author_rows = (
+        await session.execute(
+            select(author_value.label("name"), author_count.label("c"))
+            .select_from(LibraryItem)
+            .join(author_col, literal_column("true"))
+            .where(
+                LibraryItem.user_id == user_id,
+                LibraryItem.deleted_at.is_(None),
+            )
+            .group_by(author_value)
+            .order_by(author_count.desc(), author_value.asc())
+            .limit(5)
+        )
+    ).all()
+    top_authors = [TopAuthor(name=row.name, count=int(row.c)) for row in author_rows]
+
+    # 4. top_themes: pick-one-insight-per-book CTE, then aggregate themes.
+    #    See the block comment at the top of this function for the full
+    #    rationale.
+    pick_priority = case(
+        (
+            and_(
+                BookInsight.metadata_id.is_not(None),
+                BookInsight.metadata_id == LibraryItem.metadata_id,
+            ),
+            0,
+        ),
+        else_=1,
+    )
+
+    picked = (
+        select(
+            LibraryItem.pk.label("library_item_pk"),
+            BookInsight.id.label("book_insight_id"),
+        )
+        .select_from(LibraryItem)
+        .join(
+            BookInsight,
+            and_(
+                BookInsight.superseded_at.is_(None),  # filter 1
+                (
+                    (
+                        BookInsight.metadata_id.is_not(None)
+                        & (BookInsight.metadata_id == LibraryItem.metadata_id)
+                    )
+                    | (BookInsight.content_hash == LibraryItem.content_hash)
+                ),
+            ),
+        )
+        .where(
+            LibraryItem.user_id == user_id,
+            LibraryItem.deleted_at.is_(None),
+        )
+        .order_by(LibraryItem.pk, pick_priority, BookInsight.generated_at.desc())
+        # PostgreSQL DISTINCT ON via SQLAlchemy: keep one row per
+        # library_item_pk, picking the lowest priority (metadata match)
+        # and most recent generated_at via the trailing ORDER BY.
+        .distinct(LibraryItem.pk)
+        .subquery("picked_insight")
+    )
+
+    theme_count = func.count(func.distinct(picked.c.library_item_pk))
+    theme_rows = (
+        await session.execute(
+            select(BookTheme.theme.label("theme"), theme_count.label("c"))
+            .select_from(picked)
+            .join(BookTheme, BookTheme.book_insight_id == picked.c.book_insight_id)
+            .where(BookTheme.confidence >= 1.0)  # filter 2
+            .group_by(BookTheme.theme)
+            .order_by(theme_count.desc(), BookTheme.theme.asc())
+            .limit(5)
+        )
+    ).all()
+    top_themes = [
+        TopTheme(theme=row.theme, count=int(row.c), note="v3+ insights only")
+        for row in theme_rows
+    ]
+
+    return LibraryStatsResponse(
+        total_books=int(total_books),
+        finished_count=int(finished_count),
+        in_progress_count=int(in_progress_count),
+        top_authors=top_authors,
+        top_themes=top_themes,
+        themes_caveat=LIBRARY_STATS_THEMES_CAVEAT,
+    )

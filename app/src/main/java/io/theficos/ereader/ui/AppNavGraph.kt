@@ -16,6 +16,7 @@ import io.theficos.ereader.ui.bookdetail.InsightAuditScreen
 import io.theficos.ereader.ui.catalog.CatalogScreen
 import io.theficos.ereader.ui.catalog.CatalogViewModel
 import io.theficos.ereader.ui.library.LibraryScreen
+import io.theficos.ereader.ui.library.LibraryStatsScreen
 import io.theficos.ereader.ui.library.LibraryViewModel
 import io.theficos.ereader.ui.main.MainScaffold
 import io.theficos.ereader.ui.main.Tab
@@ -66,6 +67,7 @@ fun AppNavGraph(container: AppContainer) {
                         viewModel = libVm,
                         onOpenBook = { id -> nav.navigate("reader/$id") },
                         onShowDetails = { id -> nav.navigate("book/$id") },
+                        onShowStats = { nav.navigate("library/stats") },
                         aiConfigured = aiConfig?.configured == true,
                         contentPadding = padding,
                     )
@@ -145,6 +147,13 @@ fun AppNavGraph(container: AppContainer) {
         }
         composable("licenses") {
             LicensesScreen(onBack = { nav.popBackStack() })
+        }
+        composable("library/stats") {
+            val vm = remember { container.libraryStatsViewModelFactory.create() }
+            LibraryStatsScreen(
+                viewModel = vm,
+                onBack = { nav.popBackStack() },
+            )
         }
     }
 }

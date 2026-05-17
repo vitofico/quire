@@ -105,3 +105,42 @@ def _iso(v: datetime) -> str:
     if v.tzinfo is None:
         v = v.replace(tzinfo=UTC)
     return v.isoformat()
+
+
+# ---------------------------------------------------------------------------
+# Library stats v0 (PR9)
+# ---------------------------------------------------------------------------
+# Pure aggregation response. `themes_caveat` is a constant server-emitted
+# copy: the client renders it verbatim. Sourcing it server-side means the
+# wording can change without an app release.
+
+
+class TopAuthor(BaseModel):
+    name: str
+    count: int
+
+
+class TopTheme(BaseModel):
+    theme: str
+    count: int
+    note: str  # always "v3+ insights only" in v0
+
+
+# Public copy lives here so both the endpoint and (eventually) the docs page
+# can reference the same string. Honest wording (architect review,
+# 2026-05-17): the query gates on presence of `book_themes` rows, not on a
+# specific `prompt_version` threshold — `OPDS_SYNC_AI_PROMPT_VERSION` is
+# operator-configured and may not be pinned to "4" in every deployment.
+LIBRARY_STATS_THEMES_CAVEAT: str = (
+    "Theme stats include books with AI theme data; older cached insights "
+    "may be missing until regenerated."
+)
+
+
+class LibraryStatsResponse(BaseModel):
+    total_books: int
+    finished_count: int
+    in_progress_count: int
+    top_authors: list[TopAuthor]
+    top_themes: list[TopTheme]
+    themes_caveat: str
