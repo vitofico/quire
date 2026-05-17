@@ -30,7 +30,7 @@ From the split point onward, every new migration belongs to exactly one branch:
 | ---------- | ------------ | ------ | ------------------------------------------------------------------------------------------------ |
 | `core`     | `"core"`     | shared | Reserved; no migrations yet.                                                                     |
 | `progress` | `"progress"` | sync   | First and current head: `progress_001_library_items` (PR1, 2026-05-16). Spliced from `0004`.     |
-| `ai`       | `"ai"`       | AI     | Chain: `ai_001_generation_log` (PR-C) → `ai_002_insight_language` (PR4) → `ai_003_identity_aliases` (PR2). All on 2026-05-16. |
+| `ai`       | `"ai"`       | AI     | Chain: `ai_001_generation_log` (PR-C) → `ai_002_insight_language` (PR4) → `ai_003_identity_aliases` (PR2, 2026-05-16) → `ai_004_themes` (PR3, 2026-05-17). |
 
 ### Adding the FIRST migration on a branch (splice)
 

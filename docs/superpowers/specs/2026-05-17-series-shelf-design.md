@@ -1,5 +1,7 @@
 # PR8 — Series continuity shelf (Android-only)
 
+> Shipped in 275e921 on 2026-05-17 as PR #22.
+
 **Date:** 2026-05-17
 **Status:** Spec for implementation; design locked in `.claude/local/quire-ai/2026-05-16-next-deliverables.md` §"PR8".
 

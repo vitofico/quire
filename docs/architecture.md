@@ -374,6 +374,54 @@ the request body. Soft-deletes via `deleted_at`; `GET ?since=<ISO>` returns
 delta rows including tombstones for sync. The table is USER-SCOPED — not
 shared cache — so the cache-key audit does not cover it.
 
+### Structured themes + `book_themes` (PR3, 2026-05-17)
+
+`BookInsightPayload.themes` is back as a first-class field at schema v3 —
+a list of 1–5 topic tags drawn from a controlled vocabulary (~57 entries in
+`opds_sync/core/ai/themes.py::CONTROLLED_THEMES`, covering broad fiction
+buckets, speculative subgenres, genre fiction, and nonfiction categories).
+`PROMPT_VERSION` bumped to `"4"`. Vocab hits are normalized to snake_case
+and persisted to the side table `book_themes(book_insight_id, theme,
+confidence)` at `confidence=1.0`; off-vocab strings are preserved verbatim
+at `confidence=0.5` so future vocabulary evolution doesn't lose data.
+
+`book_themes` lives on the `ai` alembic branch (`ai_004_themes`) and joins
+**`SHARED_CACHE_TABLES`** in the cache-key audit — no `user_id`/`tenant_id`
+columns. Per-user filtering happens at query time by joining
+`book_themes → book_insights → library_items` on
+`metadata_id`/`content_hash`. PR9 library stats (future) MUST also filter
+`book_insights.superseded_at IS NULL` to avoid double-counting regenerated
+insights, and `confidence >= 1.0` if it wants vocab-only aggregation.
+
+The payload's `themes` field is the source of truth for the client;
+`book_themes` is the SQL-queryable mirror. Old cached v2 payloads (no
+`themes` key) deserialize cleanly with `themes=null` and contribute zero
+rows to `book_themes` until regenerated. `schema_version=3` is pinned by
+the server after model return so cache rows never reflect a model's
+accidental version emission.
+
+### Android UI surfaces (batch 3, 2026-05-17)
+
+- **Inspect insight screen (PR6).** Book-detail overflow → "Inspect
+  insight" opens `InsightAuditScreen` (route `book/{id}/inspect-insight`,
+  `InsightAuditViewModel`). Shows `model_id`, `prompt_version`,
+  `schema_version`, `tone`, `language`, `generated_at`, sources list with
+  tappable URLs, and an Invalidate button that reuses the existing
+  body-based `/ai/v1/insights/invalidate` endpoint. No new server endpoint.
+- **Series continuity shelf (PR8).** Horizontal shelf "Continue your
+  series" on the library home, populated by a Room CTE join on
+  `documents.series_name` against `progress`. Pure deterministic — no AI
+  call. Room schema 4→5 adds `seriesName`/`seriesIndex` columns and a
+  `(seriesName, seriesIndex)` index; opportunistic OPF series extraction
+  is wired into the catalog download path (`CatalogViewModel`).
+- **Regenerate dropped (PR11).** The book-detail overflow no longer
+  exposes "Regenerate insights" — the cache key already invalidates
+  naturally on `tone`/`language`/`model_id`/`prompt_version` changes, and
+  the "ask again" case is now served by the Inspect-insight Invalidate
+  button (one AI call instead of two). The
+  `POST /ai/v1/insights/regenerate` server endpoint is retained for
+  admin/cluster tooling.
+
 ## Decision log
 
 | # | Decision | Rationale |

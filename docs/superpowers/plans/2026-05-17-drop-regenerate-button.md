@@ -1,5 +1,7 @@
 # Plan — Drop "Regenerate insights" affordance
 
+> Shipped in f422845 on 2026-05-17 as PR #19.
+
 **Spec:** `docs/superpowers/specs/2026-05-17-drop-regenerate-button-design.md`
 **Branch:** `feat/drop-regenerate-button`
 **Mode:** TDD-by-deletion (tests removed before implementation; build is the

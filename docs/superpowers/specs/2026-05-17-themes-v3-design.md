@@ -1,5 +1,7 @@
 # Spec — Structured themes v3 + `book_themes` (PR3)
 
+> Shipped in 2e0caf5 on 2026-05-17 as PR #20.
+
 **Date:** 2026-05-17
 **Branch:** `feat/themes-v3` (from `main` after PR-A / PR-C / PR4 / PR-B / PR5 / PR1 / PR2 all merged)
 **Roadmap reference:** `.claude/local/quire-ai/2026-05-16-next-deliverables.md` §PR3

@@ -1,5 +1,7 @@
 # PR8 — Series continuity shelf: implementation plan
 
+> Shipped in 275e921 on 2026-05-17 as PR #22.
+
 **Date:** 2026-05-17
 **Spec:** `docs/superpowers/specs/2026-05-17-series-shelf-design.md`
 **Branch:** `feat/series-shelf` off `main`.
