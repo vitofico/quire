@@ -6,6 +6,7 @@ import io.theficos.ereader.core.model.Document
 import io.theficos.ereader.data.ai.AiClient
 import io.theficos.ereader.data.ai.AiRepository
 import io.theficos.ereader.data.library.LibraryClient
+import io.theficos.ereader.data.library.LibraryUploader
 import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.ProgressRepository
 import io.theficos.ereader.data.local.db.EReaderDatabase
@@ -28,7 +29,9 @@ import io.theficos.ereader.ui.catalogdetail.CatalogDetailViewModel
 import io.theficos.ereader.ui.library.LibraryPreferencesStore
 import io.theficos.ereader.ui.library.LibraryStatsViewModel
 import java.io.File
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.withContext
 
 class AppContainer(context: Context) {
@@ -74,6 +77,21 @@ class AppContainer(context: Context) {
     val libraryClient: LibraryClient = LibraryClient(
         baseUrlProvider = { credentialStore.get()?.baseUrl },
         http = opdsHttp.okHttp,
+    )
+
+    /**
+     * Process-lifetime scope for fire-and-forget library upload work. A
+     * SupervisorJob means a single PUT failure won't cancel sibling
+     * launches; cancellation propagates only if the process itself goes
+     * away, which is the correct lifetime for this kind of background sync.
+     */
+    val libraryUploaderScope: CoroutineScope =
+        CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    val libraryUploader: LibraryUploader = LibraryUploader(
+        client = libraryClient,
+        dao = db.documentDao(),
+        scope = libraryUploaderScope,
     )
 
     val libraryStatsViewModelFactory: LibraryStatsViewModelFactory =

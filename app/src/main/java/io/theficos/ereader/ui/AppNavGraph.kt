@@ -59,6 +59,7 @@ fun AppNavGraph(container: AppContainer) {
                     credentialStore = container.credentialStore,
                     syncStateDao = container.syncStateDao,
                     catalogPreferencesStore = container.catalogPreferencesStore,
+                    libraryUploader = container.libraryUploader,
                 )
             }
             val setVm = remember {
