@@ -1,7 +1,5 @@
 package io.theficos.ereader.ui.catalog
 
-import android.content.Intent
-import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -33,6 +31,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -41,12 +40,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -70,6 +66,7 @@ import io.theficos.ereader.ui.components.SectionLabel
 fun CatalogScreen(
     viewModel: CatalogViewModel,
     contentPadding: PaddingValues,
+    onShowDetails: (OpdsPublication) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsState()
     val downloadedUrls by viewModel.downloadedUrls.collectAsState()
@@ -105,6 +102,7 @@ fun CatalogScreen(
                         onBack = viewModel::back,
                         onSearch = viewModel::search,
                         onDownload = { pub -> viewModel.download(pub, context) },
+                        onShowDetails = onShowDetails,
                     )
                 }
             }
@@ -123,9 +121,8 @@ private fun Loaded(
     onBack: () -> Unit,
     onSearch: (String) -> Unit,
     onDownload: (OpdsPublication) -> Unit,
+    onShowDetails: (OpdsPublication) -> Unit,
 ) {
-    val context = LocalContext.current
-    var menuFor by remember { mutableStateOf<OpdsPublication?>(null) }
     val publications = remember(state.feed.publications, sort) {
         applyCatalogSort(state.feed.publications, sort)
     }
@@ -177,7 +174,7 @@ private fun Loaded(
                     modifier = Modifier.combinedClickable(
                         enabled = !downloading,
                         onClick = { if (!downloaded) onDownload(pub) },
-                        onLongClick = { menuFor = pub },
+                        onLongClick = { onShowDetails(pub) },
                     ),
                 ) {
                     Box {
@@ -222,6 +219,31 @@ private fun Loaded(
                                     .size(20.dp),
                             )
                         }
+                        // Visible info affordance — opens the catalog detail screen
+                        // without competing with the cover-tap download target
+                        // (positioned at TopStart while the download badge sits
+                        // at TopEnd).
+                        IconButton(
+                            onClick = { onShowDetails(pub) },
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(2.dp)
+                                .size(32.dp),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)),
+                            ) {
+                                Icon(
+                                    Icons.Outlined.Info,
+                                    contentDescription = "Details",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.align(Alignment.Center).size(18.dp),
+                                )
+                            }
+                        }
                     }
                     Text(
                         text = pub.title,
@@ -244,44 +266,6 @@ private fun Loaded(
         }
     }
 
-    menuFor?.let { pub ->
-        val sheetState = rememberModalBottomSheetState()
-        ModalBottomSheet(
-            onDismissRequest = { menuFor = null },
-            sheetState = sheetState,
-        ) {
-            Column(modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
-                Text(
-                    text = pub.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
-                )
-                if (pub.webUrl != null) {
-                    TextButton(
-                        onClick = {
-                            context.startActivity(
-                                Intent(Intent.ACTION_VIEW, Uri.parse(pub.webUrl))
-                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            )
-                            menuFor = null
-                        },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                    ) {
-                        Text("Open in calibre-web", modifier = Modifier.fillMaxWidth())
-                    }
-                } else {
-                    Text(
-                        text = "No detail link in this feed entry",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
-                    )
-                }
-            }
-        }
-    }
 }
 
 private val catalogSortLabels: List<Pair<CatalogSort, String>> = listOf(
