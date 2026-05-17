@@ -105,14 +105,14 @@ in the same PR**, and update the fixtures.
 - **`tests/integration/test_cache_key_audit.py`** splits the audit into
   two parametrize lists (PR2, 2026-05-16):
   - **`SHARED_CACHE_TABLES`** (`book_insights`, `external_source_cache`,
-    plus future shared-cache tables): rows reused across every tenant
-    requesting the same identity + model + prompt + tone + language.
-    Carry **no** principal columns (`user_id`, `tenant_id`, `subject`,
-    `principal_id`). The cross-tenant cache-hit property is load-bearing
-    for hosted Quire Cloud AI economics. Any PR that adds a tenant column
-    to a shared cache, or adds a new shared cache without registering it
-    in this list, will break it on purpose. Per-call audit data goes on
-    `ai_generation_log` instead.
+    `book_themes` (PR3, 2026-05-17), plus future shared-cache tables):
+    rows reused across every tenant requesting the same identity + model +
+    prompt + tone + language. Carry **no** principal columns (`user_id`,
+    `tenant_id`, `subject`, `principal_id`). The cross-tenant cache-hit
+    property is load-bearing for hosted Quire Cloud AI economics. Any PR
+    that adds a tenant column to a shared cache, or adds a new shared
+    cache without registering it in this list, will break it on purpose.
+    Per-call audit data goes on `ai_generation_log` instead.
   - **`SCOPED_ALIAS_TABLES`** (`insight_identity_aliases`): rows whose
     `user_id` is INTENTIONAL cache-key scoping, NOT a tenant-leak. The
     inverse-property test asserts `user_id` IS present on these tables,
@@ -128,6 +128,26 @@ in the same PR**, and update the fixtures.
   global alias scope (`SCOPE_BY_SCHEME`), and `AliasConflict` on
   disagreeing canonicals. Any change to the alias scope rules or the
   resolution order must update this test deliberately.
+
+### Cache-version checklist (server + Android together)
+
+When bumping any cache-key dimension, move all three forward in the same
+PR (or document why one was skipped):
+
+- **`opds_sync/core/ai/prompts.py::PROMPT_VERSION`** — string. Currently
+  `"4"` (PR3, 2026-05-17). Bump when prompt bytes change.
+- **`opds_sync/api/ai_schemas.py::BookInsightPayload.schema_version`** —
+  int. Currently `3` (PR3). Bump when payload shape changes.
+- **Android Room schema version** in
+  `data/local/src/main/java/io/theficos/ereader/data/local/db/EReaderDatabase.kt`
+  — currently `5` (PR8, 2026-05-17 adds `seriesName`/`seriesIndex`). Every
+  bump needs a `MIGRATION_n_n+1` entry and an exported schema JSON under
+  `data/local/schemas/`.
+
+`book_insights` unique indexes already cover `(metadata_id, model_id,
+prompt_version, tone, language)` plus the `content_hash` variant; the
+`service.py` orchestrator lock key must include every dimension that
+participates in the cache key.
 
 ## Code of Conduct
 

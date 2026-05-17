@@ -15,6 +15,24 @@ lands without any Android-relevant change produces no APK and no tag;
 the next Android-relevant push picks up the next CalVer slot. This is
 intentional and matches CalVer's "calendar + run number" semantics.
 
+### Known limitation: version-bump race on stacked Android merges
+
+The `build` job commits the version bump and tag, then pushes back to
+`main`. If two Android-relevant PRs merge inside one CI cycle, the
+second push from the `[bot]` author can lose the race with the first
+and the second tag is silently orphaned. Observed on 2026-05-17 when
+PR #21 (PR6 inspect-insight) and PR #22 (PR8 series shelf) merged
+within minutes: PR8's standalone tag never materialized; both PRs
+shipped in PR6's release `v2026.05.17.87`. No artifact was lost — the
+release APK contains the merged tree at the time the build ran — but
+the per-PR tag mapping degrades.
+
+Workaround for now: when stacking Android merges, wait for the version-
+bump push from the previous run to land before merging the next PR.
+The longer-term fix is a `git pull --rebase` step in the `build` job
+before the push back, so a lost race retries instead of orphaning a
+tag — tracked as a follow-up.
+
 ### Mode-branched migrations on deploy
 
 Container starts run `python /app/scripts/migrate.py`, which upgrades

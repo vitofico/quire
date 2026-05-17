@@ -1,5 +1,7 @@
 # PR11 — Drop "Regenerate insights" overflow action
 
+> Shipped in f422845 on 2026-05-17 as PR #19.
+
 **Date:** 2026-05-17
 **Branch:** Android-only (server endpoint retained for invalidate-only use by PR6)
 **Effort:** Quick

@@ -161,7 +161,7 @@ uv run alembic upgrade head
 In containers, the entrypoint calls `python /app/scripts/migrate.py`, a wrapper
 that upgrades the unlabeled `0001..0004` backbone, then runs
 `alembic upgrade <branch>@head` for each enabled+materialized branch
-(`progress`, `ai`). Today's heads: `ai@head=ai_003_identity_aliases`,
+(`progress`, `ai`). Today's heads: `ai@head=ai_004_themes` (PR3, 2026-05-17),
 `progress@head=progress_001_library_items`. See `server/migrations/README.md`
 for the branch-label convention and the `--splice` rule for adding the first
 migration on a new branch.

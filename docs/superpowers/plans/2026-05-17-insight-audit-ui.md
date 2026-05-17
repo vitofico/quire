@@ -1,5 +1,7 @@
 # PR6 — Insight audit UI: implementation plan
 
+> Shipped in 92ca525 on 2026-05-17 as PR #21.
+
 **Date:** 2026-05-17
 **Spec:** `docs/superpowers/specs/2026-05-17-insight-audit-ui-design.md`
 **Branch:** `feat/insight-audit-ui`

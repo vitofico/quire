@@ -1,5 +1,7 @@
 # PR6 — Insight audit UI
 
+> Shipped in 92ca525 on 2026-05-17 as PR #21.
+
 **Date:** 2026-05-17
 **Branch:** Android-only (`feat/insight-audit-ui`)
 **Effort:** Short
