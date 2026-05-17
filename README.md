@@ -92,6 +92,12 @@ OpenLibrary to ground the generated insights with citations. The
 generated insight is cached server-side per book and reused across all
 of that user's devices and other opted-in users on the same instance.
 
+Surfaces in the app today: book-detail cards (summary, author, series,
+themes, content advisory, sources); a catalog detail screen that
+previews the same insight cards before download via an `info` icon on
+each catalog tile; and a library Stats screen (totals, top authors,
+top themes) backed by `GET /library/v1/stats`.
+
 For configuration details see [`server/README.md`](server/README.md).
 
 ## Install
@@ -99,7 +105,10 @@ For configuration details see [`server/README.md`](server/README.md).
 Grab the latest APK from [Releases], install it, and point it at your
 calibre-web URL on first launch. F-Droid listing is planned.
 
-For the sync server, see [`server/README.md`](server/README.md).
+For the sync server, see [`server/README.md`](server/README.md) — it
+ships two reference docker-compose files (`docker-compose.yml` for
+"bring your own proxy"; `docker-compose.full.yml` for a Caddy-fronted
+full stack with calibre-web + opds-sync + TLS behind one base URL).
 
 ## Roadmap
 
@@ -146,6 +155,7 @@ core/model/           Domain types (Document, Progress, Bookmark)
 data/local/           Room database, DAOs
 data/opds/            calibre-web OPDS client
 data/sync/            opds-sync REST client + WorkManager job
+data/library/         opds-sync /library/v1 HTTP client (stats today)
 reader/               Readium navigator integration
 server/               opds-sync (Python / FastAPI)
 docs/                 Architecture, development, sync API reference
