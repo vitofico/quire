@@ -72,6 +72,7 @@ the implementation.
 | `PUT` | `/library/v1/items` | yes | Upsert one library item (mode-gated on `OPDS_SYNC_PROGRESS_ENABLED`) |
 | `GET` | `/library/v1/items` | yes | List items, optional `since=<ISO>` cursor with tombstones |
 | `DELETE` | `/library/v1/items` | yes | Soft-delete one library item by `content_hash` |
+| `GET` | `/library/v1/stats` | yes | Per-user library roll-up: totals + top authors + top themes |
 | `GET` | `/ai/v1/health` | none | AI provider + retrieval reachability snapshot (mode-gated on `OPDS_SYNC_AI_ENABLED`) |
 
 Currently shipped: health probes and progress. The rest are designed; see
@@ -269,6 +270,51 @@ Sets `deleted_at = now()` on the matching row. `404` if no row matches.
 Idempotent: DELETE on an already-deleted row is a no-op (both timestamps
 preserved — refreshing `updated_at` here would re-deliver the tombstone on
 every subsequent `GET ?since=<old_cursor>`).
+
+### `GET /library/v1/stats`
+
+Per-user library roll-up. Joins `library_items` with `progress` for
+the read-state counts and with the live `book_insights` cache for the
+theme leaderboard. Mode-gated on `OPDS_SYNC_PROGRESS_ENABLED`.
+
+```http
+GET /library/v1/stats
+Authorization: Basic ...
+```
+
+Response:
+
+```json
+{
+  "total_books": 142,
+  "finished_count": 37,
+  "in_progress_count": 5,
+  "top_authors": [
+    { "name": "Isaac Asimov", "count": 12 },
+    { "name": "Ursula K. Le Guin", "count": 7 }
+  ],
+  "top_themes": [
+    { "theme": "science_fiction", "count": 28, "note": "v3+ insights only" },
+    { "theme": "epic", "count": 11, "note": "v3+ insights only" }
+  ],
+  "themes_caveat": "Theme stats include books with AI theme data; older cached insights may be missing until regenerated."
+}
+```
+
+- No `abandoned_count`: there is no explicit abandoned status yet.
+- `themes_caveat` is a constant server-emitted string the client renders
+  verbatim. Sourcing it server-side means the wording can change without
+  an app release.
+- The theme query uses a DISTINCT-ON CTE that picks one
+  `book_insights` row per `library_item` (mirroring
+  `service.py::_lookup_live`: `metadata_id`-priority match →
+  `content_hash` fallback → most-recent `generated_at` tiebreaker)
+  filtered by `superseded_at IS NULL` and `BookTheme.confidence >= 1.0`,
+  then `COUNT(DISTINCT picked.library_item_pk)` per theme. Three filters
+  are load-bearing — they protect against regenerate-double-counting
+  and off-vocab pollution. See
+  [`architecture.md`](architecture.md#library-stats-v0-pr9-2026-05-17)
+  for the rationale.
 
 ## Bookmarks (planned)
 

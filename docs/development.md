@@ -60,6 +60,7 @@ cp local.properties.template local.properties
 :data:local    Room DB, DAOs, sync outbox
 :data:opds     calibre-web OPDS client
 :data:sync     opds-sync REST client + WorkManager job
+:data:library  opds-sync /library/v1 HTTP client (stats today)
 :reader        Readium navigator integration
 ```
 
@@ -235,6 +236,14 @@ Pushes to `main` that touch Android paths produce:
 
 Server is deployed via the cluster's Kustomize app
 (`applications/opds-sync/`); see the cluster repo for the rollout flow.
+
+For non-Kubernetes self-hosters, `server/` ships two reference
+docker-compose files matching the deploy-mode table above:
+`docker-compose.yml` (minimal: postgres + opds-sync, bring your own
+proxy) and `docker-compose.full.yml` (Caddy-fronted postgres +
+calibre-web + opds-sync with TLS behind one base URL, mirroring the
+k8s ingress). See `server/README.md` for env-var setup and smoke
+commands.
 
 ## Conventions
 

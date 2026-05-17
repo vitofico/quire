@@ -25,6 +25,7 @@ lives there. (A planned read-only Calibre plugin will pull progress from
 :data:local    Room database + DAOs; pending_sync_ops outbox; sync_state
 :data:opds     calibre-web OPDS client
 :data:sync     opds-sync REST client + WorkManager sync job
+:data:library  opds-sync /library/v1 HTTP client (stats today)
 :reader        Readium navigator integration, font/theme controls
 :auth          Keystore-backed calibre-web Basic credential store
 ```
@@ -247,8 +248,8 @@ container image. Modes are controlled by two env-var flags:
 
 | Mode             | `OPDS_SYNC_PROGRESS_ENABLED` | `OPDS_SYNC_AI_ENABLED` | Mounted endpoints                                                          |
 | ---------------- | ---------------------------- | ---------------------- | -------------------------------------------------------------------------- |
-| Full stack       | `true` (default)             | `true` (default)       | `/health`, `/readyz`, `/sync/v1/*`, `/library/v1/*`, `/ai/v1/*`            |
-| Sync only        | `true`                       | `false`                | `/health`, `/readyz`, `/sync/v1/*`, `/library/v1/*`                        |
+| Full stack       | `true` (default)             | `true` (default)       | `/health`, `/readyz`, `/sync/v1/*`, `/library/v1/*` (incl. `/stats`), `/ai/v1/*` |
+| Sync only        | `true`                       | `false`                | `/health`, `/readyz`, `/sync/v1/*`, `/library/v1/*` (incl. `/stats`)        |
 | AI only          | `false`                      | `true`                 | `/health`, `/readyz`, `/ai/v1/*`                                            |
 
 `/health` and `/readyz` are always mounted on the root path (no prefix) so k8s
@@ -400,6 +401,41 @@ rows to `book_themes` until regenerated. `schema_version=3` is pinned by
 the server after model return so cache rows never reflect a model's
 accidental version emission.
 
+### Library stats v0 (PR9, 2026-05-17)
+
+`GET /library/v1/stats` returns a per-user roll-up of the
+`library_items` mirror joined with `book_insights` / `book_themes`:
+`total_books`, `finished_count`, `in_progress_count`, `top_authors`,
+`top_themes`, and a constant server-emitted `themes_caveat` string the
+client renders verbatim. There is no `abandoned_count` until an
+explicit abandoned status exists. Mode-gated on
+`OPDS_SYNC_PROGRESS_ENABLED` (lives next to the existing
+`/library/v1/items` router).
+
+The theme query uses a **DISTINCT-ON CTE that picks one
+`book_insights` row per `library_item`**, mirroring the lookup
+precedence already enforced by `service.py::_lookup_live`:
+`metadata_id`-priority match → `content_hash` fallback → most-recent
+`generated_at` tiebreaker. Three filters on that CTE are load-bearing
+and protect against silently-wrong aggregates:
+
+1. **`BookInsight.superseded_at IS NULL`** inside the CTE join —
+   without it, every regenerate against the same book double-counts
+   the new themes alongside the orphaned ones.
+2. **`BookTheme.confidence >= 1.0`** on the outer aggregation —
+   excludes off-vocab `confidence=0.5` strings so the leaderboard is
+   the controlled vocabulary only.
+3. **`COUNT(DISTINCT picked.library_item_pk)`** per theme — dedupes
+   the rare case where the picker resolves two library items onto the
+   same `book_insight` row.
+
+This DISTINCT-ON pattern is the recommended shape for any future
+endpoint that joins live insights (`book_insights`) to per-user
+library data: every consumer needs the same three guards or they
+diverge from `_lookup_live` on the AI surface and report different
+numbers for the same library. See `server/opds_sync/api/library.py`
+for the reference implementation.
+
 ### Android UI surfaces (batch 3, 2026-05-17)
 
 - **Inspect insight screen (PR6).** Book-detail overflow → "Inspect
@@ -421,6 +457,47 @@ accidental version emission.
   button (one AI call instead of two). The
   `POST /ai/v1/insights/regenerate` server endpoint is retained for
   admin/cluster tooling.
+
+### Android UI surfaces (batch 4, 2026-05-17)
+
+- **Catalog detail screen (PR7).** `CatalogDetailScreen` +
+  `CatalogDetailViewModel` reuse the existing `InsightSection`
+  composable so a catalog tile previews the same insight cards as the
+  book-detail screen — before download. Reached via a visible `info`
+  `IconButton` at the top-start of each catalog tile (long-press also
+  opens it). The previous bottom-sheet preview is gone; the library
+  info icon is retained. A `CatalogDetailRegistry` holds the OPDS
+  entry across navigation. `DocumentIdentity` was loosened in
+  `:core:model` to allow `metadata_id`-only payloads (no
+  `content_hash` until the EPUB body is on the device).
+- **Library Stats screen (PR9).** New `LibraryStatsScreen` +
+  `LibraryStatsViewModel` reached from the library menu's "Stats"
+  entry. Lives in the new `:data:library` Android module (the
+  `library/v1` HTTP client), which today exposes only `getStats`.
+
+#### Catalog identity vs post-download EPUB identity
+
+`CatalogDetailViewModel` synthesizes an identity for a pre-download
+catalog row by combining `metadata_id="opds-href:<sha256(href)>"`
+with all weaker hints the catalog entry provided: an `opds_href`
+alias, a `calibre_book_id` parsed from the download URL, and an
+`opds_dc_id` when the OPDS entry carries a `dc:identifier`. The
+server's identity-alias table (PR2) resolves all of those onto one
+canonical cache row.
+
+**Important: the `opds-href:<sha>` identity does NOT converge with
+the post-download EPUB identity.** Once a user downloads the book,
+the EPUB body produces a real `metadata_id` (from the OPF
+`dc:identifier`) and a `content_hash`; both live in a different
+identifier space than the synthetic `opds-href:<sha>`. The cache row
+that served the catalog preview and the cache row that serves the
+book-detail screen after download can therefore be two distinct
+rows for what is materially the same book. A future
+`POST /ai/v1/insights/promote` endpoint could unify them by
+upgrading the catalog row's canonical to the post-download
+identifiers and reconciling via the alias table. Not built today —
+double-spend on cold catalogs is rare enough that paying for the
+second generation when the user actually downloads is acceptable.
 
 ## Decision log
 

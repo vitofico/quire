@@ -97,6 +97,7 @@ USER=admin
 read -rs PASS && echo
 AUTH=$(printf '%s' "$USER:$PASS" | base64)
 curl -fsSk -H "Authorization: Basic $AUTH" "https://localhost/library/v1/items"
+curl -fsSk -H "Authorization: Basic $AUTH" "https://localhost/library/v1/stats" | jq
 curl -fsSk -H "Authorization: Basic $AUTH" "https://localhost/sync/v1/progress?since=0"
 
 # Calibre-web root (fall-through)
@@ -129,8 +130,8 @@ match the table in [Deploy modes](#deploy-modes).
 
 | Mode       | `OPDS_SYNC_PROGRESS_ENABLED` | `OPDS_SYNC_AI_ENABLED` | What the Caddy front-end serves                                  |
 | ---------- | ---------------------------- | ---------------------- | ---------------------------------------------------------------- |
-| Full stack | `true` (default)             | `true` (default)       | `/sync/v1/*` + `/library/v1/*` + `/ai/v1/*` + calibre-web at `/` |
-| Sync only  | `true`                       | `false`                | `/sync/v1/*` + `/library/v1/*` + calibre-web at `/`              |
+| Full stack | `true` (default)             | `true` (default)       | `/sync/v1/*` + `/library/v1/*` (items + stats) + `/ai/v1/*` + calibre-web at `/` |
+| Sync only  | `true`                       | `false`                | `/sync/v1/*` + `/library/v1/*` (items + stats) + calibre-web at `/` |
 | AI only    | `false`                      | `true`                 | `/ai/v1/*` only — drop the `calibre-web` service from the compose for a leaner stack |
 
 Set both flags in `.env`. Sync-only deploys don't need
@@ -147,11 +148,11 @@ for the branch-label convention. The image is published to
 
 ### Deploy modes
 
-| Mode             | `OPDS_SYNC_PROGRESS_ENABLED` | `OPDS_SYNC_AI_ENABLED` | Mounts                                            |
-| ---------------- | ---------------------------- | ---------------------- | ------------------------------------------------- |
-| Full stack       | `true` (default)             | `true` (default)       | `/sync/v1/*`, `/library/v1/*`, `/ai/v1/*`         |
-| Sync only        | `true`                       | `false`                | `/sync/v1/*`, `/library/v1/*`                     |
-| AI only          | `false`                      | `true`                 | `/ai/v1/*`                                        |
+| Mode             | `OPDS_SYNC_PROGRESS_ENABLED` | `OPDS_SYNC_AI_ENABLED` | Mounts                                                  |
+| ---------------- | ---------------------------- | ---------------------- | ------------------------------------------------------- |
+| Full stack       | `true` (default)             | `true` (default)       | `/sync/v1/*`, `/library/v1/*` (items + stats), `/ai/v1/*` |
+| Sync only        | `true`                       | `false`                | `/sync/v1/*`, `/library/v1/*` (items + stats)           |
+| AI only          | `false`                      | `true`                 | `/ai/v1/*`                                              |
 
 `/health` and `/readyz` are mounted on the root in every mode.
 
@@ -320,10 +321,17 @@ curl -fsS -H "Authorization: Basic $AUTH" "$BASE/items" | jq '.items[0]'
 
 curl -fsS -X DELETE -H "Authorization: Basic $AUTH" -H "Content-Type: application/json" \
   -d '{"item":{"content_hash":"smoketest"}}' "$BASE/items" | jq '.deleted_at'
+
+# Per-user stats roll-up (PR9, 2026-05-17). Joins library_items with
+# progress and the live book_insights cache.
+curl -fsS -H "Authorization: Basic $AUTH" "$BASE/stats" | jq
 ```
 
 Expect the PUT response to include server-assigned `created_at` /
 `updated_at` and `deleted_at: null`; GET without `since` returns the live
 row; DELETE returns the row with a populated `deleted_at`. A second DELETE
 is a no-op (timestamps preserved — see `docs/sync-api.md` for the
-tombstone semantics).
+tombstone semantics). The `/stats` response includes `total_books`,
+`finished_count`, `in_progress_count`, `top_authors`, `top_themes`, and
+a constant `themes_caveat` string — see `docs/sync-api.md` for the
+schema and the load-bearing DISTINCT-ON CTE rationale.
