@@ -81,5 +81,32 @@ class MigrationTest {
         }
     }
 
+    @Test fun `migrate 5 to 6 adds librarySyncedAt column defaulting to null`() {
+        helper.createDatabase(DB, 5).use { db ->
+            db.execSQL(
+                "INSERT INTO documents (id, metadataId, contentHash, title, author, downloadUrl, localPath, coverPath, downloadedAt, seriesName, seriesIndex) " +
+                    "VALUES (9, 'm9', 'h9', 'Pre-PR title', NULL, 'u', 'p', NULL, 19, NULL, NULL)"
+            )
+        }
+
+        helper.runMigrationsAndValidate(DB, 6, true, EReaderDatabase.MIGRATION_5_6).use { db ->
+            // Existing row survives with NULL librarySyncedAt — that's the
+            // signal the uploader uses to backfill.
+            db.query("SELECT librarySyncedAt FROM documents WHERE id=9").use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.isNull(0)).isTrue()
+            }
+            // New rows can write a non-null librarySyncedAt and read it back.
+            db.execSQL(
+                "INSERT INTO documents (id, metadataId, contentHash, title, author, downloadUrl, localPath, coverPath, downloadedAt, seriesName, seriesIndex, librarySyncedAt) " +
+                    "VALUES (10, 'm10', 'h10', 'Post-PR title', NULL, 'u', 'p', NULL, 20, NULL, NULL, 12345)"
+            )
+            db.query("SELECT librarySyncedAt FROM documents WHERE id=10").use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.getLong(0)).isEqualTo(12345L)
+            }
+        }
+    }
+
     private companion object { const val DB = "migration-test.db" }
 }

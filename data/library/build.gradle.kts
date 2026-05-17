@@ -21,6 +21,7 @@ android {
 
 dependencies {
     api(project(":core:model"))
+    implementation(project(":data:local"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)

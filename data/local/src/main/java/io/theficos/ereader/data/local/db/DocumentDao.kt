@@ -83,4 +83,16 @@ interface DocumentDao {
 
     @Query("DELETE FROM documents")
     suspend fun deleteAll()
+
+    /**
+     * Rows that haven't been uploaded to `/library/v1/items` yet. The uploader
+     * walks these on each app start and after every new download. Returns
+     * newest-first so the user-facing book they just downloaded reaches the
+     * server before the long tail of pre-existing backlog.
+     */
+    @Query("SELECT * FROM documents WHERE librarySyncedAt IS NULL ORDER BY downloadedAt DESC, id DESC")
+    suspend fun findUnsyncedToLibrary(): List<DocumentEntity>
+
+    @Query("UPDATE documents SET librarySyncedAt = :at WHERE id = :id")
+    suspend fun markLibrarySynced(id: Long, at: Long)
 }

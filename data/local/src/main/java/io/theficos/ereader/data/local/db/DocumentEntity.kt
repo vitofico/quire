@@ -27,4 +27,14 @@ data class DocumentEntity(
     val downloadedAt: Long,
     val seriesName: String? = null,
     val seriesIndex: Double? = null,
+    /**
+     * When this row was last successfully PUT to `/library/v1/items`.
+     * `null` means "not yet synced" — the upload pass picks these up.
+     * Existing rows backfill via the 5→6 migration as null, so the first
+     * post-update run uploads everything.
+     *
+     * Wall-clock millis (System.currentTimeMillis) — used only as a
+     * presence marker; we never compare it against server timestamps.
+     */
+    val librarySyncedAt: Long? = null,
 )

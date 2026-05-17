@@ -79,4 +79,86 @@ class LibraryClientTest {
             assertThat(e.body).contains("baseUrl not configured")
         }
     }
+
+    // ---- putItem ----
+
+    @Test
+    fun `putItem happyPath wraps payload under item and parses response`() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """
+                {
+                  "content_hash":"abc",
+                  "title":"Dune",
+                  "authors":["Frank Herbert"],
+                  "metadata_id":"m1",
+                  "series_name":"Dune",
+                  "series_index":1.0,
+                  "isbn":null,
+                  "language":null,
+                  "subjects":[],
+                  "opds_href":"/opds/dune.epub",
+                  "created_at":"2026-05-17T00:00:00+00:00",
+                  "updated_at":"2026-05-17T00:00:00+00:00",
+                  "deleted_at":null
+                }
+                """.trimIndent()
+            )
+        )
+
+        val out = client.putItem(
+            LibraryItemRequest(
+                contentHash = "abc",
+                title = "Dune",
+                authors = listOf("Frank Herbert"),
+                metadataId = "m1",
+                seriesName = "Dune",
+                seriesIndex = 1.0,
+                opdsHref = "/opds/dune.epub",
+            )
+        )
+
+        assertThat(out.contentHash).isEqualTo("abc")
+        assertThat(out.title).isEqualTo("Dune")
+        assertThat(out.authors).containsExactly("Frank Herbert")
+        assertThat(out.seriesIndex).isEqualTo(1.0)
+
+        val req = server.takeRequest()
+        assertThat(req.method).isEqualTo("PUT")
+        assertThat(req.path).isEqualTo("/library/v1/items")
+        val body = req.body.readUtf8()
+        // Verify the `{"item": {...}}` wrap.
+        assertThat(body).contains("\"item\":")
+        assertThat(body).contains("\"content_hash\":\"abc\"")
+        assertThat(body).contains("\"opds_href\":\"/opds/dune.epub\"")
+    }
+
+    @Test
+    fun `putItem 401 surfaces LibraryHttpException with code 401`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(401).setBody("unauthorized"))
+        try {
+            client.putItem(LibraryItemRequest(contentHash = "h", title = "t"))
+            error("expected throw")
+        } catch (e: LibraryHttpException) {
+            assertThat(e.code).isEqualTo(401)
+        }
+    }
+
+    @Test
+    fun `putItem 409 surfaces LibraryHttpException with code 409`() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(409).setBody(
+                """{"detail":{"error":"metadata_id_conflict","existing_content_hash":"other"}}"""
+            )
+        )
+        try {
+            client.putItem(
+                LibraryItemRequest(contentHash = "h", title = "t", metadataId = "m"),
+            )
+            error("expected throw")
+        } catch (e: LibraryHttpException) {
+            assertThat(e.code).isEqualTo(409)
+            assertThat(e.body).contains("metadata_id_conflict")
+        }
+    }
 }
