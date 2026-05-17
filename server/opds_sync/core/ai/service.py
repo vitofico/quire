@@ -23,7 +23,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Protocol
 
 from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from opds_sync.api.ai_schemas import (
     AiStyle,
@@ -123,6 +123,7 @@ class InsightOrchestrator:
         daily_budget: int = 200,
         regen_daily_limit: int = 3,
         health_state: AiHealthState | None = None,
+        session_factory: async_sessionmaker[AsyncSession] | None = None,
     ) -> None:
         self.ai = ai
         self.retriever_factory = retriever_factory
@@ -139,6 +140,15 @@ class InsightOrchestrator:
         # When None, the orchestrator silently skips health updates. Tests
         # that don't care about reachability state can omit it.
         self._health = health_state
+        # When set, `_retrieve` mints a fresh AsyncSession per source-lookup
+        # task so the two concurrent retriever calls don't race on a single
+        # asyncpg connection (which raises "This session is provisioning a
+        # new connection; concurrent operations are not permitted" and gets
+        # swallowed by asyncio.gather(..., return_exceptions=True)). When
+        # None (legacy / unit-test default), `_retrieve` falls back to the
+        # shared request-scoped session — fine for FakeRetriever stubs that
+        # never touch the DB.
+        self._session_factory = session_factory
 
     # ------- public API -------
 
@@ -567,16 +577,53 @@ class InsightOrchestrator:
         await session.commit()
 
     async def _retrieve(self, session: AsyncSession, bundle: MetadataBundle) -> list[Citation]:
-        retriever = self.retriever_factory(session)
-        tasks = []
-        if "wikipedia" in self.sources_enabled:
-            tasks.append(retriever.lookup_wikipedia(author=bundle.author, title=bundle.title))
-        if "openlibrary" in self.sources_enabled:
-            tasks.append(
-                retriever.lookup_openlibrary(
-                    author=bundle.author, title=bundle.title, isbn=bundle.isbn
+        # Each retrieval task must get its own AsyncSession when a factory is
+        # configured: SQLAlchemy AsyncSession (and the underlying asyncpg
+        # connection it provisions on first use) is not safe for concurrent
+        # `.execute()` calls. Sharing the request-scoped session across the
+        # wikipedia + openlibrary lookups under asyncio.gather raises
+        # "This session is provisioning a new connection; concurrent
+        # operations are not permitted" on the loser, which gather swallows
+        # via return_exceptions=True. Net effect in prod: openlibrary always
+        # lost the race, never issued an HTTP call, never recorded
+        # reachability, and never wrote a row to external_source_cache.
+        tasks: list = []
+        sessions: list[AsyncSession] = []
+
+        async def _run_with_own_session(coro_factory):
+            async with self._session_factory() as s:  # type: ignore[misc]
+                sessions.append(s)
+                retriever = self.retriever_factory(s)
+                return await coro_factory(retriever)
+
+        if self._session_factory is not None:
+            if "wikipedia" in self.sources_enabled:
+                tasks.append(
+                    _run_with_own_session(
+                        lambda r: r.lookup_wikipedia(author=bundle.author, title=bundle.title)
+                    )
                 )
-            )
+            if "openlibrary" in self.sources_enabled:
+                tasks.append(
+                    _run_with_own_session(
+                        lambda r: r.lookup_openlibrary(
+                            author=bundle.author, title=bundle.title, isbn=bundle.isbn
+                        )
+                    )
+                )
+        else:
+            # Legacy / test fallback: a single shared session. Safe only when
+            # the retriever is a stub that doesn't issue concurrent DB calls.
+            retriever = self.retriever_factory(session)
+            if "wikipedia" in self.sources_enabled:
+                tasks.append(retriever.lookup_wikipedia(author=bundle.author, title=bundle.title))
+            if "openlibrary" in self.sources_enabled:
+                tasks.append(
+                    retriever.lookup_openlibrary(
+                        author=bundle.author, title=bundle.title, isbn=bundle.isbn
+                    )
+                )
+
         if not tasks:
             return []
         results = await asyncio.gather(*tasks, return_exceptions=True)

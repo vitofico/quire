@@ -24,7 +24,7 @@ from opds_sync.api.middleware import RequestIDMiddleware, RequestSizeMiddleware
 from opds_sync.config import Settings, get_settings
 from opds_sync.core.auth import CalibreAuthValidator
 from opds_sync.core.logging_ctx import RequestIdLogFilter
-from opds_sync.db.session import configure, make_engine
+from opds_sync.db.session import configure, make_engine, make_session_factory
 
 
 def _validate_ai_auth_settings(settings: Settings) -> None:
@@ -100,7 +100,9 @@ def create_app() -> FastAPI:
         if not any(isinstance(f, RequestIdLogFilter) for f in _h.filters):
             _h.addFilter(_filter)
 
-    configure(make_engine(settings.database_url))
+    engine = make_engine(settings.database_url)
+    configure(engine)
+    session_factory = make_session_factory(engine)
 
     app = FastAPI(title="opds-sync", version="0.3.0")
 
@@ -180,6 +182,10 @@ def create_app() -> FastAPI:
                 daily_budget=settings.ai_daily_budget,
                 regen_daily_limit=settings.ai_regen_daily_limit,
                 health_state=ai_health,
+                # Per-task session factory: `_retrieve` mints a fresh
+                # AsyncSession per source-lookup so wikipedia + openlibrary
+                # don't race on a single asyncpg connection.
+                session_factory=session_factory,
             )
             app.state.ai_orchestrator = orch
             app.include_router(ai_router, prefix="/ai/v1")
