@@ -406,8 +406,7 @@ async def get_stats(
         )
     ).all()
     top_themes = [
-        TopTheme(theme=row.theme, count=int(row.c), note="v3+ insights only")
-        for row in theme_rows
+        TopTheme(theme=row.theme, count=int(row.c), note="v3+ insights only") for row in theme_rows
     ]
 
     return LibraryStatsResponse(

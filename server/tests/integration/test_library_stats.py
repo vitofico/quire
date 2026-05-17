@@ -171,9 +171,7 @@ async def test_in_progress_excludes_zero_percent(app_under_test, unique_user):
     assert data["in_progress_count"] == 1  # only b
 
 
-async def test_in_progress_includes_percent_one_without_finished_at(
-    app_under_test, unique_user
-):
+async def test_in_progress_includes_percent_one_without_finished_at(app_under_test, unique_user):
     """Edge case: percent=1 but finished_at IS NULL. Architect-reviewed
     semantics — "not done until the device says so". Still counts as in
     progress.
@@ -217,9 +215,7 @@ async def test_user_scoping(app_under_test, unique_user):
 # ---------------------------------------------------------------------------
 
 
-async def test_top_authors_groups_jsonb_and_orders_by_count_desc(
-    app_under_test, unique_user
-):
+async def test_top_authors_groups_jsonb_and_orders_by_count_desc(app_under_test, unique_user):
     transport = ASGITransport(app=app_under_test)
     headers = _basic(*unique_user)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
@@ -391,9 +387,7 @@ async def test_top_themes_basic(app_under_test, unique_user, session_factory):
 
 
 @pytest.mark.requires_ai
-async def test_top_themes_filters_superseded(
-    app_under_test, unique_user, session_factory
-):
+async def test_top_themes_filters_superseded(app_under_test, unique_user, session_factory):
     """Regenerate produces a new live row + supersedes the old. Old themes
     must NOT count. Filter 1 from the three load-bearing filters.
     """
@@ -449,9 +443,7 @@ async def test_top_themes_filters_off_vocab_confidence(
 
 
 @pytest.mark.requires_ai
-async def test_top_themes_dedup_across_tone_variants(
-    app_under_test, unique_user, session_factory
-):
+async def test_top_themes_dedup_across_tone_variants(app_under_test, unique_user, session_factory):
     """Same identity, two LIVE insight rows under different tones, SAME
     themes. Book counts ONCE per theme. Filter 3 from the three load-
     bearing filters (COUNT DISTINCT).
@@ -520,6 +512,7 @@ async def test_top_themes_picks_one_insight_per_book_when_variants_differ(
 
     async with session_factory() as s:
         from sqlalchemy import select as _sel
+
         seeded = (
             await s.execute(_sel(BookInsight).where(BookInsight.content_hash == "t-ch-vs"))
         ).scalar_one()

@@ -24,9 +24,7 @@ def test_library_stats_response_shape_and_defaults() -> None:
     assert dumped["finished_count"] == 1
     assert dumped["in_progress_count"] == 1
     assert dumped["top_authors"] == [{"name": "Asimov", "count": 2}]
-    assert dumped["top_themes"] == [
-        {"theme": "noir", "count": 1, "note": "v3+ insights only"}
-    ]
+    assert dumped["top_themes"] == [{"theme": "noir", "count": 1, "note": "v3+ insights only"}]
     assert "may be missing" in dumped["themes_caveat"]
 
 
