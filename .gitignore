@@ -17,3 +17,6 @@ captures/
 
 # Claude Code session state
 .claude/
+
+# Internal design specs and implementation plans (kept locally as reference)
+docs/superpowers/
