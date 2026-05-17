@@ -21,6 +21,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.outlined.Info
@@ -74,6 +75,7 @@ fun LibraryScreen(
     viewModel: LibraryViewModel,
     onOpenBook: (documentId: Long) -> Unit,
     onShowDetails: (documentId: Long) -> Unit = {},
+    onShowStats: () -> Unit = {},
     aiConfigured: Boolean = false,
     contentPadding: PaddingValues,
 ) {
@@ -148,6 +150,24 @@ fun LibraryScreen(
                                     },
                                 )
                             }
+                        }
+                    }
+                    var moreMenuOpen by rememberSaveable { mutableStateOf(false) }
+                    Box {
+                        IconButton(onClick = { moreMenuOpen = true }) {
+                            Icon(Icons.Filled.MoreVert, contentDescription = "More")
+                        }
+                        DropdownMenu(
+                            expanded = moreMenuOpen,
+                            onDismissRequest = { moreMenuOpen = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Stats") },
+                                onClick = {
+                                    moreMenuOpen = false
+                                    onShowStats()
+                                },
+                            )
                         }
                     }
                 }

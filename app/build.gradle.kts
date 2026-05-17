@@ -82,6 +82,7 @@ dependencies {
     implementation(project(":auth"))
     implementation(project(":data:sync"))
     implementation(project(":data:ai"))
+    implementation(project(":data:library"))
     implementation(project(":reader"))
     implementation(libs.work.runtime.ktx)
     implementation(libs.kotlinx.serialization.json)

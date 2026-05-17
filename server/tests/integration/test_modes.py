@@ -46,6 +46,10 @@ async def test_full_mode_mounts_everything(monkeypatch, postgres_url: str, alemb
         lib = await c.get("/library/v1/items", headers=_basic_header("alice"))
         assert lib.status_code != 404
 
+        # PR9 stats endpoint is part of the same router.
+        stats = await c.get("/library/v1/stats", headers=_basic_header("alice"))
+        assert stats.status_code != 404
+
         # AI router mounted: any response other than 404 confirms routing.
         ai = await c.get("/ai/v1/config", headers=_basic_header("alice"))
         assert ai.status_code != 404
@@ -77,6 +81,9 @@ async def test_ai_only_mode_excludes_progress(monkeypatch, postgres_url: str, al
         # Library namespace unmounted in AI-only mode.
         lib = await c.get("/library/v1/items", headers=_basic_header("alice"))
         assert lib.status_code == 404
+        # PR9 stats endpoint also rides on the progress gate.
+        stats = await c.get("/library/v1/stats", headers=_basic_header("alice"))
+        assert stats.status_code == 404
 
 
 async def test_neither_mode_only_mounts_health(monkeypatch, postgres_url: str, alembic_upgrade):
@@ -94,5 +101,7 @@ async def test_neither_mode_only_mounts_health(monkeypatch, postgres_url: str, a
         assert prog.status_code == 404
         lib = await c.get("/library/v1/items", headers=_basic_header("alice"))
         assert lib.status_code == 404
+        stats = await c.get("/library/v1/stats", headers=_basic_header("alice"))
+        assert stats.status_code == 404
         ai = await c.get("/ai/v1/config", headers=_basic_header("alice"))
         assert ai.status_code == 404

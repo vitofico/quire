@@ -23,6 +23,7 @@ include(
     ":core:identity",
     ":core:metadata",
     ":data:ai",
+    ":data:library",
     ":data:local",
     ":data:opds",
     ":data:sync",
