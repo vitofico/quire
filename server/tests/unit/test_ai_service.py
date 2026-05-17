@@ -631,3 +631,171 @@ async def test_generate_error_emits_structured_log(session: AsyncSession, caplog
     assert "error_class=RuntimeError" in msg
     # request_id surfaces on the record because the filter is on caplog.handler.
     assert getattr(rec, "request_id", "") == "req-err-xyz"
+
+
+# ---- Per-task AsyncSession in _retrieve ------------------------------------
+#
+# Regression for the asyncpg "This session is provisioning a new connection;
+# concurrent operations are not permitted" race. Pre-fix, both
+# `lookup_wikipedia` and `lookup_openlibrary` received the SAME AsyncSession
+# and ran concurrently under asyncio.gather. The loser raised on
+# `self._session.execute(...)` inside `_read_cache`; the exception was
+# swallowed by `gather(..., return_exceptions=True)`. In prod that meant
+# openlibrary never issued an HTTP call, never recorded reachability via
+# AiHealthState.record_retrieval, and never wrote a row to
+# external_source_cache. Verified live: wikipedia=7 cache rows /
+# openlibrary=0 rows despite 7 generated book_insights.
+
+import httpx as _httpx  # noqa: E402
+
+from opds_sync.core.ai.health_state import AiHealthState  # noqa: E402
+
+
+class _SessionRecordingRetriever:
+    """Retriever stub that records the AsyncSession it was constructed with
+    and invokes record_retrieval(success=True) for each lookup, mirroring
+    the real Retriever's reachability bookkeeping."""
+
+    def __init__(self, *, session, health: AiHealthState) -> None:
+        self.session = session
+        self.health = health
+        self.wiki_calls = 0
+        self.ol_calls = 0
+
+    async def lookup_wikipedia(self, *, author, title):
+        self.wiki_calls += 1
+        await self.health.record_retrieval(name="wikipedia", success=True)
+        return []
+
+    async def lookup_openlibrary(self, *, author, title, isbn):
+        self.ol_calls += 1
+        await self.health.record_retrieval(name="openlibrary", success=True)
+        return []
+
+
+@pytest.mark.asyncio
+async def test_retrieve_uses_per_task_sessions_so_both_sources_run(session: AsyncSession, engine):
+    """Both wikipedia and openlibrary must record reachability after one
+    generation. Pre-fix this failed because the shared-session race
+    swallowed openlibrary's task before it could record."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    health = AiHealthState()
+    factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    built_retrievers: list[_SessionRecordingRetriever] = []
+
+    def _retriever_factory(s):
+        r = _SessionRecordingRetriever(session=s, health=health)
+        built_retrievers.append(r)
+        return r
+
+    orch = InsightOrchestrator(
+        ai=FakeAIClient(),
+        retriever_factory=_retriever_factory,
+        sources_enabled=("wikipedia", "openlibrary"),
+        model_id="test-model",
+        prompt_version="t1",
+        max_concurrency=4,
+        ai_timeout_s=5.0,
+        health_state=health,
+        session_factory=factory,
+    )
+
+    ident = DocumentIdentity(metadata_id=None, content_hash="ch-per-task-session")
+    await orch.generate(session, ident, MetadataBundle(title="X"), user_id="u1")
+
+    # Both sources observably called.
+    wiki_total = sum(r.wiki_calls for r in built_retrievers)
+    ol_total = sum(r.ol_calls for r in built_retrievers)
+    assert wiki_total == 1, f"expected 1 wikipedia call, got {wiki_total}"
+    assert ol_total == 1, f"expected 1 openlibrary call, got {ol_total}"
+
+    # Both record_retrieval calls landed in the health snapshot.
+    snap = await health.snapshot()
+    assert "wikipedia" in snap.retrieval_sources
+    assert "openlibrary" in snap.retrieval_sources
+    assert snap.retrieval_sources["wikipedia"].reachable is True
+    assert snap.retrieval_sources["openlibrary"].reachable is True
+
+    # Each task got its own AsyncSession (distinct instances), not the
+    # shared request-scoped one.
+    retriever_sessions = [r.session for r in built_retrievers]
+    assert len(retriever_sessions) >= 2
+    assert len({id(s) for s in retriever_sessions}) == len(retriever_sessions), (
+        "retriever tasks must not share an AsyncSession"
+    )
+    assert session not in retriever_sessions, (
+        "per-task sessions must be freshly minted, not the orchestrator's session"
+    )
+
+
+class _PartialFailRetriever:
+    """One source raises httpx.ConnectError; the other succeeds. Lets us
+    confirm the gather-with-return_exceptions pattern still gives partial
+    success after the per-task-session refactor."""
+
+    def __init__(self, *, session, health: AiHealthState, fail: str) -> None:
+        self.session = session
+        self.health = health
+        self.fail = fail
+        self.wiki_called = False
+        self.ol_called = False
+
+    async def lookup_wikipedia(self, *, author, title):
+        self.wiki_called = True
+        if self.fail == "wikipedia":
+            raise _httpx.ConnectError("simulated wiki outage")
+        await self.health.record_retrieval(name="wikipedia", success=True)
+        return []
+
+    async def lookup_openlibrary(self, *, author, title, isbn):
+        self.ol_called = True
+        if self.fail == "openlibrary":
+            raise _httpx.ConnectError("simulated ol outage")
+        await self.health.record_retrieval(name="openlibrary", success=True)
+        return []
+
+
+@pytest.mark.asyncio
+async def test_retrieve_partial_failure_does_not_kill_sibling(session: AsyncSession, engine):
+    """If one retrieval task raises, the other must still complete and
+    record reachability. The gather(..., return_exceptions=True) pattern
+    must survive the per-task-session refactor."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    health = AiHealthState()
+    factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    built: list[_PartialFailRetriever] = []
+
+    def _factory(s):
+        r = _PartialFailRetriever(session=s, health=health, fail="wikipedia")
+        built.append(r)
+        return r
+
+    orch = InsightOrchestrator(
+        ai=FakeAIClient(),
+        retriever_factory=_factory,
+        sources_enabled=("wikipedia", "openlibrary"),
+        model_id="test-model",
+        prompt_version="t1",
+        max_concurrency=4,
+        ai_timeout_s=5.0,
+        health_state=health,
+        session_factory=factory,
+    )
+
+    ident = DocumentIdentity(metadata_id=None, content_hash="ch-partial-fail")
+    # Generate must succeed even though wikipedia raised.
+    out = await orch.generate(session, ident, MetadataBundle(title="X"), user_id="u1")
+    assert out.payload.intro  # AI step still ran
+
+    assert any(r.wiki_called for r in built), "wikipedia task should still have been invoked"
+    assert any(r.ol_called for r in built), "openlibrary task should still have been invoked"
+
+    snap = await health.snapshot()
+    # openlibrary recorded success; wikipedia did not record (it raised
+    # before reaching record_retrieval, which mirrors the real Retriever
+    # behavior where httpx.ConnectError records success=False — here our
+    # stub just raises raw to exercise the gather path).
+    assert "openlibrary" in snap.retrieval_sources
+    assert snap.retrieval_sources["openlibrary"].reachable is True
