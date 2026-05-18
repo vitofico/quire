@@ -70,7 +70,14 @@ class LibraryViewModelTest {
         )
     }
 
-    @After fun tearDown() { db.close(); server.shutdown(); Dispatchers.resetMain() }
+    @After fun tearDown() {
+        // Reset the Main dispatcher unconditionally — if db.close()/server.shutdown()
+        // throw, an un-reset Main pollutes the next test's setMain() with an
+        // IllegalStateException and cascades lateinit failures across the suite.
+        runCatching { db.close() }
+        runCatching { server.shutdown() }
+        Dispatchers.resetMain()
+    }
 
     private suspend fun seedDoc(file: File): Document {
         val id = db.documentDao().insert(DocumentEntity(

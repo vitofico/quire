@@ -70,9 +70,12 @@ class CatalogViewModelTest {
     }
 
     @After fun tearDown() {
-        db.close()
-        server.shutdown()
-        booksDir.deleteRecursively()
+        // Reset the Main dispatcher unconditionally — if any of the cleanup
+        // steps throw, an un-reset Main pollutes the next test's setMain() and
+        // cascades lateinit failures across the suite.
+        runCatching { db.close() }
+        runCatching { server.shutdown() }
+        runCatching { booksDir.deleteRecursively() }
         Dispatchers.resetMain()
     }
 
