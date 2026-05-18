@@ -74,8 +74,14 @@ fun BookDetailScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (doc != null) {
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                    Text(doc.title, style = MaterialTheme.typography.headlineSmall)
+                Column(
+                    modifier = Modifier.padding(
+                        start = 16.dp,
+                        end = 16.dp,
+                        top = 0.dp,
+                        bottom = 12.dp,
+                    ),
+                ) {
                     doc.author?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
                     Spacer(Modifier.height(4.dp))
                     TextButton(onClick = { onOpenReader(doc.id) }) { Text("Open in reader") }

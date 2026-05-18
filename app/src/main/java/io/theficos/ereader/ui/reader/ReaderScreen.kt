@@ -31,6 +31,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.lifecycleScope
+import io.theficos.ereader.MainActivity
 import io.theficos.ereader.data.sync.SyncEnqueuer
 import io.theficos.ereader.reader.ReaderPreferences
 import io.theficos.ereader.reader.toEpubPreferences
@@ -46,6 +47,11 @@ fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
     val state by viewModel.state.collectAsState()
     val preferences by viewModel.preferences.collectAsState()
     val chromeVisible by viewModel.chromeVisible.collectAsState()
+    val liveLocator by viewModel.currentLocator.collectAsState()
+    val positions by viewModel.positions.collectAsState()
+    var dragPercent by remember { mutableStateOf<Double?>(null) }
+    var dragPreview by remember { mutableStateOf<Locator?>(null) }
+    val isDragging = dragPercent != null
     var showFontSheet by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
@@ -68,9 +74,16 @@ fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
         }
     }
 
+    val mainActivity = LocalContext.current as MainActivity
+    DisposableEffect(mainActivity) {
+        mainActivity.onBeforeReaderConfigChange = { viewModel.beginViewportResize() }
+        onDispose { mainActivity.onBeforeReaderConfigChange = null }
+    }
+
     LaunchedEffect(Unit) { viewModel.load() }
-    LaunchedEffect(chromeVisible) {
-        if (chromeVisible) {
+
+    LaunchedEffect(chromeVisible, isDragging) {
+        if (chromeVisible && !isDragging) {
             delay(2_500)
             viewModel.setChromeVisible(false)
         }
@@ -90,6 +103,7 @@ fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
                     onPrev = viewModel::pageBackward,
                     onNext = viewModel::pageForward,
                     onToggleChrome = viewModel::toggleChrome,
+                    onPageLoaded = viewModel::completeViewportResize,
                 )
 
                 ReaderTopBar(
@@ -99,11 +113,34 @@ fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
                     onOverflow = { showFontSheet = true },
                     modifier = Modifier.align(Alignment.TopCenter),
                 )
+                val positionsList = positions
+                val locationTotal = positionsList?.size?.takeIf { it > 0 }
+                val locationIndex = dragPercent?.let { p ->
+                    locationTotal?.let { total ->
+                        (p.coerceIn(0.0, 1.0) * (total - 1)).toInt().coerceIn(0, total - 1) + 1
+                    }
+                }
                 ReaderBottomBar(
                     visible = chromeVisible,
-                    chapterTitle = s.initialLocator?.title,
-                    percent = s.savedProgress?.percent ?: 0.0,
-                    onSeek = { /* deferred — Phase 2 wires actual jump */ },
+                    chapterTitle = dragPreview?.title
+                        ?: liveLocator?.title
+                        ?: s.initialLocator?.title,
+                    percent = dragPreview?.locations?.let { it.totalProgression ?: it.progression }
+                        ?: liveLocator?.locations?.let { it.totalProgression ?: it.progression }
+                        ?: s.savedProgress?.percent ?: 0.0,
+                    enabled = positionsList?.isNotEmpty() == true,
+                    isDragging = isDragging,
+                    locationIndex = locationIndex,
+                    locationTotal = locationTotal,
+                    onSeekChange = { p ->
+                        dragPercent = p
+                        dragPreview = viewModel.previewLocator(p)
+                    },
+                    onSeekFinished = {
+                        dragPercent?.let { viewModel.seek(it) }
+                        dragPercent = null
+                        dragPreview = null
+                    },
                     modifier = Modifier.align(Alignment.BottomCenter),
                 )
 
@@ -129,6 +166,7 @@ private fun ReaderContent(
     onPrev: () -> Unit,
     onNext: () -> Unit,
     onToggleChrome: () -> Unit,
+    onPageLoaded: () -> Unit,
 ) {
     val activity = LocalContext.current as FragmentActivity
     val containerId = rememberSaveable { View.generateViewId() }
@@ -165,9 +203,22 @@ private fun ReaderContent(
     DisposableEffect(publication) {
         val fm = activity.supportFragmentManager
         val factory = EpubNavigatorFactory(publication)
+        // onPageChanged fires after the WebView re-paginates (both on user page turns
+        // and on resize-driven re-pagination) — that's the moment the navigator can
+        // honor go(anchor) precisely. onPageLoaded fires earlier, when chapter HTML
+        // loads, before the WebView has settled its column geometry, so calling
+        // go(anchor) there lands at chapter start instead. The VM gates the callback
+        // on pendingRotationAnchor so normal page turns are no-ops.
+        val paginationListener = object : EpubNavigatorFragment.PaginationListener {
+            override fun onPageChanged(pageIndex: Int, totalPages: Int, locator: Locator) {
+                onPageLoaded()
+            }
+            override fun onPageLoaded() {}
+        }
         fm.fragmentFactory = factory.createFragmentFactory(
             initialLocator = initialLocator,
             initialPreferences = preferences.toEpubPreferences(),
+            paginationListener = paginationListener,
         )
         val nav = (fm.fragmentFactory.instantiate(
             activity.classLoader,

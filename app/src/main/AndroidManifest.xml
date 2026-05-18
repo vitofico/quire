@@ -11,9 +11,19 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
         android:theme="@style/Theme.Quire">
+        <!-- configChanges keeps the Activity alive across rotation/keyboard/navigation
+             changes. Required because EpubNavigatorFragment has no no-arg constructor:
+             on Activity recreation, FragmentManager.restoreSaveStateInternal tries to
+             instantiate it via reflection before our custom FragmentFactory has been
+             installed (the factory is set inside Compose, well after super.onCreate),
+             and the restore crashes with Fragment$InstantiationException. Compose
+             handles configuration changes natively via LocalConfiguration, so keeping
+             the Activity alive is safe. uiMode/locale/density/fontScale intentionally
+             stay off the list so theme and locale changes still recreate. -->
         <activity
             android:name="io.theficos.ereader.MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
