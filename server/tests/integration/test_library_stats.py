@@ -1,7 +1,7 @@
 """Integration tests for `GET /library/v1/stats` (PR9).
 
 Mode-gated: requires_progress. The CI mode matrix skips this whole module
-when OPDS_SYNC_PROGRESS_ENABLED=false; the mode-gated 404 case is asserted
+when QUIRE_SERVER_PROGRESS_ENABLED=false; the mode-gated 404 case is asserted
 in test_modes.py once routing is verified.
 
 Theme tests additionally require AI mode for the orchestrator-seeded
@@ -20,9 +20,9 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from opds_sync.api.ai_schemas import DocumentIdentity, MetadataBundle
-from opds_sync.core.ai.service import InsightOrchestrator
-from opds_sync.db.models import BookInsight, BookTheme
+from quire_server.api.ai_schemas import DocumentIdentity, MetadataBundle
+from quire_server.core.ai.service import InsightOrchestrator
+from quire_server.db.models import BookInsight, BookTheme
 
 pytestmark = pytest.mark.requires_progress
 

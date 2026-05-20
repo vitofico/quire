@@ -27,10 +27,13 @@
 A self-hosted reading stack for people who already run [calibre-web]:
 
 - **Quire** — native Android EPUB reader (Kotlin / Compose / Readium).
-- **opds-sync** — small FastAPI service that stores reading progress
-  (and later bookmarks) in Postgres.
+- **Quire Server** — small FastAPI service that stores reading progress
+  (and later bookmarks) in Postgres. Formerly named `opds-sync`; the
+  Python package is now `quire_server` and the container image is
+  `ghcr.io/vitofico/quire-server` (the legacy `ghcr.io/vitofico/opds-sync`
+  tag is dual-published for one release cycle).
 
-calibre-web stays the source of truth for books. opds-sync is the
+calibre-web stays the source of truth for books. Quire Server is the
 source of truth for reading state. Quire reconciles both on the device.
 
 ```
@@ -38,7 +41,7 @@ source of truth for reading state. Quire reconciles both on the device.
                                               │
                                               │  HTTPS + same Basic creds
                                               ▼
-                                        [opds-sync]
+                                       [quire-server]
                                               │
                                               ▼
                                          [Postgres]
@@ -58,34 +61,35 @@ That's harder than it sounds in the self-hosted world:
 - **Stock OPDS readers** on Android either don't sync reading position
   to a server you control, or sync it through a vendor cloud.
 
-So `opds-sync` is the piece that was missing: a small, reader-agnostic
-progress server that speaks OPDS-style document identity and uses your
-**calibre-web account as the only credential** — no second IdP, no
-separate sync account. Quire is the Android client built against it;
-nothing in the server design is Quire-specific.
+So Quire Server (originally shipped as `opds-sync`) is the piece that
+was missing: a small, reader-agnostic progress server that speaks
+OPDS-style document identity and uses your **calibre-web account as
+the only credential** — no second IdP, no separate sync account. Quire
+is the Android client built against it; nothing in the server design
+is Quire-specific.
 
 ## Privacy
 
 - No analytics, no crash reporting, no third-party SDKs.
-- Network calls go to your calibre-web instance and your opds-sync server.
+- Network calls go to your calibre-web instance and your Quire Server.
   If your administrator has enabled AI features and you have opted in,
-  opds-sync will additionally call the AI endpoint your administrator
+  Quire Server will additionally call the AI endpoint your administrator
   configured (such as a self-hosted Ollama, or a third-party provider you
   have chosen) and the public Wikipedia and OpenLibrary APIs to ground the
   generated insights. None of these AI-related calls happen unless you
   opt in from Quire's settings; the Android app itself talks only to your
-  calibre-web instance and your opds-sync server.
+  calibre-web instance and your Quire Server.
 - Credentials are stored in Android Keystore (hardware-backed where the
   device supports it).
 
 ## AI features (optional)
 
 Quire optionally calls AI for book insights and library analysis. AI is
-**off by default**. The opds-sync admin enables it server-side by
+**off by default**. The Quire Server admin enables it server-side by
 configuring an OpenAI-compatible endpoint (Ollama, llama.cpp, vLLM,
 OpenAI, OpenRouter, …); each user then opts in from Quire's settings.
 
-When enabled, opds-sync sends the EPUB metadata (title, author,
+When enabled, Quire Server sends the EPUB metadata (title, author,
 publisher, description, subjects) of books a user opens to the
 configured AI endpoint, plus deterministic queries to Wikipedia and
 OpenLibrary to ground the generated insights with citations. The
@@ -108,7 +112,7 @@ calibre-web URL on first launch. F-Droid listing is planned.
 For the sync server, see [`server/README.md`](server/README.md) — it
 ships two reference docker-compose files (`docker-compose.yml` for
 "bring your own proxy"; `docker-compose.full.yml` for a Caddy-fronted
-full stack with calibre-web + opds-sync + TLS behind one base URL).
+full stack with calibre-web + quire-server + TLS behind one base URL).
 
 ## Roadmap
 
@@ -141,8 +145,8 @@ cd server
 uv venv && source .venv/bin/activate
 uv pip install -e ".[dev]"
 uv run pytest                                  # spins up Postgres in Docker
-OPDS_SYNC_CWA_BASE_URL=https://library.example.com \
-  uv run uvicorn opds_sync.main:app --reload   # http://localhost:8000
+QUIRE_SERVER_CWA_BASE_URL=https://library.example.com \
+  uv run uvicorn quire_server.main:app --reload   # http://localhost:8000
 ```
 
 ## Repo layout
@@ -154,10 +158,10 @@ core/identity/        Document identity: hash + dc:identifier normalization
 core/model/           Domain types (Document, Progress, Bookmark)
 data/local/           Room database, DAOs
 data/opds/            calibre-web OPDS client
-data/sync/            opds-sync REST client + WorkManager job
-data/library/         opds-sync /library/v1 HTTP client (stats today)
+data/sync/            quire-server REST client + WorkManager job
+data/library/         quire-server /library/v1 HTTP client (stats today)
 reader/               Readium navigator integration
-server/               opds-sync (Python / FastAPI)
+server/               quire-server (Python / FastAPI; formerly opds-sync)
 docs/                 Architecture, development, sync API reference
 scripts/dgradle       Gradle wrapper that runs inside the project's Docker image
 Dockerfile            Reproducible Android build environment (linux/amd64)
@@ -169,7 +173,7 @@ Dockerfile            Reproducible Android build environment (linux/amd64)
   identity, sync model, conflict resolution, auth.
 - [`docs/development.md`](docs/development.md) — module layout, build
   commands, testing, CI, releases.
-- [`docs/sync-api.md`](docs/sync-api.md) — REST surface of `opds-sync`.
+- [`docs/sync-api.md`](docs/sync-api.md) — REST surface of Quire Server.
 
 ## Contributing
 

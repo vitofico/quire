@@ -29,11 +29,17 @@ def pytest_collection_modifyitems(config, items):
     def _flag(name: str) -> bool:
         return os.environ.get(name, "true").strip().lower() in {"1", "true", "yes", "on"}
 
-    progress_on = _flag("OPDS_SYNC_PROGRESS_ENABLED")
-    ai_on = _flag("OPDS_SYNC_AI_ENABLED")
+    def _resolved_flag(new_name: str, legacy_name: str) -> bool:
+        # Prefer the new prefix; fall back to the legacy one (back-compat).
+        if new_name in os.environ:
+            return _flag(new_name)
+        return _flag(legacy_name)
 
-    skip_progress = pytest.mark.skip(reason="OPDS_SYNC_PROGRESS_ENABLED=false")
-    skip_ai = pytest.mark.skip(reason="OPDS_SYNC_AI_ENABLED=false")
+    progress_on = _resolved_flag("QUIRE_SERVER_PROGRESS_ENABLED", "OPDS_SYNC_PROGRESS_ENABLED")
+    ai_on = _resolved_flag("QUIRE_SERVER_AI_ENABLED", "OPDS_SYNC_AI_ENABLED")
+
+    skip_progress = pytest.mark.skip(reason="QUIRE_SERVER_PROGRESS_ENABLED=false")
+    skip_ai = pytest.mark.skip(reason="QUIRE_SERVER_AI_ENABLED=false")
 
     for item in items:
         if "requires_progress" in item.keywords and not progress_on:
@@ -129,15 +135,15 @@ def basic_header():
 @pytest.fixture
 def app_under_test(postgres_url, alembic_upgrade, monkeypatch, cwa_transport):
     """A FastAPI app wired to the test Postgres + a mock CWA transport."""
-    monkeypatch.setenv("OPDS_SYNC_DATABASE_URL", postgres_url)
-    monkeypatch.setenv("OPDS_SYNC_CWA_BASE_URL", "http://test-cwa")
+    monkeypatch.setenv("QUIRE_SERVER_DATABASE_URL", postgres_url)
+    monkeypatch.setenv("QUIRE_SERVER_CWA_BASE_URL", "http://test-cwa")
 
-    from opds_sync.config import get_settings
+    from quire_server.config import get_settings
 
     get_settings.cache_clear()
 
-    from opds_sync.core.auth import CalibreAuthValidator
-    from opds_sync.main import create_app
+    from quire_server.core.auth import CalibreAuthValidator
+    from quire_server.main import create_app
 
     app = create_app()
     test_client = httpx.AsyncClient(

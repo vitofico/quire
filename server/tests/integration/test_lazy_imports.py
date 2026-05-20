@@ -7,7 +7,7 @@ PR-A requires that:
 
 We use subprocess isolation (not `importlib.reload`) because module caches in
 the test process bleed between cases and there's no honest way to "undo" an
-import. The subprocess imports opds_sync.main, calls create_app(), then
+import. The subprocess imports quire_server.main, calls create_app(), then
 prints sys.modules so the parent can assert.
 """
 
@@ -22,16 +22,16 @@ import pytest
 
 # Modules that should NOT load in sync-only mode (provider boundary).
 SYNC_ONLY_FORBIDDEN = [
-    "opds_sync.api.ai",
-    "opds_sync.core.ai.client",
-    "opds_sync.core.ai.retrieval",
-    "opds_sync.core.ai.service",
-    "opds_sync.core.ai.prompts",
+    "quire_server.api.ai",
+    "quire_server.core.ai.client",
+    "quire_server.core.ai.retrieval",
+    "quire_server.core.ai.service",
+    "quire_server.core.ai.prompts",
 ]
 
 # Modules that should NOT load in ai-only mode.
 AI_ONLY_FORBIDDEN = [
-    "opds_sync.api.progress",
+    "quire_server.api.progress",
 ]
 
 
@@ -40,9 +40,9 @@ def _run_in_subprocess(env_overrides: dict[str, str], postgres_url: str) -> set[
     code = textwrap.dedent(
         """
         import json, sys
-        from opds_sync.config import get_settings
+        from quire_server.config import get_settings
         get_settings.cache_clear()
-        import opds_sync.main as m
+        import quire_server.main as m
         # Calling create_app() (not just importing the module) triggers any
         # mode-gated imports. Both paths must stay lazy in non-AI modes.
         m.create_app()
@@ -51,8 +51,8 @@ def _run_in_subprocess(env_overrides: dict[str, str], postgres_url: str) -> set[
     ).strip()
 
     env = {
-        "OPDS_SYNC_DATABASE_URL": postgres_url,
-        "OPDS_SYNC_CWA_BASE_URL": "http://test-cwa",
+        "QUIRE_SERVER_DATABASE_URL": postgres_url,
+        "QUIRE_SERVER_CWA_BASE_URL": "http://test-cwa",
         "PATH": "/usr/bin:/bin",
     }
     env.update(env_overrides)
@@ -80,8 +80,8 @@ def _run_in_subprocess(env_overrides: dict[str, str], postgres_url: str) -> set[
 def test_sync_only_does_not_import_ai_modules(postgres_url: str):
     loaded = _run_in_subprocess(
         {
-            "OPDS_SYNC_PROGRESS_ENABLED": "true",
-            "OPDS_SYNC_AI_ENABLED": "false",
+            "QUIRE_SERVER_PROGRESS_ENABLED": "true",
+            "QUIRE_SERVER_AI_ENABLED": "false",
         },
         postgres_url,
     )
@@ -92,8 +92,8 @@ def test_sync_only_does_not_import_ai_modules(postgres_url: str):
 def test_ai_only_does_not_import_progress_router(postgres_url: str):
     loaded = _run_in_subprocess(
         {
-            "OPDS_SYNC_PROGRESS_ENABLED": "false",
-            "OPDS_SYNC_AI_ENABLED": "true",
+            "QUIRE_SERVER_PROGRESS_ENABLED": "false",
+            "QUIRE_SERVER_AI_ENABLED": "true",
         },
         postgres_url,
     )
@@ -104,8 +104,8 @@ def test_ai_only_does_not_import_progress_router(postgres_url: str):
 def test_neither_mode_loads_neither(postgres_url: str):
     loaded = _run_in_subprocess(
         {
-            "OPDS_SYNC_PROGRESS_ENABLED": "false",
-            "OPDS_SYNC_AI_ENABLED": "false",
+            "QUIRE_SERVER_PROGRESS_ENABLED": "false",
+            "QUIRE_SERVER_AI_ENABLED": "false",
         },
         postgres_url,
     )

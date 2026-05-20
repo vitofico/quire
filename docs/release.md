@@ -37,9 +37,22 @@ tag — tracked as a follow-up.
 
 Container starts run `python /app/scripts/migrate.py`, which upgrades
 the unlabeled `0001..0004` backbone and then `alembic upgrade
-<branch>@head` for each branch enabled by `OPDS_SYNC_PROGRESS_ENABLED`
-and `OPDS_SYNC_AI_ENABLED`. Sync-only and AI-only deployments skip the
+<branch>@head` for each branch enabled by `QUIRE_SERVER_PROGRESS_ENABLED`
+and `QUIRE_SERVER_AI_ENABLED`. Sync-only and AI-only deployments skip the
 other branch's migrations silently. See `server/migrations/README.md`.
+
+### Post-release cluster operator checklist (server rename)
+
+The rename release publishes both `ghcr.io/vitofico/quire-server:<sha>`
+and `ghcr.io/vitofico/quire-server:latest` AND keeps the legacy
+`ghcr.io/vitofico/opds-sync:<sha>` / `:latest` tags pointing at the same
+digest for one cycle. The Quire repo does **not** modify any cluster
+manifests; that work is an operational ticket against
+`theficos-cluster` covering, in order: (1) additive apply of the new
+Secret / ConfigMap / Deployment / Service for `quire-server`, (2)
+`/readyz` green on the new pod, (3) flip the calibre-web ingress
+backend, (4) remove the old `opds-sync` resources after the next
+release cycle confirms the new name is healthy.
 
 ## One-time keystore setup
 

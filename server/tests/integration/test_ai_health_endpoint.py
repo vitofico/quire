@@ -12,14 +12,14 @@ import json
 import httpx
 import pytest
 
-from opds_sync.core.ai.client import (
+from quire_server.core.ai.client import (
     AIClient,
     ProviderRejected,
     ProviderTimeout,
     ProviderUnreachable,
 )
-from opds_sync.core.ai.health_state import AiHealthState
-from opds_sync.core.ai.service import InsightOrchestrator
+from quire_server.core.ai.health_state import AiHealthState
+from quire_server.core.ai.service import InsightOrchestrator
 
 # All tests in this file hit /ai/v1/* and so require the ai router.
 pytestmark = pytest.mark.requires_ai

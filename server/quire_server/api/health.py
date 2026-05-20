@@ -18,8 +18,8 @@ from fastapi import APIRouter, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
-from opds_sync.config import get_settings
-from opds_sync.db.session import session_scope
+from quire_server.config import get_settings
+from quire_server.db.session import session_scope
 
 router = APIRouter(tags=["health"])
 

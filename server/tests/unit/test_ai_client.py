@@ -3,8 +3,8 @@ import json
 import httpx
 import pytest
 
-from opds_sync.api.ai_schemas import BookInsightPayload
-from opds_sync.core.ai.client import AIClient, ProviderParseError, ProviderTimeout
+from quire_server.api.ai_schemas import BookInsightPayload
+from quire_server.core.ai.client import AIClient, ProviderParseError, ProviderTimeout
 
 
 def _make_chat_response(content: str) -> dict:
@@ -143,7 +143,7 @@ async def test_no_auth_header_when_key_absent():
 
 @pytest.mark.asyncio
 async def test_4xx_raises_provider_rejected_with_status():
-    from opds_sync.core.ai.client import ProviderRejected
+    from quire_server.core.ai.client import ProviderRejected
 
     handler = httpx.MockTransport(lambda req: httpx.Response(429, json={"error": "rate_limited"}))
     client = AIClient(base_url="http://fake/v1", api_key=None, model="m", transport=handler)
@@ -154,7 +154,7 @@ async def test_4xx_raises_provider_rejected_with_status():
 
 @pytest.mark.asyncio
 async def test_5xx_raises_provider_unreachable():
-    from opds_sync.core.ai.client import ProviderUnreachable
+    from quire_server.core.ai.client import ProviderUnreachable
 
     handler = httpx.MockTransport(lambda req: httpx.Response(503, text="upstream down"))
     client = AIClient(base_url="http://fake/v1", api_key=None, model="m", transport=handler)

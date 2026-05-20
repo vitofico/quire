@@ -4,13 +4,13 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from opds_sync.config import get_settings
-from opds_sync.db.models import Base
+from quire_server.config import get_settings
+from quire_server.db.models import Base
 
 config = context.config
 if config.config_file_name is not None:
     # disable_existing_loggers=False: without this, fileConfig DISABLES every
-    # logger that was created before alembic ran (including all `opds_sync.*`
+    # logger that was created before alembic ran (including all `quire_server.*`
     # loggers). The migrate.py wrapper invokes env.py during container start,
     # so production process loggers would arrive at request-handling time
     # already disabled — silencing structured logs like `event=ai.generate.error`.
@@ -24,13 +24,16 @@ def _ensure_url() -> None:
 
     Priority:
     1. Already set by caller (e.g. test fixture via cfg.set_main_option)
-    2. OPDS_SYNC_DATABASE_URL env var / pydantic settings
+    2. QUIRE_SERVER_DATABASE_URL env var / pydantic settings (the legacy
+       prefix is still accepted via _env_compat for one release cycle —
+       see server/quire_server/_env_compat.py).
     3. alembic.ini default (localhost fallback)
 
     We only override if the config still holds the ini default, so test
     fixtures that call cfg.set_main_option() before command.upgrade() win.
     """
     url = config.get_main_option("sqlalchemy.url")
+    # DB name remains `opds_sync` as a deliberate non-rename (Lock #20).
     ini_default = "postgresql+asyncpg://postgres:postgres@localhost:5432/opds_sync"
     if not url or url == ini_default:
         settings_url = get_settings().database_url

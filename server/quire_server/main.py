@@ -1,13 +1,14 @@
 """FastAPI app factory. Mounts routers conditionally based on deploy mode flags.
 
-PR-A introduces three deploy modes controlled by env vars:
-  * OPDS_SYNC_PROGRESS_ENABLED=true (default) → /sync/v1/* mounted
-  * OPDS_SYNC_AI_ENABLED=true (default) → /ai/v1/* mounted + AI orchestrator wired
+PR-A introduces three deploy modes controlled by env vars (the legacy
+prefix is also accepted for one release cycle — see _env_compat.py):
+  * QUIRE_SERVER_PROGRESS_ENABLED=true (default) → /sync/v1/* mounted
+  * QUIRE_SERVER_AI_ENABLED=true (default) → /ai/v1/* mounted + AI orchestrator wired
 
 Always-on regardless of mode: /health and /readyz.
 
-Provider lazy-import boundary: opds_sync.core.ai.* and opds_sync.api.ai
-import only inside the ai_enabled block. opds_sync.api.progress imports only
+Provider lazy-import boundary: quire_server.core.ai.* and quire_server.api.ai
+import only inside the ai_enabled block. quire_server.api.progress imports only
 inside the progress_enabled block. This keeps sync-only and ai-only deploys
 from paying the cost of the other domain's modules.
 """
@@ -19,12 +20,12 @@ import logging
 import httpx
 from fastapi import FastAPI
 
-from opds_sync.api import health
-from opds_sync.api.middleware import RequestIDMiddleware, RequestSizeMiddleware
-from opds_sync.config import Settings, get_settings
-from opds_sync.core.auth import CalibreAuthValidator
-from opds_sync.core.logging_ctx import RequestIdLogFilter
-from opds_sync.db.session import configure, make_engine, make_session_factory
+from quire_server.api import health
+from quire_server.api.middleware import RequestIDMiddleware, RequestSizeMiddleware
+from quire_server.config import Settings, get_settings
+from quire_server.core.auth import CalibreAuthValidator
+from quire_server.core.logging_ctx import RequestIdLogFilter
+from quire_server.db.session import configure, make_engine, make_session_factory
 
 
 def _validate_ai_auth_settings(settings: Settings) -> None:
@@ -41,25 +42,28 @@ def _validate_ai_auth_settings(settings: Settings) -> None:
     secrets = settings.ai_token_secrets
     if not isinstance(secrets, dict) or not secrets:
         raise RuntimeError(
-            "OPDS_SYNC_AI_AUTH_MODE=token requires OPDS_SYNC_AI_TOKEN_SECRETS "
+            "QUIRE_SERVER_AI_AUTH_MODE=token requires QUIRE_SERVER_AI_TOKEN_SECRETS "
             "to be a non-empty JSON object mapping kid -> secret"
         )
     for kid, secret in secrets.items():
         if not isinstance(kid, str) or not kid:
             raise RuntimeError(
-                "OPDS_SYNC_AI_TOKEN_SECRETS has an empty kid; every kid must be a non-empty string"
+                "QUIRE_SERVER_AI_TOKEN_SECRETS has an empty kid; "
+                "every kid must be a non-empty string"
             )
         if not isinstance(secret, str):
-            raise RuntimeError(f"OPDS_SYNC_AI_TOKEN_SECRETS[{kid!r}] must be a string")
+            raise RuntimeError(f"QUIRE_SERVER_AI_TOKEN_SECRETS[{kid!r}] must be a string")
         if len(secret.encode("utf-8")) < 32:
             raise RuntimeError(
-                f"OPDS_SYNC_AI_TOKEN_SECRETS[{kid!r}] is shorter than 32 bytes; "
+                f"QUIRE_SERVER_AI_TOKEN_SECRETS[{kid!r}] is shorter than 32 bytes; "
                 "use a random 32+ byte secret"
             )
     if not settings.ai_token_issuer or not settings.ai_token_issuer.strip():
-        raise RuntimeError("OPDS_SYNC_AI_AUTH_MODE=token requires OPDS_SYNC_AI_TOKEN_ISSUER")
+        raise RuntimeError("QUIRE_SERVER_AI_AUTH_MODE=token requires QUIRE_SERVER_AI_TOKEN_ISSUER")
     if not settings.ai_token_audience or not settings.ai_token_audience.strip():
-        raise RuntimeError("OPDS_SYNC_AI_AUTH_MODE=token requires OPDS_SYNC_AI_TOKEN_AUDIENCE")
+        raise RuntimeError(
+            "QUIRE_SERVER_AI_AUTH_MODE=token requires QUIRE_SERVER_AI_TOKEN_AUDIENCE"
+        )
 
 
 def _build_ai_authenticator(settings: Settings, validator: CalibreAuthValidator):
@@ -69,7 +73,7 @@ def _build_ai_authenticator(settings: Settings, validator: CalibreAuthValidator)
     lazy alongside the rest of the AI imports — sync-only deploys never pay
     for the HMAC / token code.
     """
-    from opds_sync.api.ai_auth import (
+    from quire_server.api.ai_auth import (
         BasicAuthAiAuthenticator,
         TokenAiAuthenticator,
     )
@@ -104,7 +108,7 @@ def create_app() -> FastAPI:
     configure(engine)
     session_factory = make_session_factory(engine)
 
-    app = FastAPI(title="opds-sync", version="0.3.0")
+    app = FastAPI(title="quire-server", version="0.3.0")
 
     httpx_client = httpx.AsyncClient(timeout=settings.cwa_probe_timeout_s)
     app.state.httpx_client = httpx_client
@@ -129,8 +133,8 @@ def create_app() -> FastAPI:
         # Lazy import: only pull progress + library routers when progress mode
         # is on. The `library_items` migration lives on the `progress` alembic
         # branch, so the gate must match for the table to exist.
-        from opds_sync.api.library import router as library_router
-        from opds_sync.api.progress import router as progress_router
+        from quire_server.api.library import router as library_router
+        from quire_server.api.progress import router as progress_router
 
         app.include_router(progress_router, prefix="/sync/v1")
         app.include_router(library_router, prefix="/library/v1")
@@ -148,11 +152,11 @@ def create_app() -> FastAPI:
             # This is the "provider lazy-import boundary" — keeps the openai-client
             # surface (httpx wrapper today; possibly the openai SDK tomorrow) and
             # the Wikipedia/OpenLibrary clients out of sync-only deploys.
-            from opds_sync.api.ai import router as ai_router
-            from opds_sync.core.ai.client import AIClient
-            from opds_sync.core.ai.health_state import AiHealthState
-            from opds_sync.core.ai.retrieval import Retriever
-            from opds_sync.core.ai.service import InsightOrchestrator
+            from quire_server.api.ai import router as ai_router
+            from quire_server.core.ai.client import AIClient
+            from quire_server.core.ai.health_state import AiHealthState
+            from quire_server.core.ai.retrieval import Retriever
+            from quire_server.core.ai.service import InsightOrchestrator
 
             ai_client = AIClient(
                 base_url=settings.ai_base_url,
@@ -194,8 +198,8 @@ def create_app() -> FastAPI:
             # so the /ai/v1/config endpoint can report `configured: false`.
             # The authenticator is already wired above, so token-mode deploys
             # still require valid Bearer tokens on /config (no silent downgrade).
-            from opds_sync.api.ai import router as ai_router
-            from opds_sync.core.ai.health_state import AiHealthState
+            from quire_server.api.ai import router as ai_router
+            from quire_server.core.ai.health_state import AiHealthState
 
             # Attach an empty holder so GET /ai/v1/health returns an all-null
             # snapshot rather than the "defensive empty body" branch.

@@ -3,6 +3,9 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
+      # DB role / DB name remain 'opds_sync' as a deliberate non-rename
+      # (Lock #20). The Python package and image are 'quire_server' /
+      # 'quire-server' respectively.
       POSTGRES_USER: opds_sync
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
       POSTGRES_DB: opds_sync
@@ -14,21 +17,23 @@ services:
       timeout: 5s
       retries: 10
 
-  opds-sync:
-    image: ghcr.io/vitofico/opds-sync:latest
+  quire-server:
+    image: ghcr.io/vitofico/quire-server:latest
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      OPDS_SYNC_DATABASE_URL: postgresql+asyncpg://opds_sync:${POSTGRES_PASSWORD:-changeme}@postgres:5432/opds_sync
-      OPDS_SYNC_CWA_BASE_URL: ${OPDS_SYNC_CWA_BASE_URL}
-      OPDS_SYNC_LOG_LEVEL: ${OPDS_SYNC_LOG_LEVEL:-INFO}
+      # New QUIRE_SERVER_* prefix preferred; the server still accepts the
+      # legacy OPDS_SYNC_* names for one release cycle (see server/README.md).
+      QUIRE_SERVER_DATABASE_URL: postgresql+asyncpg://opds_sync:${POSTGRES_PASSWORD:-changeme}@postgres:5432/opds_sync
+      QUIRE_SERVER_CWA_BASE_URL: ${QUIRE_SERVER_CWA_BASE_URL:-${OPDS_SYNC_CWA_BASE_URL}}
+      QUIRE_SERVER_LOG_LEVEL: ${QUIRE_SERVER_LOG_LEVEL:-${OPDS_SYNC_LOG_LEVEL:-INFO}}
     ports:
-      - "${OPDS_SYNC_PORT:-8000}:8000"
+      - "${QUIRE_SERVER_PORT:-${OPDS_SYNC_PORT:-8000}}:8000"
     command: >
       sh -c "python /app/scripts/migrate.py &&
-             uvicorn opds_sync.main:app --host 0.0.0.0 --port 8000"
+             uvicorn quire_server.main:app --host 0.0.0.0 --port 8000"
 
 volumes:
   opds_sync_pg:

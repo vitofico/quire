@@ -33,8 +33,8 @@ jobs:
       # parameterize their own expectations; mode-agnostic tests run in every
       # cell to surface any regression that only shows up under a non-default
       # configuration.
-      OPDS_SYNC_PROGRESS_ENABLED: ${{ matrix.mode != 'ai_only' && 'true' || 'false' }}
-      OPDS_SYNC_AI_ENABLED: ${{ matrix.mode != 'sync_only' && 'true' || 'false' }}
+      QUIRE_SERVER_PROGRESS_ENABLED: ${{ matrix.mode != 'ai_only' && 'true' || 'false' }}
+      QUIRE_SERVER_AI_ENABLED: ${{ matrix.mode != 'sync_only' && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
       - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
@@ -47,6 +47,63 @@ jobs:
       - name: Lint
         if: matrix.mode == 'full'
         run: uv run ruff check . && uv run ruff format --check .
+      - name: Install ripgrep (rename guard)
+        if: matrix.mode == 'full'
+        run: |
+          if ! command -v rg >/dev/null; then
+            sudo apt-get update && sudo apt-get install -y ripgrep
+          fi
+      - name: Rename guard self-test
+        if: matrix.mode == 'full'
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -e
+          # Proves the rename-guard regex catches the previously-missed
+          # OPDS_SYNC_FOO pattern (the v1 plan's regex relied on \b after
+          # `_`, which is not a word boundary before letters).
+          tmp=$(mktemp /tmp/rename-guard-self-test-XXXX.txt)
+          printf 'OPDS_SYNC_AI_ENABLED: true\n' > "$tmp"
+          if ! rg -P '\bopds[-_]sync\b|(?<![A-Z0-9_])OPDS_SYNC_[A-Z0-9_]*' "$tmp" >/dev/null; then
+            echo "::error::Rename guard regex failed self-test (did NOT match OPDS_SYNC_AI_ENABLED)."
+            rm -f "$tmp"
+            exit 1
+          fi
+          rm -f "$tmp"
+      - name: Rename guard
+        if: matrix.mode == 'full'
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -o pipefail
+          # Lock #20 allowlist:
+          #   .claude/, CHANGELOG.md, server/migrations/versions/,
+          #   root README.md, the _env_compat helper itself,
+          #   server/docker-compose*.yml, server/alembic.ini,
+          #   server/.env.example (DB-name / deprecation refs).
+          # Defensive: env-compat tests + tests/conftest.py + the import-graph
+          # regression test reference the legacy names by design.
+          if rg -n -P '\bopds[-_]sync\b|(?<![A-Z0-9_])OPDS_SYNC_[A-Z0-9_]*' \
+                -g '!.claude/**' \
+                -g '!CHANGELOG.md' \
+                -g '!docs/release.md' \
+                -g '!docs/development.md' \
+                -g '!server/migrations/versions/*.py' \
+                -g '!README.md' \
+                -g '!server/quire_server/_env_compat.py' \
+                -g '!server/quire_server/config.py' \
+                -g '!server/docker-compose.yml' \
+                -g '!server/docker-compose.full.yml' \
+                -g '!server/alembic.ini' \
+                -g '!server/migrations/env.py' \
+                -g '!server/.env.example' \
+                -g '!server/tests/conftest.py' \
+                -g '!server/tests/unit/test_env_compat.py' \
+                -g '!server/tests/unit/test_settings_env_compat.py' \
+                -g '!server/tests/unit/test_no_stale_opds_sync_imports.py' \
+                -g '!server/tests/integration/test_migrate_env_compat.py' \
+                . ; then
+            echo "::error::Rename guard found un-allowlisted OPDS_SYNC / opds-sync / opds_sync references."
+            exit 1
+          fi
       - name: Test
         run: uv run pytest -v
 
@@ -72,6 +129,8 @@ jobs:
           sbom: true
           provenance: mode=max
           tags: |
+            ghcr.io/${{ github.repository_owner }}/quire-server:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/quire-server:latest
             ghcr.io/${{ github.repository_owner }}/opds-sync:${{ github.sha }}
             ghcr.io/${{ github.repository_owner }}/opds-sync:latest
 
@@ -95,7 +154,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
-          image-ref: ghcr.io/${{ github.repository_owner }}/opds-sync:${{ github.sha }}
+          image-ref: ghcr.io/${{ github.repository_owner }}/quire-server:${{ github.sha }}
           format: sarif
           output: trivy.sarif
           severity: HIGH,CRITICAL

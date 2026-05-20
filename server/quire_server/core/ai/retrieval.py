@@ -26,9 +26,9 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from opds_sync.api.ai_schemas import Citation
-from opds_sync.core.ai.health_state import AiHealthState
-from opds_sync.db.models import ExternalSourceCacheEntry
+from quire_server.api.ai_schemas import Citation
+from quire_server.core.ai.health_state import AiHealthState
+from quire_server.db.models import ExternalSourceCacheEntry
 
 logger = logging.getLogger(__name__)
 
@@ -191,7 +191,7 @@ class Retriever:
     def _http(self) -> httpx.AsyncClient:
         kwargs: dict = {
             "timeout": httpx.Timeout(self._timeout_s, connect=min(self._timeout_s, 5.0)),
-            "headers": {"User-Agent": "opds-sync/ai-retrieval"},
+            "headers": {"User-Agent": "quire-server/ai-retrieval"},
         }
         if self._transport is not None:
             kwargs["transport"] = self._transport

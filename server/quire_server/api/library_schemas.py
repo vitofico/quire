@@ -129,7 +129,7 @@ class TopTheme(BaseModel):
 # Public copy lives here so both the endpoint and (eventually) the docs page
 # can reference the same string. Honest wording (architect review,
 # 2026-05-17): the query gates on presence of `book_themes` rows, not on a
-# specific `prompt_version` threshold — `OPDS_SYNC_AI_PROMPT_VERSION` is
+# specific `prompt_version` threshold — `QUIRE_SERVER_AI_PROMPT_VERSION` is
 # operator-configured and may not be pinned to "4" in every deployment.
 LIBRARY_STATS_THEMES_CAVEAT: str = (
     "Theme stats include books with AI theme data; older cached insights "

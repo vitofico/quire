@@ -1,6 +1,6 @@
 # Migrations — branch label convention
 
-This directory holds Alembic migrations for the opds-sync server. As of PR-A
+This directory holds Alembic migrations for the Quire Server. As of PR-A
 (2026-05-16), migrations split into three forward-only branches off the linear
 backbone `0001 → 0002 → 0003 → 0004`.
 
@@ -97,10 +97,11 @@ The container entrypoint runs `python /app/scripts/migrate.py`, not
 `alembic upgrade head`. The wrapper:
 
 1. Always upgrades the unlabeled backbone (today: `0004`).
-2. For each enabled+materialized branch (per `OPDS_SYNC_PROGRESS_ENABLED` and
-   `OPDS_SYNC_AI_ENABLED`), runs `alembic upgrade <branch>@head`.
+2. For each enabled+materialized branch (per `QUIRE_SERVER_PROGRESS_ENABLED` and
+   `QUIRE_SERVER_AI_ENABLED`; the legacy prefix is accepted for one cycle —
+   see `quire_server/_env_compat.py`), runs `alembic upgrade <branch>@head`.
 
-So a sync-only deploy with `OPDS_SYNC_AI_ENABLED=false` never advances the
+So a sync-only deploy with `QUIRE_SERVER_AI_ENABLED=false` never advances the
 DB past `0004` on the AI side, regardless of what ai migrations exist in the
 script directory.
 

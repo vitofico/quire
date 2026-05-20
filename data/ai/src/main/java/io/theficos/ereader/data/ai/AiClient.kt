@@ -14,7 +14,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
 /**
- * REST client for the AI endpoints on opds-sync.
+ * REST client for the AI endpoints on quire-server.
  *
  * Auth: relies on the OkHttpClient already having BasicAuthInterceptor wired
  * (the same one used by :data:sync). This client does not add headers.

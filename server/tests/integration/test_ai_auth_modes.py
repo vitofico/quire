@@ -1,6 +1,6 @@
 """End-to-end tests for the AI auth mode switch (PR-B).
 
-Spins up the FastAPI app with `OPDS_SYNC_AI_AUTH_MODE` set to each value,
+Spins up the FastAPI app with `QUIRE_SERVER_AI_AUTH_MODE` set to each value,
 then verifies that:
 
 * `basic` mode rejects Bearer tokens (Authorization header doesn't decode as
@@ -28,9 +28,9 @@ import httpx
 import pytest
 from sqlalchemy import select
 
-from opds_sync.core.ai.client import AIClient
-from opds_sync.core.ai.service import InsightOrchestrator
-from opds_sync.db.models import AIGenerationLog
+from quire_server.core.ai.client import AIClient
+from quire_server.core.ai.service import InsightOrchestrator
+from quire_server.db.models import AIGenerationLog
 
 pytestmark = pytest.mark.requires_ai
 
@@ -38,7 +38,7 @@ pytestmark = pytest.mark.requires_ai
 _SECRET_1 = "k1-" + "x" * 32  # >= 32 utf-8 bytes
 _SECRET_2 = "k2-" + "y" * 32
 _ISS = "quire-cloud"
-_AUD = "opds-sync"
+_AUD = "quire-server"
 
 
 def _b64url(b: bytes) -> str:

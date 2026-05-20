@@ -29,7 +29,7 @@ data class LibraryStatsResponse(
 /**
  * Body of `PUT /library/v1/items` — the identity (`content_hash`) travels in
  * the JSON body, not the path. Mirrors
- * `server/opds_sync/api/library_schemas.py:LibraryItemRequest`.
+ * `server/quire_server/api/library_schemas.py:LibraryItemRequest`.
  *
  * `series_index` is a wire-side double — the server stores it as Postgres
  * `Numeric` for exactness, but serializes as a JSON number (float-64 is

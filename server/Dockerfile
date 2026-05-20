@@ -18,15 +18,19 @@ RUN pip install --no-cache-dir uv && uv venv "$VIRTUAL_ENV"
 
 # Source needs to be present so setuptools can discover the package.
 COPY pyproject.toml ./
-COPY opds_sync ./opds_sync
+COPY quire_server ./quire_server
 RUN uv pip install "."
 
 COPY migrations ./migrations
 COPY scripts ./scripts
 COPY alembic.ini ./
 
+LABEL org.opencontainers.image.title="quire-server" \
+      org.opencontainers.image.source="https://github.com/vitofico/quire" \
+      org.opencontainers.image.description="Quire Server"
+
 EXPOSE 8000
 # Entrypoint: run the migrate wrapper (per-branch, mode-aware) then start the app.
-# The wrapper reads OPDS_SYNC_PROGRESS_ENABLED / OPDS_SYNC_AI_ENABLED and runs
-# alembic upgrades only for the enabled branches. See scripts/migrate.py.
-CMD ["sh", "-c", "python /app/scripts/migrate.py && exec uvicorn opds_sync.main:app --host 0.0.0.0 --port 8000"]
+# The wrapper reads QUIRE_SERVER_PROGRESS_ENABLED / QUIRE_SERVER_AI_ENABLED
+# (the legacy prefix is still accepted for one release cycle).
+CMD ["sh", "-c", "python /app/scripts/migrate.py && exec uvicorn quire_server.main:app --host 0.0.0.0 --port 8000"]

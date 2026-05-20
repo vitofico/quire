@@ -25,7 +25,7 @@ from typing import Protocol
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from opds_sync.api.ai_schemas import (
+from quire_server.api.ai_schemas import (
     AiStyle,
     BookInsightPayload,
     BookInsightResponse,
@@ -34,18 +34,18 @@ from opds_sync.api.ai_schemas import (
     MetadataBundle,
     SeriesInsight,
 )
-from opds_sync.core.ai.health_state import AiHealthState
-from opds_sync.core.ai.identity import (
+from quire_server.core.ai.health_state import AiHealthState
+from quire_server.core.ai.identity import (
     IDENTITY_HIERARCHY,
     CanonicalIdentity,
     load_live_insight_ids_for_canonicals,
     reconcile_aliases,
     resolve_identity,
 )
-from opds_sync.core.ai.prompts import SYSTEM_PROMPT, compose_user_prompt
-from opds_sync.core.ai.themes import normalize_theme
-from opds_sync.core.logging_ctx import request_id_var
-from opds_sync.db.models import AIGenerationLog, AIUsageDaily, BookInsight, BookTheme
+from quire_server.core.ai.prompts import SYSTEM_PROMPT, compose_user_prompt
+from quire_server.core.ai.themes import normalize_theme
+from quire_server.core.logging_ctx import request_id_var
+from quire_server.db.models import AIGenerationLog, AIUsageDaily, BookInsight, BookTheme
 
 logger = logging.getLogger(__name__)
 

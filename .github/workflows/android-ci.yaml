@@ -92,6 +92,52 @@ jobs:
           echo "VERSION_NAME=$VERSION" >> "$GITHUB_ENV"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Building version $VERSION"
+      - name: Install ripgrep (rename guard)
+        run: |
+          if ! command -v rg >/dev/null; then
+            sudo apt-get update && sudo apt-get install -y ripgrep
+          fi
+      - name: Rename guard self-test
+        run: |
+          set -e
+          # Proves the rename-guard regex catches OPDS_SYNC_<X> patterns.
+          tmp=$(mktemp /tmp/rename-guard-self-test-XXXX.txt)
+          printf 'OPDS_SYNC_AI_ENABLED: true\n' > "$tmp"
+          if ! rg -P '\bopds[-_]sync\b|(?<![A-Z0-9_])OPDS_SYNC_[A-Z0-9_]*' "$tmp" >/dev/null; then
+            echo "::error::Rename guard regex failed self-test (did NOT match OPDS_SYNC_AI_ENABLED)."
+            rm -f "$tmp"
+            exit 1
+          fi
+          rm -f "$tmp"
+      - name: Rename guard
+        run: |
+          set -o pipefail
+          # Mirror of the server-ci rename guard. Lives here too because
+          # server-ci is path-filtered to server/** and would not run for
+          # Android-side regressions that smuggle in legacy names.
+          if rg -n -P '\bopds[-_]sync\b|(?<![A-Z0-9_])OPDS_SYNC_[A-Z0-9_]*' \
+                -g '!.claude/**' \
+                -g '!CHANGELOG.md' \
+                -g '!docs/release.md' \
+                -g '!docs/development.md' \
+                -g '!server/migrations/versions/*.py' \
+                -g '!README.md' \
+                -g '!server/quire_server/_env_compat.py' \
+                -g '!server/quire_server/config.py' \
+                -g '!server/docker-compose.yml' \
+                -g '!server/docker-compose.full.yml' \
+                -g '!server/alembic.ini' \
+                -g '!server/migrations/env.py' \
+                -g '!server/.env.example' \
+                -g '!server/tests/conftest.py' \
+                -g '!server/tests/unit/test_env_compat.py' \
+                -g '!server/tests/unit/test_settings_env_compat.py' \
+                -g '!server/tests/unit/test_no_stale_opds_sync_imports.py' \
+                -g '!server/tests/integration/test_migrate_env_compat.py' \
+                . ; then
+            echo "::error::Rename guard found un-allowlisted OPDS_SYNC / opds-sync / opds_sync references."
+            exit 1
+          fi
       - name: Assemble debug APK
         run: ./gradlew assembleDebug --stacktrace
       - name: Unit tests

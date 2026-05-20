@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from opds_sync.core.identity import normalize_metadata_id
+from quire_server.core.identity import normalize_metadata_id
 
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "identity" / "fixtures.json"
 

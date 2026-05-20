@@ -13,9 +13,9 @@ import httpx
 import pytest
 from sqlalchemy import select
 
-from opds_sync.core.ai.client import AIClient
-from opds_sync.core.ai.service import InsightOrchestrator
-from opds_sync.db.models import BookInsight
+from quire_server.core.ai.client import AIClient
+from quire_server.core.ai.service import InsightOrchestrator
+from quire_server.db.models import BookInsight
 
 # All tests in this file hit /ai/v1/* and so require the ai router.
 pytestmark = pytest.mark.requires_ai

@@ -1,6 +1,6 @@
 """Mode-gated router mounting tests.
 
-Verifies that OPDS_SYNC_PROGRESS_ENABLED / OPDS_SYNC_AI_ENABLED correctly
+Verifies that QUIRE_SERVER_PROGRESS_ENABLED / QUIRE_SERVER_AI_ENABLED correctly
 include or exclude the per-domain routers while keeping /health and /readyz
 always mounted.
 """
@@ -19,14 +19,14 @@ def _basic_header(user: str, password: str = "x") -> dict[str, str]:
 
 def _build_app(monkeypatch, postgres_url: str, *, progress_enabled: bool, ai_enabled: bool):
     """Build a fresh app with the given mode flags."""
-    monkeypatch.setenv("OPDS_SYNC_DATABASE_URL", postgres_url)
-    monkeypatch.setenv("OPDS_SYNC_CWA_BASE_URL", "http://test-cwa")
-    monkeypatch.setenv("OPDS_SYNC_PROGRESS_ENABLED", "true" if progress_enabled else "false")
-    monkeypatch.setenv("OPDS_SYNC_AI_ENABLED", "true" if ai_enabled else "false")
-    from opds_sync.config import get_settings
+    monkeypatch.setenv("QUIRE_SERVER_DATABASE_URL", postgres_url)
+    monkeypatch.setenv("QUIRE_SERVER_CWA_BASE_URL", "http://test-cwa")
+    monkeypatch.setenv("QUIRE_SERVER_PROGRESS_ENABLED", "true" if progress_enabled else "false")
+    monkeypatch.setenv("QUIRE_SERVER_AI_ENABLED", "true" if ai_enabled else "false")
+    from quire_server.config import get_settings
 
     get_settings.cache_clear()
-    from opds_sync.main import create_app
+    from quire_server.main import create_app
 
     return create_app()
 

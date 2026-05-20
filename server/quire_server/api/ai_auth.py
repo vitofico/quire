@@ -53,8 +53,8 @@ from typing import Annotated, Literal, Protocol
 
 from fastapi import Depends, HTTPException, Request, status
 
-from opds_sync.core.auth import CalibreAuthValidator
-from opds_sync.core.logging_ctx import request_id_var
+from quire_server.core.auth import CalibreAuthValidator
+from quire_server.core.logging_ctx import request_id_var
 
 logger = logging.getLogger(__name__)
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from opds_sync.api.library_schemas import (
+from quire_server.api.library_schemas import (
     LIBRARY_STATS_THEMES_CAVEAT,
     LibraryStatsResponse,
     TopAuthor,

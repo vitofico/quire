@@ -9,7 +9,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import ASGIApp
 
-from opds_sync.core.logging_ctx import request_id_var
+from quire_server.core.logging_ctx import request_id_var
 
 # Practical cap so a misbehaving client can't blow up log lines.
 _MAX_REQUEST_ID_LEN = 128

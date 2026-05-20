@@ -1,4 +1,4 @@
-"""Request-scoped logging context for opds-sync.
+"""Request-scoped logging context for quire-server.
 
 The request_id ContextVar is set by RequestIDMiddleware on every inbound HTTP
 request and read by RequestIdLogFilter to inject the ID into structured logs.

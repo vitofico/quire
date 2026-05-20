@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from opds_sync.core.ai.themes import (
+from quire_server.core.ai.themes import (
     CONTROLLED_THEMES,
     OTHER_CONFIDENCE,
     VOCAB_CONFIDENCE,

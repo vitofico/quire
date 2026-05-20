@@ -337,7 +337,7 @@ class LibraryItem(Base):
 # lookup, so we do NOT need a separate index on `book_insight_id`. The
 # `theme` index covers PR9-style `GROUP BY theme` queries.
 #
-# Confidence band semantics (see opds_sync.core.ai.themes.normalize_theme):
+# Confidence band semantics (see quire_server.core.ai.themes.normalize_theme):
 #   * 1.0 — the model picked a controlled-vocab term
 #   * 0.5 — off-vocab raw passthrough (or empty-input fallback to "other")
 # ============================================================================

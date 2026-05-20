@@ -1,7 +1,7 @@
 import pytest
 from sqlalchemy import inspect, select
 
-from opds_sync.db.models import Document
+from quire_server.db.models import Document
 
 
 async def test_schema_round_trip(session) -> None:
@@ -157,7 +157,7 @@ async def test_library_items_table_exists(engine) -> None:
 @pytest.mark.requires_ai
 async def test_ai_generation_log_round_trip(session) -> None:
     """ORM model writes and reads ai_generation_log rows."""
-    from opds_sync.db.models import AIGenerationLog, BookInsight
+    from quire_server.db.models import AIGenerationLog, BookInsight
 
     insight = BookInsight(
         metadata_id=None,
