@@ -108,5 +108,64 @@ class MigrationTest {
         }
     }
 
+    @Test fun `migrate 6 to 7 creates book_insights table and indices`() {
+        helper.createDatabase(DB, 6).use { db ->
+            // Seed a row in `documents` to assert it survives the migration.
+            db.execSQL(
+                "INSERT INTO documents (id, metadataId, contentHash, title, author, downloadUrl, " +
+                    "localPath, coverPath, downloadedAt, seriesName, seriesIndex, librarySyncedAt) " +
+                    "VALUES (11, 'm11', 'h11', 'Pre-η title', NULL, 'u', 'p', NULL, 21, NULL, NULL, NULL)"
+            )
+        }
+
+        helper.runMigrationsAndValidate(DB, 7, true, EReaderDatabase.MIGRATION_6_7).use { db ->
+            // book_insights table exists with the expected columns.
+            db.query("PRAGMA table_info('book_insights')").use { c ->
+                val cols = mutableSetOf<String>()
+                while (c.moveToNext()) {
+                    cols += c.getString(c.getColumnIndexOrThrow("name"))
+                }
+                assertThat(cols).containsAtLeast(
+                    "identityKey", "metadataId", "contentHash", "modelId", "promptVersion",
+                    "tone", "language", "payloadJson", "sourcesJson", "schemaVersion",
+                    "serverId", "generatedAt", "syncedAt",
+                )
+            }
+            // All four indices present by their contracted names.
+            db.query(
+                "SELECT name FROM sqlite_master WHERE type='index' " +
+                    "AND name IN ('index_book_insights_syncedAt'," +
+                    " 'index_book_insights_metadataId'," +
+                    " 'index_book_insights_contentHash'," +
+                    " 'index_book_insights_cursor')"
+            ).use { c ->
+                val idx = mutableSetOf<String>()
+                while (c.moveToNext()) idx += c.getString(0)
+                assertThat(idx).hasSize(4)
+            }
+            // Pre-existing v6 row survives the additive migration.
+            db.query("SELECT COUNT(*) FROM documents WHERE id=11").use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.getInt(0)).isEqualTo(1)
+            }
+            // New table accepts a round-trip insert at the PK shape.
+            db.execSQL(
+                "INSERT INTO book_insights (identityKey, metadataId, contentHash, modelId, " +
+                    "promptVersion, tone, language, payloadJson, sourcesJson, schemaVersion, " +
+                    "serverId, generatedAt, syncedAt) VALUES " +
+                    "('m11', 'm11', 'h11', 'llama3.1', '4', 'neutral', 'auto', '{}', '[]', 4, " +
+                    "42, 1000, 1100)"
+            )
+            db.query(
+                "SELECT serverId, generatedAt FROM book_insights " +
+                    "WHERE identityKey='m11' AND modelId='llama3.1' AND promptVersion='4'"
+            ).use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.getLong(0)).isEqualTo(42L)
+                assertThat(c.getLong(1)).isEqualTo(1000L)
+            }
+        }
+    }
+
     private companion object { const val DB = "migration-test.db" }
 }
