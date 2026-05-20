@@ -3,6 +3,13 @@
 PROMPT_VERSION is part of the cache key for `book_insights`. Bump it whenever
 the system prompt or schema is changed in a way that materially affects
 output. Do NOT bump it for typo fixes or whitespace.
+
+The runtime source of truth is THIS CONSTANT — ``quire_server/main.py``
+constructs the InsightOrchestrator with this value via
+``core/ai/_compat.py::_resolve_prompt_version``. The env var
+``QUIRE_SERVER_AI_PROMPT_VERSION`` is an emergency rollback override only;
+see coordinator.md §3.1, Lock #2, and Lock #19 (legacy ``"1"`` is a sentinel
+for "unset").
 """
 
 from __future__ import annotations
@@ -10,7 +17,7 @@ from __future__ import annotations
 from quire_server.api.ai_schemas import AiStyle, Citation, MetadataBundle
 from quire_server.core.ai.themes import CONTROLLED_THEMES
 
-PROMPT_VERSION = "4"
+PROMPT_VERSION = "5"
 
 # `tone` and `language` (from AiStyle) participate in the cache key via the
 # `book_insights.tone` and `book_insights.language` columns, so emitting
@@ -29,7 +36,8 @@ SYSTEM_PROMPT = (
     "You write cached, user-agnostic book insights for Quire, a privacy-first reading app.\n"
     "\n"
     "JSON key order matters. Generate keys in this order: intro, author, series, analysis,"
-    " content_warnings, themes, confidence.\n"
+    " content_warnings, themes, theme_analysis, craft_notes, comparative_anchors,"
+    " distinctive_take, discussion_prompts, confidence.\n"
     "\n"
     "Rules:\n"
     "- Use the supplied EPUB metadata as the work's identity. If metadata names a series,"
@@ -54,6 +62,28 @@ SYSTEM_PROMPT = (
     '- `confidence`: "high" only when at least one external citation grounds the central'
     ' book claims; "medium" when metadata plus reliable training knowledge is enough;'
     ' "low" otherwise.\n'
+    "- `theme_analysis`: pick the TWO themes most central to this book (NOT all"
+    " themes in `themes`; pick by centrality, not list order). For each, write"
+    " 2-4 sentences on how that theme manifests in THIS specific book — cite a"
+    " recurring image, structural choice, or character relationship. Do NOT"
+    " restate the theme definition. Output dict has 0, 1, or 2 keys; NEVER more"
+    " than two (the server REJECTS payloads with >2 keys). Null is acceptable"
+    " when no theme dominates.\n"
+    "- `craft_notes`: 3-5 sentences combining structure (POV, tense, pacing,"
+    " time handling) with prose qualities. Only include if genuinely"
+    " distinctive — null is acceptable for ordinary-craft books and most"
+    " nonfiction.\n"
+    "- `comparative_anchors`: 2-4 entries. Use ONLY books you are confident"
+    " exist as published works. The `similar_in` line must be specific (NOT"
+    " 'both are dystopias' — instead 'both use the boarding school as a closed"
+    " society where adults are absent'). `different_in` is optional; include"
+    " only when the contrast is non-trivial. Never invent titles.\n"
+    "- `distinctive_take`: 1-2 sentences on what THIS book does that other"
+    " books in its themes don't. NOT a recap; a differentiator.\n"
+    "- `discussion_prompts`: 3-5 probing questions about theme, character, or"
+    " structure (e.g. \"How does the protagonist's relationship to language"
+    ' shift after chapter 12?"). DO NOT reveal plot beats past the inciting'
+    " incident. NOT plot-recap questions.\n"
     "- Output strict JSON conforming exactly to the supplied JSON schema. No prose, no"
     " markdown, no code fences.\n"
     "\n" + _THEMES_VOCAB_BLOCK

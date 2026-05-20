@@ -429,11 +429,11 @@ class InsightOrchestrator:
             # PR5: chat_structured succeeded → provider is reachable now.
             if self._health is not None:
                 await self._health.record_provider_success(model_id=self.model_id)
-            # PR3: pin schema_version server-side. The model may emit `2` by
-            # mistake (or copy it from cached examples); the cache row must
-            # always reflect the schema we generated under, not whatever the
-            # model guessed.
-            payload.schema_version = 3
+            # PR-ε (schema v4): pin schema_version server-side. The model may
+            # emit ``2`` or ``3`` by mistake (or copy it from cached examples);
+            # the cache row must always reflect the schema we generated under,
+            # not whatever the model guessed.
+            payload.schema_version = 4
             latency_ms = int((time.monotonic() - t0) * 1000)
             logger.info(
                 "ai.generate content_hash=%s model=%s latency_ms=%d sources=%s regen=%s",

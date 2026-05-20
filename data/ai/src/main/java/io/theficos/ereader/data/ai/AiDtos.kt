@@ -55,14 +55,30 @@ data class SeriesInsight(
 )
 
 @Serializable
+data class ComparativeAnchor(
+    val book: String,
+    val author: String,
+    @SerialName("similar_in") val similarIn: String,
+    @SerialName("different_in") val differentIn: String? = null,
+)
+
+@Serializable
 data class BookInsightPayload(
     val intro: String? = null,
     val author: AuthorInsight? = null,
     val series: SeriesInsight? = null,
     val analysis: String? = null,
     @SerialName("content_warnings") val contentWarnings: List<String>? = null,
+    // PR-ε v3 catch-up: server-side `themes` field has existed since PR3.
+    val themes: List<String>? = null,
+    // PR-ε / schema v4 — per-book depth fields. All optional, all default null.
+    @SerialName("theme_analysis") val themeAnalysis: Map<String, String>? = null,
+    @SerialName("craft_notes") val craftNotes: String? = null,
+    @SerialName("comparative_anchors") val comparativeAnchors: List<ComparativeAnchor>? = null,
+    @SerialName("distinctive_take") val distinctiveTake: String? = null,
+    @SerialName("discussion_prompts") val discussionPrompts: List<String>? = null,
     val confidence: String = "low",
-    @SerialName("schema_version") val schemaVersion: Int = 2,
+    @SerialName("schema_version") val schemaVersion: Int = 4,
 )
 
 @Serializable

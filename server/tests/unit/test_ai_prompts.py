@@ -6,11 +6,13 @@ from quire_server.core.ai.prompts import (
 )
 
 
-def test_prompt_version_is_v4():
-    """PR3 (2026-05-17) bumped from v3 to v4 because the prompt body now
-    instructs the model to emit `themes` and includes the controlled vocabulary.
+def test_prompt_version_is_v5():
+    """PR-ε (2026-05-19) bumped from v4 to v5 because the prompt body now
+    instructs the model to emit ``theme_analysis``, ``craft_notes``,
+    ``comparative_anchors``, ``distinctive_take`` and ``discussion_prompts``
+    (BookInsightPayload schema v4 fields).
     """
-    assert PROMPT_VERSION == "4"
+    assert PROMPT_VERSION == "5"
 
 
 def test_system_prompt_includes_themes_vocab():
@@ -81,6 +83,32 @@ def test_system_prompt_describes_role_and_output_constraints():
     assert "intro" in low and "analysis" in low and "content_warnings" in low
     # Reader-safety scope for warnings (not themes).
     assert "warnings" in low
+    # PR-ε / schema v4: new key-order tokens.
+    for v4_key in (
+        "theme_analysis",
+        "craft_notes",
+        "comparative_anchors",
+        "distinctive_take",
+        "discussion_prompts",
+    ):
+        assert v4_key in low
+
+
+def test_system_prompt_caps_theme_analysis_at_two():
+    """PR-ε: server REJECTS payloads with >2 theme_analysis keys; prompt must
+    tell the model so up front."""
+    assert "two themes" in SYSTEM_PROMPT.lower()
+    assert "REJECTS payloads with >2 keys" in SYSTEM_PROMPT
+
+
+def test_system_prompt_forbids_inventing_comparative_anchors():
+    """PR-ε: comparative_anchors are display-only; the model must not invent."""
+    assert "Never invent titles" in SYSTEM_PROMPT
+
+
+def test_system_prompt_forbids_discussion_prompt_spoilers():
+    """PR-ε / Lock #7 soft mitigation: discussion_prompts must not reveal plot."""
+    assert "DO NOT reveal plot beats" in SYSTEM_PROMPT
 
 
 def test_tone_hint_emitted_when_non_default():

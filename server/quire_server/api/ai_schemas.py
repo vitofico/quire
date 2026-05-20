@@ -7,7 +7,7 @@ load-bearing on both ends.
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # Full ISO 639-1 set (184 codes, current as of 2024). Frozen so a future
 # AiStyle.language="zz" (regex-valid but not a real language) gets a 422
@@ -279,6 +279,27 @@ class SeriesInsight(BaseModel):
     context: str | None = None
 
 
+class ComparativeAnchor(BaseModel):
+    """One entry of ``BookInsightPayload.comparative_anchors``.
+
+    ``similar_in`` MUST be specific (e.g. "both use the school dormitory as a
+    closed-society lab"), NOT genre-level ("both are dystopias"). ``different_in``
+    is optional; included only when the model can articulate a non-trivial
+    contrast.
+
+    Sanity filtering: callers should drop entries whose ``book`` or ``author``
+    or ``similar_in`` is blank/whitespace; the server's ``model_validator`` on
+    ``BookInsightPayload`` does this automatically.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    book: str
+    author: str
+    similar_in: str
+    different_in: str | None = None
+
+
 class BookInsightPayload(BaseModel):
     """The structured body of a book insight. Stored verbatim in book_insights.payload.
 
@@ -286,12 +307,21 @@ class BookInsightPayload(BaseModel):
     instructed to generate keys in declared order, which keeps the streaming
     narrative coherent (intro before analysis, etc.).
 
-    `themes` (PR3, schema v3): controlled-vocabulary topic tags. The model
-    is instructed to pick from `quire_server.core.ai.themes.CONTROLLED_THEMES`;
-    off-vocab strings are preserved verbatim and surface in `book_themes`
+    ``themes`` (PR3, schema v3): controlled-vocabulary topic tags. The model
+    is instructed to pick from ``quire_server.core.ai.themes.CONTROLLED_THEMES``;
+    off-vocab strings are preserved verbatim and surface in ``book_themes``
     at confidence 0.5. The payload field is the source of truth for the
-    client; `book_themes` is the SQL-queryable mirror for aggregate stats.
-    Old v2 payloads (no `themes` key) deserialize cleanly with themes=None.
+    client; ``book_themes`` is the SQL-queryable mirror for aggregate stats.
+    Old v2 payloads (no ``themes`` key) deserialize cleanly with themes=None.
+
+    ``theme_analysis``, ``craft_notes``, ``comparative_anchors``,
+    ``distinctive_take``, ``discussion_prompts`` (PR-ε, schema v4): per-book
+    depth fields. All optional; null defaults so old cached v3 payloads
+    deserialize unchanged. The model emits all schema-v4 keys in a single
+    structured call. ``theme_analysis`` is hard-capped at 2 keys (validator
+    REJECTS >2); ``comparative_anchors`` are sanitized (blank-entry drop,
+    cap-at-4) and treated as display-only — the server cannot verify the
+    referenced books exist.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -302,8 +332,36 @@ class BookInsightPayload(BaseModel):
     analysis: str | None = None
     content_warnings: list[str] | None = None
     themes: list[str] | None = None
+    # v4 (PR-ε): deeper per-book content. All optional and all nullable so
+    # old cached v3 rows (and even v2) deserialize cleanly. The model emits
+    # all schema-v4 keys in a single structured call.
+    theme_analysis: dict[str, str] | None = None
+    craft_notes: str | None = None
+    comparative_anchors: list[ComparativeAnchor] | None = None
+    distinctive_take: str | None = None
+    discussion_prompts: list[str] | None = None
     confidence: Literal["high", "medium", "low"] = "low"
-    schema_version: int = 3
+    schema_version: int = 4
+
+    @model_validator(mode="after")
+    def _enforce_v4_caps_and_sanitize(self) -> "BookInsightPayload":
+        # theme_analysis: REJECT >2 keys. We reject (not truncate) so a
+        # prompt regression that lets the model emit 3+ keys surfaces in
+        # tests instead of being silently masked.
+        if self.theme_analysis is not None and len(self.theme_analysis) > 2:
+            raise ValueError(
+                f"theme_analysis must have at most 2 entries, got {len(self.theme_analysis)}"
+            )
+        # comparative_anchors: sanitize. Drop entries with blank/whitespace
+        # book/author/similar_in. Cap at 4 (drop extras at the tail).
+        if self.comparative_anchors is not None:
+            cleaned = [
+                a
+                for a in self.comparative_anchors
+                if a.book.strip() and a.author.strip() and a.similar_in.strip()
+            ]
+            self.comparative_anchors = cleaned[:4] if cleaned else None
+        return self
 
 
 class BookInsightResponse(BaseModel):

@@ -153,6 +153,7 @@ def create_app() -> FastAPI:
             # surface (httpx wrapper today; possibly the openai SDK tomorrow) and
             # the Wikipedia/OpenLibrary clients out of sync-only deploys.
             from quire_server.api.ai import router as ai_router
+            from quire_server.core.ai._compat import _resolve_prompt_version
             from quire_server.core.ai.client import AIClient
             from quire_server.core.ai.health_state import AiHealthState
             from quire_server.core.ai.retrieval import Retriever
@@ -179,7 +180,12 @@ def create_app() -> FastAPI:
                 ),
                 sources_enabled=sources_enabled,
                 model_id=settings.ai_model,
-                prompt_version=settings.ai_prompt_version,
+                # PR-ε / coordinator §3.1 / Lock #19: the in-code constant
+                # ``prompts.PROMPT_VERSION`` is the source of truth. The legacy
+                # default value ``"1"`` is treated as "unset" so the constant
+                # wins. Any other value (set in an env override) is honored as
+                # an emergency rollback per Lock #2.
+                prompt_version=_resolve_prompt_version(settings.ai_prompt_version),
                 max_concurrency=settings.ai_max_concurrency,
                 ai_timeout_s=settings.ai_timeout_s,
                 rate_per_min=settings.ai_rate_per_min,

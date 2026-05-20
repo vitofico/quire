@@ -27,6 +27,7 @@ SYNC_ONLY_FORBIDDEN = [
     "quire_server.core.ai.retrieval",
     "quire_server.core.ai.service",
     "quire_server.core.ai.prompts",
+    "quire_server.core.ai._compat",  # PR-ε / coordinator §3.18
 ]
 
 # Modules that should NOT load in ai-only mode.

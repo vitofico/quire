@@ -12,6 +12,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.SpanStyle
@@ -21,6 +25,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import io.theficos.ereader.data.ai.AuthorInsight
 import io.theficos.ereader.data.ai.Citation
+import io.theficos.ereader.data.ai.ComparativeAnchor
 import io.theficos.ereader.data.ai.SeriesInsight
 import io.theficos.ereader.ui.components.QuireCard
 
@@ -36,6 +41,22 @@ fun InsightSection(state: InsightUiState, onRetry: () -> Unit) {
             state.payload.series?.let { SeriesCard(it) }
             state.payload.analysis?.takeIf { it.isNotBlank() }?.let { AnalysisCard(it) }
             state.payload.contentWarnings?.takeIf { it.isNotEmpty() }?.let { ContentWarningsCard(it) }
+            // PR-ε / schema v4 cards. Each gates on non-null + non-empty/non-blank;
+            // server-side validator rejects >2 theme_analysis entries so take(2) is
+            // defense-in-depth only.
+            state.payload.themeAnalysis
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { ThemeAnalysisCard(it.entries.take(2)) }
+            state.payload.craftNotes?.takeIf { it.isNotBlank() }?.let { CraftCard(it) }
+            state.payload.comparativeAnchors
+                ?.filter { it.book.isNotBlank() && it.author.isNotBlank() && it.similarIn.isNotBlank() }
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { ComparativeAnchorsCard(it.take(4)) }
+            state.payload.distinctiveTake?.takeIf { it.isNotBlank() }?.let { DistinctiveTakeCard(it) }
+            state.payload.discussionPrompts
+                ?.filter { it.isNotBlank() }
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { DiscussionPromptsCard(it) }
             if (state.sources.isNotEmpty()) SourcesFooter(state.sources)
         }
     }
@@ -127,6 +148,98 @@ private fun ContentWarningsCard(warnings: List<String>) {
             Text("Content warnings", style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(4.dp))
             Text(warnings.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PR-ε / schema v4 cards.
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun ThemeAnalysisCard(entries: List<Map.Entry<String, String>>) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    QuireCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+        Column {
+            Text("How these themes show up", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(4.dp))
+            val visible = if (expanded || entries.size <= 1) entries else entries.take(1)
+            visible.forEachIndexed { index, entry ->
+                if (index > 0) Spacer(Modifier.height(6.dp))
+                Text(
+                    entry.key.replace('_', ' ').replaceFirstChar { it.uppercase() },
+                    style = MaterialTheme.typography.labelMedium,
+                )
+                Text(entry.value, style = MaterialTheme.typography.bodyMedium)
+            }
+            if (entries.size > 1) {
+                Spacer(Modifier.height(4.dp))
+                TextButton(onClick = { expanded = !expanded }) {
+                    Text(if (expanded) "Show less" else "More")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CraftCard(notes: String) {
+    QuireCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+        Column {
+            Text("Craft", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(4.dp))
+            Text(notes, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
+@Composable
+private fun ComparativeAnchorsCard(anchors: List<ComparativeAnchor>) {
+    // Display-only: no hyperlink, no "Open in browser". Model may fabricate
+    // the referenced titles; we cannot verify them.
+    QuireCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+        Column {
+            Text("If you liked…", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(4.dp))
+            anchors.forEachIndexed { i, a ->
+                if (i > 0) Spacer(Modifier.height(8.dp))
+                Text("${a.book} — ${a.author}", style = MaterialTheme.typography.bodyMedium)
+                Text("Similar in: ${a.similarIn}", style = MaterialTheme.typography.bodySmall)
+                a.differentIn?.takeIf { it.isNotBlank() }?.let {
+                    Text("Different in: $it", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DistinctiveTakeCard(take: String) {
+    QuireCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+        Column {
+            Text("What sets this apart", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(4.dp))
+            Text(take, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
+@Composable
+private fun DiscussionPromptsCard(prompts: List<String>) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    QuireCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+        Column {
+            Text("Discussion prompts", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(4.dp))
+            if (expanded) {
+                prompts.forEachIndexed { i, q ->
+                    if (i > 0) Spacer(Modifier.height(4.dp))
+                    Text("${i + 1}. $q", style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            TextButton(onClick = { expanded = !expanded }) {
+                Text(if (expanded) "Hide" else "Show ${prompts.size} prompts")
+            }
         }
     }
 }

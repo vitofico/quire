@@ -505,8 +505,9 @@ Response: a `BookInsight` with `payload`, `sources`, `model_id`,
 `prompt_version`, `generated_at`. See `quire_server/api/ai_schemas.py` for
 the full payload schema.
 
-`payload` is the structured `BookInsightPayload` (schema v3, the model
-generates keys in this order):
+`payload` is the structured `BookInsightPayload` (schema v4 since PR-ε on
+2026-05-19; old cached v3 and v2 rows remain valid). The model generates keys
+in this order:
 
 ```json
 {
@@ -523,8 +524,15 @@ generates keys in this order):
   "analysis": "One compact paragraph (~80–130 words) weaving synopsis, themes, tone, and reader fit.",
   "content_warnings": ["graphic violence", "sexual content"],
   "themes": ["science_fiction", "epic"],
+  "theme_analysis": { "science_fiction": "How that theme manifests in THIS book (2-4 sentences)." },
+  "craft_notes": "POV / pacing / structural choices and prose qualities (3-5 sentences).",
+  "comparative_anchors": [
+    { "book": "Dune", "author": "Frank Herbert", "similar_in": "Both build a future political theology", "different_in": "Dune foregrounds religion" }
+  ],
+  "distinctive_take": "1-2 sentences on what this book does that others in its themes don't.",
+  "discussion_prompts": ["Open-ended question 1?", "Open-ended question 2?"],
   "confidence": "high|medium|low",
-  "schema_version": 3
+  "schema_version": 4
 }
 ```
 
@@ -541,9 +549,32 @@ so future vocabulary evolution doesn't lose data. The payload field is the
 source of truth for the client; `book_themes` is the SQL-queryable mirror
 that PR9 library stats reads. Old cached v2 payloads (no `themes` key)
 deserialize cleanly with `themes=null`; they contribute zero rows to
-`book_themes` until regenerated. The server pins `schema_version=3` after
+`book_themes` until regenerated. The server pins `schema_version=4` after
 model return so cache rows never reflect a model's accidental version
 emission.
+
+`theme_analysis` (PR-ε, schema v4) is a dict of up to **two** entries keyed
+by theme name; each value is 2-4 sentences on how that theme manifests in
+THIS specific book. The server REJECTS payloads with more than two keys via
+a Pydantic `model_validator`. `craft_notes` is 3-5 sentences combining POV /
+pacing / structure with prose qualities (null for ordinary-craft books or
+nonfiction). `comparative_anchors` is a list of `{book, author, similar_in,
+different_in?}` entries sanitized server-side (blank-field drop, cap at 4);
+display-only — the server cannot verify the referenced books exist.
+`distinctive_take` is 1-2 sentences differentiating the book from others in
+its themes. `discussion_prompts` is 3-5 book-club-style questions (no plot
+reveals past the inciting incident, per Lock #7 soft mitigation). All v4
+fields are optional; old cached v3 rows (no v4 keys) deserialize cleanly.
+
+`prompt_version` on the response reflects the runtime resolution of
+`core/ai/prompts.py::PROMPT_VERSION` via
+`core/ai/_compat.py::_resolve_prompt_version` (Lock #19: the legacy default
+value `"1"` is treated as "unset" so the constant wins). The env var
+`QUIRE_SERVER_AI_PROMPT_VERSION` is an emergency rollback override only —
+set it to a non-default value (e.g. `"4"`) to pin an older version during
+incident response (Lock #2). Stale rows at the previous `prompt_version`
+survive in storage (no migration) and are never queried again after the
+runtime resolves to a newer value.
 
 Side-table schema:
 
