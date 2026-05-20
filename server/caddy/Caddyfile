@@ -1,7 +1,7 @@
 # Quire reference Caddyfile (full-stack compose).
 #
 # Mirrors the production Kubernetes ingress in `theficos-cluster`:
-# path-based routing puts opds-sync's `/sync/*`, `/library/*`, `/ai/*`,
+# path-based routing puts quire-server's `/sync/*`, `/library/*`, `/ai/*`,
 # `/health`, and `/readyz` in front of calibre-web, with everything else
 # falling through to calibre-web on `/`.
 #
@@ -14,13 +14,13 @@
 {$QUIRE_SITE_ADDRESS:localhost} {
 	tls internal
 
-	# Paths handled by opds-sync. `handle` preserves the full request
+	# Paths handled by quire-server. `handle` preserves the full request
 	# path (unlike `handle_path`, which strips the matched prefix);
 	# FastAPI mounts routers at `/sync/v1`, `/library/v1`, and
 	# `/ai/v1`, so we must forward the prefix intact.
-	@opds path /sync/* /ai/* /library/* /health /readyz
-	handle @opds {
-		reverse_proxy opds-sync:8000
+	@quire path /sync/* /ai/* /library/* /health /readyz
+	handle @quire {
+		reverse_proxy quire-server:8000
 	}
 
 	# Everything else falls through to calibre-web.

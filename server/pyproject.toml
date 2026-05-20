@@ -1,7 +1,7 @@
 [project]
-name = "opds-sync"
+name = "quire-server"
 version = "0.1.0"
-description = "Quire sync server: progress + (later) annotations API"
+description = "Quire Server (formerly opds-sync): progress + library + AI APIs"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
@@ -32,6 +32,6 @@ include = ["quire_server*"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
-    "requires_progress: test exercises the /sync/v1 progress router and must skip when OPDS_SYNC_PROGRESS_ENABLED=false",
-    "requires_ai: test exercises the /ai/v1 router and must skip when OPDS_SYNC_AI_ENABLED=false",
+    "requires_progress: test exercises the /sync/v1 progress router and must skip when QUIRE_SERVER_PROGRESS_ENABLED=false (legacy OPDS_SYNC_PROGRESS_ENABLED still accepted for one cycle)",
+    "requires_ai: test exercises the /ai/v1 router and must skip when QUIRE_SERVER_AI_ENABLED=false (legacy OPDS_SYNC_AI_ENABLED still accepted for one cycle)",
 ]

@@ -1,6 +1,6 @@
 # Quire full-stack reference compose.
 #
-# Brings up postgres + calibre-web + opds-sync + Caddy with path-based
+# Brings up postgres + calibre-web + quire-server + Caddy with path-based
 # routing identical to the production Kubernetes ingress. Use this if
 # you want a single base URL with TLS in front of everything.
 #
@@ -20,13 +20,16 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: quire_server
+      # DB role / DB name remain 'opds_sync' as a deliberate non-rename
+      # (Lock #20). The Python package and image are 'quire_server' /
+      # 'quire-server' respectively.
+      POSTGRES_USER: opds_sync
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
-      POSTGRES_DB: quire_server
+      POSTGRES_DB: opds_sync
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U quire_server"]
+      test: ["CMD-SHELL", "pg_isready -U opds_sync"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -49,31 +52,33 @@ services:
       # Optional: ingest folder for drop-in book imports.
       # - /path/to/your/ingest:/cwa-book-ingest
 
-  opds-sync:
-    image: ghcr.io/vitofico/opds-sync:latest
+  quire-server:
+    image: ghcr.io/vitofico/quire-server:latest
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      OPDS_SYNC_DATABASE_URL: postgresql+asyncpg://quire_server:${POSTGRES_PASSWORD:-changeme}@postgres:5432/quire_server
-      OPDS_SYNC_CWA_BASE_URL: http://calibre-web:8083
-      OPDS_SYNC_LOG_LEVEL: ${OPDS_SYNC_LOG_LEVEL:-INFO}
+      # New QUIRE_SERVER_* prefix preferred; the server still accepts the
+      # legacy OPDS_SYNC_* names for one release cycle (see server/README.md).
+      QUIRE_SERVER_DATABASE_URL: postgresql+asyncpg://opds_sync:${POSTGRES_PASSWORD:-changeme}@postgres:5432/opds_sync
+      QUIRE_SERVER_CWA_BASE_URL: http://calibre-web:8083
+      QUIRE_SERVER_LOG_LEVEL: ${QUIRE_SERVER_LOG_LEVEL:-${OPDS_SYNC_LOG_LEVEL:-INFO}}
       # Deploy mode flags. Defaults give the full-stack experience; flip
       # one of these to false for sync-only or AI-only mode (see README).
-      OPDS_SYNC_PROGRESS_ENABLED: ${OPDS_SYNC_PROGRESS_ENABLED:-true}
-      OPDS_SYNC_AI_ENABLED: ${OPDS_SYNC_AI_ENABLED:-true}
+      QUIRE_SERVER_PROGRESS_ENABLED: ${QUIRE_SERVER_PROGRESS_ENABLED:-${OPDS_SYNC_PROGRESS_ENABLED:-true}}
+      QUIRE_SERVER_AI_ENABLED: ${QUIRE_SERVER_AI_ENABLED:-${OPDS_SYNC_AI_ENABLED:-true}}
       # AI provider configuration. Required when AI_ENABLED=true.
       # Point this at any OpenAI-compatible endpoint (Ollama, llama.cpp,
-      # vLLM, hosted OpenAI/Anthropic-compatible gateways, …).
-      OPDS_SYNC_AI_BASE_URL: ${OPDS_SYNC_AI_BASE_URL:-}
-      OPDS_SYNC_AI_MODEL: ${OPDS_SYNC_AI_MODEL:-}
-      OPDS_SYNC_AI_API_KEY: ${OPDS_SYNC_AI_API_KEY:-}
-      OPDS_SYNC_AI_SOURCES: ${OPDS_SYNC_AI_SOURCES:-wikipedia,openlibrary}
-      OPDS_SYNC_AI_RATE_PER_MIN: ${OPDS_SYNC_AI_RATE_PER_MIN:-10}
-      OPDS_SYNC_AI_DAILY_BUDGET: ${OPDS_SYNC_AI_DAILY_BUDGET:-200}
-      OPDS_SYNC_AI_REGEN_DAILY_LIMIT: ${OPDS_SYNC_AI_REGEN_DAILY_LIMIT:-3}
-    # No `ports:` mapping — opds-sync is reached through Caddy only.
+      # vLLM, hosted OpenAI/Anthropic-compatible gateways, ...).
+      QUIRE_SERVER_AI_BASE_URL: ${QUIRE_SERVER_AI_BASE_URL:-${OPDS_SYNC_AI_BASE_URL:-}}
+      QUIRE_SERVER_AI_MODEL: ${QUIRE_SERVER_AI_MODEL:-${OPDS_SYNC_AI_MODEL:-}}
+      QUIRE_SERVER_AI_API_KEY: ${QUIRE_SERVER_AI_API_KEY:-${OPDS_SYNC_AI_API_KEY:-}}
+      QUIRE_SERVER_AI_SOURCES: ${QUIRE_SERVER_AI_SOURCES:-${OPDS_SYNC_AI_SOURCES:-wikipedia,openlibrary}}
+      QUIRE_SERVER_AI_RATE_PER_MIN: ${QUIRE_SERVER_AI_RATE_PER_MIN:-${OPDS_SYNC_AI_RATE_PER_MIN:-10}}
+      QUIRE_SERVER_AI_DAILY_BUDGET: ${QUIRE_SERVER_AI_DAILY_BUDGET:-${OPDS_SYNC_AI_DAILY_BUDGET:-200}}
+      QUIRE_SERVER_AI_REGEN_DAILY_LIMIT: ${QUIRE_SERVER_AI_REGEN_DAILY_LIMIT:-${OPDS_SYNC_AI_REGEN_DAILY_LIMIT:-3}}
+    # No `ports:` mapping - quire-server is reached through Caddy only.
     # Add `ports: ["8000:8000"]` temporarily for direct debugging.
     command: >
       sh -c "python /app/scripts/migrate.py &&
@@ -83,7 +88,7 @@ services:
     image: caddy:2-alpine
     restart: unless-stopped
     depends_on:
-      - opds-sync
+      - quire-server
       - calibre-web
     environment:
       # Set to your hostname (e.g. ebooks.example.com) for a real cert

@@ -93,9 +93,7 @@ def test_new_key_must_start_with_new_prefix_when_no_legacy_given():
         resolve_env_prefix_value("FOO_NEW")
 
 
-def test_log_dedup_per_key(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-):
+def test_log_dedup_per_key(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture):
     monkeypatch.setenv("OPDS_SYNC_FOO", "a")
     monkeypatch.setenv("OPDS_SYNC_BAR", "b")
     with caplog.at_level(logging.WARNING, logger="quire_server._env_compat"):

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pathlib
 
-ROOT = pathlib.Path(__file__).resolve().parents[2]   # server/
+ROOT = pathlib.Path(__file__).resolve().parents[2]  # server/
 
 
 def test_no_legacy_imports() -> None:

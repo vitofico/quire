@@ -35,9 +35,7 @@ def pytest_collection_modifyitems(config, items):
             return _flag(new_name)
         return _flag(legacy_name)
 
-    progress_on = _resolved_flag(
-        "QUIRE_SERVER_PROGRESS_ENABLED", "OPDS_SYNC_PROGRESS_ENABLED"
-    )
+    progress_on = _resolved_flag("QUIRE_SERVER_PROGRESS_ENABLED", "OPDS_SYNC_PROGRESS_ENABLED")
     ai_on = _resolved_flag("QUIRE_SERVER_AI_ENABLED", "OPDS_SYNC_AI_ENABLED")
 
     skip_progress = pytest.mark.skip(reason="QUIRE_SERVER_PROGRESS_ENABLED=false")

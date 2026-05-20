@@ -74,7 +74,7 @@ def resolve_env_prefix_value(
                 f"resolve_env_prefix_value expected new_key to start with "
                 f"{_NEW_PREFIX!r}; got {new_key!r}"
             )
-        legacy_key = _LEGACY_PREFIX + new_key[len(_NEW_PREFIX):]
+        legacy_key = _LEGACY_PREFIX + new_key[len(_NEW_PREFIX) :]
 
     new_val = os.environ.get(new_key)
     legacy_val = os.environ.get(legacy_key)
@@ -96,8 +96,7 @@ def resolve_env_prefix_value(
             if legacy_key not in _LEGACY_LOGGED:
                 _LEGACY_LOGGED.add(legacy_key)
                 logger.warning(
-                    "env.prefix.legacy_used legacy=%s "
-                    "(rename to %s before next release)",
+                    "env.prefix.legacy_used legacy=%s (rename to %s before next release)",
                     legacy_key,
                     new_key,
                 )
@@ -121,9 +120,7 @@ class LegacyEnvSettingsSource(EnvSettingsSource):
     through resolve_env_prefix_value.
     """
 
-    def get_field_value(
-        self, field: FieldInfo, field_name: str
-    ) -> tuple[Any, str, bool]:
+    def get_field_value(self, field: FieldInfo, field_name: str) -> tuple[Any, str, bool]:
         # _extract_field_info yields (field_key, env_name, value_is_complex)
         # for each declared env-name candidate of this field. With env_prefix=
         # "QUIRE_SERVER_", the env_name carries the NEW prefix.
@@ -136,10 +133,8 @@ class LegacyEnvSettingsSource(EnvSettingsSource):
             # Derive the legacy env name from the new env name.
             env_upper = env_name.upper()
             if env_upper.startswith(_NEW_PREFIX):
-                legacy_env_name = _LEGACY_PREFIX + env_upper[len(_NEW_PREFIX):]
-                env_val = resolve_env_prefix_value(
-                    env_upper, legacy_key=legacy_env_name
-                )
+                legacy_env_name = _LEGACY_PREFIX + env_upper[len(_NEW_PREFIX) :]
+                env_val = resolve_env_prefix_value(env_upper, legacy_key=legacy_env_name)
             else:
                 # Defensive: field with an alias that does not carry our prefix
                 # -> fall back to env-only lookup with no legacy mapping.

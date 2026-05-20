@@ -120,12 +120,8 @@ def main() -> int:
     # cases) take effect on this module's attribute, not the source module.
     from quire_server._env_compat import resolve_env_prefix_value
 
-    progress_enabled = _is_truthy(
-        resolve_env_prefix_value("QUIRE_SERVER_PROGRESS_ENABLED")
-    )
-    ai_enabled = _is_truthy(
-        resolve_env_prefix_value("QUIRE_SERVER_AI_ENABLED")
-    )
+    progress_enabled = _is_truthy(resolve_env_prefix_value("QUIRE_SERVER_PROGRESS_ENABLED"))
+    ai_enabled = _is_truthy(resolve_env_prefix_value("QUIRE_SERVER_AI_ENABLED"))
     logger.info("modes: progress=%s ai=%s", progress_enabled, ai_enabled)
 
     run_migrations(cfg, progress_enabled=progress_enabled, ai_enabled=ai_enabled)

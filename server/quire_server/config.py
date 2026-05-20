@@ -15,9 +15,7 @@ class Settings(BaseSettings):
     # prefixes per field at read time. Per Lock #21 the dotenv source still
     # uses env_prefix="QUIRE_SERVER_"; legacy names in .env files are NOT
     # honored.
-    model_config = SettingsConfigDict(
-        env_prefix="QUIRE_SERVER_", env_file=".env", extra="ignore"
-    )
+    model_config = SettingsConfigDict(env_prefix="QUIRE_SERVER_", env_file=".env", extra="ignore")
 
     @classmethod
     def settings_customise_sources(
