@@ -8,6 +8,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -87,6 +88,33 @@ class AiClient(
             "/ai/v1/insights/promote",
             InsightPromoteBody(from, to, tone, language),
         )
+
+    /**
+     * PR-η: read-only, paginated bulk export of the caller's owned-book
+     * insights at their current `(model_id, prompt_version, tone, language)`
+     * variant. Weight=0 — never charges against the daily budget.
+     *
+     * Uses OkHttp's [HttpUrl.Builder] so the cursor's ISO 8601 timestamp's
+     * `+` is percent-encoded correctly.
+     */
+    suspend fun syncInsights(
+        cursor: InsightSyncCursor? = null,
+        limit: Int = 50,
+    ): InsightSyncResponse = withContext(Dispatchers.IO) {
+        val builder = "${resolveBaseUrl()}/ai/v1/insights/sync".toHttpUrl().newBuilder()
+        builder.addQueryParameter("limit", limit.toString())
+        if (cursor != null) {
+            builder.addQueryParameter("since_ts", cursor.generatedAt)
+            builder.addQueryParameter("since_id", cursor.id.toString())
+        }
+        http.newCall(Request.Builder().url(builder.build()).get().build())
+            .execute()
+            .use { resp ->
+                val body = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) throw makeError(resp.code, body)
+                json.decodeFromString<InsightSyncResponse>(body)
+            }
+    }
 
     private suspend inline fun <reified T> get(path: String): T =
         execute(Request.Builder().url("${resolveBaseUrl()}$path").get())

@@ -415,6 +415,47 @@ class InsightPromoteResponse(BaseModel):
     already_promoted: bool = False
 
 
+class InsightSyncCursor(BaseModel):
+    """Tuple cursor for ``GET /ai/v1/insights/sync`` pagination (PR-η, Lock #23).
+
+    The cursor is the ``(generated_at, id)`` pair of the LAST item returned
+    in the previous page. Strict ``>`` comparison on the next call:
+    ``(row.generated_at, row.id) > (since_ts, since_id)``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    generated_at: str  # ISO-8601 UTC
+    id: int
+
+
+class InsightSyncItem(BaseModel):
+    """One entry of ``InsightSyncResponse.items``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: int  # server-side BookInsight.id; clients persist it for cursor reconstruction
+    identity: DocumentIdentity
+    payload: BookInsightPayload
+    sources: list[Citation]
+    model_id: str
+    prompt_version: str
+    schema_version: int
+    tone: str
+    language: str
+    generated_at: str  # ISO-8601 UTC
+
+
+class InsightSyncResponse(BaseModel):
+    """Body of ``GET /ai/v1/insights/sync`` (PR-η)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[InsightSyncItem]
+    server_time: str  # ISO-8601 UTC
+    next_cursor: InsightSyncCursor | None = None
+
+
 class InsightRegenerateBody(BaseModel):
     """Force a fresh generation, marking the existing row as superseded.
 
@@ -462,6 +503,12 @@ class ConfigResponse(BaseModel):
     sources_enabled: list[str]
     daily_budget: int  # echoes AI_DAILY_BUDGET so the app can show "X/Y today"
     regen_daily_limit: int
+    # PR-η / Lock #24: runtime-resolved PROMPT_VERSION (post-PR-ε sentinel
+    # resolution). The Android client reads this so its local-cache PK can
+    # invalidate correctly on server-side prompt bumps. Older deploys that
+    # do not emit the field decode safely on the Android side because the
+    # DTO's default is "1" (the legacy sentinel).
+    prompt_version: str = "1"
 
 
 class PreferencesResponse(BaseModel):

@@ -13,6 +13,11 @@ data class AiConfig(
     @SerialName("sources_enabled") val sourcesEnabled: List<String> = emptyList(),
     @SerialName("daily_budget") val dailyBudget: Int = 0,
     @SerialName("regen_daily_limit") val regenDailyLimit: Int = 0,
+    // PR-η / Lock #24: server-side runtime-resolved PROMPT_VERSION. Defaults
+    // to the legacy sentinel "1" so older deploys (pre-PR-η) that don't emit
+    // the field decode safely; new clients re-key their local cache on this
+    // value (see InsightEntity PK in :data:local, future work).
+    @SerialName("prompt_version") val promptVersion: String = "1",
 )
 
 @Serializable
@@ -109,6 +114,39 @@ data class InsightPromoteResponse(
     val promoted: Boolean,
     @SerialName("insight_id") val insightId: Long? = null,
     @SerialName("already_promoted") val alreadyPromoted: Boolean = false,
+)
+
+/**
+ * PR-η: tuple cursor for `GET /ai/v1/insights/sync` pagination (Lock #23).
+ *
+ * Strict-lexicographic on `(generatedAt, id)`. Persist verbatim between
+ * pages — the server is the source of truth for what counts as "next".
+ */
+@Serializable
+data class InsightSyncCursor(
+    @SerialName("generated_at") val generatedAt: String,
+    val id: Long,
+)
+
+@Serializable
+data class InsightSyncItem(
+    val id: Long,
+    val identity: DocumentIdentity,
+    val payload: BookInsightPayload,
+    val sources: List<Citation>,
+    @SerialName("model_id") val modelId: String,
+    @SerialName("prompt_version") val promptVersion: String,
+    @SerialName("schema_version") val schemaVersion: Int,
+    val tone: String,
+    val language: String,
+    @SerialName("generated_at") val generatedAt: String,
+)
+
+@Serializable
+data class InsightSyncResponse(
+    val items: List<InsightSyncItem>,
+    @SerialName("server_time") val serverTime: String,
+    @SerialName("next_cursor") val nextCursor: InsightSyncCursor? = null,
 )
 
 @Serializable

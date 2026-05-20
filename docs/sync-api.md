@@ -427,9 +427,16 @@ Returns the user-visible AI configuration. Public to authed users.
   "model_id": "llama3.1:8b",
   "sources_enabled": ["wikipedia", "openlibrary"],
   "daily_budget": 200,
-  "regen_daily_limit": 3
+  "regen_daily_limit": 3,
+  "prompt_version": "5"
 }
 ```
+
+`prompt_version` (PR-η, Lock #24) is the runtime-resolved value (post-PR-ε
+sentinel resolution). The Android client reads it so its local-cache PK
+aligns with the server's. Older deploys that don't emit the field decode
+safely on the client side because the DTO default is `"1"` (the legacy
+sentinel which means "use the in-code constant").
 
 ### `GET /ai/v1/preferences` / `PUT /ai/v1/preferences`
 
@@ -682,6 +689,63 @@ Audit: emits a structured stdout line `event=ai.promote ...` with the source
 and copy ids, latency, and outcome. PR-ζ does NOT write an
 `ai_generation_log` row (Lock #11 amendment); PR-β extends the audit-log
 schema and the promote path begins persisting at that point.
+
+### `GET /ai/v1/insights/sync`
+
+PR-η bulk read of the caller's owned-book insights, joined through
+`library_items` (alive rows only) at the caller's current
+`(model_id, prompt_version, tone, language)`. Requires opt-in (Lock #10).
+**Weight = 0** — never charges against `ai_daily_budget`, never acquires a
+generation lock, never calls the model.
+
+Query parameters:
+
+| Name        | Type       | Required? | Notes                                              |
+| ----------- | ---------- | --------- | -------------------------------------------------- |
+| `since_ts`  | ISO-8601   | optional¹ | Cursor — last item's `generated_at` from prior page. |
+| `since_id`  | integer    | optional¹ | Cursor — last item's `id` from prior page.        |
+| `limit`     | integer    | optional  | Page size (1..200, default 50).                    |
+
+¹ `since_ts` and `since_id` are tuple cursor coordinates (Lock #23): they
+must be supplied together. Half-supplied returns 400.
+
+Response body:
+
+```json
+{
+  "items": [
+    {
+      "id": 42,
+      "identity": {"metadata_id": "...", "content_hash": "..."},
+      "payload":  { ... BookInsightPayload at schema_version 4 ... },
+      "sources":  [ ... Citations ... ],
+      "model_id": "...",
+      "prompt_version": "5",
+      "schema_version": 4,
+      "tone": "neutral",
+      "language": "auto",
+      "generated_at": "2026-05-19T00:00:00+00:00"
+    }
+  ],
+  "server_time": "2026-05-19T00:01:00+00:00",
+  "next_cursor": {"generated_at": "...", "id": 42}
+}
+```
+
+`next_cursor` is `null` ⇔ end of stream. The client persists the cursor
+between pages and walks until exhausted. Sort order is `(generated_at ASC,
+id ASC)`; the filter on a non-null cursor is the strict-lexicographic
+`>` comparison so identical timestamps don't drop rows.
+
+Filters applied (in addition to `LibraryItem.user_id == subject`):
+
+- `library_items.deleted_at IS NULL` — soft-deleted books drop out.
+- `book_insights.superseded_at IS NULL` — only the live row per identity surfaces.
+- PR9 priority `case`: `BookInsight.metadata_id`-match wins over content-hash-only.
+- `current_model = settings.ai_model`, `current_pv = _resolve_prompt_version()`.
+
+Promoted rows (PR-ζ) carry `generated_at = NOW()` at copy time so they enter
+the cursor stream as fresh events.
 
 ### `GET /ai/v1/health`
 

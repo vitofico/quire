@@ -53,6 +53,8 @@ async def test_ai_router_not_mounted_when_disabled(client_factory):
 
 async def test_config_endpoint_when_enabled_but_unconfigured(client_factory):
     """ai_enabled=true with base_url/model unset: router mounts, config reports unconfigured."""
+    from quire_server.core.ai.prompts import PROMPT_VERSION
+
     async with client_factory(ai_enabled=True) as client:
         r = await client.get("/ai/v1/config", headers=_basic_header("alice"))
     assert r.status_code == 200
@@ -65,9 +67,14 @@ async def test_config_endpoint_when_enabled_but_unconfigured(client_factory):
     assert body["sources_enabled"] == ["wikipedia", "openlibrary"]
     assert body["daily_budget"] == 200
     assert body["regen_daily_limit"] == 3
+    # PR-η / Lock #24: prompt_version is the runtime-resolved value
+    # (legacy "1" sentinel resolves to the in-code constant).
+    assert body["prompt_version"] == PROMPT_VERSION
 
 
 async def test_config_endpoint_when_enabled(client_factory):
+    from quire_server.core.ai.prompts import PROMPT_VERSION
+
     async with client_factory(
         ai_enabled=True,
         ai_base_url="http://ollama.lan:11434/v1",
@@ -81,6 +88,21 @@ async def test_config_endpoint_when_enabled(client_factory):
     assert body["model_id"] == "llama3.1:8b"
     assert body["daily_budget"] == 200
     assert body["regen_daily_limit"] == 3
+    assert body["prompt_version"] == PROMPT_VERSION
+
+
+async def test_config_prompt_version_honors_emergency_override(client_factory, monkeypatch):
+    """Lock #24 + Lock #2: setting the env var to a non-default value pins it."""
+    monkeypatch.setenv("QUIRE_SERVER_AI_PROMPT_VERSION", "4")
+    async with client_factory(
+        ai_enabled=True,
+        ai_base_url="http://ollama.lan:11434/v1",
+        ai_model="llama3.1:8b",
+        ai_prompt_version="4",
+    ) as client:
+        r = await client.get("/ai/v1/config", headers=_basic_header("alice"))
+    assert r.status_code == 200
+    assert r.json()["prompt_version"] == "4"
 
 
 async def test_lookup_blocked_when_not_opted_in(client_factory, configure_ai, app):
