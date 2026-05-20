@@ -631,6 +631,58 @@ removed (PR11). The budgeted `POST /ai/v1/insights/regenerate` endpoint
 remains available for admin/cluster tooling. Requires opt-in. Returns
 `{"deleted": <int>}`.
 
+### `POST /ai/v1/insights/promote`
+
+Copy a cached catalog-side insight onto the post-download canonical identity
+without firing the model. Used by the Android catalog flow: when a user views
+an insight under an OPDS identity (`metadata_id="opds-href:<sha>"`) and then
+downloads the EPUB, the client calls promote with `from=<catalog identity>`
+and `to=<downloaded canonical>` so the BookDetail screen shows the insight
+immediately. PR-ζ / Locks #1, #11 amendment, #13, #23.
+
+Request body:
+
+```json
+{
+  "from": {"metadata_id": "opds-href:abc..."},
+  "to":   {"metadata_id": "urn-xyz", "content_hash": "sha256:..."},
+  "tone": "neutral",
+  "language": "auto"
+}
+```
+
+`tone` and `language` mirror the cache-key knobs and default to the universal
+defaults. The source row at `from` is looked up for the requested
+`(model_id, prompt_version, tone, language)` variant. The copy keeps every
+payload field verbatim with two exceptions: `generated_at = NOW()` (Lock #23
+— promote rows participate in PR-η's sync cursor as fresh events) and
+`previous_insight_ids=[<src.id>]` for lineage audit.
+
+Idempotency: the `(from, to, user_id, source='promoted_on_download')` row in
+`insight_identity_aliases` is the anchor. A second identical call returns
+`already_promoted=true` with the same `insight_id`. A call with a different
+`(tone, language)` re-copies a new variant under the same alias.
+
+Responses:
+
+| Status | Meaning |
+|--------|---------|
+| `200 {"promoted":true,"insight_id":N,"already_promoted":false}` | Fresh copy created. |
+| `200 {"promoted":true,"insight_id":N,"already_promoted":true}` | Idempotent re-promote. |
+| `204` | Nothing to promote — no source row at `from` for the requested variant. |
+| `403 {"detail":"not_owned"}` | The caller does not own a `library_items` row at `to`. |
+| `409 {"detail":"ai_not_opted_in"}` | User has not opted in (Lock #10). |
+| `429` | Promote daily limit exceeded; body and `Retry-After` mirror the `lookup` 429. |
+| `503 {"detail":"ai_disabled"}` | AI is disabled or unconfigured on this deploy. |
+
+Rate limit: `QUIRE_SERVER_AI_PROMOTE_DAILY_LIMIT` (default 100). Process-local
+counter; pod restart resets — acceptable because promote has no LLM cost.
+
+Audit: emits a structured stdout line `event=ai.promote ...` with the source
+and copy ids, latency, and outcome. PR-ζ does NOT write an
+`ai_generation_log` row (Lock #11 amendment); PR-β extends the audit-log
+schema and the promote path begins persisting at that point.
+
 ### `GET /ai/v1/health`
 
 Operational visibility for AI provider + retrieval reachability. **Unauthenticated**

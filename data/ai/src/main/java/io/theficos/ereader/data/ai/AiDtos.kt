@@ -97,6 +97,21 @@ data class InsightLookupBody(
 )
 
 @Serializable
+data class InsightPromoteBody(
+    val from: DocumentIdentity,
+    val to: DocumentIdentity,
+    val tone: String = "neutral",
+    val language: String = "auto",
+)
+
+@Serializable
+data class InsightPromoteResponse(
+    val promoted: Boolean,
+    @SerialName("insight_id") val insightId: Long? = null,
+    @SerialName("already_promoted") val alreadyPromoted: Boolean = false,
+)
+
+@Serializable
 data class InsightGetBody(val identity: DocumentIdentity)
 
 /** Body of the inner detail object on a 429 response. */

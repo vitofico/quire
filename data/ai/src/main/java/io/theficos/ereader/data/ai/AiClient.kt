@@ -70,6 +70,24 @@ class AiClient(
         postUnit("/ai/v1/insights/invalidate", InsightGetBody(identity))
     }
 
+    /**
+     * PR-ζ: promote a cached catalog-side insight onto the post-download
+     * canonical identity. Returns null when the server returns 204 ("nothing
+     * to promote" — no source row at `from` for this variant); throws on any
+     * other non-2xx response. Idempotent: a second identical call returns
+     * [InsightPromoteResponse.alreadyPromoted] = true.
+     */
+    suspend fun promoteInsight(
+        from: DocumentIdentity,
+        to: DocumentIdentity,
+        tone: String = "neutral",
+        language: String = "auto",
+    ): InsightPromoteResponse? =
+        postOrNull(
+            "/ai/v1/insights/promote",
+            InsightPromoteBody(from, to, tone, language),
+        )
+
     private suspend inline fun <reified T> get(path: String): T =
         execute(Request.Builder().url("${resolveBaseUrl()}$path").get())
 
@@ -86,6 +104,24 @@ class AiClient(
                 .url("${resolveBaseUrl()}$path")
                 .post(json.encodeToString(body).toRequestBody(mediaType))
         )
+    }
+
+    /** POST that decodes 200, returns null on 204, and raises otherwise. */
+    private suspend inline fun <reified Body, reified Resp> postOrNull(
+        path: String,
+        body: Body,
+    ): Resp? = withContext(Dispatchers.IO) {
+        http.newCall(
+            Request.Builder()
+                .url("${resolveBaseUrl()}$path")
+                .post(json.encodeToString(body).toRequestBody(mediaType))
+                .build(),
+        ).execute().use { resp ->
+            if (resp.code == 204) return@use null
+            val text = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) throw makeError(resp.code, text)
+            json.decodeFromString<Resp>(text)
+        }
     }
 
     private suspend inline fun <reified Body, reified Resp> put(path: String, body: Body): Resp =

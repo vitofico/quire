@@ -69,6 +69,22 @@ class AiRepository(
     }
 
     /**
+     * PR-ζ — best-effort promote. Returns `true` on a confirmed promotion
+     * (fresh OR idempotent). Returns `false` on 204 (nothing to promote) or
+     * any thrown error — the caller degrades to today's "regenerate on open"
+     * behavior. Boolean return shape is load-bearing: PR-η wraps this call
+     * site to chain a sync trigger on `true` (coordinator §3.17).
+     */
+    suspend fun promoteInsight(
+        from: DocumentIdentity,
+        to: DocumentIdentity,
+        tone: String,
+        language: String,
+    ): Boolean =
+        runCatching { client.promoteInsight(from, to, tone, language)?.promoted == true }
+            .getOrElse { false }
+
+    /**
      * One-shot fetch of the server's AI-provider and retrieval-source health.
      *
      * Returns `null` on any HTTP error (including a 404 when the server runs

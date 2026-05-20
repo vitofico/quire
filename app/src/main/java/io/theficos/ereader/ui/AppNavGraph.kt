@@ -60,6 +60,11 @@ fun AppNavGraph(container: AppContainer) {
                     syncStateDao = container.syncStateDao,
                     catalogPreferencesStore = container.catalogPreferencesStore,
                     libraryUploader = container.libraryUploader,
+                    aiRepository = container.aiRepository,
+                    catalogInsightStash = container.catalogInsightStash,
+                    subjectProvider = {
+                        container.credentialStore.get()?.username?.lowercase()
+                    },
                 )
             }
             val setVm = remember {

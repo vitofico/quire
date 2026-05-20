@@ -196,6 +196,86 @@ class CatalogDetailViewModelTest {
         }
     }
 
+    // -- PR-ζ: stash writes ---------------------------------------------------
+
+    @Test
+    fun `stash captures catalog identity and style on successful cache hit`() = runTest {
+        fakeAi.configFlow.value = AiConfig(configured = true)
+        fakeAi.prefsFlow.value = AiPreferences(
+            aiEnabled = true,
+            style = AiStyle(tone = "scholarly", language = "fr"),
+        )
+        fakeAi.cached = response
+        val stash = io.theficos.ereader.data.ai.CatalogInsightStash()
+
+        val vm = CatalogDetailViewModel(
+            publication = publication,
+            ai = fakeAi,
+            insightStash = stash,
+            subjectProvider = { "alice" },
+        )
+
+        vm.state.test {
+            var s = awaitItem()
+            while (s.insight !is InsightUiState.Loaded) s = awaitItem()
+            cancelAndIgnoreRemainingEvents()
+        }
+        val entry = stash.peek("alice", publication.epubDownloadHref)
+        assertThat(entry).isNotNull()
+        assertThat(entry!!.tone).isEqualTo("scholarly")
+        assertThat(entry.language).isEqualTo("fr")
+        assertThat(entry.catalogIdentity.metadataId).startsWith("opds-href:")
+    }
+
+    @Test
+    fun `stash captures style after a cache-miss lookup success`() = runTest {
+        fakeAi.configFlow.value = AiConfig(configured = true)
+        fakeAi.prefsFlow.value = AiPreferences(aiEnabled = true, style = AiStyle())
+        fakeAi.cached = null
+        fakeAi.lookupResult = response
+        val stash = io.theficos.ereader.data.ai.CatalogInsightStash()
+
+        val vm = CatalogDetailViewModel(
+            publication = publication,
+            ai = fakeAi,
+            insightStash = stash,
+            subjectProvider = { "alice" },
+        )
+
+        vm.state.test {
+            var s = awaitItem()
+            while (s.insight !is InsightUiState.Loaded) s = awaitItem()
+            cancelAndIgnoreRemainingEvents()
+        }
+        val entry = stash.peek("alice", publication.epubDownloadHref)
+        assertThat(entry).isNotNull()
+        // Defaults from AiStyle().
+        assertThat(entry!!.tone).isEqualTo("neutral")
+        assertThat(entry.language).isEqualTo("auto")
+    }
+
+    @Test
+    fun `stash write is skipped when subjectProvider returns null`() = runTest {
+        fakeAi.configFlow.value = AiConfig(configured = true)
+        fakeAi.prefsFlow.value = AiPreferences(aiEnabled = true, style = AiStyle())
+        fakeAi.cached = response
+        val stash = io.theficos.ereader.data.ai.CatalogInsightStash()
+
+        val vm = CatalogDetailViewModel(
+            publication = publication,
+            ai = fakeAi,
+            insightStash = stash,
+            subjectProvider = { null },
+        )
+
+        vm.state.test {
+            var s = awaitItem()
+            while (s.insight !is InsightUiState.Loaded) s = awaitItem()
+            cancelAndIgnoreRemainingEvents()
+        }
+        assertThat(stash.peek("alice", publication.epubDownloadHref)).isNull()
+    }
+
     @Test
     fun `state Error on AiHttpException maps to friendly message`() = runTest {
         fakeAi.configFlow.value = AiConfig(configured = true)

@@ -41,7 +41,9 @@ async def _truncate_ai_tables_between_tests(request, engine: AsyncEngine):
         await conn.execute(
             text(
                 "TRUNCATE TABLE book_insights, user_ai_preferences, "
-                "external_source_cache, ai_usage_daily RESTART IDENTITY CASCADE"
+                "external_source_cache, ai_usage_daily, "
+                "insight_identity_aliases, library_items "
+                "RESTART IDENTITY CASCADE"
             )
         )
 
@@ -179,3 +181,65 @@ def client_factory(monkeypatch, postgres_url, alembic_upgrade, app: _AppProxy):
         return _ctx()
 
     return _factory
+
+
+# ---------------------------------------------------------------------------
+# Shared AI orchestrator fake (moved from tests/integration/test_ai_endpoints.py
+# so other integration test modules — e.g. test_ai_insights_promote.py — can
+# reuse it without import gymnastics).
+# ---------------------------------------------------------------------------
+
+
+def _ai_chat_response(payload: dict) -> dict:
+    import json as _json
+
+    return {
+        "id": "x",
+        "model": "test-model",
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": _json.dumps(payload)},
+            }
+        ],
+    }
+
+
+@pytest.fixture
+def configure_ai():
+    """Return a helper that installs a fake AI orchestrator on app.state."""
+
+    from quire_server.core.ai.client import AIClient
+    from quire_server.core.ai.service import InsightOrchestrator
+
+    def _apply(app, fake_ai_payload: dict, sources_enabled: tuple[str, ...] = ()):
+        def fake_handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=_ai_chat_response(fake_ai_payload))
+
+        ai = AIClient(
+            base_url="http://fake/v1",
+            api_key=None,
+            model="test-model",
+            transport=httpx.MockTransport(fake_handler),
+        )
+
+        class _NoOpRetriever:
+            async def lookup_wikipedia(self, **kw):
+                return []
+
+            async def lookup_openlibrary(self, **kw):
+                return []
+
+        orch = InsightOrchestrator(
+            ai=ai,
+            retriever_factory=lambda s: _NoOpRetriever(),
+            sources_enabled=sources_enabled,
+            model_id="test-model",
+            prompt_version="t1",
+            max_concurrency=4,
+            ai_timeout_s=5.0,
+        )
+        app.state.ai_orchestrator = orch
+        return orch
+
+    return _apply

@@ -387,6 +387,34 @@ class InsightInvalidateBody(BaseModel):
     identity: DocumentIdentity
 
 
+class InsightPromoteBody(BaseModel):
+    """Body of ``POST /ai/v1/insights/promote`` (PR-ζ).
+
+    Carries the ``from`` catalog-side identity (pre-download alias) and the
+    ``to`` post-download canonical identity. ``from`` is a Python keyword so
+    the Pydantic field is ``from_`` and the wire alias is ``from``.
+
+    ``tone`` and ``language`` mirror the cache-key knobs used elsewhere; they
+    default to the universal defaults so callers that do not vary style can
+    omit them.
+    """
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    from_: DocumentIdentity = Field(alias="from")
+    to: DocumentIdentity
+    tone: str = "neutral"
+    language: str = "auto"
+
+
+class InsightPromoteResponse(BaseModel):
+    """Body of a 200 response from ``POST /ai/v1/insights/promote`` (PR-ζ)."""
+
+    promoted: bool
+    insight_id: int | None = None
+    already_promoted: bool = False
+
+
 class InsightRegenerateBody(BaseModel):
     """Force a fresh generation, marking the existing row as superseded.
 

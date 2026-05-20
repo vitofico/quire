@@ -9,12 +9,9 @@ from __future__ import annotations
 import base64
 import json
 
-import httpx
 import pytest
 from sqlalchemy import select
 
-from quire_server.core.ai.client import AIClient
-from quire_server.core.ai.service import InsightOrchestrator
 from quire_server.db.models import BookInsight
 
 # All tests in this file hit /ai/v1/* and so require the ai router.
@@ -43,49 +40,7 @@ def _ai_chat_response(payload: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def configure_ai():
-    """Return a helper that installs a fake AI orchestrator on app.state."""
-
-    def _apply(app, fake_ai_payload: dict, sources_enabled: tuple[str, ...] = ()):
-        def fake_handler(req: httpx.Request) -> httpx.Response:
-            return httpx.Response(200, json=_ai_chat_response(fake_ai_payload))
-
-        ai = AIClient(
-            base_url="http://fake/v1",
-            api_key=None,
-            model="test-model",
-            transport=httpx.MockTransport(fake_handler),
-        )
-
-        class _NoOpRetriever:
-            async def lookup_wikipedia(self, **kw):
-                return []
-
-            async def lookup_openlibrary(self, **kw):
-                return []
-
-        orch = InsightOrchestrator(
-            ai=ai,
-            retriever_factory=lambda s: _NoOpRetriever(),
-            sources_enabled=sources_enabled,
-            model_id="test-model",
-            prompt_version="t1",
-            max_concurrency=4,
-            ai_timeout_s=5.0,
-        )
-        app.state.ai_orchestrator = orch
-        return orch
-
-    return _apply
-
-
-# ---------------------------------------------------------------------------
-# Tests
+# Tests (configure_ai is provided by tests/integration/conftest.py)
 # ---------------------------------------------------------------------------
 
 
@@ -141,7 +96,7 @@ async def test_lookup_blocked_when_not_opted_in(client_factory, configure_ai, ap
             },
         )
     assert r.status_code == 409
-    assert r.json()["detail"] == "not_opted_in"
+    assert r.json()["detail"] == "ai_not_opted_in"
 
 
 async def test_lookup_generates_then_get_serves_from_cache(
@@ -174,7 +129,7 @@ async def test_lookup_generates_then_get_serves_from_cache(
         # Bob is not opted in: lookup must 409.
         r2 = await client.post("/ai/v1/insights/lookup", headers=_basic_header("bob"), json=body)
         assert r2.status_code == 409
-        assert r2.json()["detail"] == "not_opted_in"
+        assert r2.json()["detail"] == "ai_not_opted_in"
 
         # GET path serves from cache without opt-in.
         r3 = await client.post(

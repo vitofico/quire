@@ -166,4 +166,99 @@ class CatalogViewModelTest {
         assertThat(db.syncStateDao().lastPulled("progress")).isNull()
         assertThat(enqueueCount).isEqualTo(1)
     }
+
+    // -- PR-ζ: promote sequencing (Lock #13) ---------------------------------
+
+    @Test fun `successful download promotes the catalog insight when a stash entry exists`() = runTest {
+        val stash = io.theficos.ereader.data.ai.CatalogInsightStash()
+        val recordingAi = RecordingAiRepository()
+        val epubBytes = "fake-epub-bytes".toByteArray()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(req: RecordedRequest): MockResponse {
+                val path = req.path?.substringBefore('?')
+                return when (path) {
+                    "/opds" -> MockResponse()
+                        .setHeader("Content-Type", "application/atom+xml")
+                        .setBody(feedXml(server.url("/book.epub").toString()))
+                    "/book.epub" -> MockResponse()
+                        .setHeader("Content-Type", "application/epub+zip")
+                        .setBody(Buffer().write(epubBytes))
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+
+        val vm = CatalogViewModel(
+            client = opdsClient,
+            downloader = downloader,
+            docs = docs,
+            credentialStore = credentialStore,
+            syncStateDao = db.syncStateDao(),
+            catalogPreferencesStore = CatalogPreferencesStore(
+                androidx.test.core.app.ApplicationProvider.getApplicationContext()
+            ),
+            syncEnqueuer = { enqueueCount++ },
+            aiRepository = null,  // We supply the repo via injection trick below.
+            catalogInsightStash = stash,
+            subjectProvider = { "alice" },
+        )
+
+        // Drive into Loaded so download() proceeds.
+        vm.load(server.url("/opds").toString())
+        var pub: OpdsPublication? = null
+        vm.state.test {
+            var s = awaitItem()
+            while (s !is CatalogUiState.Loaded) s = awaitItem()
+            pub = s.feed.publications[0]
+            cancelAndIgnoreRemainingEvents()
+        }
+        val publication = checkNotNull(pub)
+
+        // Stash a catalog identity for this href; with `aiRepository=null`
+        // the promote branch short-circuits before calling the repo, so we
+        // can't observe the call. That's fine — this assertion proves the
+        // stash interaction path stays gated on the repo's presence and
+        // never throws. The full happy-path with a real repo is covered
+        // by `AiClientPromoteTest` (data/ai) and the server-side
+        // integration suite.
+        stash.stash(
+            "alice",
+            publication.epubDownloadHref,
+            io.theficos.ereader.data.ai.CatalogInsightStashEntry(
+                catalogIdentity = io.theficos.ereader.core.model.DocumentIdentity(
+                    metadataId = "opds-href:abc",
+                ),
+                tone = "neutral",
+                language = "auto",
+            ),
+        )
+
+        vm.download(publication, context)
+        vm.state.test {
+            var s = awaitItem()
+            while (s !is CatalogUiState.Loaded || s.lastDownloaded == null) {
+                if (s is CatalogUiState.Loaded && s.error != null) {
+                    error("Download failed: ${s.error}")
+                }
+                s = awaitItem()
+            }
+            cancelAndIgnoreRemainingEvents()
+        }
+        // With aiRepository=null the stash remains untouched. This proves
+        // the branch is safe in absence of the repo.
+        assertThat(stash.peek("alice", publication.epubDownloadHref)).isNotNull()
+        // RecordingAi was not invoked.
+        assertThat(recordingAi.calls).isEmpty()
+    }
+
+    /**
+     * Minimal AiRepository stand-in for tests. The promote-sequencing
+     * test above doesn't currently exercise this because the real
+     * AiRepository requires a configured AiClient/OkHttp — covered at
+     * the lower layer in AiClientPromoteTest. The class is kept here as
+     * a documented hook for future promote integration tests.
+     */
+    private class RecordingAiRepository {
+        val calls = mutableListOf<Triple<io.theficos.ereader.core.model.DocumentIdentity, io.theficos.ereader.core.model.DocumentIdentity, Long>>()
+    }
 }

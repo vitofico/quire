@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,6 +27,8 @@ from quire_server.api.ai_schemas import (
     InsightGetBody,
     InsightInvalidateBody,
     InsightLookupBody,
+    InsightPromoteBody,
+    InsightPromoteResponse,
     InsightRegenerateBody,
     PreferencesBody,
     PreferencesResponse,
@@ -35,7 +37,12 @@ from quire_server.api.ai_schemas import (
 )
 from quire_server.config import get_settings
 from quire_server.core.ai.health_state import AiHealthState
-from quire_server.core.ai.service import IdentityUnresolvable, InsightOrchestrator, QuotaExceeded
+from quire_server.core.ai.service import (
+    IdentityUnresolvable,
+    InsightOrchestrator,
+    PromoteOwnershipError,
+    QuotaExceeded,
+)
 from quire_server.db.models import UserAIPreference
 from quire_server.db.session import get_session
 
@@ -65,7 +72,9 @@ async def _require_opt_in(session: AsyncSession, user_id: str) -> UserAIPreferen
         await session.execute(select(UserAIPreference).where(UserAIPreference.user_id == user_id))
     ).scalar_one_or_none()
     if pref is None or not pref.ai_enabled:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="not_opted_in")
+        # PR-ζ / Lock #10 / CC-1: body normalized to `ai_not_opted_in` so the
+        # client can pin the literal across the whole /ai/v1/insights/* surface.
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="ai_not_opted_in")
     return pref
 
 
@@ -266,6 +275,58 @@ async def invalidate_insight(
     await _require_opt_in(session, principal.subject)
     n = await orch.invalidate(session, body.identity, user_id=principal.subject)
     return {"deleted": n}
+
+
+@router.post("/insights/promote", response_model=InsightPromoteResponse)
+async def promote_insight(
+    request: Request,
+    body: InsightPromoteBody,
+    principal: Annotated[AiPrincipal, Depends(get_ai_principal)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> InsightPromoteResponse | Response:
+    """Promote a cached catalog insight onto the post-download identity.
+
+    PR-ζ / Lock #1: row-copy + alias-link. Alias is the idempotency anchor;
+    different ``(tone, language)`` re-copies under an existing alias. No LLM
+    call. Returns ``204`` when there's nothing to promote (no source row at
+    ``from`` for the requested variant).
+    """
+    orch = _orchestrator(request)
+    if orch is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="ai_disabled")
+    pref = await _require_opt_in(session, principal.subject)
+    settings = get_settings()
+    try:
+        await orch.reserve_promote_budget(
+            user_id=principal.subject,
+            limit=settings.ai_promote_daily_limit,
+        )
+    except QuotaExceeded as exc:
+        raise _quota_http_exception(exc) from exc
+    style = _style_from_pref(pref)
+    tone = body.tone or style.tone
+    language = body.language or style.language
+    try:
+        result = await orch.promote_insight(
+            session,
+            from_identity=body.from_,
+            to_identity=body.to,
+            user_id=principal.subject,
+            tenant_id=principal.tenant_id,
+            tone=tone,
+            language=language,
+        )
+    except PromoteOwnershipError as exc:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="not_owned") from exc
+    except QuotaExceeded as exc:
+        raise _quota_http_exception(exc) from exc
+    if result is None:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    return InsightPromoteResponse(
+        promoted=True,
+        insight_id=result.insight_id,
+        already_promoted=result.already_promoted,
+    )
 
 
 @router.get("/health", response_model=AiHealthResponse)

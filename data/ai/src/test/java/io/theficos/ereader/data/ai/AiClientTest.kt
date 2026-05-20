@@ -169,7 +169,7 @@ class AiClientTest {
 
     @Test
     fun `non 2xx other than 404 or 429 throws AiHttpException`() = runTest {
-        server.enqueue(MockResponse().setResponseCode(409).setBody("""{"detail":"not_opted_in"}"""))
+        server.enqueue(MockResponse().setResponseCode(409).setBody("""{"detail":"ai_not_opted_in"}"""))
         try {
             client.lookupInsight(
                 DocumentIdentity(null, "ch"),

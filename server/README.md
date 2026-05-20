@@ -201,6 +201,7 @@ the env-compat helper. The DB-name non-rename is permanent.
 | `QUIRE_SERVER_AI_RATE_PER_MIN`         | `10`                                   | Process-wide token bucket against `AI_BASE_URL`.                        |
 | `QUIRE_SERVER_AI_DAILY_BUDGET`         | `200`                                  | Per-user generations per UTC day; 0 disables.                           |
 | `QUIRE_SERVER_AI_REGEN_DAILY_LIMIT`    | `3`                                    | Per-user `/insights/regenerate` ceiling per UTC day.                    |
+| `QUIRE_SERVER_AI_PROMOTE_DAILY_LIMIT`  | `100`                                  | Per-user `/insights/promote` ceiling per UTC day; process-local counter, 0 disables. (PR-ζ) |
 | `QUIRE_SERVER_AI_AUTH_MODE`            | `basic`                                | `basic` (default, wraps calibre-web verifier) or `token` (HMAC-SHA256). |
 | `QUIRE_SERVER_AI_TOKEN_SECRETS`        | unset                                  | Token mode: JSON `{kid: secret}`. Each secret ≥32 bytes; multiple kids enable rotation. |
 | `QUIRE_SERVER_AI_TOKEN_ISSUER`         | unset                                  | Token mode: required; validated against `iss`.                          |

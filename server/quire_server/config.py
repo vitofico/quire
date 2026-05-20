@@ -75,6 +75,10 @@ class Settings(BaseSettings):
     ai_rate_per_min: int = 10  # process-wide token bucket against AI_BASE_URL
     ai_daily_budget: int = 200  # generations per user per UTC day; 0 disables
     ai_regen_daily_limit: int = 3  # tighter ceiling for /insights/regenerate per user/day
+    # PR-ζ: /insights/promote per-user, per-UTC-day cap. Process-local
+    # counter (no DB row); pod restart resets — acceptable because cost of
+    # a promote is dominated by the row-copy, not LLM. 0 disables the limit.
+    ai_promote_daily_limit: int = 100
 
     # ---------------------------------------------------------------------
     # PR-B: AI auth abstraction (seam-only). Sync routes unaffected.

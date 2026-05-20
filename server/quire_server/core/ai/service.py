@@ -19,10 +19,13 @@ import asyncio
 import logging
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Protocol
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, literal, or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from quire_server.api.ai_schemas import (
@@ -45,7 +48,14 @@ from quire_server.core.ai.identity import (
 from quire_server.core.ai.prompts import SYSTEM_PROMPT, compose_user_prompt
 from quire_server.core.ai.themes import normalize_theme
 from quire_server.core.logging_ctx import request_id_var
-from quire_server.db.models import AIGenerationLog, AIUsageDaily, BookInsight, BookTheme
+from quire_server.db.models import (
+    AIGenerationLog,
+    AIUsageDaily,
+    BookInsight,
+    BookTheme,
+    InsightIdentityAlias,
+    LibraryItem,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +68,18 @@ class QuotaExceeded(Exception):
         self.limit = limit
         self.resets_at = resets_at
         super().__init__(f"daily budget exhausted: {used}/{limit}")
+
+
+@dataclass(slots=True)
+class PromoteResult:
+    """Outcome of a successful ``InsightOrchestrator.promote_insight`` call."""
+
+    insight_id: int
+    already_promoted: bool
+
+
+class PromoteOwnershipError(Exception):
+    """Caller does not own a ``library_items`` row at the ``to`` identity."""
 
 
 class IdentityUnresolvable(Exception):
@@ -149,6 +171,11 @@ class InsightOrchestrator:
         # shared request-scoped session — fine for FakeRetriever stubs that
         # never touch the DB.
         self._session_factory = session_factory
+        # PR-ζ: per-user, per-UTC-day promote-call counter. Process-local
+        # (no DB row) — pod restart resets, accepted because promote has
+        # no LLM cost. Keyed by (user_id, day) -> count.
+        self._promote_counter: dict[tuple[str, date], int] = {}
+        self._promote_counter_lock = asyncio.Lock()
 
     # ------- public API -------
 
@@ -802,6 +829,325 @@ class InsightOrchestrator:
                 self._locks[key] = lock
             return lock
 
+    # ------- PR-ζ promote --------------------------------------------------
+
+    async def reserve_promote_budget(self, *, user_id: str, limit: int) -> None:
+        """Per-user, per-UTC-day promote rate limit (process-local).
+
+        ``limit <= 0`` disables the check entirely. The counter increments
+        on every accepted reservation (idempotent re-promotes count too —
+        the cost we are bounding is the request volume, not the DB write).
+        Raises ``QuotaExceeded`` when the limit is hit.
+        """
+        if limit <= 0:
+            return
+        today = datetime.now(UTC).date()
+        async with self._promote_counter_lock:
+            used = self._promote_counter.get((user_id, today), 0)
+            if used >= limit:
+                raise QuotaExceeded(
+                    used=used,
+                    limit=limit,
+                    resets_at=_next_utc_midnight(today),
+                )
+            self._promote_counter[(user_id, today)] = used + 1
+
+    async def _assert_owns(
+        self,
+        session: AsyncSession,
+        *,
+        identity: DocumentIdentity,
+        user_id: str,
+    ) -> None:
+        """Ownership gate: ``to`` must match a live ``library_items`` row.
+
+        Lock #13 sequences the caller so the library PUT lands before promote
+        fires; this check guarantees we don't copy an insight under a row the
+        user doesn't own (cross-user defense).
+        """
+        clauses = []
+        if identity.metadata_id is not None:
+            clauses.append(LibraryItem.metadata_id == identity.metadata_id)
+        if identity.content_hash is not None:
+            clauses.append(LibraryItem.content_hash == identity.content_hash)
+        if not clauses:
+            raise PromoteOwnershipError("`to` has no canonical identity")
+        stmt = (
+            select(LibraryItem.pk)
+            .where(
+                LibraryItem.user_id == user_id,
+                LibraryItem.deleted_at.is_(None),
+                or_(*clauses),
+            )
+            .limit(1)
+        )
+        if (await session.execute(stmt)).first() is None:
+            raise PromoteOwnershipError("no matching library_items row")
+
+    async def promote_insight(
+        self,
+        session: AsyncSession,
+        *,
+        from_identity: DocumentIdentity,
+        to_identity: DocumentIdentity,
+        user_id: str,
+        tenant_id: str,
+        tone: str,
+        language: str,
+    ) -> PromoteResult | None:
+        """Row-copy + alias-link promote (Lock #1).
+
+        Returns:
+          * ``PromoteResult`` on a fresh copy or an idempotent hit.
+          * ``None`` when nothing to promote (no source row at ``from`` for
+            this variant). Caller maps that to ``204``.
+
+        Algorithm:
+          1. Ownership gate (``library_items`` join).
+          2. Alias-row idempotency anchor (Lock #1): identity-level "already
+             promoted" sentinel; NOT keyed on (tone, language).
+          3. Look up the source ``book_insights`` row at ``from`` for the
+             requested (model, prompt_version, tone, language).
+          4. Look up whether the ``to``-side row at that variant exists.
+          5. Idempotent fast-path: alias AND ``to``-side variant both
+             present → return existing id.
+          6. Row-copy with ``generated_at = NOW()`` (Lock #23) and
+             ``previous_insight_ids=[src.id]`` for audit lineage.
+          7. ``book_themes`` copy with ON CONFLICT DO NOTHING.
+          8. Alias write (audit; ``source='promoted_on_download'``).
+          9. Stdout audit (Lock #11 amendment — NO DB row in PR-ζ).
+        """
+        t0 = time.monotonic()
+        await self._assert_owns(session, identity=to_identity, user_id=user_id)
+
+        from_scheme, from_value = _canonical_scheme_value(from_identity)
+        to_scheme, to_value = _canonical_scheme_value(to_identity)
+
+        # Step 2: alias-row idempotency anchor.
+        alias_q = (
+            select(InsightIdentityAlias.id)
+            .where(
+                InsightIdentityAlias.alias_scheme == from_scheme,
+                InsightIdentityAlias.alias_value == from_value,
+                InsightIdentityAlias.canonical_scheme == to_scheme,
+                InsightIdentityAlias.canonical_value == to_value,
+                InsightIdentityAlias.user_id == user_id,
+                InsightIdentityAlias.source == "promoted_on_download",
+            )
+            .limit(1)
+        )
+        alias_row_exists = (await session.execute(alias_q)).first() is not None
+
+        # Step 3: source row for this (model, prompt_version, tone, language).
+        # Pick on whichever canonical scheme `from` carries.
+        src_filters = [
+            BookInsight.model_id == self.model_id,
+            BookInsight.prompt_version == self.prompt_version,
+            BookInsight.tone == tone,
+            BookInsight.language == language,
+            BookInsight.superseded_at.is_(None),
+        ]
+        if from_scheme == "metadata_id":
+            src_filters.append(BookInsight.metadata_id == from_value)
+        else:
+            src_filters.append(BookInsight.content_hash == from_value)
+        src_q = select(BookInsight).where(*src_filters).limit(1)
+        src_row = (await session.execute(src_q)).scalar_one_or_none()
+        if src_row is None:
+            # Nothing to promote for this variant. Caller maps to 204.
+            return None
+
+        # Step 4: destination-side existence check for the same variant.
+        dst_filters = [
+            BookInsight.model_id == self.model_id,
+            BookInsight.prompt_version == self.prompt_version,
+            BookInsight.tone == tone,
+            BookInsight.language == language,
+            BookInsight.superseded_at.is_(None),
+        ]
+        if to_scheme == "metadata_id":
+            dst_filters.append(BookInsight.metadata_id == to_value)
+        else:
+            dst_filters.append(BookInsight.content_hash == to_value)
+        dst_q = select(BookInsight.id).where(*dst_filters).limit(1)
+        existing_to_id = (await session.execute(dst_q)).scalar_one_or_none()
+
+        # Step 5: idempotent fast-path.
+        if existing_to_id is not None and alias_row_exists:
+            self._log_promote_event(
+                source_id=src_row.id,
+                copied_id=existing_to_id,
+                user_id=user_id,
+                tenant_id=tenant_id,
+                source_generated_at=src_row.generated_at,
+                latency_ms=int((time.monotonic() - t0) * 1000),
+                outcome="idempotent",
+            )
+            return PromoteResult(insight_id=existing_to_id, already_promoted=True)
+
+        # Step 6: row-copy.
+        new_row = BookInsight(
+            metadata_id=to_identity.metadata_id,
+            content_hash=to_identity.content_hash or src_row.content_hash,
+            model_id=src_row.model_id,
+            prompt_version=src_row.prompt_version,
+            tone=src_row.tone,
+            language=src_row.language,
+            sources_used=list(src_row.sources_used or []),
+            payload=dict(src_row.payload),
+            sources=list(src_row.sources or []),
+            generated_at=func.now(),
+            generated_by=f"promote:{user_id}",
+            previous_insight_ids=[src_row.id],
+            superseded_at=None,
+        )
+        session.add(new_row)
+        try:
+            await session.flush()
+            new_id = new_row.id
+            copied = True
+        except IntegrityError:
+            # Race: another writer created the `to`-side variant in parallel.
+            # Roll back the savepoint, re-resolve the winning id, treat as
+            # idempotent and skip theme-copy (the winner owns its own themes).
+            await session.rollback()
+            winner_id = (await session.execute(dst_q)).scalar_one_or_none()
+            if winner_id is None:
+                # Conflict was on something else (defensive).
+                raise
+            await self._maybe_register_alias(
+                session,
+                from_scheme=from_scheme,
+                from_value=from_value,
+                to_scheme=to_scheme,
+                to_value=to_value,
+                user_id=user_id,
+                alias_already=alias_row_exists,
+            )
+            self._log_promote_event(
+                source_id=src_row.id,
+                copied_id=winner_id,
+                user_id=user_id,
+                tenant_id=tenant_id,
+                source_generated_at=src_row.generated_at,
+                latency_ms=int((time.monotonic() - t0) * 1000),
+                outcome="race_lost",
+            )
+            return PromoteResult(insight_id=winner_id, already_promoted=True)
+
+        # Step 7: book_themes copy (Core INSERT ... SELECT, ON CONFLICT DO NOTHING).
+        theme_copy = pg_insert(BookTheme).from_select(
+            ["book_insight_id", "theme", "confidence"],
+            select(
+                literal(new_id).label("book_insight_id"),
+                BookTheme.theme,
+                BookTheme.confidence,
+            ).where(BookTheme.book_insight_id == src_row.id),
+        )
+        theme_copy = theme_copy.on_conflict_do_nothing(
+            index_elements=["book_insight_id", "theme"],
+        )
+        await session.execute(theme_copy)
+
+        # Step 8: alias write (audit anchor).
+        await self._maybe_register_alias(
+            session,
+            from_scheme=from_scheme,
+            from_value=from_value,
+            to_scheme=to_scheme,
+            to_value=to_value,
+            user_id=user_id,
+            alias_already=alias_row_exists,
+        )
+
+        await session.commit()
+
+        # Step 9: stdout audit.
+        self._log_promote_event(
+            source_id=src_row.id,
+            copied_id=new_id,
+            user_id=user_id,
+            tenant_id=tenant_id,
+            source_generated_at=src_row.generated_at,
+            latency_ms=int((time.monotonic() - t0) * 1000),
+            outcome="copied" if copied else "race_lost",
+        )
+        return PromoteResult(insight_id=new_id, already_promoted=False)
+
+    async def _maybe_register_alias(
+        self,
+        session: AsyncSession,
+        *,
+        from_scheme: str,
+        from_value: str,
+        to_scheme: str,
+        to_value: str,
+        user_id: str,
+        alias_already: bool,
+    ) -> None:
+        """Write the ``promoted_on_download`` audit alias as a user-scoped row.
+
+        We bypass ``register_alias`` because that helper applies
+        ``SCOPE_BY_SCHEME`` and would store ``metadata_id`` aliases globally
+        (user_id=NULL). The promote anchor MUST be user-scoped (Lock #1):
+        different users promote the same OPDS href onto their own canonical
+        identity independently, and the idempotency check is per-user.
+        """
+        if alias_already:
+            return
+        from sqlalchemy import text as _text
+
+        stmt = (
+            pg_insert(InsightIdentityAlias)
+            .values(
+                alias_scheme=from_scheme,
+                alias_value=from_value,
+                canonical_scheme=to_scheme,
+                canonical_value=to_value,
+                source="promoted_on_download",
+                user_id=user_id,
+            )
+            .on_conflict_do_nothing(
+                index_elements=["alias_scheme", "alias_value", "user_id"],
+                index_where=_text("user_id IS NOT NULL"),
+            )
+        )
+        await session.execute(stmt)
+
+    def _log_promote_event(
+        self,
+        *,
+        source_id: int,
+        copied_id: int,
+        user_id: str,
+        tenant_id: str,
+        source_generated_at: datetime | None,
+        latency_ms: int,
+        outcome: str,
+    ) -> None:
+        """Structured stdout audit (Lock #11 amendment). NO DB row in PR-ζ.
+
+        PR-β later extends ``_log_generation`` to accept ``kind='promote'``
+        and the promote path begins writing a DB row alongside this line.
+        Strictly an additive PR-β edit; PR-ζ does not retrofit.
+        """
+        logger.info(
+            "event=ai.promote tenant_id=%s subject=%s model=%s "
+            "prompt_version=%s source_insight_id=%s copied_insight_id=%s "
+            "source_generated_at=%s outcome=%s latency_ms=%d",
+            tenant_id,
+            user_id,
+            self.model_id,
+            self.prompt_version,
+            source_id,
+            copied_id,
+            source_generated_at.isoformat() if source_generated_at else None,
+            outcome,
+            latency_ms,
+        )
+
+    # ------- private helpers ----------------------------------------------
+
     def _row_to_response(self, row: BookInsight) -> BookInsightResponse:
         return BookInsightResponse(
             payload=BookInsightPayload.model_validate(row.payload),
@@ -850,6 +1196,19 @@ def _canonical_from_row(row: BookInsight) -> CanonicalIdentity:
     if row.metadata_id:
         return CanonicalIdentity(scheme="metadata_id", value=row.metadata_id)
     return CanonicalIdentity(scheme="content_hash", value=row.content_hash)
+
+
+def _canonical_scheme_value(identity: DocumentIdentity) -> tuple[str, str]:
+    """Return the strongest canonical (scheme, value) pair on a DocumentIdentity.
+
+    Prefers ``metadata_id``; falls back to ``content_hash``. Raises
+    ``ValueError`` if neither is present (callers must pre-resolve aliases).
+    """
+    if identity.metadata_id is not None:
+        return ("metadata_id", identity.metadata_id)
+    if identity.content_hash is not None:
+        return ("content_hash", identity.content_hash)
+    raise ValueError("identity has no canonical scheme")
 
 
 def _synthetic_content_hash(ident: DocumentIdentity, original_hints: dict[str, str] | None) -> str:
