@@ -47,6 +47,12 @@ jobs:
       - name: Lint
         if: matrix.mode == 'full'
         run: uv run ruff check . && uv run ruff format --check .
+      - name: Install ripgrep (rename guard)
+        if: matrix.mode == 'full'
+        run: |
+          if ! command -v rg >/dev/null; then
+            sudo apt-get update && sudo apt-get install -y ripgrep
+          fi
       - name: Rename guard self-test
         if: matrix.mode == 'full'
         working-directory: ${{ github.workspace }}

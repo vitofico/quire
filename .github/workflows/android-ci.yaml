@@ -92,6 +92,11 @@ jobs:
           echo "VERSION_NAME=$VERSION" >> "$GITHUB_ENV"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Building version $VERSION"
+      - name: Install ripgrep (rename guard)
+        run: |
+          if ! command -v rg >/dev/null; then
+            sudo apt-get update && sudo apt-get install -y ripgrep
+          fi
       - name: Rename guard self-test
         run: |
           set -e
