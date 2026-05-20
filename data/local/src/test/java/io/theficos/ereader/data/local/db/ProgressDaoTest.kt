@@ -90,6 +90,75 @@ class ProgressDaoTest {
         assertThat(found?.finishedAt).isNull()
     }
 
+    @Test fun `markAbandoned sets abandonedAt and clears finishedAt`() = runTest {
+        val docId = newDoc()
+        dao.upsert(ProgressEntity(
+            documentId = docId, locator = "x", percent = 0.6,
+            updatedAt = 100, localUpdatedAt = 100, syncedAt = 100,
+            finishedAt = 999L,
+        ))
+        dao.markAbandoned(docId, now = 200)
+        val found = dao.findByDocument(docId)
+        assertThat(found?.abandonedAt).isEqualTo(200L)
+        assertThat(found?.finishedAt).isNull()
+        // percent is left untouched: abandoning at 60% remembers 60%.
+        assertThat(found?.percent).isEqualTo(0.6)
+    }
+
+    @Test fun `unmarkAbandoned clears abandonedAt without touching percent`() = runTest {
+        val docId = newDoc()
+        dao.upsert(ProgressEntity(
+            documentId = docId, locator = "x", percent = 0.6,
+            updatedAt = 100, localUpdatedAt = 100, syncedAt = 100,
+            abandonedAt = 200L,
+        ))
+        dao.unmarkAbandoned(docId, now = 300)
+        val found = dao.findByDocument(docId)
+        assertThat(found?.abandonedAt).isNull()
+        assertThat(found?.percent).isEqualTo(0.6)
+    }
+
+    @Test fun `markAbandoned bumps BOTH updatedAt AND localUpdatedAt to now`() = runTest {
+        // LWW correctness: server's push_progress accepts the row only when
+        // client_updated_at > existing.client_updated_at. Android sends
+        // progress.updatedAt as client_updated_at, so we MUST bump it
+        // (not just localUpdatedAt) for the abandon to take effect server-side.
+        val docId = newDoc()
+        dao.upsert(ProgressEntity(
+            documentId = docId, locator = "x", percent = 0.3,
+            updatedAt = 100, localUpdatedAt = 100, syncedAt = 100,
+        ))
+        dao.markAbandoned(docId, now = 555)
+        val found = dao.findByDocument(docId)
+        assertThat(found?.updatedAt).isEqualTo(555L)
+        assertThat(found?.localUpdatedAt).isEqualTo(555L)
+    }
+
+    @Test fun `unmarkAbandoned bumps BOTH updatedAt AND localUpdatedAt to now`() = runTest {
+        val docId = newDoc()
+        dao.upsert(ProgressEntity(
+            documentId = docId, locator = "x", percent = 0.3,
+            updatedAt = 100, localUpdatedAt = 100, syncedAt = 100,
+            abandonedAt = 200L,
+        ))
+        dao.unmarkAbandoned(docId, now = 777)
+        val found = dao.findByDocument(docId)
+        assertThat(found?.updatedAt).isEqualTo(777L)
+        assertThat(found?.localUpdatedAt).isEqualTo(777L)
+    }
+
+    @Test fun `markAbandoned bumps localUpdatedAt above syncedAt so dirty picks it up`() = runTest {
+        val docId = newDoc()
+        dao.upsert(ProgressEntity(
+            documentId = docId, locator = "x", percent = 0.3,
+            updatedAt = 100, localUpdatedAt = 100, syncedAt = 100,
+        ))
+        assertThat(dao.dirty()).isEmpty()
+        dao.markAbandoned(docId, now = 250)
+        val dirty = dao.dirty()
+        assertThat(dirty.map { it.documentId }).containsExactly(docId)
+    }
+
     @Test fun `MIGRATION_3_4 sql adds nullable finishedAt column`() {
         val ctx = ApplicationProvider.getApplicationContext<android.content.Context>()
         val dbName = "migration-3to4-test.db"

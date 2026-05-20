@@ -36,6 +36,7 @@ class SyncOrchestrator(
                     percent = progress.percent,
                     clientUpdatedAt = Instant.ofEpochMilli(progress.updatedAt).toString(),
                     finishedAt = progress.finishedAt?.let { Instant.ofEpochMilli(it).toString() },
+                    abandonedAt = progress.abandonedAt?.let { Instant.ofEpochMilli(it).toString() },
                 )
             }
             when (val res = client.pushProgress(ProgressPushBody(items))) {
@@ -68,6 +69,13 @@ class SyncOrchestrator(
         val doc = documentRepo.findByIdentity(identity) ?: return
         val incomingUpdatedAt = Instant.parse(item.clientUpdatedAt).toEpochMilli()
         val incomingFinishedAt = item.finishedAt?.let { Instant.parse(it).toEpochMilli() }
+        val incomingAbandonedAt = item.abandonedAt?.let { Instant.parse(it).toEpochMilli() }
+        // Terminal-state invariant (coordinator §3.10): if the server emits
+        // both flags on a legacy row (server's defensive read should already
+        // have dropped abandoned_at, but we double-defend here), finished
+        // wins. `percent` is whatever the server emitted.
+        val effectiveAbandonedAt =
+            if (incomingFinishedAt != null) null else incomingAbandonedAt
         val existing = progressDao.findByDocument(doc.id)
         if (existing != null && existing.localUpdatedAt >= incomingUpdatedAt) {
             return
@@ -82,6 +90,7 @@ class SyncOrchestrator(
                 localUpdatedAt = incomingUpdatedAt,
                 syncedAt = incomingUpdatedAt,
                 finishedAt = incomingFinishedAt,
+                abandonedAt = effectiveAbandonedAt,
             )
         )
     }

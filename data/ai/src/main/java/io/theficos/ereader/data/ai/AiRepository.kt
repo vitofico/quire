@@ -4,6 +4,7 @@ import io.theficos.ereader.core.metadata.MetadataBundle
 import io.theficos.ereader.core.model.DocumentIdentity
 import io.theficos.ereader.data.local.db.InsightDao
 import io.theficos.ereader.data.local.db.InsightEntity
+import io.theficos.ereader.data.local.db.ProgressDao
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -35,6 +36,12 @@ import java.time.format.DateTimeParseException
 class AiRepository(
     private val client: AiClient,
     private val insightDao: InsightDao,
+    // pr-α (Bundle 3): the AiRepository owns the abandon/un-abandon
+    // operations because they conceptually belong to the AI surface
+    // (Reader Profile cares about abandoned books). The DAO is optional
+    // so existing test sites that only stub `insightDao` keep compiling;
+    // production wiring at di/AppContainer passes the real DAO.
+    private val progressDao: ProgressDao? = null,
     private val json: Json = Json { ignoreUnknownKeys = true; encodeDefaults = true },
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
@@ -152,6 +159,44 @@ class AiRepository(
      */
     suspend fun fetchHealth(): AiHealthResponse? =
         runCatching { client.getHealth() }.getOrNull()
+
+    // ---------- Reader Profile (pr-α / Bundle 3) ----------
+
+    /**
+     * Cache-only read of the most recent reader profile. Returns null on
+     * 404 (no row exists yet — pr-β's `POST /ai/v1/profile/refresh`
+     * writes the first one). Other non-2xx responses propagate.
+     */
+    suspend fun fetchProfile(): ReaderProfileResponseDto? =
+        client.fetchProfile()
+
+    /**
+     * Mark a book abandoned in the local Room DB. The row's `updatedAt`
+     * is bumped to `now` so the sync orchestrator pushes it on the next
+     * cycle and the server's `client_updated_at` LWW guard accepts the
+     * change. No server call here — the abandon-mark travels with the
+     * next progress push.
+     *
+     * Throws [IllegalStateException] if [progressDao] was not wired (test
+     * harness that only stubs `insightDao`).
+     */
+    suspend fun markAbandoned(documentId: Long, now: Long = clock()) {
+        val dao = checkNotNull(progressDao) {
+            "AiRepository.markAbandoned requires a ProgressDao"
+        }
+        dao.markAbandoned(documentId, now)
+    }
+
+    /**
+     * Inverse of [markAbandoned]: clears `abandonedAt` without touching
+     * `percent`. Same LWW timestamp semantics as `markAbandoned`.
+     */
+    suspend fun unmarkAbandoned(documentId: Long, now: Long = clock()) {
+        val dao = checkNotNull(progressDao) {
+            "AiRepository.unmarkAbandoned requires a ProgressDao"
+        }
+        dao.unmarkAbandoned(documentId, now)
+    }
 
     // ---------- internals ----------
 

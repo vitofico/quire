@@ -79,6 +79,9 @@ class AppContainer(context: Context) {
     val aiRepository: AiRepository = AiRepository(
         client = aiClient,
         insightDao = insightDao,
+        // pr-α (Bundle 3): wired so `markAbandoned`/`unmarkAbandoned`
+        // can flip the Room row's `abandonedAt` without a separate DAO.
+        progressDao = db.progressDao(),
     )
 
     /**

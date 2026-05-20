@@ -102,6 +102,28 @@ class SyncOrchestratorTest {
         assertThat(saved?.updatedAt).isEqualTo(500L)
     }
 
+    @Test fun `pull defensive read drops abandonedAt when finishedAt is also set`() = runTest {
+        // Coordinator §3.10 / pr-α: server's defensive read should already
+        // drop abandoned_at on a corrupt legacy row, but the Android client
+        // mirrors the rule (finished wins) so it survives a stale server too.
+        val docId = seedDoc(metadataId = "m", hash = "h")
+        server.enqueue(MockResponse().setBody(
+            """{"items":[{"document":{"metadata_id":"m","content_hash":"h"},""" +
+                """"locator":"server-loc","percent":1.0,""" +
+                """"client_updated_at":"1970-01-01T00:00:00.500Z",""" +
+                """"finished_at":"1970-01-01T00:00:00.500Z",""" +
+                """"abandoned_at":"1970-01-01T00:00:00.500Z"}],""" +
+                """"server_time":"1970-01-01T00:00:00.600Z"}"""
+        ))
+
+        val result = orchestrator.runOnce()
+        assertThat(result).isInstanceOf(SyncResult.Success::class.java)
+
+        val saved = db.progressDao().findByDocument(docId)
+        assertThat(saved?.finishedAt).isEqualTo(500L)
+        assertThat(saved?.abandonedAt).isNull()
+    }
+
     @Test fun `unauthorized stops the pipeline`() = runTest {
         val docId = seedDoc(metadataId = "m", hash = "h")
         seedProgress(documentId = docId, locator = "loc1", percent = 0.5, updatedAt = 50L)

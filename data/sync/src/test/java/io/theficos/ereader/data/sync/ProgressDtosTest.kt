@@ -72,4 +72,45 @@ class ProgressDtosTest {
         val r = json.decodeFromString(ProgressPullResponse.serializer(), raw)
         assertThat(r.items.first().finishedAt).isEqualTo("2026-05-09T12:00:00+00:00")
     }
+
+    @Test fun `push body round-trips abandonedAt`() {
+        val body = ProgressPushBody(
+            items = listOf(
+                ProgressItemDto(
+                    document = DocumentIdDto(metadataId = "m1", contentHash = "h1"),
+                    locator = "loc",
+                    percent = 0.6,
+                    clientUpdatedAt = "2026-05-20T12:00:00+00:00",
+                    abandonedAt = "2026-05-20T12:00:00+00:00",
+                )
+            )
+        )
+        val encoded = json.encodeToString(ProgressPushBody.serializer(), body)
+        assertThat(encoded).contains("\"abandoned_at\":\"2026-05-20T12:00:00+00:00\"")
+        val decoded = json.decodeFromString(ProgressPushBody.serializer(), encoded)
+        assertThat(decoded).isEqualTo(body)
+    }
+
+    @Test fun `null abandonedAt is omitted on the wire`() {
+        val body = ProgressPushBody(
+            items = listOf(
+                ProgressItemDto(
+                    document = DocumentIdDto(metadataId = "m1", contentHash = "h1"),
+                    locator = "loc",
+                    percent = 0.5,
+                    clientUpdatedAt = "2026-05-20T12:00:00+00:00",
+                    abandonedAt = null,
+                )
+            )
+        )
+        val encoded = json.encodeToString(ProgressPushBody.serializer(), body)
+        assertThat(encoded).doesNotContain("abandoned_at")
+    }
+
+    @Test fun `pull response decodes with optional abandonedAt`() {
+        val raw = """{"items":[{"document":{"metadata_id":null,"content_hash":"h"},"locator":"l","percent":0.6,"client_updated_at":"2026-05-20T12:00:00+00:00","abandoned_at":"2026-05-20T12:00:00+00:00"}],"server_time":"2026-05-20T12:00:01+00:00"}"""
+        val r = json.decodeFromString(ProgressPullResponse.serializer(), raw)
+        assertThat(r.items.first().abandonedAt).isEqualTo("2026-05-20T12:00:00+00:00")
+        assertThat(r.items.first().finishedAt).isNull()
+    }
 }

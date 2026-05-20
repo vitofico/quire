@@ -14,7 +14,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SyncStateEntity::class,
         InsightEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class EReaderDatabase : RoomDatabase() {
@@ -130,6 +130,19 @@ abstract class EReaderDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * pr-α / Bundle 3 / coordinator §3.16: adds nullable `abandonedAt`
+         * column to the `progress` table for the terminal-state invariant.
+         * Pairs with the server's `progress_002_abandoned_at` migration.
+         * No backfill — Room stores `Long?` as nullable INTEGER and
+         * pre-existing rows default to NULL.
+         */
+        internal val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE progress ADD COLUMN abandonedAt INTEGER")
+            }
+        }
+
         fun build(context: Context): EReaderDatabase =
             Room.databaseBuilder(context, EReaderDatabase::class.java, "ereader.db")
                 .addMigrations(
@@ -139,6 +152,7 @@ abstract class EReaderDatabase : RoomDatabase() {
                     MIGRATION_4_5,
                     MIGRATION_5_6,
                     MIGRATION_6_7,
+                    MIGRATION_7_8,
                 )
                 .build()
     }

@@ -67,6 +67,22 @@ class AiClient(
             if (e.code == 404) throw InsightNotCachedException() else throw e
         }
 
+    /**
+     * pr-α: cache-only read of the user's most recent reader profile.
+     * Returns null on 404 (no row written yet — pr-β's
+     * `POST /ai/v1/profile/refresh` writes the first one). Any other
+     * non-2xx response propagates as [AiHttpException].
+     *
+     * No opt-in gate on the server side: opted-out users can still read
+     * their last generation.
+     */
+    suspend fun fetchProfile(): ReaderProfileResponseDto? =
+        try {
+            get("/ai/v1/profile")
+        } catch (e: AiHttpException) {
+            if (e.code == 404) null else throw e
+        }
+
     suspend fun invalidateInsight(identity: DocumentIdentity) {
         postUnit("/ai/v1/insights/invalidate", InsightGetBody(identity))
     }

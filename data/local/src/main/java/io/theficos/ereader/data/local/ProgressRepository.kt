@@ -23,6 +23,7 @@ class ProgressRepository(private val dao: ProgressDao) {
             localUpdatedAt = now,
             syncedAt = 0L,
             finishedAt = progress.finishedAt,
+            abandonedAt = progress.abandonedAt,
         ))
     }
 
@@ -50,5 +51,6 @@ class ProgressRepository(private val dao: ProgressDao) {
             percent = percent,
             updatedAt = updatedAt,
             finishedAt = finishedAt,
+            abandonedAt = abandonedAt,
         )
 }

@@ -167,5 +167,96 @@ class MigrationTest {
         }
     }
 
+    @Test fun `migrate 7 to 8 adds abandonedAt column defaulting to null`() {
+        helper.createDatabase(DB, 7).use { db ->
+            db.execSQL(
+                "INSERT INTO documents (id, metadataId, contentHash, title, author, downloadUrl, " +
+                    "localPath, coverPath, downloadedAt, seriesName, seriesIndex, librarySyncedAt) " +
+                    "VALUES (21, 'm21', 'h21', 'Pre-α title', NULL, 'u', 'p', NULL, 31, NULL, NULL, NULL)"
+            )
+            db.execSQL(
+                "INSERT INTO progress (id, documentId, locator, percent, updatedAt, " +
+                    "localUpdatedAt, syncedAt, finishedAt) " +
+                    "VALUES (21, 21, 'loc', 0.5, 100, 100, 0, NULL)"
+            )
+        }
+
+        helper.runMigrationsAndValidate(DB, 8, true, EReaderDatabase.MIGRATION_7_8).use { db ->
+            // Column exists.
+            db.query("PRAGMA table_info('progress')").use { c ->
+                val cols = mutableSetOf<String>()
+                while (c.moveToNext()) cols += c.getString(c.getColumnIndexOrThrow("name"))
+                assertThat(cols).contains("abandonedAt")
+            }
+            // Pre-existing row survives with abandonedAt = NULL.
+            db.query("SELECT abandonedAt FROM progress WHERE id=21").use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.isNull(0)).isTrue()
+            }
+            // Insert a second documents row so we can write a second progress
+            // row (progress.documentId has a UNIQUE constraint).
+            db.execSQL(
+                "INSERT INTO documents (id, metadataId, contentHash, title, author, downloadUrl, " +
+                    "localPath, coverPath, downloadedAt, seriesName, seriesIndex, librarySyncedAt) " +
+                    "VALUES (22, 'm22', 'h22', 'Round-trip title', NULL, 'u', 'p', NULL, 32, NULL, NULL, NULL)"
+            )
+            // New rows round-trip a non-null abandonedAt.
+            db.execSQL(
+                "INSERT INTO progress (id, documentId, locator, percent, updatedAt, " +
+                    "localUpdatedAt, syncedAt, finishedAt, abandonedAt) " +
+                    "VALUES (22, 22, 'loc2', 0.6, 200, 200, 0, NULL, 12345)"
+            )
+            db.query("SELECT abandonedAt FROM progress WHERE id=22").use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.getLong(0)).isEqualTo(12345L)
+            }
+        }
+    }
+
+    @Test fun `migrate 6 to 8 chains via book_insights and abandonedAt`() {
+        // v6 fixture: seed a documents row + a progress row. book_insights
+        // does NOT exist at v6 (added by MIGRATION_6_7).
+        helper.createDatabase(DB, 6).use { db ->
+            db.execSQL(
+                "INSERT INTO documents (id, metadataId, contentHash, title, author, downloadUrl, " +
+                    "localPath, coverPath, downloadedAt, seriesName, seriesIndex, librarySyncedAt) " +
+                    "VALUES (31, 'm31', 'h31', 'Pre-η title', NULL, 'u', 'p', NULL, 41, NULL, NULL, NULL)"
+            )
+            db.execSQL(
+                "INSERT INTO progress (id, documentId, locator, percent, updatedAt, " +
+                    "localUpdatedAt, syncedAt, finishedAt) " +
+                    "VALUES (31, 31, 'loc', 0.7, 100, 100, 0, NULL)"
+            )
+        }
+
+        helper.runMigrationsAndValidate(
+            DB,
+            8,
+            true,
+            EReaderDatabase.MIGRATION_6_7,
+            EReaderDatabase.MIGRATION_7_8,
+        ).use { db ->
+            // book_insights (from MIGRATION_6_7) exists.
+            db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='book_insights'").use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+            }
+            // progress.abandonedAt (from MIGRATION_7_8) exists.
+            db.query("PRAGMA table_info('progress')").use { c ->
+                val cols = mutableSetOf<String>()
+                while (c.moveToNext()) cols += c.getString(c.getColumnIndexOrThrow("name"))
+                assertThat(cols).contains("abandonedAt")
+            }
+            // Pre-existing v6 rows survive both additive migrations.
+            db.query("SELECT COUNT(*) FROM documents WHERE id=31").use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.getInt(0)).isEqualTo(1)
+            }
+            db.query("SELECT abandonedAt FROM progress WHERE id=31").use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.isNull(0)).isTrue()
+            }
+        }
+    }
+
     private companion object { const val DB = "migration-test.db" }
 }
