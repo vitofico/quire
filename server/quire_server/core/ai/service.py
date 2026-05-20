@@ -23,18 +23,20 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Protocol
 
-from sqlalchemy import delete, func, literal, or_, select
+from sqlalchemy import and_, case, delete, func, literal, literal_column, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from quire_server.api.ai_schemas import (
     AiStyle,
+    AuthorCount,
     BookInsightPayload,
     BookInsightResponse,
     Citation,
     DocumentIdentity,
     MetadataBundle,
+    ReaderStats,
     SeriesInsight,
 )
 from quire_server.core.ai.health_state import AiHealthState
@@ -53,8 +55,10 @@ from quire_server.db.models import (
     AIUsageDaily,
     BookInsight,
     BookTheme,
+    Document,
     InsightIdentityAlias,
     LibraryItem,
+    Progress,
 )
 
 logger = logging.getLogger(__name__)
@@ -1234,3 +1238,253 @@ def _synthetic_content_hash(ident: DocumentIdentity, original_hints: dict[str, s
     # Last-resort: title-less, completely unidentifiable. Should be
     # impossible because IdentityUnresolvable would have fired earlier.
     raise IdentityUnresolvable("cannot synthesize content_hash without any identity hint")
+
+
+# ===========================================================================
+# Reader Profile — deterministic stats computation (pr-α / Bundle 3).
+# ---------------------------------------------------------------------------
+# `_compute_reader_stats` mirrors PR9's `pick_priority` pattern at
+# `quire_server/api/library.py:get_stats` exactly. Both call sites MUST stay
+# in lockstep: the case-expression form was chosen over the spec's
+# `(metadata_id IS NOT NULL) DESC` after PR9 flagged the latter as a
+# tie-prone false ordering (coordinator §3.4 REJECT (e)). Any change to the
+# pick-priority shape here MUST also update `get_stats` (and vice versa).
+#
+# pr-α is a no-op caller — `GET /ai/v1/profile` does NOT invoke this
+# function (it's a cache-only read). pr-β's `POST /ai/v1/profile/refresh`
+# is the first real caller.
+# ===========================================================================
+
+
+async def _compute_reader_stats(session: AsyncSession, user_id: str) -> ReaderStats:
+    """Deterministic per-user library statistics for the Reader Profile.
+
+    Mirrors PR9's `pick_priority` pattern at `library.py:get_stats` for the
+    `finish_rate_by_theme` sub-query (REJECT (e) regression site). Other
+    counts ride on top of the same `library_items LEFT JOIN documents JOIN
+    progress` bridge that PR9 uses.
+
+    The terminal-state invariant (coordinator §3.10) is honored on read:
+    `finished_at IS NOT NULL` → counts as finished; `abandoned_at IS NOT
+    NULL AND finished_at IS NULL` → counts as abandoned; everything else
+    (including the corrupt-row case where both are set, which the DB
+    constraint forbids on new writes) → ride finish_count.
+    """
+
+    # --------------------------------------------------------------
+    # 1. total_books — alive library items for this user.
+    # --------------------------------------------------------------
+    total_books = (
+        await session.scalar(
+            select(func.count())
+            .select_from(LibraryItem)
+            .where(LibraryItem.user_id == user_id, LibraryItem.deleted_at.is_(None))
+        )
+    ) or 0
+
+    # --------------------------------------------------------------
+    # 2a. finished_count — finished_at IS NOT NULL.
+    # --------------------------------------------------------------
+    finished_count = (
+        await session.scalar(
+            select(func.count())
+            .select_from(LibraryItem)
+            .join(
+                Document,
+                and_(
+                    Document.user_id == LibraryItem.user_id,
+                    Document.content_hash == LibraryItem.content_hash,
+                ),
+            )
+            .join(Progress, Progress.document_pk == Document.pk)
+            .where(
+                LibraryItem.user_id == user_id,
+                LibraryItem.deleted_at.is_(None),
+                Progress.finished_at.is_not(None),
+            )
+        )
+    ) or 0
+
+    # --------------------------------------------------------------
+    # 2b. abandoned_count — abandoned_at set AND finished_at unset.
+    #     Defensive read (§3.10): if both are non-null on a legacy row,
+    #     finished wins — that row contributes to finished_count above
+    #     and NOT to abandoned_count here.
+    # --------------------------------------------------------------
+    abandoned_count = (
+        await session.scalar(
+            select(func.count())
+            .select_from(LibraryItem)
+            .join(
+                Document,
+                and_(
+                    Document.user_id == LibraryItem.user_id,
+                    Document.content_hash == LibraryItem.content_hash,
+                ),
+            )
+            .join(Progress, Progress.document_pk == Document.pk)
+            .where(
+                LibraryItem.user_id == user_id,
+                LibraryItem.deleted_at.is_(None),
+                Progress.finished_at.is_(None),
+                Progress.abandoned_at.is_not(None),
+            )
+        )
+    ) or 0
+
+    # --------------------------------------------------------------
+    # 2c. in_progress_count — neither terminal flag, percent>0.
+    # --------------------------------------------------------------
+    in_progress_count = (
+        await session.scalar(
+            select(func.count())
+            .select_from(LibraryItem)
+            .join(
+                Document,
+                and_(
+                    Document.user_id == LibraryItem.user_id,
+                    Document.content_hash == LibraryItem.content_hash,
+                ),
+            )
+            .join(Progress, Progress.document_pk == Document.pk)
+            .where(
+                LibraryItem.user_id == user_id,
+                LibraryItem.deleted_at.is_(None),
+                Progress.finished_at.is_(None),
+                Progress.abandoned_at.is_(None),
+                Progress.percent > 0,
+            )
+        )
+    ) or 0
+
+    # --------------------------------------------------------------
+    # 3. most_read_authors — unnest `authors` jsonb and group, top 5.
+    #    Mirrors library.py's top_authors verbatim.
+    # --------------------------------------------------------------
+    author_col = (
+        func.jsonb_array_elements_text(LibraryItem.authors)
+        .table_valued("value")
+        .render_derived(name="author")
+    )
+    author_value = literal_column("author.value")
+    author_count_expr = func.count(func.distinct(LibraryItem.pk))
+    author_rows = (
+        await session.execute(
+            select(author_value.label("name"), author_count_expr.label("c"))
+            .select_from(LibraryItem)
+            .join(author_col, literal_column("true"))
+            .where(
+                LibraryItem.user_id == user_id,
+                LibraryItem.deleted_at.is_(None),
+            )
+            .group_by(author_value)
+            .order_by(author_count_expr.desc(), author_value.asc())
+            .limit(5)
+        )
+    ).all()
+    most_read_authors = [AuthorCount(name=row.name, count=int(row.c)) for row in author_rows]
+
+    # --------------------------------------------------------------
+    # 4. finish_rate_by_theme — REJECT-(e) regression site.
+    #    Mirrors library.py:get_stats pick_priority — see coordinator
+    #    §3.4 REJECT (e). DO NOT change without updating get_stats too.
+    # --------------------------------------------------------------
+    pick_priority = case(
+        (
+            and_(
+                BookInsight.metadata_id.is_not(None),
+                BookInsight.metadata_id == LibraryItem.metadata_id,
+            ),
+            0,
+        ),
+        else_=1,
+    )
+
+    picked = (
+        select(
+            LibraryItem.pk.label("library_item_pk"),
+            LibraryItem.content_hash.label("library_item_content_hash"),
+            LibraryItem.user_id.label("library_item_user_id"),
+            BookInsight.id.label("book_insight_id"),
+        )
+        .select_from(LibraryItem)
+        .join(
+            BookInsight,
+            and_(
+                BookInsight.superseded_at.is_(None),
+                (
+                    (
+                        BookInsight.metadata_id.is_not(None)
+                        & (BookInsight.metadata_id == LibraryItem.metadata_id)
+                    )
+                    | (BookInsight.content_hash == LibraryItem.content_hash)
+                ),
+            ),
+        )
+        .where(
+            LibraryItem.user_id == user_id,
+            LibraryItem.deleted_at.is_(None),
+        )
+        .order_by(LibraryItem.pk, pick_priority, BookInsight.generated_at.desc())
+        .distinct(LibraryItem.pk)
+        .subquery("picked_insight")
+    )
+
+    # For each picked (library_item, theme): is the book finished?
+    # The picked CTE already carries user_id+content_hash so the JOIN to
+    # documents stays user-scoped.
+    finished_expr = case(
+        (Progress.finished_at.is_not(None), 1),
+        else_=0,
+    )
+    count_total = func.count(func.distinct(picked.c.library_item_pk))
+    count_finished = func.sum(finished_expr)
+    theme_rows = (
+        await session.execute(
+            select(
+                BookTheme.theme.label("theme"),
+                count_total.label("total"),
+                count_finished.label("finished"),
+            )
+            .select_from(picked)
+            .join(BookTheme, BookTheme.book_insight_id == picked.c.book_insight_id)
+            .join(
+                Document,
+                and_(
+                    Document.user_id == picked.c.library_item_user_id,
+                    Document.content_hash == picked.c.library_item_content_hash,
+                ),
+                isouter=True,
+            )
+            .join(Progress, Progress.document_pk == Document.pk, isouter=True)
+            .where(BookTheme.confidence >= 1.0)
+            .group_by(BookTheme.theme)
+            .order_by(BookTheme.theme.asc())
+            .limit(10)
+        )
+    ).all()
+    finish_rate_by_theme: dict[str, float] = {}
+    for row in theme_rows:
+        total = int(row.total or 0)
+        finished = int(row.finished or 0)
+        if total == 0:
+            continue
+        finish_rate_by_theme[row.theme] = finished / total
+
+    # --------------------------------------------------------------
+    # 5. books_with_themes_count.
+    # --------------------------------------------------------------
+    # Lock #15 / CC-8: counted in pr-β. pr-α emits 0 so older clients
+    # that hand-insert a reader_profiles row (tests only) still validate.
+    books_with_themes_count = 0
+
+    return ReaderStats(
+        total_books=int(total_books),
+        finished_count=int(finished_count),
+        in_progress_count=int(in_progress_count),
+        abandoned_count=int(abandoned_count),
+        avg_session_minutes=None,
+        finish_rate_by_theme=finish_rate_by_theme,
+        most_read_authors=most_read_authors,
+        books_with_themes_count=books_with_themes_count,
+    )

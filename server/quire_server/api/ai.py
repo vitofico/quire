@@ -39,6 +39,8 @@ from quire_server.api.ai_schemas import (
     PreferencesBody,
     PreferencesResponse,
     QuotaResponse,
+    ReaderProfilePayload,
+    ReaderProfileResponse,
     RetrievalSourceHealth,
 )
 from quire_server.config import get_settings
@@ -49,7 +51,7 @@ from quire_server.core.ai.service import (
     PromoteOwnershipError,
     QuotaExceeded,
 )
-from quire_server.db.models import BookInsight, LibraryItem, UserAIPreference
+from quire_server.db.models import BookInsight, LibraryItem, ReaderProfile, UserAIPreference
 from quire_server.db.session import get_session
 
 router = APIRouter(tags=["ai"])
@@ -496,6 +498,37 @@ async def sync_insights(
         items=items,
         server_time=datetime.now(UTC).isoformat(),
         next_cursor=next_cursor,
+    )
+
+
+@router.get("/profile", response_model=ReaderProfileResponse)
+async def get_profile(
+    principal: Annotated[AiPrincipal, Depends(get_ai_principal)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> ReaderProfileResponse:
+    """Cache-only profile read.
+
+    No opt-in gate (opted-out users can still read their last generation),
+    no LLM call. 404 when no row exists. Refresh / generation lives in
+    pr-β's `POST /ai/v1/profile/refresh`.
+    """
+    row = (
+        await session.execute(
+            select(ReaderProfile).where(
+                ReaderProfile.tenant_id == principal.tenant_id,
+                ReaderProfile.subject == principal.subject,
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no_profile")
+    return ReaderProfileResponse(
+        payload=ReaderProfilePayload.model_validate(row.payload),
+        schema_version=row.schema_version,
+        model_id=row.model_id,
+        prompt_version=row.prompt_version,
+        input_fingerprint=row.input_fingerprint,
+        generated_at=row.generated_at,
     )
 
 

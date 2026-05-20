@@ -52,6 +52,16 @@ class Progress(Base):
     __tablename__ = "progress"
     __table_args__ = (
         CheckConstraint("percent >= 0 AND percent <= 1", name="ck_progress_percent_range"),
+        # Terminal-state invariant (coordinator §3.10): a row can be
+        # in-progress, finished, OR abandoned — never simultaneously
+        # finished AND abandoned. The sync write path enforces "clear the
+        # other" on terminal-state flips, and the pull path defensively
+        # drops `abandoned_at` (finished wins) for legacy rows that
+        # pre-date this constraint.
+        CheckConstraint(
+            "finished_at IS NULL OR abandoned_at IS NULL",
+            name="ck_progress_abandoned_xor_finished",
+        ),
         Index("ix_progress_document_client_updated_at", "document_pk", "client_updated_at"),
     )
 
@@ -61,6 +71,11 @@ class Progress(Base):
     locator: Mapped[str] = mapped_column(String, nullable=False)
     percent: Mapped[float] = mapped_column(Float, nullable=False)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # pr-α (Bundle 3) / coordinator §3.10. Mutually exclusive with
+    # `finished_at` (enforced by `ck_progress_abandoned_xor_finished`).
+    # `percent` is intentionally preserved on the abandon transition so
+    # "abandoned at 60% should remember 60%".
+    abandoned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     client_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -353,4 +368,38 @@ class BookTheme(Base):
     theme: Mapped[str] = mapped_column(String, primary_key=True)
     confidence: Mapped[float] = mapped_column(
         Float, nullable=False, server_default=text("1.0"), default=1.0
+    )
+
+
+# ============================================================================
+# `reader_profiles` (pr-α / Bundle 3, 2026-05-20) — `ai` branch.
+# ----------------------------------------------------------------------------
+# Per-user reader profile cache. USER-SCOPED — `(tenant_id, subject)` is the
+# composite primary key. **NOT shared cache**: the cache-integrity invariant
+# documented above `BookInsight` does NOT apply here. The cache namespace is
+# distinct from `book_insights` (different `prompt_version` constant —
+# `READER_PROFILE_PROMPT_VERSION`, introduced in pr-β).
+#
+# pr-α never writes a row; the table is populated by pr-β's
+# `POST /ai/v1/profile/refresh`. The read endpoint (`GET /ai/v1/profile`,
+# in this PR) returns 404 when no row exists.
+#
+# `input_fingerprint` is the 16-hex-char SHA-256 prefix of the stats blob
+# used to compute the profile (Lock #12 / coordinator §3.6). VARCHAR(16)
+# pins the width at the column level. Nullable here because pr-α never
+# writes it; pr-β writes a non-null value on every refresh.
+# ============================================================================
+class ReaderProfile(Base):
+    __tablename__ = "reader_profiles"
+
+    tenant_id: Mapped[str] = mapped_column(String, primary_key=True)
+    subject: Mapped[str] = mapped_column(String, primary_key=True)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    model_id: Mapped[str] = mapped_column(String, nullable=False)
+    prompt_version: Mapped[str] = mapped_column(String, nullable=False)
+    # VARCHAR(16): 16-hex-char SHA-256 prefix (Lock #12, coordinator §3.6).
+    input_fingerprint: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )

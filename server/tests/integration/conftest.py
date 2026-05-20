@@ -42,7 +42,8 @@ async def _truncate_ai_tables_between_tests(request, engine: AsyncEngine):
             text(
                 "TRUNCATE TABLE book_insights, user_ai_preferences, "
                 "external_source_cache, ai_usage_daily, "
-                "insight_identity_aliases, library_items "
+                "insight_identity_aliases, library_items, "
+                "reader_profiles, progress, documents "
                 "RESTART IDENTITY CASCADE"
             )
         )

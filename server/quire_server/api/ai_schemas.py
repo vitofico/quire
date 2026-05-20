@@ -5,6 +5,7 @@ in the `response_format` of the chat completion request, so its shape is
 load-bearing on both ends.
 """
 
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -572,3 +573,100 @@ class AiHealthResponse(BaseModel):
     last_failure_at: str | None = None  # ISO-8601
     last_failure_class: str | None = None
     retrieval_sources: list[RetrievalSourceHealth] = Field(default_factory=list)
+
+
+# ===========================================================================
+# Reader Profile (pr-α / Bundle 3) — coordinator §3.2, §3.4, §3.6, Lock #15.
+# ---------------------------------------------------------------------------
+# Schemas for the user-scoped Reader Profile cache (`reader_profiles` table).
+# pr-α defines the shapes and ships the cache-only `GET /ai/v1/profile`
+# endpoint; pr-β populates rows via `POST /ai/v1/profile/refresh`.
+# ===========================================================================
+
+
+class AuthorCount(BaseModel):
+    """One entry of ``ReaderStats.most_read_authors``."""
+
+    name: str
+    count: int
+
+
+class ReaderStats(BaseModel):
+    """Deterministic library statistics surfaced inside ``ReaderProfilePayload``.
+
+    Populated by ``quire_server.core.ai.service._compute_reader_stats``
+    (added in pr-α). pr-α also defines ``books_with_themes_count`` (Lock #15 /
+    CC-8) with default 0; pr-β replaces the default with a real count.
+    """
+
+    total_books: int
+    finished_count: int
+    in_progress_count: int
+    abandoned_count: int
+    # v1 leaves this null. The field exists for forward compatibility so
+    # future readers don't have to bump ``schema_version`` to add it.
+    avg_session_minutes: float | None = None
+    # Capped at 10 entries by ``_compute_reader_stats``.
+    finish_rate_by_theme: dict[str, float] = Field(default_factory=dict)
+    # Capped at 5 entries by ``_compute_reader_stats``.
+    most_read_authors: list[AuthorCount] = Field(default_factory=list)
+    # Lock #15 / CC-8: count of library_items with at least one
+    # book_insights row where schema_version >= 4 AND superseded_at IS
+    # NULL. pr-α defines the field with default 0; pr-β populates inside
+    # _compute_reader_stats; pr-γ uses it for the coverage meter and
+    # the input_fingerprint.
+    books_with_themes_count: int = 0
+
+
+class BookRec(BaseModel):
+    """One recommendation (in-library or discovery) inside a Reader Profile.
+
+    Coordinator §3.4 shape. Schema introduced in pr-α. Only pr-β populates
+    ``candidate_id``, ``source_type``, ``source_url``, ``owned_state``
+    correctly from the orchestrator. pr-α never writes a ``BookRec``
+    itself; the defaults keep the type round-trippable when reading
+    legacy / future payloads.
+    """
+
+    candidate_id: str | None = None
+    title: str
+    author: str
+    identity: DocumentIdentity | None = None
+    source_type: Literal[
+        "in_library",
+        "discovery_openlibrary",
+        "ai_suggested",
+    ] = "ai_suggested"
+    source_url: str | None = None
+    owned_state: Literal["owned_read", "owned_unread", "not_owned"] = "not_owned"
+    rationale: str
+    sources: list[Citation] | None = None
+
+
+class ReaderProfilePayload(BaseModel):
+    """The structured body of a reader profile. Stored verbatim in
+    ``reader_profiles.payload``.
+    """
+
+    schema_version: int = 1
+    stats: ReaderStats
+    narrative: str | None = None
+    in_library_recommendations: list[BookRec] = Field(default_factory=list)
+    discovery_recommendations: list[BookRec] = Field(default_factory=list)
+    confidence: Literal["high", "medium", "low"] | None = None
+
+
+class ReaderProfileResponse(BaseModel):
+    """Body of ``GET /ai/v1/profile`` (pr-α, cache-only).
+
+    ``schema_version`` is surfaced top-level (in addition to inside
+    ``payload``) so callers can gate compatibility without cracking the
+    JSON. ``input_fingerprint`` is null until pr-β starts writing it.
+    """
+
+    payload: ReaderProfilePayload
+    schema_version: int
+    model_id: str
+    prompt_version: str
+    input_fingerprint: str | None
+    generated_at: datetime
