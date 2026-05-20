@@ -21,9 +21,18 @@ class EReaderApp : Application(), ImageLoaderFactory {
         // the only thing that gets the server out of "0 books" state. Best-
         // effort: failures are logged inside the uploader; the row stays
         // unsynced and we retry on the next app start.
+        //
+        // PR-η / coordinator §3.17: after the upload completes (and as long as
+        // it didn't 401), trigger an insight sync. Ordering matters — the
+        // server has the latest library row before we ask for insights joined
+        // through it. On 401 we skip; /ai/v1/insights/sync would 401 anyway.
         container.libraryUploaderScope.launch {
-            runCatching { container.libraryUploader.runOnce() }
+            val result = runCatching { container.libraryUploader.runOnce() }
                 .onFailure { Log.w("EReaderApp", "library upload backfill failed", it) }
+                .getOrNull()
+            if (result?.abortedOnAuth != true) {
+                container.insightSyncRepository.requestSync("app_start_post_upload")
+            }
         }
     }
 

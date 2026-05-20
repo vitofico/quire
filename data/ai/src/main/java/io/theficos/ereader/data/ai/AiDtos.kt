@@ -13,6 +13,11 @@ data class AiConfig(
     @SerialName("sources_enabled") val sourcesEnabled: List<String> = emptyList(),
     @SerialName("daily_budget") val dailyBudget: Int = 0,
     @SerialName("regen_daily_limit") val regenDailyLimit: Int = 0,
+    // PR-η / Lock #24: server-side runtime-resolved PROMPT_VERSION. Defaults
+    // to the legacy sentinel "1" so older deploys (pre-PR-η) that don't emit
+    // the field decode safely; new clients re-key their local cache on this
+    // value (see InsightEntity PK in :data:local, future work).
+    @SerialName("prompt_version") val promptVersion: String = "1",
 )
 
 @Serializable
@@ -55,14 +60,30 @@ data class SeriesInsight(
 )
 
 @Serializable
+data class ComparativeAnchor(
+    val book: String,
+    val author: String,
+    @SerialName("similar_in") val similarIn: String,
+    @SerialName("different_in") val differentIn: String? = null,
+)
+
+@Serializable
 data class BookInsightPayload(
     val intro: String? = null,
     val author: AuthorInsight? = null,
     val series: SeriesInsight? = null,
     val analysis: String? = null,
     @SerialName("content_warnings") val contentWarnings: List<String>? = null,
+    // PR-ε v3 catch-up: server-side `themes` field has existed since PR3.
+    val themes: List<String>? = null,
+    // PR-ε / schema v4 — per-book depth fields. All optional, all default null.
+    @SerialName("theme_analysis") val themeAnalysis: Map<String, String>? = null,
+    @SerialName("craft_notes") val craftNotes: String? = null,
+    @SerialName("comparative_anchors") val comparativeAnchors: List<ComparativeAnchor>? = null,
+    @SerialName("distinctive_take") val distinctiveTake: String? = null,
+    @SerialName("discussion_prompts") val discussionPrompts: List<String>? = null,
     val confidence: String = "low",
-    @SerialName("schema_version") val schemaVersion: Int = 2,
+    @SerialName("schema_version") val schemaVersion: Int = 4,
 )
 
 @Serializable
@@ -78,6 +99,54 @@ data class BookInsightResponse(
 data class InsightLookupBody(
     val identity: DocumentIdentity,
     val bundle: MetadataBundle,
+)
+
+@Serializable
+data class InsightPromoteBody(
+    val from: DocumentIdentity,
+    val to: DocumentIdentity,
+    val tone: String = "neutral",
+    val language: String = "auto",
+)
+
+@Serializable
+data class InsightPromoteResponse(
+    val promoted: Boolean,
+    @SerialName("insight_id") val insightId: Long? = null,
+    @SerialName("already_promoted") val alreadyPromoted: Boolean = false,
+)
+
+/**
+ * PR-η: tuple cursor for `GET /ai/v1/insights/sync` pagination (Lock #23).
+ *
+ * Strict-lexicographic on `(generatedAt, id)`. Persist verbatim between
+ * pages — the server is the source of truth for what counts as "next".
+ */
+@Serializable
+data class InsightSyncCursor(
+    @SerialName("generated_at") val generatedAt: String,
+    val id: Long,
+)
+
+@Serializable
+data class InsightSyncItem(
+    val id: Long,
+    val identity: DocumentIdentity,
+    val payload: BookInsightPayload,
+    val sources: List<Citation>,
+    @SerialName("model_id") val modelId: String,
+    @SerialName("prompt_version") val promptVersion: String,
+    @SerialName("schema_version") val schemaVersion: Int,
+    val tone: String,
+    val language: String,
+    @SerialName("generated_at") val generatedAt: String,
+)
+
+@Serializable
+data class InsightSyncResponse(
+    val items: List<InsightSyncItem>,
+    @SerialName("server_time") val serverTime: String,
+    @SerialName("next_cursor") val nextCursor: InsightSyncCursor? = null,
 )
 
 @Serializable

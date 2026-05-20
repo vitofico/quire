@@ -7,6 +7,10 @@ import androidx.lifecycle.viewModelScope
 import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.core.identity.extractIdentity
 import io.theficos.ereader.core.metadata.readOpfBundle
+import io.theficos.ereader.core.model.DocumentIdentity
+import io.theficos.ereader.data.ai.AiRepository
+import io.theficos.ereader.data.ai.CatalogInsightStash
+import io.theficos.ereader.data.ai.InsightSyncRepository
 import io.theficos.ereader.data.library.LibraryUploader
 import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.db.SyncStateDao
@@ -36,6 +40,10 @@ class CatalogViewModel(
     private val libraryUploader: LibraryUploader? = null,
     private val syncEnqueuer: (Context) -> Unit =
         { ctx -> SyncEnqueuer.enqueue(ctx, expedited = true, replaceExisting = true) },
+    private val aiRepository: AiRepository? = null,
+    private val catalogInsightStash: CatalogInsightStash? = null,
+    private val insightSyncRepository: InsightSyncRepository? = null,
+    private val subjectProvider: () -> String? = { null },
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<CatalogUiState>(CatalogUiState.Idle)
@@ -125,6 +133,49 @@ class CatalogViewModel(
         }
     }
 
+    /**
+     * PR-ζ: best-effort insight promote.
+     *
+     * Consults [CatalogInsightStash] for the catalog-side identity the user
+     * saw pre-download. On a hit, calls [AiRepository.promoteInsight] and
+     * removes the stash entry only on a confirmed success. On any failure
+     * the stash entry is kept so a retry on the next download attempt has
+     * a shot at promoting.
+     *
+     * Returns silently when any of the stash / repo / subject are null —
+     * production wiring supplies all three; unit tests that don't care
+     * leave them as null.
+     */
+    private suspend fun maybePromoteInsight(
+        pub: OpdsPublication,
+        downloadedIdentity: DocumentIdentity,
+    ) {
+        val stash = catalogInsightStash ?: return
+        val ai = aiRepository ?: return
+        val subject = subjectProvider() ?: return
+        val entry = stash.peek(subject, pub.epubDownloadHref) ?: return
+        val ok = ai.promoteInsight(
+            from = entry.catalogIdentity,
+            to = downloadedIdentity,
+            tone = entry.tone,
+            language = entry.language,
+        )
+        if (ok) {
+            stash.remove(subject, pub.epubDownloadHref)
+            // PR-η / coordinator §3.17: a successful promote means the server
+            // wrote a new BookInsight row at `downloadedIdentity` with
+            // `generated_at = NOW()`. Trigger a sync so the Android cache picks
+            // it up — coalescing collapses bursts when the user downloads
+            // several books in quick succession.
+            insightSyncRepository?.requestSync("after_promote")
+        } else {
+            Log.d(
+                "CatalogViewModel",
+                "promoteInsight returned false for href=${pub.epubDownloadHref}; stash kept for retry",
+            )
+        }
+    }
+
     fun download(pub: OpdsPublication, context: Context) {
         val current = _state.value as? CatalogUiState.Loaded ?: return
         viewModelScope.launch {
@@ -157,11 +208,16 @@ class CatalogViewModel(
                         seriesName = opf.seriesName,
                         seriesIndex = opf.seriesPosition?.toDouble(),
                     )
-                    // Fire-and-forget upload to /library/v1/items so the server
-                    // can include this book in stats / aggregates. Failures are
-                    // logged inside the uploader; the row stays unsynced and
-                    // the next app-start pass retries.
-                    libraryUploader?.enqueueOne(insertedId)
+                    // Upload to /library/v1/items so the server can include
+                    // this book in stats / aggregates. Lock #13: we capture
+                    // the Job and join it before the promote call fires, so
+                    // the server has the library_items row before the
+                    // promote's ownership gate (`_assert_owns`) runs.
+                    // Failures are logged inside the uploader; the row stays
+                    // unsynced and the next app-start pass retries.
+                    val uploadJob = libraryUploader?.enqueueOne(insertedId)
+                    uploadJob?.join()
+                    maybePromoteInsight(pub, identity)
                 } else {
                     file.delete()
                     coverFile?.delete()

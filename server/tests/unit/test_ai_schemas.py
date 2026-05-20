@@ -4,6 +4,7 @@ from pydantic import ValidationError
 from quire_server.api.ai_schemas import (
     AiStyle,
     BookInsightPayload,
+    ComparativeAnchor,
     InsightLookupBody,
     InsightRegenerateBody,
     SeriesInsight,
@@ -14,7 +15,7 @@ def test_payload_round_trip_minimal():
     p = BookInsightPayload(confidence="high")
     again = BookInsightPayload.model_validate_json(p.model_dump_json())
     assert again.confidence == "high"
-    assert again.schema_version == 3
+    assert again.schema_version == 4
     assert again.intro is None
     assert again.analysis is None
     assert again.themes is None
@@ -22,7 +23,7 @@ def test_payload_round_trip_minimal():
 
 def test_payload_extra_fields_rejected():
     with pytest.raises(ValidationError):
-        BookInsightPayload.model_validate({"schema_version": 3, "fictional_field": "no"})
+        BookInsightPayload.model_validate({"schema_version": 4, "fictional_field": "no"})
 
 
 def test_payload_dropped_v1_fields_rejected():
@@ -34,8 +35,11 @@ def test_payload_dropped_v1_fields_rejected():
 
 
 def test_payload_accepts_themes_field():
-    """PR3 (v3) re-introduces `themes` as a first-class output."""
-    p = BookInsightPayload.model_validate({"themes": ["mystery", "noir"], "confidence": "low"})
+    """PR3 (v3) re-introduces `themes` as a first-class output. With PR-ε the
+    default schema_version is 4 but explicit v3 payloads still round-trip."""
+    p = BookInsightPayload.model_validate(
+        {"themes": ["mystery", "noir"], "confidence": "low", "schema_version": 3}
+    )
     assert p.themes == ["mystery", "noir"]
     assert p.schema_version == 3
 
@@ -60,10 +64,154 @@ def test_payload_key_order_matches_reading_order():
         "analysis",
         "content_warnings",
         "themes",
+        # PR-ε / schema v4: per-book depth fields.
+        "theme_analysis",
+        "craft_notes",
+        "comparative_anchors",
+        "distinctive_take",
+        "discussion_prompts",
         "confidence",
         "schema_version",
     ]
     assert keys == expected
+
+
+# ---------------------------------------------------------------------------
+# PR-ε / schema v4 validators and round-trips.
+# ---------------------------------------------------------------------------
+
+
+def test_book_insight_payload_v4_round_trip():
+    p = BookInsightPayload(
+        intro="i",
+        analysis="a",
+        themes=["mystery"],
+        theme_analysis={"mystery": "Manifests through ..."},
+        craft_notes="Tight close third POV ...",
+        comparative_anchors=[
+            ComparativeAnchor(book="X", author="Y", similar_in="Both ...", different_in="X is ...")
+        ],
+        distinctive_take="What sets it apart ...",
+        discussion_prompts=["Q1?", "Q2?"],
+        confidence="medium",
+    )
+    j = p.model_dump_json()
+    p2 = BookInsightPayload.model_validate_json(j)
+    assert p2.schema_version == 4
+    assert p2.theme_analysis == {"mystery": "Manifests through ..."}
+    assert p2.comparative_anchors is not None
+    assert p2.comparative_anchors[0].different_in == "X is ..."
+
+
+def test_book_insight_payload_v3_payload_deserializes():
+    """Old cached v3 row (no v4 fields, has themes) must deserialize cleanly."""
+    v3 = {
+        "intro": "i",
+        "analysis": "a",
+        "themes": ["mystery"],
+        "confidence": "low",
+        "schema_version": 3,
+    }
+    p = BookInsightPayload.model_validate(v3)
+    assert p.schema_version == 3
+    assert p.theme_analysis is None
+    assert p.discussion_prompts is None
+
+
+def test_book_insight_payload_v2_payload_deserializes():
+    """Even older v2 row (no themes, no v4 fields). Same invariant."""
+    v2 = {"intro": "i", "confidence": "low", "schema_version": 2}
+    p = BookInsightPayload.model_validate(v2)
+    assert p.themes is None
+    assert p.theme_analysis is None
+
+
+def test_comparative_anchor_rejects_extra_fields():
+    """``extra='forbid'`` invariant on payload sub-types."""
+    with pytest.raises(ValidationError):
+        ComparativeAnchor.model_validate(
+            {"book": "X", "author": "Y", "similar_in": "Z", "bogus": "x"}
+        )
+
+
+def test_book_insight_payload_theme_analysis_accepts_empty_dict():
+    """Spec: empty dict allowed; null when model couldn't generate."""
+    p = BookInsightPayload(theme_analysis={})
+    assert p.theme_analysis == {}
+
+
+def test_book_insight_payload_theme_analysis_rejects_three_keys():
+    """Server-side enforcement of the 2-key cap. If the model ignores the
+    prompt and emits 3+ themes, the server REJECTS the payload."""
+    bad = {
+        "schema_version": 4,
+        "theme_analysis": {"a": "x", "b": "y", "c": "z"},
+        "confidence": "low",
+    }
+    with pytest.raises(ValidationError) as ei:
+        BookInsightPayload.model_validate(bad)
+    assert "at most 2" in str(ei.value)
+
+
+def test_book_insight_payload_theme_analysis_two_keys_accepted():
+    """The exact boundary — 2 keys passes."""
+    p = BookInsightPayload.model_validate(
+        {
+            "schema_version": 4,
+            "theme_analysis": {"a": "x", "b": "y"},
+            "confidence": "low",
+        }
+    )
+    assert p.theme_analysis == {"a": "x", "b": "y"}
+
+
+def test_comparative_anchors_blank_entries_dropped():
+    """Sanity filter: blank book/author/similar_in entries are dropped."""
+    p = BookInsightPayload.model_validate(
+        {
+            "schema_version": 4,
+            "comparative_anchors": [
+                {"book": "Real", "author": "Auth", "similar_in": "S"},
+                {"book": "  ", "author": "A", "similar_in": "S"},  # blank book
+                {"book": "B", "author": "", "similar_in": "S"},  # blank author
+                {"book": "B", "author": "A", "similar_in": "   "},  # blank similar_in
+            ],
+            "confidence": "low",
+        }
+    )
+    assert p.comparative_anchors is not None
+    assert len(p.comparative_anchors) == 1
+    assert p.comparative_anchors[0].book == "Real"
+
+
+def test_comparative_anchors_capped_at_four():
+    """Sanity filter: cap at 4 entries; tail dropped."""
+    p = BookInsightPayload.model_validate(
+        {
+            "schema_version": 4,
+            "comparative_anchors": [
+                {"book": f"B{i}", "author": f"A{i}", "similar_in": f"s{i}"} for i in range(7)
+            ],
+            "confidence": "low",
+        }
+    )
+    assert p.comparative_anchors is not None
+    assert len(p.comparative_anchors) == 4
+    assert [a.book for a in p.comparative_anchors] == ["B0", "B1", "B2", "B3"]
+
+
+def test_comparative_anchors_all_blank_becomes_none():
+    """If filtering removes everything, the field collapses to None."""
+    p = BookInsightPayload.model_validate(
+        {
+            "schema_version": 4,
+            "comparative_anchors": [
+                {"book": " ", "author": "A", "similar_in": "S"},
+            ],
+            "confidence": "low",
+        }
+    )
+    assert p.comparative_anchors is None
 
 
 def test_series_insight_accepts_context():

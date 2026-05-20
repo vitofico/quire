@@ -341,6 +341,37 @@ fun SettingsScreen(
                             }
                         }
 
+                        // PR-η: user-initiated bulk sync of /ai/v1/insights/sync.
+                        Column {
+                            Text("Refresh insights", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                buildString {
+                                    val last = aiState.lastInsightSyncMs
+                                    if (last != null) {
+                                        append("Last synced ")
+                                        append(formatRelative(last))
+                                        append('.')
+                                    } else {
+                                        append("Not yet synced.")
+                                    }
+                                    when (val s = aiState.syncStatus) {
+                                        is InsightSyncStatus.Syncing -> append(" Syncing…")
+                                        is InsightSyncStatus.Error -> {
+                                            append(" Last attempt failed: ")
+                                            append(s.message)
+                                        }
+                                        InsightSyncStatus.Idle -> Unit
+                                    }
+                                },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Button(
+                                onClick = { viewModel.refreshInsights() },
+                                enabled = aiState.syncStatus !is InsightSyncStatus.Syncing,
+                            ) { Text("Refresh insights") }
+                        }
+
                         val language = aiState.preferences?.style?.language ?: "auto"
                         var langMenuOpen by remember { mutableStateOf(false) }
                         Column {

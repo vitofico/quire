@@ -14,20 +14,28 @@ from datetime import UTC, datetime
 from typing import Annotated
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from sqlalchemy import and_, case, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from quire_server.api.ai_auth import AiPrincipal, get_ai_principal
 from quire_server.api.ai_schemas import (
     AiHealthResponse,
     AiStyle,
+    BookInsightPayload,
     BookInsightResponse,
+    Citation,
     ConfigResponse,
+    DocumentIdentity,
     InsightGetBody,
     InsightInvalidateBody,
     InsightLookupBody,
+    InsightPromoteBody,
+    InsightPromoteResponse,
     InsightRegenerateBody,
+    InsightSyncCursor,
+    InsightSyncItem,
+    InsightSyncResponse,
     PreferencesBody,
     PreferencesResponse,
     QuotaResponse,
@@ -35,8 +43,13 @@ from quire_server.api.ai_schemas import (
 )
 from quire_server.config import get_settings
 from quire_server.core.ai.health_state import AiHealthState
-from quire_server.core.ai.service import IdentityUnresolvable, InsightOrchestrator, QuotaExceeded
-from quire_server.db.models import UserAIPreference
+from quire_server.core.ai.service import (
+    IdentityUnresolvable,
+    InsightOrchestrator,
+    PromoteOwnershipError,
+    QuotaExceeded,
+)
+from quire_server.db.models import BookInsight, LibraryItem, UserAIPreference
 from quire_server.db.session import get_session
 
 router = APIRouter(tags=["ai"])
@@ -65,7 +78,9 @@ async def _require_opt_in(session: AsyncSession, user_id: str) -> UserAIPreferen
         await session.execute(select(UserAIPreference).where(UserAIPreference.user_id == user_id))
     ).scalar_one_or_none()
     if pref is None or not pref.ai_enabled:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="not_opted_in")
+        # PR-ζ / Lock #10 / CC-1: body normalized to `ai_not_opted_in` so the
+        # client can pin the literal across the whole /ai/v1/insights/* surface.
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="ai_not_opted_in")
     return pref
 
 
@@ -103,6 +118,13 @@ async def get_config(
     """Public to authed users; the app needs this to render the AI toggle."""
     settings = get_settings()
     _ = principal  # auth gate only; config is non-personalized.
+    # PR-η / Lock #24: expose the runtime-resolved PROMPT_VERSION so the
+    # Android client can key its local-cache PK on the same value the
+    # server uses. The helper applies Lock #19 sentinel semantics (legacy
+    # "1" → in-code constant). Lazy-import inside the route so sync-only
+    # deploys never load `core.ai._compat` (coordinator §3.18).
+    from quire_server.core.ai._compat import _resolve_prompt_version
+
     return ConfigResponse(
         configured=bool(settings.ai_enabled and settings.ai_base_url and settings.ai_model),
         base_url_host=_base_url_host() if settings.ai_enabled else None,
@@ -110,6 +132,7 @@ async def get_config(
         sources_enabled=_enabled_sources() if settings.ai_enabled else [],
         daily_budget=settings.ai_daily_budget,
         regen_daily_limit=settings.ai_regen_daily_limit,
+        prompt_version=_resolve_prompt_version(settings.ai_prompt_version),
     )
 
 
@@ -266,6 +289,214 @@ async def invalidate_insight(
     await _require_opt_in(session, principal.subject)
     n = await orch.invalidate(session, body.identity, user_id=principal.subject)
     return {"deleted": n}
+
+
+@router.post("/insights/promote", response_model=InsightPromoteResponse)
+async def promote_insight(
+    request: Request,
+    body: InsightPromoteBody,
+    principal: Annotated[AiPrincipal, Depends(get_ai_principal)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> InsightPromoteResponse | Response:
+    """Promote a cached catalog insight onto the post-download identity.
+
+    PR-ζ / Lock #1: row-copy + alias-link. Alias is the idempotency anchor;
+    different ``(tone, language)`` re-copies under an existing alias. No LLM
+    call. Returns ``204`` when there's nothing to promote (no source row at
+    ``from`` for the requested variant).
+    """
+    orch = _orchestrator(request)
+    if orch is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="ai_disabled")
+    pref = await _require_opt_in(session, principal.subject)
+    settings = get_settings()
+    try:
+        await orch.reserve_promote_budget(
+            user_id=principal.subject,
+            limit=settings.ai_promote_daily_limit,
+        )
+    except QuotaExceeded as exc:
+        raise _quota_http_exception(exc) from exc
+    style = _style_from_pref(pref)
+    tone = body.tone or style.tone
+    language = body.language or style.language
+    try:
+        result = await orch.promote_insight(
+            session,
+            from_identity=body.from_,
+            to_identity=body.to,
+            user_id=principal.subject,
+            tenant_id=principal.tenant_id,
+            tone=tone,
+            language=language,
+        )
+    except PromoteOwnershipError as exc:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="not_owned") from exc
+    except QuotaExceeded as exc:
+        raise _quota_http_exception(exc) from exc
+    if result is None:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    return InsightPromoteResponse(
+        promoted=True,
+        insight_id=result.insight_id,
+        already_promoted=result.already_promoted,
+    )
+
+
+@router.get("/insights/sync", response_model=InsightSyncResponse)
+async def sync_insights(
+    request: Request,
+    principal: Annotated[AiPrincipal, Depends(get_ai_principal)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    since_ts: str | None = Query(None),
+    since_id: int | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+) -> InsightSyncResponse:
+    """PR-η: paginated, read-only bulk export of the caller's owned insights.
+
+    Filters: caller's ``library_items`` (alive, non-deleted) JOIN ed against
+    ``book_insights`` at the caller's current ``(model_id, prompt_version,
+    tone, language)``. Cursor is the ``(generated_at, id)`` tuple of the
+    last item returned (Lock #23). Weight=0: never touches the daily budget,
+    never acquires a generation lock, never calls the model.
+    """
+    orch = _orchestrator(request)
+    if orch is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="ai_disabled")
+    pref = await _require_opt_in(session, principal.subject)
+    style = _style_from_pref(pref)
+
+    if (since_ts is None) != (since_id is None):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="since_ts and since_id must be provided together",
+        )
+
+    settings = get_settings()
+    # PR-η imports the same helper PR-ε introduced so the cache-key prompt
+    # version matches the one the model is being driven at — even if the
+    # orchestrator was constructed under a different value (it isn't, but
+    # the contract is single-sourced via the helper).
+    from quire_server.core.ai._compat import _resolve_prompt_version
+
+    current_model = settings.ai_model
+    current_pv = _resolve_prompt_version(settings.ai_prompt_version)
+
+    if not current_model:
+        # Defensive: orchestrator is present (above 503 check) so model_id
+        # must be set; treat the absence as a 503 rather than a 500.
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="ai_disabled")
+
+    # PR9 priority pattern: prefer metadata-id matches over content-hash-only.
+    pick_priority = case(
+        (
+            and_(
+                BookInsight.metadata_id.is_not(None),
+                BookInsight.metadata_id == LibraryItem.metadata_id,
+            ),
+            0,
+        ),
+        else_=1,
+    )
+
+    inner = (
+        select(
+            BookInsight.id.label("ins_id"),
+            BookInsight.metadata_id.label("ins_metadata_id"),
+            BookInsight.content_hash.label("ins_content_hash"),
+            BookInsight.model_id.label("ins_model_id"),
+            BookInsight.prompt_version.label("ins_prompt_version"),
+            BookInsight.tone.label("ins_tone"),
+            BookInsight.language.label("ins_language"),
+            BookInsight.payload.label("ins_payload"),
+            BookInsight.sources.label("ins_sources"),
+            BookInsight.generated_at.label("ins_generated_at"),
+        )
+        .select_from(LibraryItem)
+        .join(
+            BookInsight,
+            and_(
+                BookInsight.superseded_at.is_(None),
+                BookInsight.model_id == current_model,
+                BookInsight.prompt_version == current_pv,
+                BookInsight.tone == style.tone,
+                BookInsight.language == style.language,
+                or_(
+                    and_(
+                        BookInsight.metadata_id.is_not(None),
+                        BookInsight.metadata_id == LibraryItem.metadata_id,
+                    ),
+                    BookInsight.content_hash == LibraryItem.content_hash,
+                ),
+            ),
+        )
+        .where(
+            LibraryItem.user_id == principal.subject,
+            LibraryItem.deleted_at.is_(None),
+        )
+        .order_by(LibraryItem.pk, pick_priority, BookInsight.generated_at.desc())
+        .distinct(LibraryItem.pk)
+        .subquery()
+    )
+
+    stmt = select(inner).order_by(inner.c.ins_generated_at.asc(), inner.c.ins_id.asc())
+
+    # Tuple cursor: strict lexicographic `>` on (generated_at, id).
+    if since_ts is not None and since_id is not None:
+        from datetime import datetime as _dt
+
+        try:
+            since_dt = _dt.fromisoformat(since_ts)
+        except ValueError as exc:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail="since_ts must be ISO-8601",
+            ) from exc
+        stmt = stmt.where(
+            or_(
+                inner.c.ins_generated_at > since_dt,
+                and_(
+                    inner.c.ins_generated_at == since_dt,
+                    inner.c.ins_id > since_id,
+                ),
+            )
+        )
+
+    stmt = stmt.limit(limit + 1)
+    rows = (await session.execute(stmt)).all()
+
+    next_cursor: InsightSyncCursor | None = None
+    if len(rows) > limit:
+        boundary = rows[limit - 1]
+        next_cursor = InsightSyncCursor(
+            generated_at=boundary.ins_generated_at.isoformat(),
+            id=boundary.ins_id,
+        )
+        rows = rows[:limit]
+
+    items = [
+        InsightSyncItem(
+            id=r.ins_id,
+            identity=DocumentIdentity(
+                metadata_id=r.ins_metadata_id,
+                content_hash=r.ins_content_hash,
+            ),
+            payload=BookInsightPayload.model_validate(r.ins_payload),
+            sources=[Citation.model_validate(c) for c in (r.ins_sources or [])],
+            model_id=r.ins_model_id,
+            prompt_version=r.ins_prompt_version,
+            schema_version=(r.ins_payload or {}).get("schema_version", 4),
+            tone=r.ins_tone,
+            language=r.ins_language,
+            generated_at=r.ins_generated_at.isoformat(),
+        )
+        for r in rows
+    ]
+    return InsightSyncResponse(
+        items=items,
+        server_time=datetime.now(UTC).isoformat(),
+        next_cursor=next_cursor,
+    )
 
 
 @router.get("/health", response_model=AiHealthResponse)

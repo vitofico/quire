@@ -8,14 +8,20 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [DocumentEntity::class, ProgressEntity::class, SyncStateEntity::class],
-    version = 6,
+    entities = [
+        DocumentEntity::class,
+        ProgressEntity::class,
+        SyncStateEntity::class,
+        InsightEntity::class,
+    ],
+    version = 7,
     exportSchema = true,
 )
 abstract class EReaderDatabase : RoomDatabase() {
     abstract fun documentDao(): DocumentDao
     abstract fun progressDao(): ProgressDao
     abstract fun syncStateDao(): SyncStateDao
+    abstract fun insightDao(): InsightDao
 
     companion object {
         internal val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -76,9 +82,64 @@ abstract class EReaderDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * PR-η / Lock #8: adds the `book_insights` local cache table backing
+         * `InsightEntity` / `InsightDao`. Purely additive — no existing data
+         * touched. Indices: syncedAt (status display), metadataId & contentHash
+         * (diagnostic lookups), and the composite cursor index over
+         * `(generatedAt, serverId)` to make the bulk-sync tip query cheap.
+         */
+        internal val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS book_insights (
+                        identityKey TEXT NOT NULL,
+                        metadataId TEXT,
+                        contentHash TEXT,
+                        modelId TEXT NOT NULL,
+                        promptVersion TEXT NOT NULL,
+                        tone TEXT NOT NULL,
+                        language TEXT NOT NULL,
+                        payloadJson TEXT NOT NULL,
+                        sourcesJson TEXT NOT NULL,
+                        schemaVersion INTEGER NOT NULL,
+                        serverId INTEGER NOT NULL,
+                        generatedAt INTEGER NOT NULL,
+                        syncedAt INTEGER NOT NULL,
+                        PRIMARY KEY(identityKey, modelId, promptVersion, tone, language)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_book_insights_syncedAt " +
+                        "ON book_insights(syncedAt)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_book_insights_metadataId " +
+                        "ON book_insights(metadataId)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_book_insights_contentHash " +
+                        "ON book_insights(contentHash)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_book_insights_cursor " +
+                        "ON book_insights(generatedAt, serverId)"
+                )
+            }
+        }
+
         fun build(context: Context): EReaderDatabase =
             Room.databaseBuilder(context, EReaderDatabase::class.java, "ereader.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(
+                    MIGRATION_1_2,
+                    MIGRATION_2_3,
+                    MIGRATION_3_4,
+                    MIGRATION_4_5,
+                    MIGRATION_5_6,
+                    MIGRATION_6_7,
+                )
                 .build()
     }
 }

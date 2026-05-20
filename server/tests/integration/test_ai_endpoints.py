@@ -9,12 +9,9 @@ from __future__ import annotations
 import base64
 import json
 
-import httpx
 import pytest
 from sqlalchemy import select
 
-from quire_server.core.ai.client import AIClient
-from quire_server.core.ai.service import InsightOrchestrator
 from quire_server.db.models import BookInsight
 
 # All tests in this file hit /ai/v1/* and so require the ai router.
@@ -43,49 +40,7 @@ def _ai_chat_response(payload: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def configure_ai():
-    """Return a helper that installs a fake AI orchestrator on app.state."""
-
-    def _apply(app, fake_ai_payload: dict, sources_enabled: tuple[str, ...] = ()):
-        def fake_handler(req: httpx.Request) -> httpx.Response:
-            return httpx.Response(200, json=_ai_chat_response(fake_ai_payload))
-
-        ai = AIClient(
-            base_url="http://fake/v1",
-            api_key=None,
-            model="test-model",
-            transport=httpx.MockTransport(fake_handler),
-        )
-
-        class _NoOpRetriever:
-            async def lookup_wikipedia(self, **kw):
-                return []
-
-            async def lookup_openlibrary(self, **kw):
-                return []
-
-        orch = InsightOrchestrator(
-            ai=ai,
-            retriever_factory=lambda s: _NoOpRetriever(),
-            sources_enabled=sources_enabled,
-            model_id="test-model",
-            prompt_version="t1",
-            max_concurrency=4,
-            ai_timeout_s=5.0,
-        )
-        app.state.ai_orchestrator = orch
-        return orch
-
-    return _apply
-
-
-# ---------------------------------------------------------------------------
-# Tests
+# Tests (configure_ai is provided by tests/integration/conftest.py)
 # ---------------------------------------------------------------------------
 
 
@@ -98,6 +53,8 @@ async def test_ai_router_not_mounted_when_disabled(client_factory):
 
 async def test_config_endpoint_when_enabled_but_unconfigured(client_factory):
     """ai_enabled=true with base_url/model unset: router mounts, config reports unconfigured."""
+    from quire_server.core.ai.prompts import PROMPT_VERSION
+
     async with client_factory(ai_enabled=True) as client:
         r = await client.get("/ai/v1/config", headers=_basic_header("alice"))
     assert r.status_code == 200
@@ -110,9 +67,14 @@ async def test_config_endpoint_when_enabled_but_unconfigured(client_factory):
     assert body["sources_enabled"] == ["wikipedia", "openlibrary"]
     assert body["daily_budget"] == 200
     assert body["regen_daily_limit"] == 3
+    # PR-η / Lock #24: prompt_version is the runtime-resolved value
+    # (legacy "1" sentinel resolves to the in-code constant).
+    assert body["prompt_version"] == PROMPT_VERSION
 
 
 async def test_config_endpoint_when_enabled(client_factory):
+    from quire_server.core.ai.prompts import PROMPT_VERSION
+
     async with client_factory(
         ai_enabled=True,
         ai_base_url="http://ollama.lan:11434/v1",
@@ -126,6 +88,21 @@ async def test_config_endpoint_when_enabled(client_factory):
     assert body["model_id"] == "llama3.1:8b"
     assert body["daily_budget"] == 200
     assert body["regen_daily_limit"] == 3
+    assert body["prompt_version"] == PROMPT_VERSION
+
+
+async def test_config_prompt_version_honors_emergency_override(client_factory, monkeypatch):
+    """Lock #24 + Lock #2: setting the env var to a non-default value pins it."""
+    monkeypatch.setenv("QUIRE_SERVER_AI_PROMPT_VERSION", "4")
+    async with client_factory(
+        ai_enabled=True,
+        ai_base_url="http://ollama.lan:11434/v1",
+        ai_model="llama3.1:8b",
+        ai_prompt_version="4",
+    ) as client:
+        r = await client.get("/ai/v1/config", headers=_basic_header("alice"))
+    assert r.status_code == 200
+    assert r.json()["prompt_version"] == "4"
 
 
 async def test_lookup_blocked_when_not_opted_in(client_factory, configure_ai, app):
@@ -141,7 +118,7 @@ async def test_lookup_blocked_when_not_opted_in(client_factory, configure_ai, ap
             },
         )
     assert r.status_code == 409
-    assert r.json()["detail"] == "not_opted_in"
+    assert r.json()["detail"] == "ai_not_opted_in"
 
 
 async def test_lookup_generates_then_get_serves_from_cache(
@@ -174,7 +151,7 @@ async def test_lookup_generates_then_get_serves_from_cache(
         # Bob is not opted in: lookup must 409.
         r2 = await client.post("/ai/v1/insights/lookup", headers=_basic_header("bob"), json=body)
         assert r2.status_code == 409
-        assert r2.json()["detail"] == "not_opted_in"
+        assert r2.json()["detail"] == "ai_not_opted_in"
 
         # GET path serves from cache without opt-in.
         r3 = await client.post(

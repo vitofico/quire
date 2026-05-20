@@ -10,6 +10,8 @@ import io.theficos.ereader.data.ai.AiPreferences
 import io.theficos.ereader.data.ai.AiQuotaException
 import io.theficos.ereader.data.ai.AiRepository
 import io.theficos.ereader.data.ai.BookInsightResponse
+import io.theficos.ereader.data.ai.CatalogInsightStash
+import io.theficos.ereader.data.ai.CatalogInsightStashEntry
 import io.theficos.ereader.data.opds.OpdsPublication
 import io.theficos.ereader.ui.bookdetail.InsightUiState
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -54,6 +56,8 @@ data class CatalogDetailState(
 class CatalogDetailViewModel(
     private val publication: OpdsPublication,
     private val ai: CatalogAiPort,
+    private val insightStash: CatalogInsightStash? = null,
+    private val subjectProvider: () -> String? = { null },
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(CatalogDetailState(publication = publication))
@@ -83,6 +87,7 @@ class CatalogDetailViewModel(
             _state.value = _state.value.copy(
                 insight = InsightUiState.Loaded(cached.payload, cached.sources),
             )
+            recordStashIfPossible(identity, prefs)
             return
         }
 
@@ -92,6 +97,7 @@ class CatalogDetailViewModel(
                 _state.value = _state.value.copy(
                     insight = InsightUiState.Loaded(resp.payload, resp.sources),
                 )
+                recordStashIfPossible(identity, prefs)
             }
             .onFailure { e ->
                 val msg = when {
@@ -104,6 +110,30 @@ class CatalogDetailViewModel(
                 }
                 _state.value = _state.value.copy(insight = InsightUiState.Error(msg))
             }
+    }
+
+    /**
+     * PR-ζ / Lock #16: record the catalog identity + (tone, language) in
+     * the process-local stash so the post-download promote can find it.
+     * No-ops when the stash or subject is missing — production wiring
+     * always supplies both; some tests construct the VM without them.
+     */
+    private fun recordStashIfPossible(
+        identity: DocumentIdentity,
+        prefs: AiPreferences?,
+    ) {
+        val stash = insightStash ?: return
+        val subject = subjectProvider() ?: return
+        val style = prefs?.style
+        stash.stash(
+            subject = subject,
+            href = publication.epubDownloadHref,
+            entry = CatalogInsightStashEntry(
+                catalogIdentity = identity,
+                tone = style?.tone ?: "neutral",
+                language = style?.language ?: "auto",
+            ),
+        )
     }
 
     companion object {

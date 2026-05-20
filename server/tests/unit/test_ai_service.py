@@ -46,14 +46,18 @@ class FakeRetriever:
 
 @pytest.fixture
 def make_orchestrator(session):
-    def _make(sources_enabled=("wikipedia", "openlibrary"), max_concurrency=4):
+    def _make(
+        sources_enabled=("wikipedia", "openlibrary"),
+        max_concurrency=4,
+        prompt_version: str = "t1",
+    ):
         fake_retriever = FakeRetriever()
         orch = InsightOrchestrator(
             ai=FakeAIClient(),
             retriever_factory=lambda s: fake_retriever,
             sources_enabled=tuple(sources_enabled),
             model_id="test-model",
-            prompt_version="t1",
+            prompt_version=prompt_version,
             max_concurrency=max_concurrency,
             ai_timeout_s=5.0,
         )
@@ -409,6 +413,76 @@ async def test_invalidate_does_not_touch_old_prompt_version_rows(
     # Only the old row survives.
     assert len(rows) == 1
     assert rows[0].prompt_version == "t0_legacy"
+
+
+# ---- PR-ε: schema_version pin + cache coexistence --------------------------
+
+
+@pytest.mark.asyncio
+async def test_do_generate_pins_schema_version_to_4(session: AsyncSession, make_orchestrator):
+    """REJECT (a) safety net: even when the fake model emits schema_version=2,
+    the persisted payload is pinned to 4 server-side. Mirrors the v2->v3 pin
+    pattern from PR3."""
+    orch = make_orchestrator()
+    orch.ai.next_payload = {
+        "schema_version": 2,
+        "intro": "ok",
+        "confidence": "low",
+    }
+    ident = DocumentIdentity(metadata_id="m-pin", content_hash="ch-pin")
+    bundle = MetadataBundle(title="T", author="A")
+    out = await orch.generate(session, ident, bundle, user_id="u1")
+    assert out.payload.schema_version == 4
+    # And persisted JSONB carries the pinned value too.
+    rows = (
+        (await session.execute(select(BookInsight).where(BookInsight.content_hash == "ch-pin")))
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 1
+    assert rows[0].payload["schema_version"] == 4
+
+
+@pytest.mark.asyncio
+async def test_cache_coexistence_for_prompt_versions_1_4_5(
+    session: AsyncSession, make_orchestrator
+):
+    """PR-ε rollback story: stale rows at prompt_version="1" survive in
+    storage alongside fresh "4" / "5" rows; lookup at the active version hits
+    the right one (coordinator §3.1)."""
+    # Seed v1 + v4 rows directly bypassing the orchestrator.
+    for stale_pv, schema_v in (("1", 2), ("4", 3)):
+        session.add(
+            BookInsight(
+                metadata_id="m-coex",
+                content_hash="ch-coex",
+                model_id="test-model",
+                prompt_version=stale_pv,
+                tone="neutral",
+                language="auto",
+                sources_used=[],
+                payload={"schema_version": schema_v, "confidence": "low"},
+                sources=[],
+                generated_by="legacy",
+            )
+        )
+    await session.commit()
+
+    # Orchestrator at the active prompt_version "5" generates a fresh row.
+    orch = make_orchestrator(prompt_version="5")
+    ident = DocumentIdentity(metadata_id="m-coex", content_hash="ch-coex")
+    bundle = MetadataBundle(title="T", author="A")
+    fresh = await orch.generate(session, ident, bundle, user_id="u1")
+    assert fresh.payload.schema_version == 4  # server-pinned
+
+    # All three rows coexist (no unique-constraint conflict).
+    rows = (
+        (await session.execute(select(BookInsight).where(BookInsight.content_hash == "ch-coex")))
+        .scalars()
+        .all()
+    )
+    versions = {r.prompt_version for r in rows}
+    assert versions == {"1", "4", "5"}
 
 
 # ---- PR-C: ai_generation_log assertions ------------------------------------

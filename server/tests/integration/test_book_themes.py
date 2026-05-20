@@ -260,9 +260,10 @@ async def test_book_themes_regenerate_keeps_superseded_themes(session_factory):
 
 @pytest.mark.requires_ai
 @pytest.mark.asyncio
-async def test_schema_version_pinned_to_3_server_side(session_factory):
+async def test_schema_version_pinned_to_4_server_side(session_factory):
     """The model may emit schema_version=2 by mistake. _do_generate forces it
-    to 3 before model_dump() so the cache row reflects the real schema.
+    to 4 (PR-ε bump) before model_dump() so the cache row reflects the real
+    schema.
     """
     await _wipe(session_factory)
     ai = _FakeAIClient(themes=["mystery"], schema_version=2)
@@ -278,8 +279,8 @@ async def test_schema_version_pinned_to_3_server_side(session_factory):
             await s.execute(select(BookInsight).where(BookInsight.content_hash == "ch-sv"))
         ).scalar_one()
         # payload is JSON-stored; the dict's schema_version must be the
-        # server-pinned 3, not the model's emitted 2.
-        assert insight.payload["schema_version"] == 3
+        # server-pinned 4, not the model's emitted 2.
+        assert insight.payload["schema_version"] == 4
 
 
 @pytest.mark.requires_ai

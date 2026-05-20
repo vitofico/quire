@@ -427,9 +427,16 @@ Returns the user-visible AI configuration. Public to authed users.
   "model_id": "llama3.1:8b",
   "sources_enabled": ["wikipedia", "openlibrary"],
   "daily_budget": 200,
-  "regen_daily_limit": 3
+  "regen_daily_limit": 3,
+  "prompt_version": "5"
 }
 ```
+
+`prompt_version` (PR-η, Lock #24) is the runtime-resolved value (post-PR-ε
+sentinel resolution). The Android client reads it so its local-cache PK
+aligns with the server's. Older deploys that don't emit the field decode
+safely on the client side because the DTO default is `"1"` (the legacy
+sentinel which means "use the in-code constant").
 
 ### `GET /ai/v1/preferences` / `PUT /ai/v1/preferences`
 
@@ -505,8 +512,9 @@ Response: a `BookInsight` with `payload`, `sources`, `model_id`,
 `prompt_version`, `generated_at`. See `quire_server/api/ai_schemas.py` for
 the full payload schema.
 
-`payload` is the structured `BookInsightPayload` (schema v3, the model
-generates keys in this order):
+`payload` is the structured `BookInsightPayload` (schema v4 since PR-ε on
+2026-05-19; old cached v3 and v2 rows remain valid). The model generates keys
+in this order:
 
 ```json
 {
@@ -523,8 +531,15 @@ generates keys in this order):
   "analysis": "One compact paragraph (~80–130 words) weaving synopsis, themes, tone, and reader fit.",
   "content_warnings": ["graphic violence", "sexual content"],
   "themes": ["science_fiction", "epic"],
+  "theme_analysis": { "science_fiction": "How that theme manifests in THIS book (2-4 sentences)." },
+  "craft_notes": "POV / pacing / structural choices and prose qualities (3-5 sentences).",
+  "comparative_anchors": [
+    { "book": "Dune", "author": "Frank Herbert", "similar_in": "Both build a future political theology", "different_in": "Dune foregrounds religion" }
+  ],
+  "distinctive_take": "1-2 sentences on what this book does that others in its themes don't.",
+  "discussion_prompts": ["Open-ended question 1?", "Open-ended question 2?"],
   "confidence": "high|medium|low",
-  "schema_version": 3
+  "schema_version": 4
 }
 ```
 
@@ -541,9 +556,32 @@ so future vocabulary evolution doesn't lose data. The payload field is the
 source of truth for the client; `book_themes` is the SQL-queryable mirror
 that PR9 library stats reads. Old cached v2 payloads (no `themes` key)
 deserialize cleanly with `themes=null`; they contribute zero rows to
-`book_themes` until regenerated. The server pins `schema_version=3` after
+`book_themes` until regenerated. The server pins `schema_version=4` after
 model return so cache rows never reflect a model's accidental version
 emission.
+
+`theme_analysis` (PR-ε, schema v4) is a dict of up to **two** entries keyed
+by theme name; each value is 2-4 sentences on how that theme manifests in
+THIS specific book. The server REJECTS payloads with more than two keys via
+a Pydantic `model_validator`. `craft_notes` is 3-5 sentences combining POV /
+pacing / structure with prose qualities (null for ordinary-craft books or
+nonfiction). `comparative_anchors` is a list of `{book, author, similar_in,
+different_in?}` entries sanitized server-side (blank-field drop, cap at 4);
+display-only — the server cannot verify the referenced books exist.
+`distinctive_take` is 1-2 sentences differentiating the book from others in
+its themes. `discussion_prompts` is 3-5 book-club-style questions (no plot
+reveals past the inciting incident, per Lock #7 soft mitigation). All v4
+fields are optional; old cached v3 rows (no v4 keys) deserialize cleanly.
+
+`prompt_version` on the response reflects the runtime resolution of
+`core/ai/prompts.py::PROMPT_VERSION` via
+`core/ai/_compat.py::_resolve_prompt_version` (Lock #19: the legacy default
+value `"1"` is treated as "unset" so the constant wins). The env var
+`QUIRE_SERVER_AI_PROMPT_VERSION` is an emergency rollback override only —
+set it to a non-default value (e.g. `"4"`) to pin an older version during
+incident response (Lock #2). Stale rows at the previous `prompt_version`
+survive in storage (no migration) and are never queried again after the
+runtime resolves to a newer value.
 
 Side-table schema:
 
@@ -599,6 +637,115 @@ the user-facing path now that the in-app "Regenerate" affordance has been
 removed (PR11). The budgeted `POST /ai/v1/insights/regenerate` endpoint
 remains available for admin/cluster tooling. Requires opt-in. Returns
 `{"deleted": <int>}`.
+
+### `POST /ai/v1/insights/promote`
+
+Copy a cached catalog-side insight onto the post-download canonical identity
+without firing the model. Used by the Android catalog flow: when a user views
+an insight under an OPDS identity (`metadata_id="opds-href:<sha>"`) and then
+downloads the EPUB, the client calls promote with `from=<catalog identity>`
+and `to=<downloaded canonical>` so the BookDetail screen shows the insight
+immediately. PR-ζ / Locks #1, #11 amendment, #13, #23.
+
+Request body:
+
+```json
+{
+  "from": {"metadata_id": "opds-href:abc..."},
+  "to":   {"metadata_id": "urn-xyz", "content_hash": "sha256:..."},
+  "tone": "neutral",
+  "language": "auto"
+}
+```
+
+`tone` and `language` mirror the cache-key knobs and default to the universal
+defaults. The source row at `from` is looked up for the requested
+`(model_id, prompt_version, tone, language)` variant. The copy keeps every
+payload field verbatim with two exceptions: `generated_at = NOW()` (Lock #23
+— promote rows participate in PR-η's sync cursor as fresh events) and
+`previous_insight_ids=[<src.id>]` for lineage audit.
+
+Idempotency: the `(from, to, user_id, source='promoted_on_download')` row in
+`insight_identity_aliases` is the anchor. A second identical call returns
+`already_promoted=true` with the same `insight_id`. A call with a different
+`(tone, language)` re-copies a new variant under the same alias.
+
+Responses:
+
+| Status | Meaning |
+|--------|---------|
+| `200 {"promoted":true,"insight_id":N,"already_promoted":false}` | Fresh copy created. |
+| `200 {"promoted":true,"insight_id":N,"already_promoted":true}` | Idempotent re-promote. |
+| `204` | Nothing to promote — no source row at `from` for the requested variant. |
+| `403 {"detail":"not_owned"}` | The caller does not own a `library_items` row at `to`. |
+| `409 {"detail":"ai_not_opted_in"}` | User has not opted in (Lock #10). |
+| `429` | Promote daily limit exceeded; body and `Retry-After` mirror the `lookup` 429. |
+| `503 {"detail":"ai_disabled"}` | AI is disabled or unconfigured on this deploy. |
+
+Rate limit: `QUIRE_SERVER_AI_PROMOTE_DAILY_LIMIT` (default 100). Process-local
+counter; pod restart resets — acceptable because promote has no LLM cost.
+
+Audit: emits a structured stdout line `event=ai.promote ...` with the source
+and copy ids, latency, and outcome. PR-ζ does NOT write an
+`ai_generation_log` row (Lock #11 amendment); PR-β extends the audit-log
+schema and the promote path begins persisting at that point.
+
+### `GET /ai/v1/insights/sync`
+
+PR-η bulk read of the caller's owned-book insights, joined through
+`library_items` (alive rows only) at the caller's current
+`(model_id, prompt_version, tone, language)`. Requires opt-in (Lock #10).
+**Weight = 0** — never charges against `ai_daily_budget`, never acquires a
+generation lock, never calls the model.
+
+Query parameters:
+
+| Name        | Type       | Required? | Notes                                              |
+| ----------- | ---------- | --------- | -------------------------------------------------- |
+| `since_ts`  | ISO-8601   | optional¹ | Cursor — last item's `generated_at` from prior page. |
+| `since_id`  | integer    | optional¹ | Cursor — last item's `id` from prior page.        |
+| `limit`     | integer    | optional  | Page size (1..200, default 50).                    |
+
+¹ `since_ts` and `since_id` are tuple cursor coordinates (Lock #23): they
+must be supplied together. Half-supplied returns 400.
+
+Response body:
+
+```json
+{
+  "items": [
+    {
+      "id": 42,
+      "identity": {"metadata_id": "...", "content_hash": "..."},
+      "payload":  { ... BookInsightPayload at schema_version 4 ... },
+      "sources":  [ ... Citations ... ],
+      "model_id": "...",
+      "prompt_version": "5",
+      "schema_version": 4,
+      "tone": "neutral",
+      "language": "auto",
+      "generated_at": "2026-05-19T00:00:00+00:00"
+    }
+  ],
+  "server_time": "2026-05-19T00:01:00+00:00",
+  "next_cursor": {"generated_at": "...", "id": 42}
+}
+```
+
+`next_cursor` is `null` ⇔ end of stream. The client persists the cursor
+between pages and walks until exhausted. Sort order is `(generated_at ASC,
+id ASC)`; the filter on a non-null cursor is the strict-lexicographic
+`>` comparison so identical timestamps don't drop rows.
+
+Filters applied (in addition to `LibraryItem.user_id == subject`):
+
+- `library_items.deleted_at IS NULL` — soft-deleted books drop out.
+- `book_insights.superseded_at IS NULL` — only the live row per identity surfaces.
+- PR9 priority `case`: `BookInsight.metadata_id`-match wins over content-hash-only.
+- `current_model = settings.ai_model`, `current_pv = _resolve_prompt_version()`.
+
+Promoted rows (PR-ζ) carry `generated_at = NOW()` at copy time so they enter
+the cursor stream as fresh events.
 
 ### `GET /ai/v1/health`
 

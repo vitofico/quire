@@ -5,6 +5,8 @@ import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.core.model.Document
 import io.theficos.ereader.data.ai.AiClient
 import io.theficos.ereader.data.ai.AiRepository
+import io.theficos.ereader.data.ai.CatalogInsightStash
+import io.theficos.ereader.data.ai.InsightSyncRepository
 import io.theficos.ereader.data.library.LibraryClient
 import io.theficos.ereader.data.library.LibraryUploader
 import io.theficos.ereader.data.local.DocumentRepository
@@ -32,6 +34,7 @@ import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class AppContainer(context: Context) {
@@ -72,7 +75,28 @@ class AppContainer(context: Context) {
         baseUrlProvider = { credentialStore.get()?.baseUrl },
         http = opdsHttp.okHttp,
     )
-    val aiRepository: AiRepository = AiRepository(aiClient)
+    val insightDao = db.insightDao()
+    val aiRepository: AiRepository = AiRepository(
+        client = aiClient,
+        insightDao = insightDao,
+    )
+
+    /**
+     * PR-ζ / Lock #16: process-local stash for the catalog → download
+     * insight promote handoff. Cleared on AI opt-out toggle (PR-δ owns
+     * that hook) and on base-URL change (we observe credentialStore.flow
+     * below to invoke clearAll on any baseUrl transition).
+     */
+    val catalogInsightStash: CatalogInsightStash = CatalogInsightStash()
+
+    /**
+     * Subject identifier used to partition the [catalogInsightStash] and
+     * the promote alias. We use the calibre-web username (case-normalized
+     * to match the server's basic-auth principal) which mirrors the value
+     * the server uses for `principal.subject` under default basic auth.
+     */
+    private fun currentSubject(): String? =
+        credentialStore.get()?.username?.lowercase()
 
     val libraryClient: LibraryClient = LibraryClient(
         baseUrlProvider = { credentialStore.get()?.baseUrl },
@@ -91,6 +115,20 @@ class AppContainer(context: Context) {
     val libraryUploader: LibraryUploader = LibraryUploader(
         client = libraryClient,
         dao = db.documentDao(),
+        scope = libraryUploaderScope,
+    )
+
+    /**
+     * PR-η: orchestrates `/ai/v1/insights/sync` against the local cache.
+     * Fired on app start (post-upload), after every promote success, after
+     * /library/v1/items uploads, and on the Settings "Refresh insights"
+     * button. Uses the same long-lived scope as the library uploader so
+     * fire-and-forget triggers survive Activity tear-down.
+     */
+    val insightSyncRepository: InsightSyncRepository = InsightSyncRepository(
+        client = aiClient,
+        dao = insightDao,
+        aiRepo = aiRepository,
         scope = libraryUploaderScope,
     )
 
@@ -115,6 +153,8 @@ class AppContainer(context: Context) {
         CatalogDetailViewModelFactory(
             ai = AiRepositoryAdapter(aiRepository),
             registry = catalogDetailRegistry,
+            insightStash = catalogInsightStash,
+            subjectProvider = ::currentSubject,
         )
 
     private suspend fun readOpfBytes(doc: Document): ByteArray? = withContext(Dispatchers.IO) {
@@ -133,6 +173,20 @@ class AppContainer(context: Context) {
 
     init {
         SyncDependencies.holder = SyncDependencies.Holder(syncOrchestrator)
+        // PR-ζ: clear the catalog stash whenever the server base URL
+        // changes (different deploy → entries are no longer relevant). The
+        // AI opt-out toggle hook lives in PR-δ (Bundle 3); until then a
+        // stale stash entry is harmless — its TTL expires within 30 min.
+        libraryUploaderScope.launch {
+            var seen: String? = credentialStore.get()?.baseUrl
+            credentialStore.flow.collect { creds ->
+                val next = creds?.baseUrl
+                if (next != seen) {
+                    seen = next
+                    catalogInsightStash.clearAll()
+                }
+            }
+        }
     }
 }
 
@@ -162,6 +216,8 @@ class InsightAuditViewModelFactory(
 class CatalogDetailViewModelFactory(
     private val ai: CatalogAiPort,
     private val registry: CatalogDetailRegistry,
+    private val insightStash: CatalogInsightStash? = null,
+    private val subjectProvider: () -> String? = { null },
 ) {
     /**
      * Look up the [OpdsPublication] by nav key and build the viewmodel.
@@ -171,7 +227,12 @@ class CatalogDetailViewModelFactory(
      */
     fun create(key: String): CatalogDetailViewModel? {
         val pub = registry.get(key) ?: return null
-        return CatalogDetailViewModel(publication = pub, ai = ai)
+        return CatalogDetailViewModel(
+            publication = pub,
+            ai = ai,
+            insightStash = insightStash,
+            subjectProvider = subjectProvider,
+        )
     }
 }
 

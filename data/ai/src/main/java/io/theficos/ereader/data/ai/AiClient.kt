@@ -8,6 +8,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -70,6 +71,51 @@ class AiClient(
         postUnit("/ai/v1/insights/invalidate", InsightGetBody(identity))
     }
 
+    /**
+     * PR-ζ: promote a cached catalog-side insight onto the post-download
+     * canonical identity. Returns null when the server returns 204 ("nothing
+     * to promote" — no source row at `from` for this variant); throws on any
+     * other non-2xx response. Idempotent: a second identical call returns
+     * [InsightPromoteResponse.alreadyPromoted] = true.
+     */
+    suspend fun promoteInsight(
+        from: DocumentIdentity,
+        to: DocumentIdentity,
+        tone: String = "neutral",
+        language: String = "auto",
+    ): InsightPromoteResponse? =
+        postOrNull(
+            "/ai/v1/insights/promote",
+            InsightPromoteBody(from, to, tone, language),
+        )
+
+    /**
+     * PR-η: read-only, paginated bulk export of the caller's owned-book
+     * insights at their current `(model_id, prompt_version, tone, language)`
+     * variant. Weight=0 — never charges against the daily budget.
+     *
+     * Uses OkHttp's [HttpUrl.Builder] so the cursor's ISO 8601 timestamp's
+     * `+` is percent-encoded correctly.
+     */
+    suspend fun syncInsights(
+        cursor: InsightSyncCursor? = null,
+        limit: Int = 50,
+    ): InsightSyncResponse = withContext(Dispatchers.IO) {
+        val builder = "${resolveBaseUrl()}/ai/v1/insights/sync".toHttpUrl().newBuilder()
+        builder.addQueryParameter("limit", limit.toString())
+        if (cursor != null) {
+            builder.addQueryParameter("since_ts", cursor.generatedAt)
+            builder.addQueryParameter("since_id", cursor.id.toString())
+        }
+        http.newCall(Request.Builder().url(builder.build()).get().build())
+            .execute()
+            .use { resp ->
+                val body = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) throw makeError(resp.code, body)
+                json.decodeFromString<InsightSyncResponse>(body)
+            }
+    }
+
     private suspend inline fun <reified T> get(path: String): T =
         execute(Request.Builder().url("${resolveBaseUrl()}$path").get())
 
@@ -86,6 +132,24 @@ class AiClient(
                 .url("${resolveBaseUrl()}$path")
                 .post(json.encodeToString(body).toRequestBody(mediaType))
         )
+    }
+
+    /** POST that decodes 200, returns null on 204, and raises otherwise. */
+    private suspend inline fun <reified Body, reified Resp> postOrNull(
+        path: String,
+        body: Body,
+    ): Resp? = withContext(Dispatchers.IO) {
+        http.newCall(
+            Request.Builder()
+                .url("${resolveBaseUrl()}$path")
+                .post(json.encodeToString(body).toRequestBody(mediaType))
+                .build(),
+        ).execute().use { resp ->
+            if (resp.code == 204) return@use null
+            val text = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) throw makeError(resp.code, text)
+            json.decodeFromString<Resp>(text)
+        }
     }
 
     private suspend inline fun <reified Body, reified Resp> put(path: String, body: Body): Resp =
