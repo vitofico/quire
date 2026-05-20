@@ -140,7 +140,8 @@ class InsightSyncRepositoryTest {
             scope = this,
             debounceMs = 500L,
         )
-        // Enqueue exactly one network response — proves only one sync ran.
+        // Enqueue exactly one network response. If coalescing fails the second
+        // sync call hangs MockWebServer's queue and the assertion below trips.
         server.enqueue(MockResponse().setResponseCode(200).setBody(
             """{"items":[],"server_time":"2026-05-19T00:00:00Z","next_cursor":null}"""
         ))
@@ -149,6 +150,16 @@ class InsightSyncRepositoryTest {
         advanceTimeBy(600L)
         runCurrent()
         advanceUntilIdle()
-        assertThat(server.requestCount).isEqualTo(3) // 2 bootstrap + 1 sync
+
+        // Drain the sync request — blocks until the real I/O dispatcher has
+        // actually delivered the HTTP request to MockWebServer. Without this
+        // wait, CI race makes `requestCount` flaky.
+        val req = server.takeRequest(5, java.util.concurrent.TimeUnit.SECONDS)
+        assertThat(req).isNotNull()
+        assertThat(req!!.path).contains("/ai/v1/insights/sync")
+
+        // No more requests should land in the next 200ms — i.e. coalescing held.
+        val extra = server.takeRequest(200, java.util.concurrent.TimeUnit.MILLISECONDS)
+        assertThat(extra).isNull()
     }
 }
