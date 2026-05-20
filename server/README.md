@@ -12,7 +12,7 @@ cd server
 uv venv && source .venv/bin/activate
 uv pip install -e ".[dev]"
 uv run pytest
-uv run uvicorn opds_sync.main:app --reload
+uv run uvicorn quire_server.main:app --reload
 ```
 
 Tests require Docker (testcontainers spins up Postgres).
@@ -162,7 +162,7 @@ bump alongside this release.
 
 ### Environment variables
 
-`OPDS_SYNC_` prefix; full list in `opds_sync/config.py`. Most-load-bearing:
+`OPDS_SYNC_` prefix; full list in `quire_server/config.py`. Most-load-bearing:
 
 | Var                                 | Default                                | Purpose                                                                 |
 | ----------------------------------- | -------------------------------------- | ----------------------------------------------------------------------- |

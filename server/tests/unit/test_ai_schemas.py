@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from opds_sync.api.ai_schemas import (
+from quire_server.api.ai_schemas import (
     AiStyle,
     BookInsightPayload,
     InsightLookupBody,

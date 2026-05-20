@@ -19,9 +19,9 @@ import pytest
 from sqlalchemy import inspect, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from opds_sync.api.ai_schemas import DocumentIdentity, MetadataBundle
-from opds_sync.core.ai.service import InsightOrchestrator
-from opds_sync.db.models import BookInsight, BookTheme
+from quire_server.api.ai_schemas import DocumentIdentity, MetadataBundle
+from quire_server.core.ai.service import InsightOrchestrator
+from quire_server.db.models import BookInsight, BookTheme
 
 
 class _FakeAIClient:

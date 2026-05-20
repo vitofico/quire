@@ -7,8 +7,8 @@ output. Do NOT bump it for typo fixes or whitespace.
 
 from __future__ import annotations
 
-from opds_sync.api.ai_schemas import AiStyle, Citation, MetadataBundle
-from opds_sync.core.ai.themes import CONTROLLED_THEMES
+from quire_server.api.ai_schemas import AiStyle, Citation, MetadataBundle
+from quire_server.core.ai.themes import CONTROLLED_THEMES
 
 PROMPT_VERSION = "4"
 

@@ -118,7 +118,7 @@ def main() -> int:
     # Imported here so test patches of `scripts.migrate.run_migrations`
     # (and ideally also `resolve_env_prefix_value` for assertion-only
     # cases) take effect on this module's attribute, not the source module.
-    from opds_sync._env_compat import resolve_env_prefix_value
+    from quire_server._env_compat import resolve_env_prefix_value
 
     progress_enabled = _is_truthy(
         resolve_env_prefix_value("QUIRE_SERVER_PROGRESS_ENABLED")

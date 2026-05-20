@@ -1,7 +1,7 @@
 """Integration tests for `/library/v1/items`.
 
 All tests require the progress router; mode-gated CI skips this whole module
-when `OPDS_SYNC_PROGRESS_ENABLED=false`.
+when `QUIRE_SERVER_PROGRESS_ENABLED=false`.
 
 Note on isolation: the underlying postgres container is shared across tests,
 and the endpoints commit. Each test that needs "this user's library" to

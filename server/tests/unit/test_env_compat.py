@@ -1,4 +1,4 @@
-"""Tests for `opds_sync._env_compat.resolve_env_prefix_value`.
+"""Tests for `quire_server._env_compat.resolve_env_prefix_value`.
 
 Back-compat helper for the OPDS_SYNC_ -> QUIRE_SERVER_ prefix rename.
 Written TDD-first against the helper module before consumer code (Settings,
@@ -11,7 +11,7 @@ import logging
 
 import pytest
 
-from opds_sync._env_compat import (
+from quire_server._env_compat import (
     _BOTH_LOGGED,
     _LEGACY_LOGGED,
     reset_log_state_for_testing,
@@ -38,7 +38,7 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch):
 
 def test_new_only_wins(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture):
     monkeypatch.setenv("QUIRE_SERVER_FOO", "new")
-    with caplog.at_level(logging.WARNING, logger="opds_sync._env_compat"):
+    with caplog.at_level(logging.WARNING, logger="quire_server._env_compat"):
         val = resolve_env_prefix_value("QUIRE_SERVER_FOO")
     assert val == "new"
     assert caplog.records == []
@@ -48,7 +48,7 @@ def test_legacy_only_returns_with_warning(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ):
     monkeypatch.setenv("OPDS_SYNC_FOO", "legacy")
-    with caplog.at_level(logging.WARNING, logger="opds_sync._env_compat"):
+    with caplog.at_level(logging.WARNING, logger="quire_server._env_compat"):
         val1 = resolve_env_prefix_value("QUIRE_SERVER_FOO")
         val2 = resolve_env_prefix_value("QUIRE_SERVER_FOO")
     assert val1 == "legacy"
@@ -65,7 +65,7 @@ def test_both_set_new_wins_with_warning(
 ):
     monkeypatch.setenv("QUIRE_SERVER_FOO", "new")
     monkeypatch.setenv("OPDS_SYNC_FOO", "legacy")
-    with caplog.at_level(logging.WARNING, logger="opds_sync._env_compat"):
+    with caplog.at_level(logging.WARNING, logger="quire_server._env_compat"):
         val = resolve_env_prefix_value("QUIRE_SERVER_FOO")
     assert val == "new"
     both_warnings = [r for r in caplog.records if "env.prefix.both_set" in r.getMessage()]
@@ -98,7 +98,7 @@ def test_log_dedup_per_key(
 ):
     monkeypatch.setenv("OPDS_SYNC_FOO", "a")
     monkeypatch.setenv("OPDS_SYNC_BAR", "b")
-    with caplog.at_level(logging.WARNING, logger="opds_sync._env_compat"):
+    with caplog.at_level(logging.WARNING, logger="quire_server._env_compat"):
         resolve_env_prefix_value("QUIRE_SERVER_FOO")
         resolve_env_prefix_value("QUIRE_SERVER_BAR")
         resolve_env_prefix_value("QUIRE_SERVER_FOO")  # dedup'd
@@ -111,7 +111,7 @@ def test_reset_log_state_clears_dedup(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ):
     monkeypatch.setenv("OPDS_SYNC_FOO", "legacy")
-    with caplog.at_level(logging.WARNING, logger="opds_sync._env_compat"):
+    with caplog.at_level(logging.WARNING, logger="quire_server._env_compat"):
         resolve_env_prefix_value("QUIRE_SERVER_FOO")
         assert len(_LEGACY_LOGGED) == 1
         reset_log_state_for_testing()

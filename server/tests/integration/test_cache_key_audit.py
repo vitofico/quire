@@ -26,7 +26,7 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import inspect
 
-from opds_sync.db.models import (
+from quire_server.db.models import (
     BookInsight,
     BookTheme,
     ExternalSourceCacheEntry,

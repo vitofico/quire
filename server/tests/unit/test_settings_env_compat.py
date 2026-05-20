@@ -12,8 +12,8 @@ import logging
 
 import pytest
 
-from opds_sync._env_compat import reset_log_state_for_testing
-from opds_sync.config import Settings, get_settings
+from quire_server._env_compat import reset_log_state_for_testing
+from quire_server.config import Settings, get_settings
 
 
 @pytest.fixture(autouse=True)
@@ -47,7 +47,7 @@ def test_settings_reads_legacy_prefix_only_with_warning(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ):
     monkeypatch.setenv("OPDS_SYNC_AI_ENABLED", "false")
-    with caplog.at_level(logging.WARNING, logger="opds_sync._env_compat"):
+    with caplog.at_level(logging.WARNING, logger="quire_server._env_compat"):
         s = Settings()
     assert s.ai_enabled is False
     legacy_warnings = [r for r in caplog.records if "env.prefix.legacy_used" in r.getMessage()]

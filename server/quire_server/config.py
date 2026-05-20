@@ -7,7 +7,7 @@ from pydantic_settings import (
     SettingsConfigDict,
 )
 
-from opds_sync._env_compat import LegacyEnvSettingsSource
+from quire_server._env_compat import LegacyEnvSettingsSource
 
 
 class Settings(BaseSettings):
@@ -35,6 +35,7 @@ class Settings(BaseSettings):
         legacy_env = LegacyEnvSettingsSource(settings_cls)
         return init_settings, legacy_env, dotenv_settings, file_secret_settings
 
+    # DB name remains `opds_sync` as a deliberate non-rename (Lock #20).
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/opds_sync"
     cwa_base_url: str = "http://calibre-web.calibre-web.svc.cluster.local:8083"
     cwa_probe_path: str = "/opds"

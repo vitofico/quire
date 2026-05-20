@@ -20,13 +20,13 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: opds_sync
+      POSTGRES_USER: quire_server
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
-      POSTGRES_DB: opds_sync
+      POSTGRES_DB: quire_server
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U opds_sync"]
+      test: ["CMD-SHELL", "pg_isready -U quire_server"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -56,7 +56,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      OPDS_SYNC_DATABASE_URL: postgresql+asyncpg://opds_sync:${POSTGRES_PASSWORD:-changeme}@postgres:5432/opds_sync
+      OPDS_SYNC_DATABASE_URL: postgresql+asyncpg://quire_server:${POSTGRES_PASSWORD:-changeme}@postgres:5432/quire_server
       OPDS_SYNC_CWA_BASE_URL: http://calibre-web:8083
       OPDS_SYNC_LOG_LEVEL: ${OPDS_SYNC_LOG_LEVEL:-INFO}
       # Deploy mode flags. Defaults give the full-stack experience; flip
@@ -77,7 +77,7 @@ services:
     # Add `ports: ["8000:8000"]` temporarily for direct debugging.
     command: >
       sh -c "python /app/scripts/migrate.py &&
-             uvicorn opds_sync.main:app --host 0.0.0.0 --port 8000"
+             uvicorn quire_server.main:app --host 0.0.0.0 --port 8000"
 
   caddy:
     image: caddy:2-alpine

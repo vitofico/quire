@@ -16,14 +16,14 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from opds_sync.core.ai.identity import (
+from quire_server.core.ai.identity import (
     AliasConflict,
     CanonicalIdentity,
     reconcile_aliases,
     register_alias,
     resolve_identity,
 )
-from opds_sync.db.models import InsightIdentityAlias
+from quire_server.db.models import InsightIdentityAlias
 
 # ---- Canonical short-circuit -----------------------------------------------
 

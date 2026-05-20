@@ -29,16 +29,16 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from opds_sync.api.ai_schemas import DocumentIdentity, MetadataBundle
-from opds_sync.core.ai.identity import (
+from quire_server.api.ai_schemas import DocumentIdentity, MetadataBundle
+from quire_server.core.ai.identity import (
     CanonicalIdentity,
     register_alias,
 )
-from opds_sync.core.ai.service import (
+from quire_server.core.ai.service import (
     IdentityUnresolvable,
     InsightOrchestrator,
 )
-from opds_sync.db.models import BookInsight, InsightIdentityAlias
+from quire_server.db.models import BookInsight, InsightIdentityAlias
 
 # ---- Fakes (mirror of test_ai_service.py) ----------------------------------
 

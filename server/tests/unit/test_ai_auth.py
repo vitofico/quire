@@ -21,13 +21,13 @@ from fastapi import HTTPException
 from starlette.datastructures import Headers
 from starlette.requests import Request
 
-from opds_sync.api.ai_auth import (
+from quire_server.api.ai_auth import (
     AiPrincipal,
     BasicAuthAiAuthenticator,
     TokenAiAuthenticator,
 )
-from opds_sync.core.auth import CalibreAuthValidator
-from opds_sync.core.logging_ctx import request_id_var
+from quire_server.core.auth import CalibreAuthValidator
+from quire_server.core.logging_ctx import request_id_var
 
 # ---------------------------------------------------------------------------
 # Helpers

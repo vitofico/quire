@@ -26,9 +26,9 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from opds_sync.api.ai_schemas import Citation
-from opds_sync.core.ai.health_state import AiHealthState
-from opds_sync.db.models import ExternalSourceCacheEntry
+from quire_server.api.ai_schemas import Citation
+from quire_server.core.ai.health_state import AiHealthState
+from quire_server.db.models import ExternalSourceCacheEntry
 
 logger = logging.getLogger(__name__)
 

@@ -33,7 +33,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import and_, case, func, literal_column, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from opds_sync.api.library_schemas import (
+from quire_server.api.library_schemas import (
     LIBRARY_STATS_THEMES_CAVEAT,
     LibraryItemDeleteBody,
     LibraryItemListResponse,
@@ -44,15 +44,15 @@ from opds_sync.api.library_schemas import (
     TopAuthor,
     TopTheme,
 )
-from opds_sync.core.auth import current_user_id
-from opds_sync.db.models import (
+from quire_server.core.auth import current_user_id
+from quire_server.db.models import (
     BookInsight,
     BookTheme,
     Document,
     LibraryItem,
     Progress,
 )
-from opds_sync.db.session import get_session
+from quire_server.db.session import get_session
 
 router = APIRouter(tags=["library"])
 

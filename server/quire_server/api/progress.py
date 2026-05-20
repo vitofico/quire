@@ -6,9 +6,9 @@ from pydantic import BaseModel, field_serializer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from opds_sync.core.auth import current_user_id
-from opds_sync.db.models import Document, Progress
-from opds_sync.db.session import get_session
+from quire_server.core.auth import current_user_id
+from quire_server.db.models import Document, Progress
+from quire_server.db.session import get_session
 
 router = APIRouter(tags=["progress"])
 

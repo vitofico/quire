@@ -18,7 +18,7 @@ RUN pip install --no-cache-dir uv && uv venv "$VIRTUAL_ENV"
 
 # Source needs to be present so setuptools can discover the package.
 COPY pyproject.toml ./
-COPY opds_sync ./opds_sync
+COPY quire_server ./quire_server
 RUN uv pip install "."
 
 COPY migrations ./migrations
@@ -29,4 +29,4 @@ EXPOSE 8000
 # Entrypoint: run the migrate wrapper (per-branch, mode-aware) then start the app.
 # The wrapper reads OPDS_SYNC_PROGRESS_ENABLED / OPDS_SYNC_AI_ENABLED and runs
 # alembic upgrades only for the enabled branches. See scripts/migrate.py.
-CMD ["sh", "-c", "python /app/scripts/migrate.py && exec uvicorn opds_sync.main:app --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "python /app/scripts/migrate.py && exec uvicorn quire_server.main:app --host 0.0.0.0 --port 8000"]

@@ -1,4 +1,4 @@
-"""Unit tests for opds_sync.core.ai.health_state.
+"""Unit tests for quire_server.core.ai.health_state.
 
 These tests pin down the tri-state contract exposed by ``AiHealthState`` so
 the endpoint, the orchestrator, and the Android UI all share one definition
@@ -11,7 +11,7 @@ import asyncio
 
 import pytest
 
-from opds_sync.core.ai.health_state import AiHealthState
+from quire_server.core.ai.health_state import AiHealthState
 
 pytestmark = pytest.mark.asyncio
 

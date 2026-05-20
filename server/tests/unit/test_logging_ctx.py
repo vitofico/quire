@@ -1,11 +1,11 @@
-"""Unit tests for opds_sync.core.logging_ctx."""
+"""Unit tests for quire_server.core.logging_ctx."""
 
 from __future__ import annotations
 
 import logging
 from contextvars import ContextVar
 
-from opds_sync.core.logging_ctx import RequestIdLogFilter, request_id_var
+from quire_server.core.logging_ctx import RequestIdLogFilter, request_id_var
 
 
 def test_request_id_var_is_contextvar_with_empty_default():
@@ -71,7 +71,7 @@ def test_filter_attached_to_root_handler_applies_to_child_logger_records():
     if root.level == 0 or root.level > logging.WARNING:
         root.setLevel(logging.WARNING)
 
-    child = logging.getLogger("opds_sync.core.ai.service.test_propagation")
+    child = logging.getLogger("quire_server.core.ai.service.test_propagation")
     prev_propagate = child.propagate
     child.propagate = True
 

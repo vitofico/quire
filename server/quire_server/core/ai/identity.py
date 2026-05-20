@@ -41,7 +41,7 @@ from sqlalchemy import and_, or_, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from opds_sync.db.models import InsightIdentityAlias
+from quire_server.db.models import InsightIdentityAlias
 
 logger = logging.getLogger(__name__)
 
@@ -318,7 +318,7 @@ async def load_live_insight_ids_for_canonicals(
     Returns a list of (canonical, BookInsight) tuples in the same order
     as `canonicals`; entries with no row are omitted.
     """
-    from opds_sync.db.models import BookInsight
+    from quire_server.db.models import BookInsight
 
     out = []
     for c in canonicals:

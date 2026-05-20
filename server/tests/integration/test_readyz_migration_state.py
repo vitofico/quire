@@ -12,14 +12,14 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 
 def _build_app(monkeypatch, postgres_url: str, *, progress: bool, ai: bool):
-    monkeypatch.setenv("OPDS_SYNC_DATABASE_URL", postgres_url)
-    monkeypatch.setenv("OPDS_SYNC_CWA_BASE_URL", "http://test-cwa")
-    monkeypatch.setenv("OPDS_SYNC_PROGRESS_ENABLED", "true" if progress else "false")
-    monkeypatch.setenv("OPDS_SYNC_AI_ENABLED", "true" if ai else "false")
-    from opds_sync.config import get_settings
+    monkeypatch.setenv("QUIRE_SERVER_DATABASE_URL", postgres_url)
+    monkeypatch.setenv("QUIRE_SERVER_CWA_BASE_URL", "http://test-cwa")
+    monkeypatch.setenv("QUIRE_SERVER_PROGRESS_ENABLED", "true" if progress else "false")
+    monkeypatch.setenv("QUIRE_SERVER_AI_ENABLED", "true" if ai else "false")
+    from quire_server.config import get_settings
 
     get_settings.cache_clear()
-    from opds_sync.main import create_app
+    from quire_server.main import create_app
 
     return create_app()
 

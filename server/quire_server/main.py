@@ -6,8 +6,8 @@ PR-A introduces three deploy modes controlled by env vars:
 
 Always-on regardless of mode: /health and /readyz.
 
-Provider lazy-import boundary: opds_sync.core.ai.* and opds_sync.api.ai
-import only inside the ai_enabled block. opds_sync.api.progress imports only
+Provider lazy-import boundary: quire_server.core.ai.* and quire_server.api.ai
+import only inside the ai_enabled block. quire_server.api.progress imports only
 inside the progress_enabled block. This keeps sync-only and ai-only deploys
 from paying the cost of the other domain's modules.
 """
@@ -19,12 +19,12 @@ import logging
 import httpx
 from fastapi import FastAPI
 
-from opds_sync.api import health
-from opds_sync.api.middleware import RequestIDMiddleware, RequestSizeMiddleware
-from opds_sync.config import Settings, get_settings
-from opds_sync.core.auth import CalibreAuthValidator
-from opds_sync.core.logging_ctx import RequestIdLogFilter
-from opds_sync.db.session import configure, make_engine, make_session_factory
+from quire_server.api import health
+from quire_server.api.middleware import RequestIDMiddleware, RequestSizeMiddleware
+from quire_server.config import Settings, get_settings
+from quire_server.core.auth import CalibreAuthValidator
+from quire_server.core.logging_ctx import RequestIdLogFilter
+from quire_server.db.session import configure, make_engine, make_session_factory
 
 
 def _validate_ai_auth_settings(settings: Settings) -> None:
@@ -69,7 +69,7 @@ def _build_ai_authenticator(settings: Settings, validator: CalibreAuthValidator)
     lazy alongside the rest of the AI imports — sync-only deploys never pay
     for the HMAC / token code.
     """
-    from opds_sync.api.ai_auth import (
+    from quire_server.api.ai_auth import (
         BasicAuthAiAuthenticator,
         TokenAiAuthenticator,
     )
@@ -129,8 +129,8 @@ def create_app() -> FastAPI:
         # Lazy import: only pull progress + library routers when progress mode
         # is on. The `library_items` migration lives on the `progress` alembic
         # branch, so the gate must match for the table to exist.
-        from opds_sync.api.library import router as library_router
-        from opds_sync.api.progress import router as progress_router
+        from quire_server.api.library import router as library_router
+        from quire_server.api.progress import router as progress_router
 
         app.include_router(progress_router, prefix="/sync/v1")
         app.include_router(library_router, prefix="/library/v1")
@@ -148,11 +148,11 @@ def create_app() -> FastAPI:
             # This is the "provider lazy-import boundary" — keeps the openai-client
             # surface (httpx wrapper today; possibly the openai SDK tomorrow) and
             # the Wikipedia/OpenLibrary clients out of sync-only deploys.
-            from opds_sync.api.ai import router as ai_router
-            from opds_sync.core.ai.client import AIClient
-            from opds_sync.core.ai.health_state import AiHealthState
-            from opds_sync.core.ai.retrieval import Retriever
-            from opds_sync.core.ai.service import InsightOrchestrator
+            from quire_server.api.ai import router as ai_router
+            from quire_server.core.ai.client import AIClient
+            from quire_server.core.ai.health_state import AiHealthState
+            from quire_server.core.ai.retrieval import Retriever
+            from quire_server.core.ai.service import InsightOrchestrator
 
             ai_client = AIClient(
                 base_url=settings.ai_base_url,
@@ -194,8 +194,8 @@ def create_app() -> FastAPI:
             # so the /ai/v1/config endpoint can report `configured: false`.
             # The authenticator is already wired above, so token-mode deploys
             # still require valid Bearer tokens on /config (no silent downgrade).
-            from opds_sync.api.ai import router as ai_router
-            from opds_sync.core.ai.health_state import AiHealthState
+            from quire_server.api.ai import router as ai_router
+            from quire_server.core.ai.health_state import AiHealthState
 
             # Attach an empty holder so GET /ai/v1/health returns an all-null
             # snapshot rather than the "defensive empty body" branch.

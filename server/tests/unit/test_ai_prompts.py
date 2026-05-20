@@ -1,5 +1,5 @@
-from opds_sync.api.ai_schemas import AiStyle, Citation, MetadataBundle
-from opds_sync.core.ai.prompts import (
+from quire_server.api.ai_schemas import AiStyle, Citation, MetadataBundle
+from quire_server.core.ai.prompts import (
     PROMPT_VERSION,
     SYSTEM_PROMPT,
     compose_user_prompt,

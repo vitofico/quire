@@ -4,7 +4,7 @@ import httpx
 import pytest
 from fastapi import HTTPException
 
-from opds_sync.core.auth import CalibreAuthValidator
+from quire_server.core.auth import CalibreAuthValidator
 
 
 def _basic(user: str, pw: str) -> str:

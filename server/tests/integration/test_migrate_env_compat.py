@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from opds_sync._env_compat import reset_log_state_for_testing
+from quire_server._env_compat import reset_log_state_for_testing
 
 
 @pytest.fixture(autouse=True)

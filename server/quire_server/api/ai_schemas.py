@@ -287,7 +287,7 @@ class BookInsightPayload(BaseModel):
     narrative coherent (intro before analysis, etc.).
 
     `themes` (PR3, schema v3): controlled-vocabulary topic tags. The model
-    is instructed to pick from `opds_sync.core.ai.themes.CONTROLLED_THEMES`;
+    is instructed to pick from `quire_server.core.ai.themes.CONTROLLED_THEMES`;
     off-vocab strings are preserved verbatim and surface in `book_themes`
     at confidence 0.5. The payload field is the source of truth for the
     client; `book_themes` is the SQL-queryable mirror for aggregate stats.

@@ -8,7 +8,7 @@ from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from opds_sync.api.middleware.request_size import RequestSizeMiddleware
+from quire_server.api.middleware.request_size import RequestSizeMiddleware
 
 
 def _make_app(max_bytes: int) -> Starlette:

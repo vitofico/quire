@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from opds_sync.config import get_settings
+from quire_server.config import get_settings
 
 
 def make_engine(database_url: str | None = None) -> AsyncEngine:

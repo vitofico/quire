@@ -94,17 +94,17 @@ def client_factory(monkeypatch, postgres_url, alembic_upgrade, app: _AppProxy):
 
     def _factory(*, skip_auth_overrides: bool = False, **env_kwargs):
         # --- 1. Configure environment ----------------------------------------
-        monkeypatch.setenv("OPDS_SYNC_DATABASE_URL", postgres_url)
-        monkeypatch.setenv("OPDS_SYNC_CWA_BASE_URL", "http://test-cwa")
+        monkeypatch.setenv("QUIRE_SERVER_DATABASE_URL", postgres_url)
+        monkeypatch.setenv("QUIRE_SERVER_CWA_BASE_URL", "http://test-cwa")
         for k, v in env_kwargs.items():
-            monkeypatch.setenv(f"OPDS_SYNC_{k.upper()}", str(v))
+            monkeypatch.setenv(f"QUIRE_SERVER_{k.upper()}", str(v))
 
         # --- 2. Clear the settings cache and build the app -------------------
-        from opds_sync.config import get_settings
+        from quire_server.config import get_settings
 
         get_settings.cache_clear()
 
-        from opds_sync.main import create_app
+        from quire_server.main import create_app
 
         real_app = create_app()
 
@@ -115,7 +115,7 @@ def client_factory(monkeypatch, postgres_url, alembic_upgrade, app: _AppProxy):
         # Tests that exercise REAL auth (PR-B token-mode tests, for example)
         # pass `skip_auth_overrides=True` to opt out of the fakes.
         if not skip_auth_overrides:
-            from opds_sync.core.auth import current_user_id as _real_cuid
+            from quire_server.core.auth import current_user_id as _real_cuid
 
             async def _fake_current_user_id(request: Request) -> str:
                 header = request.headers.get("Authorization", "")
@@ -144,10 +144,10 @@ def client_factory(monkeypatch, postgres_url, alembic_upgrade, app: _AppProxy):
             # current_user_id. Mirror the basic-auth fake so existing tests
             # that use _basic_header() keep working without modification.
             try:
-                from opds_sync.api.ai_auth import (
+                from quire_server.api.ai_auth import (
                     AiPrincipal,
                 )
-                from opds_sync.api.ai_auth import (
+                from quire_server.api.ai_auth import (
                     get_ai_principal as _real_principal,
                 )
             except ImportError:

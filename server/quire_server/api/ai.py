@@ -18,8 +18,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from opds_sync.api.ai_auth import AiPrincipal, get_ai_principal
-from opds_sync.api.ai_schemas import (
+from quire_server.api.ai_auth import AiPrincipal, get_ai_principal
+from quire_server.api.ai_schemas import (
     AiHealthResponse,
     AiStyle,
     BookInsightResponse,
@@ -33,11 +33,11 @@ from opds_sync.api.ai_schemas import (
     QuotaResponse,
     RetrievalSourceHealth,
 )
-from opds_sync.config import get_settings
-from opds_sync.core.ai.health_state import AiHealthState
-from opds_sync.core.ai.service import IdentityUnresolvable, InsightOrchestrator, QuotaExceeded
-from opds_sync.db.models import UserAIPreference
-from opds_sync.db.session import get_session
+from quire_server.config import get_settings
+from quire_server.core.ai.health_state import AiHealthState
+from quire_server.core.ai.service import IdentityUnresolvable, InsightOrchestrator, QuotaExceeded
+from quire_server.db.models import UserAIPreference
+from quire_server.db.session import get_session
 
 router = APIRouter(tags=["ai"])
 

@@ -6,13 +6,13 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from opds_sync.api.ai_schemas import (
+from quire_server.api.ai_schemas import (
     AiStyle,
     DocumentIdentity,
     MetadataBundle,
 )
-from opds_sync.core.ai.service import InsightOrchestrator, QuotaExceeded, TokenBucket
-from opds_sync.db.models import BookInsight
+from quire_server.core.ai.service import InsightOrchestrator, QuotaExceeded, TokenBucket
+from quire_server.db.models import BookInsight
 
 
 class FakeAIClient:
@@ -413,7 +413,7 @@ async def test_invalidate_does_not_touch_old_prompt_version_rows(
 
 # ---- PR-C: ai_generation_log assertions ------------------------------------
 
-from opds_sync.db.models import AIGenerationLog  # noqa: E402
+from quire_server.db.models import AIGenerationLog  # noqa: E402
 
 
 @pytest.mark.asyncio
@@ -533,7 +533,7 @@ async def test_concurrent_generations_emit_one_miss_and_n_minus_one_hits(
 
 @pytest.mark.asyncio
 async def test_log_carries_request_id_when_set(session: AsyncSession, make_orchestrator):
-    from opds_sync.core.logging_ctx import request_id_var
+    from quire_server.core.logging_ctx import request_id_var
 
     token = request_id_var.set("test-req-abc123")
     try:
@@ -578,13 +578,13 @@ async def test_generate_error_emits_structured_log(session: AsyncSession, caplog
     """
     import logging
 
-    from opds_sync.core.ai.service import InsightOrchestrator
-    from opds_sync.core.logging_ctx import RequestIdLogFilter, request_id_var
+    from quire_server.core.ai.service import InsightOrchestrator
+    from quire_server.core.logging_ctx import RequestIdLogFilter, request_id_var
 
     # Set level on BOTH the root and the specific service logger; pytest-asyncio
     # plus testcontainers fixtures can leave child-logger levels in unexpected
     # states across tests, so be explicit.
-    caplog.set_level(logging.WARNING, logger="opds_sync.core.ai.service")
+    caplog.set_level(logging.WARNING, logger="quire_server.core.ai.service")
     caplog.set_level(logging.WARNING)
     filt = RequestIdLogFilter()
     caplog.handler.addFilter(filt)
@@ -648,7 +648,7 @@ async def test_generate_error_emits_structured_log(session: AsyncSession, caplog
 
 import httpx as _httpx  # noqa: E402
 
-from opds_sync.core.ai.health_state import AiHealthState  # noqa: E402
+from quire_server.core.ai.health_state import AiHealthState  # noqa: E402
 
 
 class _SessionRecordingRetriever:

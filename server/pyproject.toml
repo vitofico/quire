@@ -26,7 +26,7 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["opds_sync*"]
+include = ["quire_server*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

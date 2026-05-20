@@ -5,12 +5,12 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from opds_sync.core.ai.health_state import AiHealthState
-from opds_sync.core.ai.retrieval import (
+from quire_server.core.ai.health_state import AiHealthState
+from quire_server.core.ai.retrieval import (
     Retriever,
     _normalize_key,
 )
-from opds_sync.db.models import ExternalSourceCacheEntry
+from quire_server.db.models import ExternalSourceCacheEntry
 
 
 def _wiki_summary_response(title: str, extract: str) -> dict:
