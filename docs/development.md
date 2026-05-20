@@ -59,8 +59,8 @@ cp local.properties.template local.properties
 :core:model    Domain types
 :data:local    Room DB, DAOs, sync outbox
 :data:opds     calibre-web OPDS client
-:data:sync     opds-sync REST client + WorkManager job
-:data:library  opds-sync /library/v1 HTTP client (stats today)
+:data:sync     quire-server REST client + WorkManager job
+:data:library  quire-server /library/v1 HTTP client (stats today)
 :reader        Readium navigator integration
 ```
 
@@ -107,33 +107,33 @@ uv pip install -e ".[dev]"
 ### Run
 
 ```sh
-uv run uvicorn opds_sync.main:app --reload
+uv run uvicorn quire_server.main:app --reload
 ```
 
 Listens on `http://localhost:8000`. Configuration is via environment variables;
-see `opds_sync/config.py` for the full list. At minimum:
+see `quire_server/config.py` for the full list. At minimum:
 
 ```
-OPDS_SYNC_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/opds_sync
-OPDS_SYNC_CWA_BASE_URL=https://library.example.com
+QUIRE_SERVER_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/opds_sync
+QUIRE_SERVER_CWA_BASE_URL=https://library.example.com
 # Optional, defaults shown:
-OPDS_SYNC_CWA_PROBE_PATH=/opds
-OPDS_SYNC_CWA_PROBE_TIMEOUT_S=3.0
-OPDS_SYNC_AUTH_CACHE_POSITIVE_TTL_S=60
-OPDS_SYNC_AUTH_CACHE_NEGATIVE_TTL_S=10
+QUIRE_SERVER_CWA_PROBE_PATH=/opds
+QUIRE_SERVER_CWA_PROBE_TIMEOUT_S=3.0
+QUIRE_SERVER_AUTH_CACHE_POSITIVE_TTL_S=60
+QUIRE_SERVER_AUTH_CACHE_NEGATIVE_TTL_S=10
 # Deploy-mode flags (PR-A). Both default true → full-stack.
-OPDS_SYNC_PROGRESS_ENABLED=true
-OPDS_SYNC_AI_ENABLED=true
+QUIRE_SERVER_PROGRESS_ENABLED=true
+QUIRE_SERVER_AI_ENABLED=true
 # Request-size cap enforced by RequestSizeMiddleware (default 1 MiB). Bodies
 # above this return 413.
-OPDS_SYNC_MAX_REQUEST_BYTES=1048576
+QUIRE_SERVER_MAX_REQUEST_BYTES=1048576
 # AI auth seam (PR-B). Default 'basic' wraps the calibre-web Basic verifier;
 # 'token' enables HMAC-SHA256 bearer-token verification for hosted multi-tenant.
-OPDS_SYNC_AI_AUTH_MODE=basic
+QUIRE_SERVER_AI_AUTH_MODE=basic
 # Required only when AI_AUTH_MODE=token. JSON object mapping kid -> secret
 # (UTF-8 string, >= 32 bytes). Multiple kids enable rotation:
-# OPDS_SYNC_AI_TOKEN_SECRETS='{"v1":"…32+ bytes…","v2":"…"}'.
-# OPDS_SYNC_AI_TOKEN_ISSUER and OPDS_SYNC_AI_TOKEN_AUDIENCE are also required
+# QUIRE_SERVER_AI_TOKEN_SECRETS='{"v1":"…32+ bytes…","v2":"…"}'.
+# QUIRE_SERVER_AI_TOKEN_ISSUER and QUIRE_SERVER_AI_TOKEN_AUDIENCE are also required
 # in token mode; missing/short config crashloops the process on startup.
 ```
 
@@ -177,7 +177,7 @@ uv run ruff format
 ### Module layout
 
 ```
-opds_sync/
+quire_server/
   api/
     health.py        /health, /readyz (root-mounted, no /sync prefix)
     progress.py      /sync/v1/progress
@@ -188,7 +188,7 @@ opds_sync/
     ai_auth.py       AiPrincipal + BasicAuthAiAuthenticator + TokenAiAuthenticator (PR-B seam)
     middleware/
       request_id.py  X-Request-ID propagation
-      request_size.py 413 on bodies above OPDS_SYNC_MAX_REQUEST_BYTES
+      request_size.py 413 on bodies above QUIRE_SERVER_MAX_REQUEST_BYTES
     # bookmarks.py — planned
     # documents.py   — /documents/alias, alias reconciliation (planned)
   core/
@@ -235,13 +235,13 @@ Pushes to `main` that touch Android paths produce:
 - A `vYYYY.MM.DD.<run>` git tag.
 
 Server is deployed via the cluster's Kustomize app
-(`applications/opds-sync/`); see the cluster repo for the rollout flow.
+(`applications/quire-server/`); see the cluster repo for the rollout flow.
 
 For non-Kubernetes self-hosters, `server/` ships two reference
 docker-compose files matching the deploy-mode table above:
-`docker-compose.yml` (minimal: postgres + opds-sync, bring your own
+`docker-compose.yml` (minimal: postgres + quire-server, bring your own
 proxy) and `docker-compose.full.yml` (Caddy-fronted postgres +
-calibre-web + opds-sync with TLS behind one base URL, mirroring the
+calibre-web + quire-server with TLS behind one base URL, mirroring the
 k8s ingress). See `server/README.md` for env-var setup and smoke
 commands.
 

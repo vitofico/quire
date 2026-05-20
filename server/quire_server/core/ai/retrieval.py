@@ -191,7 +191,7 @@ class Retriever:
     def _http(self) -> httpx.AsyncClient:
         kwargs: dict = {
             "timeout": httpx.Timeout(self._timeout_s, connect=min(self._timeout_s, 5.0)),
-            "headers": {"User-Agent": "opds-sync/ai-retrieval"},
+            "headers": {"User-Agent": "quire-server/ai-retrieval"},
         }
         if self._transport is not None:
             kwargs["transport"] = self._transport

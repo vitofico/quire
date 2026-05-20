@@ -66,7 +66,7 @@ class AIClient:
         self._api_key = api_key
         self._model = model
         self._transport = transport  # tests inject MockTransport; prod is None
-        self._user_agent = "opds-sync"
+        self._user_agent = "quire-server"
 
     async def chat_structured(
         self,

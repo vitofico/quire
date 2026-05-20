@@ -78,12 +78,16 @@ jobs:
           if rg -n -P '\bopds[-_]sync\b|(?<![A-Z0-9_])OPDS_SYNC_[A-Z0-9_]*' \
                 -g '!.claude/**' \
                 -g '!CHANGELOG.md' \
+                -g '!docs/release.md' \
+                -g '!docs/development.md' \
                 -g '!server/migrations/versions/*.py' \
                 -g '!README.md' \
                 -g '!server/quire_server/_env_compat.py' \
+                -g '!server/quire_server/config.py' \
                 -g '!server/docker-compose.yml' \
                 -g '!server/docker-compose.full.yml' \
                 -g '!server/alembic.ini' \
+                -g '!server/migrations/env.py' \
                 -g '!server/.env.example' \
                 -g '!server/tests/conftest.py' \
                 -g '!server/tests/unit/test_env_compat.py' \

@@ -3,7 +3,7 @@ calibre-web.
 
 It browses your library over OPDS, downloads books on demand, renders
 them with Readium, and syncs reading progress (and later bookmarks) to
-a small companion server you run yourself (opds-sync, included).
+a small companion server you run yourself (Quire Server, included).
 
 Features:
 - OPDS catalog browsing and search
@@ -20,7 +20,7 @@ Privacy:
 Source code, server, and documentation:
 https://github.com/vitofico/quire
 
-Optional AI features (off by default): when your opds-sync administrator
+Optional AI features (off by default): when your Quire Server administrator
 configures an AI endpoint (such as a self-hosted Ollama or a third-party
 provider) and you opt in from Settings, Quire shows generated book
 insights — author, summary, series, themes — grounded with citations

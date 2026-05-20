@@ -27,10 +27,10 @@ COPY alembic.ini ./
 
 LABEL org.opencontainers.image.title="quire-server" \
       org.opencontainers.image.source="https://github.com/vitofico/quire" \
-      org.opencontainers.image.description="Quire Server (formerly opds-sync)"
+      org.opencontainers.image.description="Quire Server"
 
 EXPOSE 8000
 # Entrypoint: run the migrate wrapper (per-branch, mode-aware) then start the app.
 # The wrapper reads QUIRE_SERVER_PROGRESS_ENABLED / QUIRE_SERVER_AI_ENABLED
-# (legacy OPDS_SYNC_* names still accepted for one release cycle).
+# (the legacy prefix is still accepted for one release cycle).
 CMD ["sh", "-c", "python /app/scripts/migrate.py && exec uvicorn quire_server.main:app --host 0.0.0.0 --port 8000"]

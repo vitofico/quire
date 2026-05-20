@@ -1,8 +1,9 @@
 """FastAPI app factory. Mounts routers conditionally based on deploy mode flags.
 
-PR-A introduces three deploy modes controlled by env vars:
-  * OPDS_SYNC_PROGRESS_ENABLED=true (default) → /sync/v1/* mounted
-  * OPDS_SYNC_AI_ENABLED=true (default) → /ai/v1/* mounted + AI orchestrator wired
+PR-A introduces three deploy modes controlled by env vars (the legacy
+prefix is also accepted for one release cycle — see _env_compat.py):
+  * QUIRE_SERVER_PROGRESS_ENABLED=true (default) → /sync/v1/* mounted
+  * QUIRE_SERVER_AI_ENABLED=true (default) → /ai/v1/* mounted + AI orchestrator wired
 
 Always-on regardless of mode: /health and /readyz.
 
@@ -41,25 +42,28 @@ def _validate_ai_auth_settings(settings: Settings) -> None:
     secrets = settings.ai_token_secrets
     if not isinstance(secrets, dict) or not secrets:
         raise RuntimeError(
-            "OPDS_SYNC_AI_AUTH_MODE=token requires OPDS_SYNC_AI_TOKEN_SECRETS "
+            "QUIRE_SERVER_AI_AUTH_MODE=token requires QUIRE_SERVER_AI_TOKEN_SECRETS "
             "to be a non-empty JSON object mapping kid -> secret"
         )
     for kid, secret in secrets.items():
         if not isinstance(kid, str) or not kid:
             raise RuntimeError(
-                "OPDS_SYNC_AI_TOKEN_SECRETS has an empty kid; every kid must be a non-empty string"
+                "QUIRE_SERVER_AI_TOKEN_SECRETS has an empty kid; "
+                "every kid must be a non-empty string"
             )
         if not isinstance(secret, str):
-            raise RuntimeError(f"OPDS_SYNC_AI_TOKEN_SECRETS[{kid!r}] must be a string")
+            raise RuntimeError(f"QUIRE_SERVER_AI_TOKEN_SECRETS[{kid!r}] must be a string")
         if len(secret.encode("utf-8")) < 32:
             raise RuntimeError(
-                f"OPDS_SYNC_AI_TOKEN_SECRETS[{kid!r}] is shorter than 32 bytes; "
+                f"QUIRE_SERVER_AI_TOKEN_SECRETS[{kid!r}] is shorter than 32 bytes; "
                 "use a random 32+ byte secret"
             )
     if not settings.ai_token_issuer or not settings.ai_token_issuer.strip():
-        raise RuntimeError("OPDS_SYNC_AI_AUTH_MODE=token requires OPDS_SYNC_AI_TOKEN_ISSUER")
+        raise RuntimeError("QUIRE_SERVER_AI_AUTH_MODE=token requires QUIRE_SERVER_AI_TOKEN_ISSUER")
     if not settings.ai_token_audience or not settings.ai_token_audience.strip():
-        raise RuntimeError("OPDS_SYNC_AI_AUTH_MODE=token requires OPDS_SYNC_AI_TOKEN_AUDIENCE")
+        raise RuntimeError(
+            "QUIRE_SERVER_AI_AUTH_MODE=token requires QUIRE_SERVER_AI_TOKEN_AUDIENCE"
+        )
 
 
 def _build_ai_authenticator(settings: Settings, validator: CalibreAuthValidator):
@@ -104,7 +108,7 @@ def create_app() -> FastAPI:
     configure(engine)
     session_factory = make_session_factory(engine)
 
-    app = FastAPI(title="opds-sync", version="0.3.0")
+    app = FastAPI(title="quire-server", version="0.3.0")
 
     httpx_client = httpx.AsyncClient(timeout=settings.cwa_probe_timeout_s)
     app.state.httpx_client = httpx_client

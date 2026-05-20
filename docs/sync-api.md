@@ -1,6 +1,6 @@
 # Sync API
 
-REST surface of the `opds-sync` server. All endpoints are versioned under
+REST surface of the `quire-server` server. All endpoints are versioned under
 `/sync/v1`, all request and response bodies are JSON, and all sync endpoints
 require an HTTP Basic header valid against the upstream calibre-web instance.
 
@@ -15,7 +15,7 @@ Authorization: Basic <base64(username:password)>
 
 The same calibre-web Basic credentials the Android app uses for OPDS
 browsing. The server validates each header by probing
-`{OPDS_SYNC_CWA_BASE_URL}{OPDS_SYNC_CWA_PROBE_PATH}` (default `/opds`)
+`{QUIRE_SERVER_CWA_BASE_URL}{QUIRE_SERVER_CWA_PROBE_PATH}` (default `/opds`)
 with the incoming `Authorization` header and treats `200` as
 authenticated, `401` as not. Results are TTL-cached (60 s positive,
 10 s negative).
@@ -31,9 +31,9 @@ returns `503`.
 
 `/sync/v1/*` and `/library/v1/*` always use the Basic auth flow above.
 `/ai/v1/*` routes go through an `AiAuthenticator` seam that selects the
-verifier per the `OPDS_SYNC_AI_AUTH_MODE` env var:
+verifier per the `QUIRE_SERVER_AI_AUTH_MODE` env var:
 
-| Mode (`OPDS_SYNC_AI_AUTH_MODE`) | Header                            | Principal                              |
+| Mode (`QUIRE_SERVER_AI_AUTH_MODE`) | Header                            | Principal                              |
 | ------------------------------- | --------------------------------- | -------------------------------------- |
 | `basic` (default)               | `Authorization: Basic …`          | `tenant_id="local"`, `auth_mode=basic` |
 | `token`                         | `Authorization: Bearer <jwt-ish>` | claims from token; `auth_mode=token`   |
@@ -42,9 +42,9 @@ Token mode is a stub for the hosted-AI future: HMAC-SHA256 over `header.payload`
 with header `{alg=HS256, kid}` and payload claims `{iss, aud, exp, iat, sub,
 tenant_id, scope?}`. Each segment is URL-safe base64 with no padding. The
 server only verifies — issuance is out of scope. Multiple `kid → secret`
-entries (set via the JSON env var `OPDS_SYNC_AI_TOKEN_SECRETS`) enable
+entries (set via the JSON env var `QUIRE_SERVER_AI_TOKEN_SECRETS`) enable
 rotation: tokens signed under any registered kid are accepted; mint with
-the newest. `OPDS_SYNC_AI_TOKEN_ISSUER` and `OPDS_SYNC_AI_TOKEN_AUDIENCE`
+the newest. `QUIRE_SERVER_AI_TOKEN_ISSUER` and `QUIRE_SERVER_AI_TOKEN_AUDIENCE`
 must match `iss` / `aud` exactly. Verification failures all collapse to a
 single `401 invalid credentials` — failure reasons live in structured logs
 only.
@@ -55,7 +55,7 @@ silent downgrade to basic.
 
 `AiPrincipal.tenant_id` flows ONLY into `ai_generation_log` per-call audit;
 it never participates in any shared-cache key. See `docs/architecture.md`
-§"AI auth seam" for the rationale and `server/opds_sync/api/ai_auth.py` for
+§"AI auth seam" for the rationale and `server/quire_server/api/ai_auth.py` for
 the implementation.
 
 ## Endpoints
@@ -69,11 +69,11 @@ the implementation.
 | `POST` | `/sync/v1/documents/alias` | yes | Reconcile a hash-keyed record with a newly-known metadata-id (planned) |
 | `POST` | `/sync/v1/bookmarks` | yes | Push bookmark create/delete (planned) |
 | `GET` | `/sync/v1/bookmarks` | yes | Pull bookmark deltas (planned) |
-| `PUT` | `/library/v1/items` | yes | Upsert one library item (mode-gated on `OPDS_SYNC_PROGRESS_ENABLED`) |
+| `PUT` | `/library/v1/items` | yes | Upsert one library item (mode-gated on `QUIRE_SERVER_PROGRESS_ENABLED`) |
 | `GET` | `/library/v1/items` | yes | List items, optional `since=<ISO>` cursor with tombstones |
 | `DELETE` | `/library/v1/items` | yes | Soft-delete one library item by `content_hash` |
 | `GET` | `/library/v1/stats` | yes | Per-user library roll-up: totals + top authors + top themes |
-| `GET` | `/ai/v1/health` | none | AI provider + retrieval reachability snapshot (mode-gated on `OPDS_SYNC_AI_ENABLED`) |
+| `GET` | `/ai/v1/health` | none | AI provider + retrieval reachability snapshot (mode-gated on `QUIRE_SERVER_AI_ENABLED`) |
 
 Currently shipped: health probes and progress. The rest are designed; see
 phasing in the project README.
@@ -201,7 +201,7 @@ In one transaction the server:
 ## Library items (`/library/v1`)
 
 Per-user mirror of the on-device library. Mounted only when
-`OPDS_SYNC_PROGRESS_ENABLED=true`. USER-SCOPED — `library_items.user_id` is
+`QUIRE_SERVER_PROGRESS_ENABLED=true`. USER-SCOPED — `library_items.user_id` is
 part of every uniqueness constraint and not shared cache.
 
 Identity travels in the request body (URL-encoded sha256s in paths are a
@@ -275,7 +275,7 @@ every subsequent `GET ?since=<old_cursor>`).
 
 Per-user library roll-up. Joins `library_items` with `progress` for
 the read-state counts and with the live `book_insights` cache for the
-theme leaderboard. Mode-gated on `OPDS_SYNC_PROGRESS_ENABLED`.
+theme leaderboard. Mode-gated on `QUIRE_SERVER_PROGRESS_ENABLED`.
 
 ```http
 GET /library/v1/stats
@@ -373,7 +373,7 @@ available regardless of deploy mode. The previous `/sync/v1/healthz` was
 removed in PR-A; cluster manifests must point at `/health` going forward.
 
 - `/health` is liveness. Returns `{ "ready": true, "modes": ["progress","ai"] }`
-  where `modes` reflects `OPDS_SYNC_PROGRESS_ENABLED` and `OPDS_SYNC_AI_ENABLED`.
+  where `modes` reflects `QUIRE_SERVER_PROGRESS_ENABLED` and `QUIRE_SERVER_AI_ENABLED`.
   Returns 200 unless the process is broken.
 - `/readyz` is readiness. Opens a Postgres connection and verifies that all
   required migration heads (for the enabled modes) are present in
@@ -401,7 +401,7 @@ Standard FastAPI shape:
 ## AI endpoints (`/ai/v1`)
 
 Optional. Returns 503 when the server is not configured for AI
-(`OPDS_SYNC_AI_ENABLED=false` or missing `AI_BASE_URL`/`AI_MODEL`).
+(`QUIRE_SERVER_AI_ENABLED=false` or missing `AI_BASE_URL`/`AI_MODEL`).
 
 ### Quota model
 
@@ -502,7 +502,7 @@ table. If no hint resolves on a write path the server returns `422`.
 canonical, so subsequent calls with weaker hints hit the same cache row.
 
 Response: a `BookInsight` with `payload`, `sources`, `model_id`,
-`prompt_version`, `generated_at`. See `opds_sync/api/ai_schemas.py` for
+`prompt_version`, `generated_at`. See `quire_server/api/ai_schemas.py` for
 the full payload schema.
 
 `payload` is the structured `BookInsightPayload` (schema v3, the model
@@ -533,7 +533,7 @@ generates keys in this order):
 **not** themes, genre, politics, or plot mechanics.
 
 `themes` (PR3, schema v3) is a list of 1-5 topic tags drawn from a controlled
-vocabulary (~57 entries — see `opds_sync/core/ai/themes.py::CONTROLLED_THEMES`,
+vocabulary (~57 entries — see `quire_server/core/ai/themes.py::CONTROLLED_THEMES`,
 covering broad fiction buckets, speculative subgenres, genre fiction, and
 nonfiction categories). Vocab hits land in the side table `book_themes` at
 `confidence=1.0`; off-vocab strings are preserved verbatim at `confidence=0.5`
@@ -606,7 +606,7 @@ Operational visibility for AI provider + retrieval reachability. **Unauthenticat
 by design — operators and the Android Settings status row poll it without going
 through Basic auth (consistent with the always-on root `/health` and `/readyz`
 probes; nothing in the body is more sensitive than `/ai/v1/config` already
-exposes). Mounted only when `OPDS_SYNC_AI_ENABLED=true`.
+exposes). Mounted only when `QUIRE_SERVER_AI_ENABLED=true`.
 
 Snapshot semantics:
 
@@ -631,7 +631,7 @@ Snapshot semantics:
 }
 ```
 
-`retrieval_sources` is seeded from `OPDS_SYNC_AI_SOURCES` so the UI always
+`retrieval_sources` is seeded from `QUIRE_SERVER_AI_SOURCES` so the UI always
 has a row per configured source even before the first call. `model_id` is the
 most recently observed model on a successful chat completion (not necessarily
 equal to `AI_MODEL`; see `/ai/v1/config` for the configured value). On

@@ -4,7 +4,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
- * Mirrors `DocumentIdentity` in `server/opds_sync/api/ai_schemas.py`.
+ * Mirrors `DocumentIdentity` in `server/quire_server/api/ai_schemas.py`.
  *
  * Canonical schemes (`metadataId`, `contentHash`) identify a downloaded EPUB
  * by stable byte-level or OPF-derived hashes. Alias fields (`opdsHref`,

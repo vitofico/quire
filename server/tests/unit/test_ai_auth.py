@@ -112,7 +112,7 @@ def _sign_token(
 
 _SECRET = "x" * 32
 _ISS = "quire-cloud"
-_AUD = "opds-sync"
+_AUD = "quire-server"
 
 
 def _good_claims(now: int = 1_700_000_000, **overrides) -> dict:

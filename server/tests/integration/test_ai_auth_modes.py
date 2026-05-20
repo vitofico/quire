@@ -38,7 +38,7 @@ pytestmark = pytest.mark.requires_ai
 _SECRET_1 = "k1-" + "x" * 32  # >= 32 utf-8 bytes
 _SECRET_2 = "k2-" + "y" * 32
 _ISS = "quire-cloud"
-_AUD = "opds-sync"
+_AUD = "quire-server"
 
 
 def _b64url(b: bytes) -> str:

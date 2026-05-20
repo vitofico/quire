@@ -32,7 +32,7 @@ In scope:
 - Sync server (`server/`), including the `/sync/v1/*`, `/library/v1/*`,
   and `/ai/v1/*` surfaces, the request-size + request-id middleware, and
   the three deploy modes (full, sync-only, AI-only).
-- The AI auth seam (`server/opds_sync/api/ai_auth.py`), including both
+- The AI auth seam (`server/quire_server/api/ai_auth.py`), including both
   `basic` (calibre-web Basic proxy) and `token` (HMAC-SHA256 bearer) modes
   and the `kid`-rotation surface for token secrets.
 - The HTTP surface between the app, the sync server, and calibre-web.

@@ -9,7 +9,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
 /**
- * REST client for the `/library/v1` endpoints on opds-sync.
+ * REST client for the `/library/v1` endpoints on quire-server.
  *
  * Auth: relies on the shared OkHttpClient already carrying Basic auth (the
  * same one used by `:data:sync` and `:data:ai`). This client does not add

@@ -1,6 +1,6 @@
 """`/library/v1/items` router.
 
-Mode-gated: mounts only when `OPDS_SYNC_PROGRESS_ENABLED=true` (see
+Mode-gated: mounts only when `QUIRE_SERVER_PROGRESS_ENABLED=true` (see
 `main.py`). The migration this endpoint depends on lives on the `progress`
 alembic branch (`progress_001_library_items`).
 

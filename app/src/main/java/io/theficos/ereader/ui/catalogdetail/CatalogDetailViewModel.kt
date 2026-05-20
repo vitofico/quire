@@ -111,7 +111,7 @@ class CatalogDetailViewModel(
          * Build the AI identity payload for a pre-download publication.
          *
          * Strategy (spec §"Identity strategy", verified against
-         * server/opds_sync/core/ai/service.py::generate at line 200):
+         * server/quire_server/core/ai/service.py::generate at line 200):
          *  - `metadata_id = "opds-href:" + sha256Hex(epubDownloadHref)` —
          *    a canonical so the server's `generate()` proceeds instead of
          *    raising `IdentityUnresolvable` (which it does for alias-only

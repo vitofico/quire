@@ -1,6 +1,6 @@
 # Architecture
 
-This document describes how the Quire Android app, the `opds-sync` server, and
+This document describes how the Quire Android app, the `quire-server` server, and
 calibre-web fit together. For the REST surface in detail, see
 [`sync-api.md`](sync-api.md).
 
@@ -9,12 +9,12 @@ calibre-web fit together. For the REST surface in detail, see
 | Component | What it does | Stack |
 |---|---|---|
 | **Quire** (Android) | Browses OPDS, downloads EPUBs, renders them, tracks progress, syncs. | Kotlin, Jetpack Compose, Readium Kotlin Toolkit, Room, WorkManager, OkHttp |
-| **opds-sync** (server) | REST API for reading state. Single source of truth. | Python 3.12, FastAPI, SQLAlchemy 2 + Alembic, Postgres 16 |
+| **quire-server** (server) | REST API for reading state. Single source of truth. | Python 3.12, FastAPI, SQLAlchemy 2 + Alembic, Postgres 16 |
 | **calibre-web** | OPDS catalog and book downloads. Unchanged. | Existing self-hosted instance |
 
 calibre-web is stateless from the reader's perspective — no reading state ever
 lives there. (A planned read-only Calibre plugin will pull progress from
-`opds-sync` into Calibre custom columns.)
+`quire-server` into Calibre custom columns.)
 
 ## Module layout (Android)
 
@@ -24,8 +24,8 @@ lives there. (A planned read-only Calibre plugin will pull progress from
 :core:model    Domain types: Document, Progress, Bookmark
 :data:local    Room database + DAOs; pending_sync_ops outbox; sync_state
 :data:opds     calibre-web OPDS client
-:data:sync     opds-sync REST client + WorkManager sync job
-:data:library  opds-sync /library/v1 HTTP client (stats today)
+:data:sync     quire-server REST client + WorkManager sync job
+:data:library  quire-server /library/v1 HTTP client (stats today)
 :reader        Readium navigator integration, font/theme controls
 :auth          Keystore-backed calibre-web Basic credential store
 ```
@@ -81,7 +81,7 @@ Examples:
 | `calibre:42` | `42` |
 
 Reference implementation: `core/identity` (Kotlin) and
-`server/opds_sync/core/identity.py` (Python). Both are tested against the same
+`server/quire_server/core/identity.py` (Python). Both are tested against the same
 fixture set so they cannot drift.
 
 ### Lookup precedence
@@ -97,7 +97,7 @@ server additionally accepts a wider set of identity hints so pre-download
 flows (catalog preview, library upload) work before the EPUB body is on the
 device. PR2 (2026-05-16) materialized this as the `insight_identity_aliases`
 table and the `resolve_identity` / `register_alias` / `reconcile_aliases`
-API in `server/opds_sync/core/ai/identity.py`.
+API in `server/quire_server/core/ai/identity.py`.
 
 1. **`metadata_id`** — canonical. Normalized first non-empty `dc:identifier`
    from the EPUB OPF. Stable across re-downloads.
@@ -136,7 +136,7 @@ Two distinct surfaces today:
   surface accepts any of `metadata_id`, `content_hash`, `opds_dc_id`,
   `isbn`, `calibre_book_id`, `opds_href` and resolves to a canonical via
   the alias table before touching the shared cache. See
-  `server/opds_sync/core/ai/identity.py` for the resolver + register +
+  `server/quire_server/core/ai/identity.py` for the resolver + register +
   reconcile API. Per-user OPDS aliases stay user-scoped; global hints like
   ISBN are shared.
 
@@ -214,17 +214,17 @@ calibre-web username and password; everything else flows from that.
   available) by `:auth` (`CalibreCredentialStore`).
 - Every OPDS request sends `Authorization: Basic ...`.
 
-### opds-sync — Basic auth proxied to calibre-web
+### quire-server — Basic auth proxied to calibre-web
 
 - The Android app sends the **same** Basic header it uses for OPDS.
 - The server has no user database. On each request it forwards the header
   to calibre-web's `/opds` endpoint and treats `200` as authenticated,
   `401` as not.
 - Results are TTL-cached: 60 s positive, 10 s negative, LRU-bounded to
-  1024 entries (configurable via `OPDS_SYNC_AUTH_CACHE_*`).
+  1024 entries (configurable via `QUIRE_SERVER_AUTH_CACHE_*`).
 - `user_id` on every persisted row is the lowercased calibre-web username
   (extracted from the decoded Basic header). **Multi-user from day one.**
-- Reference: `server/opds_sync/core/auth.py` (`CalibreAuthValidator`).
+- Reference: `server/quire_server/core/auth.py` (`CalibreAuthValidator`).
 
 ### Why this shape
 
@@ -243,10 +243,10 @@ calibre-web username and password; everything else flows from that.
 
 ## Deploy modes
 
-The opds-sync server supports three deploy modes from a single codebase and
+The quire-server server supports three deploy modes from a single codebase and
 container image. Modes are controlled by two env-var flags:
 
-| Mode             | `OPDS_SYNC_PROGRESS_ENABLED` | `OPDS_SYNC_AI_ENABLED` | Mounted endpoints                                                          |
+| Mode             | `QUIRE_SERVER_PROGRESS_ENABLED` | `QUIRE_SERVER_AI_ENABLED` | Mounted endpoints                                                          |
 | ---------------- | ---------------------------- | ---------------------- | -------------------------------------------------------------------------- |
 | Full stack       | `true` (default)             | `true` (default)       | `/health`, `/readyz`, `/sync/v1/*`, `/library/v1/*` (incl. `/stats`), `/ai/v1/*` |
 | Sync only        | `true`                       | `false`                | `/health`, `/readyz`, `/sync/v1/*`, `/library/v1/*` (incl. `/stats`)        |
@@ -282,7 +282,7 @@ those modules. The test suite enforces this via subprocess introspection of
 Every inbound HTTP request passes through (innermost first):
 
 1. `RequestSizeMiddleware` — rejects bodies larger than
-   `OPDS_SYNC_MAX_REQUEST_BYTES` (default 1 MiB) with HTTP 413.
+   `QUIRE_SERVER_MAX_REQUEST_BYTES` (default 1 MiB) with HTTP 413.
 2. `RequestIDMiddleware` — reads or generates `X-Request-ID`, binds it to a
    `contextvars` ContextVar so logs include it, and echoes it back on every
    response (including 413 / 4xx / 5xx).
@@ -332,7 +332,7 @@ auth_mode, request_id}` via an `AiAuthenticator` Protocol, not on
   rotation. Wire format: header `{alg=HS256, kid}` + payload
   `{iss, aud, exp, iat, sub, tenant_id, scope?}`, each segment URL-safe
   base64 with no padding. Issuance is out of scope; the server only
-  verifies. Token-mode misconfiguration (missing `OPDS_SYNC_AI_TOKEN_SECRETS`,
+  verifies. Token-mode misconfiguration (missing `QUIRE_SERVER_AI_TOKEN_SECRETS`,
   short secret, missing issuer/audience) crashloops the process — never
   silently downgrades to basic.
 
@@ -341,10 +341,10 @@ audit. It MUST NOT participate in any shared-cache key. Sync routes
 (`/sync/v1/*`, `/library/v1/*`) continue to depend on `current_user_id`
 directly — the seam only swings on `/ai/v1/*`.
 
-Env vars: `OPDS_SYNC_AI_AUTH_MODE` (`basic|token`, default `basic`),
-`OPDS_SYNC_AI_TOKEN_SECRETS` (JSON object `{kid: secret}`),
-`OPDS_SYNC_AI_TOKEN_ISSUER`, `OPDS_SYNC_AI_TOKEN_AUDIENCE`. See
-`server/opds_sync/api/ai_auth.py` for the verifier and
+Env vars: `QUIRE_SERVER_AI_AUTH_MODE` (`basic|token`, default `basic`),
+`QUIRE_SERVER_AI_TOKEN_SECRETS` (JSON object `{kid: secret}`),
+`QUIRE_SERVER_AI_TOKEN_ISSUER`, `QUIRE_SERVER_AI_TOKEN_AUDIENCE`. See
+`server/quire_server/api/ai_auth.py` for the verifier and
 `server/README.md` for rotation guidance.
 
 ### AI provider health (PR5, 2026-05-16)
@@ -356,8 +356,8 @@ it without going through Basic auth (consistent with the always-on root
 `/health` and `/readyz` probes; nothing in the body is more sensitive than
 `/ai/v1/config` already exposes).
 
-Mounted only when `OPDS_SYNC_AI_ENABLED=true`. State is held in
-`AiHealthState` (`server/opds_sync/core/ai/health_state.py`), updated as a
+Mounted only when `QUIRE_SERVER_AI_ENABLED=true`. State is held in
+`AiHealthState` (`server/quire_server/core/ai/health_state.py`), updated as a
 side effect of real user-driven chat-completion and retrieval calls. We
 never actively ping providers. Reachability is tri-state (`None` until first
 observation, then `True`/`False`); reset to all-null on process restart.
@@ -367,7 +367,7 @@ observability is out of scope (in-process state stays).
 ### Per-user library mirror (PR1, 2026-05-16)
 
 `/library/v1/items` (PUT / GET / DELETE) mounts when
-`OPDS_SYNC_PROGRESS_ENABLED=true`. The `library_items` table (on the
+`QUIRE_SERVER_PROGRESS_ENABLED=true`. The `library_items` table (on the
 `progress` alembic branch) is the server-side per-user mirror of every book
 on the device, populated by Android's `DocumentRepository` after every
 successful download via the existing sync retry queue. Identity travels in
@@ -379,7 +379,7 @@ shared cache — so the cache-key audit does not cover it.
 
 `BookInsightPayload.themes` is back as a first-class field at schema v3 —
 a list of 1–5 topic tags drawn from a controlled vocabulary (~57 entries in
-`opds_sync/core/ai/themes.py::CONTROLLED_THEMES`, covering broad fiction
+`quire_server/core/ai/themes.py::CONTROLLED_THEMES`, covering broad fiction
 buckets, speculative subgenres, genre fiction, and nonfiction categories).
 `PROMPT_VERSION` bumped to `"4"`. Vocab hits are normalized to snake_case
 and persisted to the side table `book_themes(book_insight_id, theme,
@@ -409,7 +409,7 @@ accidental version emission.
 `top_themes`, and a constant server-emitted `themes_caveat` string the
 client renders verbatim. There is no `abandoned_count` until an
 explicit abandoned status exists. Mode-gated on
-`OPDS_SYNC_PROGRESS_ENABLED` (lives next to the existing
+`QUIRE_SERVER_PROGRESS_ENABLED` (lives next to the existing
 `/library/v1/items` router).
 
 The theme query uses a **DISTINCT-ON CTE that picks one
@@ -433,7 +433,7 @@ This DISTINCT-ON pattern is the recommended shape for any future
 endpoint that joins live insights (`book_insights`) to per-user
 library data: every consumer needs the same three guards or they
 diverge from `_lookup_live` on the AI surface and report different
-numbers for the same library. See `server/opds_sync/api/library.py`
+numbers for the same library. See `server/quire_server/api/library.py`
 for the reference implementation.
 
 ### Android UI surfaces (batch 3, 2026-05-17)

@@ -1,4 +1,4 @@
-# Contributing to Quire / opds-sync
+# Contributing to Quire / Quire Server
 
 Thanks for considering a contribution. This is a small, opinionated
 project; please read this before opening a PR.
@@ -87,7 +87,7 @@ Common gitmoji used here: `:sparkles:` (feat), `:bug:` (fix),
 
 ## Identity rules — Kotlin / Python parity
 
-`core/identity` (Kotlin) and `server/opds_sync/core/identity.py`
+`core/identity` (Kotlin) and `server/quire_server/core/identity.py`
 implement the same normalization. They share fixtures (`core/identity/
 src/test/resources/identity/`). **If you change one, change the other
 in the same PR**, and update the fixtures.
@@ -134,9 +134,9 @@ in the same PR**, and update the fixtures.
 When bumping any cache-key dimension, move all three forward in the same
 PR (or document why one was skipped):
 
-- **`opds_sync/core/ai/prompts.py::PROMPT_VERSION`** — string. Currently
+- **`quire_server/core/ai/prompts.py::PROMPT_VERSION`** — string. Currently
   `"4"` (PR3, 2026-05-17). Bump when prompt bytes change.
-- **`opds_sync/api/ai_schemas.py::BookInsightPayload.schema_version`** —
+- **`quire_server/api/ai_schemas.py::BookInsightPayload.schema_version`** —
   int. Currently `3` (PR3). Bump when payload shape changes.
 - **Android Room schema version** in
   `data/local/src/main/java/io/theficos/ereader/data/local/db/EReaderDatabase.kt`

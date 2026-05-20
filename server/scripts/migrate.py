@@ -2,8 +2,8 @@
 """Forward-only deploy migrator (PR-A).
 
 Reads QUIRE_SERVER_PROGRESS_ENABLED / QUIRE_SERVER_AI_ENABLED (with
-one-cycle back-compat for OPDS_SYNC_PROGRESS_ENABLED / OPDS_SYNC_AI_ENABLED
-via the env-compat helper), then:
+one-cycle back-compat for the legacy prefix via the env-compat helper —
+see `quire_server/_env_compat.py`), then:
   1. Always upgrades the unlabeled backbone to its tip (e.g. 0004 today).
   2. Per enabled+materialized branch: runs `alembic upgrade <branch>@head`.
 

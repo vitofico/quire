@@ -33,7 +33,9 @@ class Settings(BaseSettings):
         legacy_env = LegacyEnvSettingsSource(settings_cls)
         return init_settings, legacy_env, dotenv_settings, file_secret_settings
 
-    # DB name remains `opds_sync` as a deliberate non-rename (Lock #20).
+    # DB name in the default URL is the legacy `opds_sync` (a deliberate
+    # non-rename per Lock #20); see server/README.md "Migration from
+    # opds-sync" for the rationale.
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/opds_sync"
     cwa_base_url: str = "http://calibre-web.calibre-web.svc.cluster.local:8083"
     cwa_probe_path: str = "/opds"
@@ -55,7 +57,7 @@ class Settings(BaseSettings):
 
     # AI substrate (Phase 1). Default flipped from False → True in PR-A so the
     # full-stack mode is the documented default. Existing prod deployments
-    # already set OPDS_SYNC_AI_ENABLED=true explicitly, so this flip is
+    # already set QUIRE_SERVER_AI_ENABLED=true explicitly, so this flip is
     # invisible there; sync-only deploys must now explicitly set false.
     ai_enabled: bool = True
     ai_base_url: str | None = None

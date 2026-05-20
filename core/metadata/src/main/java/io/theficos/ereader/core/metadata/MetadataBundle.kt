@@ -5,7 +5,7 @@ import kotlinx.serialization.Serializable
 
 /**
  * The bundle of EPUB metadata sent to the server when requesting AI insights.
- * Mirrors `MetadataBundle` in `server/opds_sync/api/ai_schemas.py`.
+ * Mirrors `MetadataBundle` in `server/quire_server/api/ai_schemas.py`.
  */
 @Serializable
 data class MetadataBundle(
