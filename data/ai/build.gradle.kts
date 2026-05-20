@@ -22,6 +22,9 @@ android {
 dependencies {
     api(project(":core:model"))
     api(project(":core:metadata"))
+    // PR-η / Lock #14 amendment: AiRepository moved here and depends on
+    // InsightDao for local-cache-first read paths plus bulk sync.
+    implementation(project(":data:local"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
@@ -32,4 +35,7 @@ dependencies {
     testImplementation(libs.robolectric)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.okhttp.mockwebserver)
+    // Room in-memory for repository tests that exercise the local cache.
+    testImplementation(libs.room.testing)
+    testImplementation(libs.androidx.test.core)
 }

@@ -62,6 +62,7 @@ fun AppNavGraph(container: AppContainer) {
                     libraryUploader = container.libraryUploader,
                     aiRepository = container.aiRepository,
                     catalogInsightStash = container.catalogInsightStash,
+                    insightSyncRepository = container.insightSyncRepository,
                     subjectProvider = {
                         container.credentialStore.get()?.username?.lowercase()
                     },
@@ -75,6 +76,8 @@ fun AppNavGraph(container: AppContainer) {
                     documentRepo = container.documentRepository,
                     booksDir = container.booksDir,
                     aiRepository = container.aiRepository,
+                    insightSyncRepository = container.insightSyncRepository,
+                    insightDao = container.insightDao,
                 )
             }
             val aiConfig by container.aiRepository.config.collectAsState()

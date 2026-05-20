@@ -6,6 +6,7 @@ import io.theficos.ereader.core.model.Document
 import io.theficos.ereader.data.ai.AiClient
 import io.theficos.ereader.data.ai.AiRepository
 import io.theficos.ereader.data.ai.CatalogInsightStash
+import io.theficos.ereader.data.ai.InsightSyncRepository
 import io.theficos.ereader.data.library.LibraryClient
 import io.theficos.ereader.data.library.LibraryUploader
 import io.theficos.ereader.data.local.DocumentRepository
@@ -74,7 +75,11 @@ class AppContainer(context: Context) {
         baseUrlProvider = { credentialStore.get()?.baseUrl },
         http = opdsHttp.okHttp,
     )
-    val aiRepository: AiRepository = AiRepository(aiClient)
+    val insightDao = db.insightDao()
+    val aiRepository: AiRepository = AiRepository(
+        client = aiClient,
+        insightDao = insightDao,
+    )
 
     /**
      * PR-ζ / Lock #16: process-local stash for the catalog → download
@@ -110,6 +115,20 @@ class AppContainer(context: Context) {
     val libraryUploader: LibraryUploader = LibraryUploader(
         client = libraryClient,
         dao = db.documentDao(),
+        scope = libraryUploaderScope,
+    )
+
+    /**
+     * PR-η: orchestrates `/ai/v1/insights/sync` against the local cache.
+     * Fired on app start (post-upload), after every promote success, after
+     * /library/v1/items uploads, and on the Settings "Refresh insights"
+     * button. Uses the same long-lived scope as the library uploader so
+     * fire-and-forget triggers survive Activity tear-down.
+     */
+    val insightSyncRepository: InsightSyncRepository = InsightSyncRepository(
+        client = aiClient,
+        dao = insightDao,
+        aiRepo = aiRepository,
         scope = libraryUploaderScope,
     )
 

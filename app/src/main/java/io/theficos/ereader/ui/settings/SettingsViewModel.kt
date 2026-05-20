@@ -9,7 +9,9 @@ import io.theficos.ereader.data.ai.AiConfig
 import io.theficos.ereader.data.ai.AiHealthResponse
 import io.theficos.ereader.data.ai.AiPreferences
 import io.theficos.ereader.data.ai.AiRepository
+import io.theficos.ereader.data.ai.InsightSyncRepository
 import io.theficos.ereader.data.local.DocumentRepository
+import io.theficos.ereader.data.local.db.InsightDao
 import io.theficos.ereader.data.local.db.SyncStateDao
 import io.theficos.ereader.data.sync.SyncEnqueuer
 import java.io.File
@@ -35,7 +37,17 @@ data class AiState(
     val preferences: AiPreferences? = null,
     val toggling: Boolean = false,
     val health: AiHealthResponse? = null,
+    /** Wall-clock millis of the last successful local insight upsert; null if never synced. */
+    val lastInsightSyncMs: Long? = null,
+    val syncStatus: InsightSyncStatus = InsightSyncStatus.Idle,
 )
+
+/** UI state for the Settings → "Refresh insights" button. */
+sealed interface InsightSyncStatus {
+    data object Idle : InsightSyncStatus
+    data object Syncing : InsightSyncStatus
+    data class Error(val message: String) : InsightSyncStatus
+}
 
 class SettingsViewModel(
     private val store: CalibreCredentialStore,
@@ -44,6 +56,8 @@ class SettingsViewModel(
     private val documentRepo: DocumentRepository,
     private val booksDir: File,
     private val aiRepository: AiRepository,
+    private val insightSyncRepository: InsightSyncRepository? = null,
+    private val insightDao: InsightDao? = null,
     private val syncEnqueuer: (Context) -> Unit = { SyncEnqueuer.enqueue(it, expedited = true, replaceExisting = true) },
 ) : ViewModel() {
     private val _calibre = MutableStateFlow(loadInitialCalibre())
@@ -55,12 +69,24 @@ class SettingsViewModel(
     val sync: StateFlow<SyncUiState> = _sync.asStateFlow()
 
     private val _aiHealth = MutableStateFlow<AiHealthResponse?>(null)
+    private val _lastInsightSync = MutableStateFlow<Long?>(null)
+    private val _syncStatus = MutableStateFlow<InsightSyncStatus>(InsightSyncStatus.Idle)
 
     val ai: StateFlow<AiState> = combine(
-        aiRepository.config,
-        aiRepository.preferences,
-        _aiHealth,
-    ) { c, p, h -> AiState(config = c, preferences = p, health = h) }.stateIn(
+        combine(aiRepository.config, aiRepository.preferences, _aiHealth) { c, p, h ->
+            Triple(c, p, h)
+        },
+        _lastInsightSync,
+        _syncStatus,
+    ) { (c, p, h), lastSync, syncStatus ->
+        AiState(
+            config = c,
+            preferences = p,
+            health = h,
+            lastInsightSyncMs = lastSync,
+            syncStatus = syncStatus,
+        )
+    }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),
         AiState(),
@@ -70,6 +96,7 @@ class SettingsViewModel(
         viewModelScope.launch {
             aiRepository.refresh()
             _aiHealth.value = aiRepository.fetchHealth()
+            _lastInsightSync.value = insightDao?.latestSyncedAt()
         }
     }
 
@@ -147,6 +174,26 @@ class SettingsViewModel(
     fun setStyleLanguage(language: String) {
         viewModelScope.launch {
             runCatching { aiRepository.setStyleLanguage(language) }
+        }
+    }
+
+    /**
+     * PR-η: user-initiated "Refresh insights" trigger from the AI section. Runs
+     * the sync in-band (no debounce) so the spinner is visible. Updates the
+     * displayed "last synced" timestamp on success.
+     */
+    fun refreshInsights() {
+        val repo = insightSyncRepository ?: return
+        viewModelScope.launch {
+            _syncStatus.value = InsightSyncStatus.Syncing
+            val result = repo.syncNow()
+            _syncStatus.value = when (result) {
+                is InsightSyncRepository.SyncResult.Synced,
+                is InsightSyncRepository.SyncResult.Skipped -> InsightSyncStatus.Idle
+                is InsightSyncRepository.SyncResult.Failed ->
+                    InsightSyncStatus.Error(result.error.message ?: "Sync failed")
+            }
+            _lastInsightSync.value = insightDao?.latestSyncedAt() ?: _lastInsightSync.value
         }
     }
 }

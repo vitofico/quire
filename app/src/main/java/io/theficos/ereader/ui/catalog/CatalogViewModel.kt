@@ -10,6 +10,7 @@ import io.theficos.ereader.core.metadata.readOpfBundle
 import io.theficos.ereader.core.model.DocumentIdentity
 import io.theficos.ereader.data.ai.AiRepository
 import io.theficos.ereader.data.ai.CatalogInsightStash
+import io.theficos.ereader.data.ai.InsightSyncRepository
 import io.theficos.ereader.data.library.LibraryUploader
 import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.db.SyncStateDao
@@ -41,6 +42,7 @@ class CatalogViewModel(
         { ctx -> SyncEnqueuer.enqueue(ctx, expedited = true, replaceExisting = true) },
     private val aiRepository: AiRepository? = null,
     private val catalogInsightStash: CatalogInsightStash? = null,
+    private val insightSyncRepository: InsightSyncRepository? = null,
     private val subjectProvider: () -> String? = { null },
 ) : ViewModel() {
 
@@ -160,6 +162,12 @@ class CatalogViewModel(
         )
         if (ok) {
             stash.remove(subject, pub.epubDownloadHref)
+            // PR-η / coordinator §3.17: a successful promote means the server
+            // wrote a new BookInsight row at `downloadedIdentity` with
+            // `generated_at = NOW()`. Trigger a sync so the Android cache picks
+            // it up — coalescing collapses bursts when the user downloads
+            // several books in quick succession.
+            insightSyncRepository?.requestSync("after_promote")
         } else {
             Log.d(
                 "CatalogViewModel",

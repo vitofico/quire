@@ -33,7 +33,7 @@ class AiRepositoryHealthTest {
                 .callTimeout(5, TimeUnit.SECONDS)
                 .build(),
         )
-        repo = AiRepository(client)
+        repo = AiRepository(client, insightDao = FakeInsightDao())
     }
 
     @After
