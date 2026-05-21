@@ -235,6 +235,7 @@ private class FakeDocumentDao : DocumentDao {
     override suspend fun update(doc: DocumentEntity): Unit = throw notImplemented("update")
     override suspend fun findByMetadataId(id: String): DocumentEntity? = throw notImplemented("findByMetadataId")
     override suspend fun findByContentHash(hash: String): DocumentEntity? = throw notImplemented("findByContentHash")
+    override suspend fun findByDownloadUrl(url: String): DocumentEntity? = throw notImplemented("findByDownloadUrl")
     override suspend fun findById(id: Long): DocumentEntity? = throw notImplemented("findById")
     override fun observeAll(): Flow<List<DocumentEntity>> = flowOf(emptyList())
     override fun observeSeriesContinuationCandidates(
