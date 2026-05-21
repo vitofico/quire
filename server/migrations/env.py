@@ -24,9 +24,7 @@ def _ensure_url() -> None:
 
     Priority:
     1. Already set by caller (e.g. test fixture via cfg.set_main_option)
-    2. QUIRE_SERVER_DATABASE_URL env var / pydantic settings (the legacy
-       prefix is still accepted via _env_compat for one release cycle —
-       see server/quire_server/_env_compat.py).
+    2. QUIRE_SERVER_DATABASE_URL env var / pydantic settings.
     3. alembic.ini default (localhost fallback)
 
     We only override if the config still holds the ini default, so test
