@@ -69,8 +69,8 @@ Routing inside the Caddy front-end (`caddy/Caddyfile`):
 {$QUIRE_SITE_ADDRESS:localhost} {
     tls internal
 
-    @opds path /sync/* /ai/* /library/* /health /readyz
-    handle @opds {
+    @quire path /sync/* /ai/* /library/* /health /readyz
+    handle @quire {
         reverse_proxy quire-server:8000
     }
 
