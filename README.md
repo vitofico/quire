@@ -96,11 +96,23 @@ OpenLibrary to ground the generated insights with citations. The
 generated insight is cached server-side per book and reused across all
 of that user's devices and other opted-in users on the same instance.
 
-Surfaces in the app today: book-detail cards (summary, author, series,
-themes, content advisory, sources); a catalog detail screen that
-previews the same insight cards before download via an `info` icon on
-each catalog tile; and a library Stats screen (totals, top authors,
-top themes) backed by `GET /library/v1/stats`.
+Surfaces in the app today:
+
+- **Book-detail cards** — summary, author, series, themes, craft notes,
+  comparative anchors, discussion prompts, content advisory, sources.
+- **Catalog detail screen** — previews the same insight cards before
+  download via an `info` icon on each catalog tile. Once the EPUB is
+  downloaded the cached catalog insight is promoted onto the canonical
+  identity so the book-detail screen shows it immediately.
+- **Library Stats** — totals, finished / in-progress / abandoned counts,
+  top authors, top themes, backed by `GET /library/v1/stats`.
+- **Library Insights** — a per-user reader profile (narrative, in-library
+  recommendations, OpenLibrary discovery recommendations, AI-suggested
+  reads), refreshed on demand from the screen. Backed by
+  `GET /ai/v1/profile` + `POST /ai/v1/profile/refresh`. A "Delete
+  profile" action in Settings wipes the cached row.
+- **Abandoned book UX** — books you've marked abandoned drop out of
+  Library by default; a "Show abandoned" toggle reveals them.
 
 For configuration details see [`server/README.md`](server/README.md).
 
@@ -118,7 +130,11 @@ full stack with calibre-web + quire-server + TLS behind one base URL).
 
 **Shipped:** OPDS catalog browsing and search, EPUB rendering with
 Readium, local reading progress, progress sync (server + Android
-client), single-credential auth via calibre-web Basic.
+client), single-credential auth via calibre-web Basic, per-user library
+mirror with stats (`GET /library/v1/stats`), optional AI book insights
+(schema v4: themes, craft notes, comparative anchors, discussion
+prompts), optional AI reader profile with in-library and OpenLibrary
+discovery recommendations, abandoned-book status.
 
 **Planned:** bookmarks sync, calibre-web read-only consumer plugin.
 

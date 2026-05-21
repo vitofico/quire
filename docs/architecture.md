@@ -405,10 +405,12 @@ accidental version emission.
 
 `GET /library/v1/stats` returns a per-user roll-up of the
 `library_items` mirror joined with `book_insights` / `book_themes`:
-`total_books`, `finished_count`, `in_progress_count`, `top_authors`,
-`top_themes`, and a constant server-emitted `themes_caveat` string the
-client renders verbatim. There is no `abandoned_count` until an
-explicit abandoned status exists. Mode-gated on
+`total_books`, `finished_count`, `in_progress_count`, `abandoned_count`,
+`top_authors`, `top_themes`, and a constant server-emitted
+`themes_caveat` string the client renders verbatim. `abandoned_count`
+counts library items whose `progress.abandoned_at IS NOT NULL`; the
+three count buckets are mutually disjoint (in-progress excludes books
+marked abandoned even if their percent > 0). Mode-gated on
 `QUIRE_SERVER_PROGRESS_ENABLED` (lives next to the existing
 `/library/v1/items` router).
 
@@ -473,7 +475,49 @@ for the reference implementation.
 - **Library Stats screen (PR9).** New `LibraryStatsScreen` +
   `LibraryStatsViewModel` reached from the library menu's "Stats"
   entry. Lives in the new `:data:library` Android module (the
-  `library/v1` HTTP client), which today exposes only `getStats`.
+  `library/v1` HTTP client), which today exposes only `getStats`. The
+  stats response includes `abandoned_count`; the view-model holds a
+  factory-scoped SWR cache with a generation guard so quick re-entries
+  return the cached tile instantly without losing the in-flight refresh.
+
+### Reader Profile (Bundle 3)
+
+Per-user generated profile that summarizes a reader's habits and
+recommends further reads. Server-side: a new `reader_profiles` table
+keyed on `(tenant_id, subject)` with `payload JSONB`, mirrored
+top-level `schema_version`, and a 16-hex-char `input_fingerprint` over
+the underlying `ReaderStats` snapshot (Lock #12). The cache namespace
+is separate from `book_insights` — a distinct
+`READER_PROFILE_PROMPT_VERSION` constant governs its own invalidation
+ladder. `progress.abandoned_at` (migration `progress_002`) feeds the
+abandoned bucket in `ReaderStats` and the Library Stats roll-up.
+
+Three endpoints expose it: `GET /ai/v1/profile` (cache-only read; 404
+if none), `POST /ai/v1/profile/refresh` (budgeted regenerate; daily
+limit `QUIRE_SERVER_AI_PROFILE_REFRESH_DAILY_LIMIT`, default 3;
+process-local singleflight per `(tenant_id, subject)`), and
+`DELETE /ai/v1/profile` (idempotent erase). The refresh path computes
+`ReaderStats` from progress + library data, walks OpenLibrary author
+bibliographies for discovery candidates (capped at 5 authors per call,
+positive TTL 30d / negative 24h), and asks the model for a narrative
+plus rationales. Below a configurable book-count floor it
+short-circuits to a stats-only payload at weight 0.
+
+Android surfaces it as a Library Insights screen
+(`LibraryInsightsScreen` + `LibraryInsightsViewModel`) reached from the
+library menu. The view-model pulls `/ai/v1/profile` and
+`/library/v1/stats` concurrently on entry, falls through to
+`POST /ai/v1/profile/refresh` on `no_profile`, and uses
+`/ai/v1/config.progress_supported` (default `true` for older deploys)
+to hide the screen entirely on AI-only deploys where the refresh path
+would 503. Settings adds a "Delete profile" button bound to the
+`DELETE` endpoint. The library list adds a "Show abandoned" toggle
+backed by `LibraryPreferencesStore`; rows whose progress is abandoned
+drop out by default.
+
+Room schema bumps from 7 to 8 (`MIGRATION_7_8`) to add
+`progress.abandonedAt` plus a new `bookInsights` table (Bundle 2)
+caching inspect-insight reads so the audit screen renders offline.
 
 #### Catalog identity vs post-download EPUB identity
 
@@ -492,12 +536,13 @@ the EPUB body produces a real `metadata_id` (from the OPF
 identifier space than the synthetic `opds-href:<sha>`. The cache row
 that served the catalog preview and the cache row that serves the
 book-detail screen after download can therefore be two distinct
-rows for what is materially the same book. A future
-`POST /ai/v1/insights/promote` endpoint could unify them by
-upgrading the catalog row's canonical to the post-download
-identifiers and reconciling via the alias table. Not built today —
-double-spend on cold catalogs is rare enough that paying for the
-second generation when the user actually downloads is acceptable.
+rows for what is materially the same book. `POST /ai/v1/insights/promote`
+(Bundle 2, PR-ζ) bridges them: when the Android catalog flow finishes
+downloading an EPUB it calls promote with `from=<catalog identity>` and
+`to=<downloaded canonical>`, so the cached catalog insight is copied
+onto the post-download row without firing the model. Lineage flows
+through `previous_insight_ids` and `insight_identity_aliases` (anchor
+source `promoted_on_download`).
 
 ## Decision log
 

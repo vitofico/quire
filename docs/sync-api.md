@@ -74,9 +74,20 @@ the implementation.
 | `DELETE` | `/library/v1/items` | yes | Soft-delete one library item by `content_hash` |
 | `GET` | `/library/v1/stats` | yes | Per-user library roll-up: totals + top authors + top themes |
 | `GET` | `/ai/v1/health` | none | AI provider + retrieval reachability snapshot (mode-gated on `QUIRE_SERVER_AI_ENABLED`) |
+| `GET` | `/ai/v1/config` | yes | User-visible AI configuration |
+| `GET`/`PUT` | `/ai/v1/preferences` | yes | Per-user opt-in + tone/language |
+| `POST` | `/ai/v1/insights/lookup` | yes | Book insight: cache hit or synchronous generation |
+| `POST` | `/ai/v1/insights/get` | yes | Cache-only read; 404 on miss |
+| `POST` | `/ai/v1/insights/regenerate` | yes | Force a fresh insight (audit-only retention of previous row) |
+| `POST` | `/ai/v1/insights/invalidate` | yes | Drop the cached insight for the caller's current cache key |
+| `POST` | `/ai/v1/insights/promote` | yes | Copy a catalog-side insight onto the downloaded canonical identity |
+| `GET` | `/ai/v1/insights/sync` | yes | Bulk pull of the caller's owned-book insights with tuple cursor |
+| `GET` | `/ai/v1/profile` | yes | Cached reader profile (narrative + recommendations); 404 if never refreshed |
+| `POST` | `/ai/v1/profile/refresh` | yes | Recompute the reader profile (budgeted) |
+| `DELETE` | `/ai/v1/profile` | yes | Wipe the caller's reader profile row |
 
-Currently shipped: health probes and progress. The rest are designed; see
-phasing in the project README.
+`/sync/v1/documents/alias` and `/sync/v1/bookmarks` are designed but not
+shipped. Everything else above is on `main`.
 
 ## Document references
 
@@ -689,6 +700,51 @@ Audit: emits a structured stdout line `event=ai.promote ...` with the source
 and copy ids, latency, and outcome. PR-ζ does NOT write an
 `ai_generation_log` row (Lock #11 amendment); PR-β extends the audit-log
 schema and the promote path begins persisting at that point.
+
+### `GET /ai/v1/profile`
+
+Cache-only read of the caller's `reader_profiles` row. **Weight = 0** — no
+LLM call, no budget charge. Requires opt-in.
+
+```http
+GET /ai/v1/profile
+Authorization: Basic ...
+```
+
+Response: the same `ReaderProfilePayload` documented for
+`POST /ai/v1/profile/refresh` (stats, narrative, in-library /
+discovery / ai-suggested recommendations, `input_fingerprint`).
+
+| Status | Body | Meaning |
+|--------|------|---------|
+| `200` | `ReaderProfilePayload` | Cached row returned verbatim. |
+| `404` | `{"detail":"no_profile"}` | No row yet — client should call refresh. |
+| `404` | `{"detail":"ai_disabled"}` | AI disabled or unconfigured on this deploy. |
+| `409` | `{"detail":"ai_not_opted_in"}` | Caller has not opted in. |
+| `503` | `{"error":"profile_requires_progress_data"}` | `PROGRESS_ENABLED=false`. |
+
+The Android Library Insights screen calls this on first paint and falls
+through to `POST /ai/v1/profile/refresh` on a `no_profile` 404.
+
+### `DELETE /ai/v1/profile`
+
+Erase the caller's `reader_profiles` row. Idempotent: returns `204` whether
+or not a row existed. **Weight = 0**. Wired to the Settings "Delete
+profile" action; recommended after toggling opt-out so a stale cached
+profile cannot resurface if the user opts back in later.
+
+```http
+DELETE /ai/v1/profile
+Authorization: Basic ...
+```
+
+| Status | Meaning |
+|--------|---------|
+| `204` | Row deleted (or no-op if none existed). |
+| `404` | `{"detail":"ai_disabled"}` on AI-disabled deploys. |
+
+This endpoint does not require opt-in — a user who has opted out can
+still purge a previously-generated row.
 
 ### `GET /ai/v1/insights/sync`
 
