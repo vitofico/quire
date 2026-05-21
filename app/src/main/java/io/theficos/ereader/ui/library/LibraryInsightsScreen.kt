@@ -283,6 +283,21 @@ private fun LoadedScreen(
                 }
             }
         }
+        val aiSuggested = loaded.profile.payload.aiSuggestedRecommendations
+        if (aiSuggested.isNotEmpty()) {
+            item { Text("Suggested by AI", style = MaterialTheme.typography.titleMedium) }
+            item {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    items(aiSuggested) { rec ->
+                        BookRecCard(
+                            rec = rec,
+                            onOpenBook = onOpenBook,
+                            onOpenWeb = onOpenWeb,
+                        )
+                    }
+                }
+            }
+        }
         item { FooterAttribution(loaded.profile) }
     }
 }

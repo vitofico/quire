@@ -243,6 +243,9 @@ data class ReaderProfilePayloadDto(
     val narrative: String? = null,
     @SerialName("in_library_recommendations") val inLibraryRecommendations: List<BookRecDto> = emptyList(),
     @SerialName("discovery_recommendations") val discoveryRecommendations: List<BookRecDto> = emptyList(),
+    // BookRec entries with `source_type == "ai_suggested"`. Defaulted so
+    // older server builds (which omit the field) round-trip cleanly.
+    @SerialName("ai_suggested_recommendations") val aiSuggestedRecommendations: List<BookRecDto> = emptyList(),
     val confidence: String? = null,
 )
 
