@@ -18,6 +18,11 @@ data class AiConfig(
     // the field decode safely; new clients re-key their local cache on this
     // value (see InsightEntity PK in :data:local, future work).
     @SerialName("prompt_version") val promptVersion: String = "1",
+    // PR-β / coordinator §3.5: server advertises whether the progress-mirror
+    // (calibre-web / library upload) is wired. Defaults to `true` so an older
+    // deploy that doesn't emit the field is treated as supported — same
+    // behavior we had before the field existed.
+    @SerialName("progress_supported") val progressSupported: Boolean = true,
 )
 
 @Serializable

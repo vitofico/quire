@@ -42,6 +42,13 @@ class AiRepository(
     // so existing test sites that only stub `insightDao` keep compiling;
     // production wiring at di/AppContainer passes the real DAO.
     private val progressDao: ProgressDao? = null,
+    // PR-γ (Bundle 3): preflight collaborators for refreshProfile(). Both are
+    // nullable so test sites that only stub network/DAO keep compiling;
+    // production wiring at di/AppContainer passes the real instances. When
+    // null, the corresponding preflight step is treated as a no-op success
+    // (i.e. it doesn't block refresh).
+    private val syncRunner: ProfilePreflightSync? = null,
+    private val libraryRunner: ProfilePreflightLibrary? = null,
     private val json: Json = Json { ignoreUnknownKeys = true; encodeDefaults = true },
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
@@ -171,6 +178,56 @@ class AiRepository(
         client.fetchProfile()
 
     /**
+     * PR-γ: refresh the user's reader profile.
+     *
+     * Best-effort preflight (NTH #9, corrections.md PR-γ Required #6): we
+     * drain pending progress sync + library upload BEFORE asking the server
+     * to recompute. Preflight is *best-effort* — if either step throws or
+     * returns failure we log via the [onPreflightDone] callback and continue
+     * to the refresh call. Rationale: the user explicitly asked for a
+     * refresh, so failing it on a transient sync error would burn quota and
+     * confuse the UX. The caller can surface the preflight failure if it
+     * matters.
+     *
+     * `onPreflightStart` / `onPreflightDone` let the ViewModel drive its
+     * two-state Loading skeleton (`PreflightSyncing` → `Generating`) when
+     * the screen is in an Empty state. When refreshing in place from a
+     * Loaded state the VM ignores these callbacks (architect Finding #1 —
+     * don't show a skeleton over an existing profile).
+     */
+    suspend fun refreshProfile(
+        onPreflightStart: () -> Unit = {},
+        onPreflightDone: (PreflightOutcome) -> Unit = {},
+    ): ReaderProfileResponseDto {
+        onPreflightStart()
+        val outcome = runPreflightBestEffort()
+        onPreflightDone(outcome)
+        return client.refreshProfile()
+    }
+
+    private suspend fun runPreflightBestEffort(): PreflightOutcome {
+        val progressOk = try {
+            syncRunner?.runOnce() ?: true
+        } catch (_: Throwable) {
+            false
+        }
+        val libraryOk = try {
+            libraryRunner?.runOnce() ?: true
+        } catch (_: Throwable) {
+            false
+        }
+        return PreflightOutcome(progressSyncOk = progressOk, libraryUploadOk = libraryOk)
+    }
+
+    /**
+     * PR-γ (Lock #3 surface — exposed for PR-δ's Settings button). Server
+     * returns 204 unconditionally; safe to call without a prior fetch.
+     */
+    suspend fun deleteProfile() {
+        client.deleteProfile()
+    }
+
+    /**
      * Mark a book abandoned in the local Room DB. The row's `updatedAt`
      * is bumped to `now` so the sync orchestrator pushes it on the next
      * cycle and the server's `client_updated_at` LWW guard accepts the
@@ -262,6 +319,39 @@ class AiRepository(
             generatedAt = Instant.ofEpochMilli(generatedAt).toString(),
         )
     }
+}
+
+/**
+ * Outcome of the best-effort preflight pass before a profile refresh. Both
+ * booleans are `true` on success; either may be `false` if the corresponding
+ * runner threw OR was wired and reported a non-success. The refresh proceeds
+ * regardless — the ViewModel surfaces [anyFailed] as a soft inline hint.
+ */
+data class PreflightOutcome(
+    val progressSyncOk: Boolean,
+    val libraryUploadOk: Boolean,
+) {
+    val anyFailed: Boolean get() = !progressSyncOk || !libraryUploadOk
+}
+
+/**
+ * Decoupling boundary: lets `:data:ai` invoke the sync orchestrator without
+ * taking a hard dependency on `:data:sync`. AppContainer adapts the real
+ * SyncOrchestrator into this shape.
+ */
+fun interface ProfilePreflightSync {
+    /** Returns true on success; false signals a non-fatal failure. */
+    suspend fun runOnce(): Boolean
+}
+
+/**
+ * Decoupling boundary: lets `:data:ai` invoke the library uploader without
+ * taking a hard dependency on `:data:library`. AppContainer adapts the real
+ * LibraryUploader into this shape.
+ */
+fun interface ProfilePreflightLibrary {
+    /** Returns true on success; false signals a non-fatal failure (e.g. 401). */
+    suspend fun runOnce(): Boolean
 }
 
 /** Best-effort ISO-8601 → epoch millis. Returns null on malformed input. */

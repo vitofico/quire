@@ -13,8 +13,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import android.content.Intent
+import android.net.Uri
+import kotlinx.coroutines.launch
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -26,6 +31,7 @@ import io.theficos.ereader.ui.bookdetail.InsightAuditScreen
 import io.theficos.ereader.ui.catalog.CatalogScreen
 import io.theficos.ereader.ui.catalog.CatalogViewModel
 import io.theficos.ereader.ui.catalogdetail.CatalogDetailScreen
+import io.theficos.ereader.ui.library.LibraryInsightsScreen
 import io.theficos.ereader.ui.library.LibraryScreen
 import io.theficos.ereader.ui.library.LibraryStatsScreen
 import io.theficos.ereader.ui.library.LibraryViewModel
@@ -88,6 +94,7 @@ fun AppNavGraph(container: AppContainer) {
                         onOpenBook = { id -> nav.navigate("reader/$id") },
                         onShowDetails = { id -> nav.navigate("book/$id") },
                         onShowStats = { nav.navigate("library/stats") },
+                        onShowInsights = { nav.navigate("library/insights") },
                         aiConfigured = aiConfig?.configured == true,
                         contentPadding = padding,
                     )
@@ -189,6 +196,33 @@ fun AppNavGraph(container: AppContainer) {
             LibraryStatsScreen(
                 viewModel = vm,
                 onBack = { nav.popBackStack() },
+            )
+        }
+        composable("library/insights") {
+            val vm = remember { container.libraryInsightsViewModelFactory.create() }
+            val context = LocalContext.current
+            val scope = rememberCoroutineScope()
+            LibraryInsightsScreen(
+                viewModel = vm,
+                onBack = { nav.popBackStack() },
+                onOpenBook = { identity ->
+                    scope.launch {
+                        val doc = container.documentRepository.findByIdentity(identity)
+                        if (doc != null) nav.navigate("reader/${doc.id}")
+                    }
+                },
+                onOpenWeb = { url ->
+                    runCatching {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                        )
+                    }
+                },
+                // PR-δ wires this to nav.navigate("settings"); for now a no-op
+                // (the Library is the only entry point and the user can reach
+                // Settings from the bottom-nav).
+                onOpenSettings = { nav.popBackStack() },
             )
         }
     }

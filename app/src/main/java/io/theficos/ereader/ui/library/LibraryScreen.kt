@@ -76,6 +76,7 @@ fun LibraryScreen(
     onOpenBook: (documentId: Long) -> Unit,
     onShowDetails: (documentId: Long) -> Unit = {},
     onShowStats: () -> Unit = {},
+    onShowInsights: () -> Unit = {},
     aiConfigured: Boolean = false,
     contentPadding: PaddingValues,
 ) {
@@ -161,6 +162,15 @@ fun LibraryScreen(
                             expanded = moreMenuOpen,
                             onDismissRequest = { moreMenuOpen = false },
                         ) {
+                            // PR-γ: Insights ranks above Stats — Insights is the
+                            // headline reader-profile surface; Stats is utility.
+                            DropdownMenuItem(
+                                text = { Text("Insights") },
+                                onClick = {
+                                    moreMenuOpen = false
+                                    onShowInsights()
+                                },
+                            )
                             DropdownMenuItem(
                                 text = { Text("Stats") },
                                 onClick = {

@@ -34,6 +34,8 @@ class FakeProgressDao : ProgressDao {
         rows[documentId]?.let { rows[documentId] = it.copy(syncedAt = syncedAt) }
     }
 
+    override suspend fun maxUpdatedAt(): Long? = rows.values.maxOfOrNull { it.updatedAt }
+
     override suspend fun markAbandoned(documentId: Long, now: Long) {
         rows[documentId]?.let {
             rows[documentId] = it.copy(

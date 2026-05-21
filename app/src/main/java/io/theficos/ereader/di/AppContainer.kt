@@ -28,14 +28,20 @@ import io.theficos.ereader.ui.catalogdetail.AiRepositoryAdapter
 import io.theficos.ereader.ui.catalogdetail.CatalogAiPort
 import io.theficos.ereader.ui.catalogdetail.CatalogDetailRegistry
 import io.theficos.ereader.ui.catalogdetail.CatalogDetailViewModel
+import io.theficos.ereader.ui.library.LibraryInsightsViewModel
 import io.theficos.ereader.ui.library.LibraryPreferencesStore
 import io.theficos.ereader.ui.library.LibraryStatsViewModel
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import io.theficos.ereader.data.local.db.ProgressDao
 
 class AppContainer(context: Context) {
     private val appContext = context.applicationContext
@@ -76,13 +82,6 @@ class AppContainer(context: Context) {
         http = opdsHttp.okHttp,
     )
     val insightDao = db.insightDao()
-    val aiRepository: AiRepository = AiRepository(
-        client = aiClient,
-        insightDao = insightDao,
-        // pr-α (Bundle 3): wired so `markAbandoned`/`unmarkAbandoned`
-        // can flip the Room row's `abandonedAt` without a separate DAO.
-        progressDao = db.progressDao(),
-    )
 
     /**
      * PR-ζ / Lock #16: process-local stash for the catalog → download
@@ -121,6 +120,24 @@ class AppContainer(context: Context) {
         scope = libraryUploaderScope,
     )
 
+    val aiRepository: AiRepository = AiRepository(
+        client = aiClient,
+        insightDao = insightDao,
+        // pr-α (Bundle 3): wired so `markAbandoned`/`unmarkAbandoned`
+        // can flip the Room row's `abandonedAt` without a separate DAO.
+        progressDao = db.progressDao(),
+        // PR-γ (Bundle 3): best-effort preflight collaborators for
+        // refreshProfile(). Adapted to the decoupling interfaces so
+        // `:data:ai` never has to depend on `:data:sync` / `:data:library`.
+        syncRunner = {
+            syncOrchestrator.runOnce() is io.theficos.ereader.data.sync.SyncResult.Success
+        },
+        libraryRunner = {
+            val result = libraryUploader.runOnce()
+            !result.abortedOnAuth
+        },
+    )
+
     /**
      * PR-η: orchestrates `/ai/v1/insights/sync` against the local cache.
      * Fired on app start (post-upload), after every promote success, after
@@ -137,6 +154,29 @@ class AppContainer(context: Context) {
 
     val libraryStatsViewModelFactory: LibraryStatsViewModelFactory =
         LibraryStatsViewModelFactory(client = libraryClient)
+
+    /**
+     * PR-γ: factory for the Library Insights screen ViewModel. Hosts a
+     * `StateFlow<Boolean>` adapter over `aiRepository.preferences.aiEnabled`
+     * so the VM's gating-flow contract stays a plain `StateFlow<Boolean>`
+     * (rather than re-deriving inside the VM).
+     */
+    val aiEnabledFlow: StateFlow<Boolean> = aiRepository.preferences
+        .map { it?.aiEnabled == true }
+        .stateIn(
+            scope = libraryUploaderScope,
+            started = SharingStarted.Eagerly,
+            initialValue = false,
+        )
+
+    val libraryInsightsViewModelFactory: LibraryInsightsViewModelFactory =
+        LibraryInsightsViewModelFactory(
+            ai = aiRepository,
+            libraryClient = libraryClient,
+            progressDao = db.progressDao(),
+            aiConfigFlow = aiRepository.config,
+            aiEnabledFlow = aiEnabledFlow,
+        )
 
     val bookDetailViewModelFactory: BookDetailViewModelFactory = BookDetailViewModelFactory(
         documents = documentRepository,
@@ -243,4 +283,20 @@ class LibraryStatsViewModelFactory(
     private val client: LibraryClient,
 ) {
     fun create() = LibraryStatsViewModel(fetch = { client.getStats() })
+}
+
+class LibraryInsightsViewModelFactory(
+    private val ai: AiRepository,
+    private val libraryClient: LibraryClient,
+    private val progressDao: ProgressDao,
+    private val aiConfigFlow: StateFlow<io.theficos.ereader.data.ai.AiConfig?>,
+    private val aiEnabledFlow: StateFlow<Boolean>,
+) {
+    fun create() = LibraryInsightsViewModel(
+        ai = ai,
+        libraryClient = libraryClient,
+        progressDao = progressDao,
+        aiConfigFlow = aiConfigFlow,
+        aiEnabledFlow = aiEnabledFlow,
+    )
 }

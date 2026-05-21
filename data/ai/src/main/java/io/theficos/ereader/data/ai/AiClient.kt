@@ -83,6 +83,46 @@ class AiClient(
             if (e.code == 404) null else throw e
         }
 
+    /**
+     * PR-γ: kick off a server-side profile regeneration. May block for up to
+     * ~90s while the model runs. Throws [AiQuotaException] on 429 (Retry-After
+     * may be embedded in the body), and [AiHttpException] on every other
+     * non-2xx (409 ai_not_opted_in is mapped to `AiHttpException(409)` and
+     * the ViewModel maps it to `Disabled.OptedOut`).
+     */
+    suspend fun refreshProfile(): ReaderProfileResponseDto = withContext(Dispatchers.IO) {
+        // Server expects an empty JSON body — `{}` is the simplest valid shape.
+        val empty = "{}".toRequestBody(mediaType)
+        http.newCall(
+            Request.Builder()
+                .url("${resolveBaseUrl()}/ai/v1/profile/refresh")
+                .post(empty)
+                .build(),
+        ).execute().use { resp ->
+            val body = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) throw makeError(resp.code, body)
+            json.decodeFromString<ReaderProfileResponseDto>(body)
+        }
+    }
+
+    /**
+     * PR-γ (Lock #3 surface — invoked by PR-δ's Settings button). Idempotent:
+     * the server returns 204 unconditionally, so a second call with no row
+     * present is not an error.
+     */
+    suspend fun deleteProfile() = withContext(Dispatchers.IO) {
+        http.newCall(
+            Request.Builder()
+                .url("${resolveBaseUrl()}/ai/v1/profile")
+                .delete()
+                .build(),
+        ).execute().use { resp ->
+            if (!resp.isSuccessful) {
+                throw makeError(resp.code, resp.body?.string().orEmpty())
+            }
+        }
+    }
+
     suspend fun invalidateInsight(identity: DocumentIdentity) {
         postUnit("/ai/v1/insights/invalidate", InsightGetBody(identity))
     }

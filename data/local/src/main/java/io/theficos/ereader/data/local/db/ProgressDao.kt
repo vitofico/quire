@@ -24,6 +24,14 @@ interface ProgressDao {
     suspend fun markSynced(documentId: Long, syncedAt: Long)
 
     /**
+     * PR-γ: max `updatedAt` across all progress rows. Used to seed the local
+     * input-fingerprint approximation (Lock #12, coordinator §3.6). Returns
+     * null when no rows exist.
+     */
+    @Query("SELECT MAX(updatedAt) FROM progress")
+    suspend fun maxUpdatedAt(): Long?
+
+    /**
      * Mark a row abandoned. Sets `abandonedAt`, clears `finishedAt` (terminal
      * state invariant — coordinator §3.10), and leaves `percent` untouched
      * so abandoning at 60% remembers 60%.
