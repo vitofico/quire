@@ -295,24 +295,37 @@ async def test_counts_are_disjoint(app_under_test, unique_user):
         #  ab5: abandoned at 0.5
         #  ip:  in-progress (percent=0.3, neither terminal flag)
         #  un:  untouched (no progress row at all)
-        for ch, md in [("fin", "md-fin"), ("ab0", "md-ab0"), ("ab5", "md-ab5"),
-                       ("ip", "md-ip"), ("un", "md-un")]:
+        for ch, md in [
+            ("fin", "md-fin"),
+            ("ab0", "md-ab0"),
+            ("ab5", "md-ab5"),
+            ("ip", "md-ip"),
+            ("un", "md-un"),
+        ]:
             await c.put(
                 "/library/v1/items",
                 json=_put_body(content_hash=ch, metadata_id=md),
                 headers=headers,
             )
         await c.post(
-            "/sync/v1/progress", json=_progress_body("fin", 1.0, True, now), headers=headers,
+            "/sync/v1/progress",
+            json=_progress_body("fin", 1.0, True, now),
+            headers=headers,
         )
         await c.post(
-            "/sync/v1/progress", json=_abandon_body("ab0", 0.0, now), headers=headers,
+            "/sync/v1/progress",
+            json=_abandon_body("ab0", 0.0, now),
+            headers=headers,
         )
         await c.post(
-            "/sync/v1/progress", json=_abandon_body("ab5", 0.5, now), headers=headers,
+            "/sync/v1/progress",
+            json=_abandon_body("ab5", 0.5, now),
+            headers=headers,
         )
         await c.post(
-            "/sync/v1/progress", json=_progress_body("ip", 0.3, False, now), headers=headers,
+            "/sync/v1/progress",
+            json=_progress_body("ip", 0.3, False, now),
+            headers=headers,
         )
         r = await c.get("/library/v1/stats", headers=headers)
     data = r.json()
@@ -320,9 +333,9 @@ async def test_counts_are_disjoint(app_under_test, unique_user):
     assert data["finished_count"] == 1
     assert data["abandoned_count"] == 2
     assert data["in_progress_count"] == 1
-    assert (
-        data["finished_count"] + data["abandoned_count"] + data["in_progress_count"]
-    ) <= data["total_books"]
+    assert (data["finished_count"] + data["abandoned_count"] + data["in_progress_count"]) <= data[
+        "total_books"
+    ]
 
 
 async def test_abandoned_count_excludes_tombstoned_books(app_under_test, unique_user):
@@ -336,7 +349,9 @@ async def test_abandoned_count_excludes_tombstoned_books(app_under_test, unique_
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         await c.put("/library/v1/items", json=_put_body(content_hash="x"), headers=headers)
         await c.post(
-            "/sync/v1/progress", json=_abandon_body("x", 0.3, now), headers=headers,
+            "/sync/v1/progress",
+            json=_abandon_body("x", 0.3, now),
+            headers=headers,
         )
         # Tombstone the library item — the progress row survives.
         await c.request(
@@ -388,12 +403,16 @@ async def test_in_progress_excludes_abandoned_rows(app_under_test, unique_user):
         await c.put("/library/v1/items", json=_put_body(content_hash="r"), headers=headers)
         # Start reading at 0.5
         await c.post(
-            "/sync/v1/progress", json=_progress_body("r", 0.5, False, now), headers=headers,
+            "/sync/v1/progress",
+            json=_progress_body("r", 0.5, False, now),
+            headers=headers,
         )
         # Then mark abandoned (advance client_updated_at to win LWW).
         later = (datetime.now(UTC) + timedelta(seconds=1)).isoformat()
         await c.post(
-            "/sync/v1/progress", json=_abandon_body("r", 0.5, later), headers=headers,
+            "/sync/v1/progress",
+            json=_abandon_body("r", 0.5, later),
+            headers=headers,
         )
         r = await c.get("/library/v1/stats", headers=headers)
     data = r.json()
