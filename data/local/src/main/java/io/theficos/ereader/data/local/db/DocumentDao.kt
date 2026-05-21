@@ -21,6 +21,9 @@ interface DocumentDao {
     @Query("SELECT * FROM documents WHERE contentHash = :hash LIMIT 1")
     suspend fun findByContentHash(hash: String): DocumentEntity?
 
+    @Query("SELECT * FROM documents WHERE downloadUrl = :url LIMIT 1")
+    suspend fun findByDownloadUrl(url: String): DocumentEntity?
+
     @Query("SELECT * FROM documents WHERE id = :id LIMIT 1")
     suspend fun findById(id: Long): DocumentEntity?
 

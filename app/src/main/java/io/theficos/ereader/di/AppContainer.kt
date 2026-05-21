@@ -3,6 +3,7 @@ package io.theficos.ereader.di
 import android.content.Context
 import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.core.model.Document
+import io.theficos.ereader.core.model.DocumentIdentity
 import io.theficos.ereader.data.ai.AiClient
 import io.theficos.ereader.data.ai.AiRepository
 import io.theficos.ereader.data.ai.CatalogInsightStash
@@ -199,6 +200,15 @@ class AppContainer(context: Context) {
             registry = catalogDetailRegistry,
             insightStash = catalogInsightStash,
             subjectProvider = ::currentSubject,
+            // When the user opens catalog detail for a book they already own,
+            // resolve to the library-side identity so the insight cache hits
+            // the same `book_insights` row the reader/library detail uses
+            // (no PR-ζ promote needed — promote only fires on fresh download).
+            localIdentityResolver = { href ->
+                documentRepository.findByDownloadUrl(href)?.identity?.takeIf { id ->
+                    id.metadataId != null || id.contentHash != null
+                }
+            },
         )
 
     private suspend fun readOpfBytes(doc: Document): ByteArray? = withContext(Dispatchers.IO) {
@@ -262,6 +272,9 @@ class CatalogDetailViewModelFactory(
     private val registry: CatalogDetailRegistry,
     private val insightStash: CatalogInsightStash? = null,
     private val subjectProvider: () -> String? = { null },
+    /** Maps an OPDS `epubDownloadHref` to the LIBRARY identity when the
+     *  user already owns the book, else returns null. */
+    private val localIdentityResolver: suspend (String) -> DocumentIdentity? = { null },
 ) {
     /**
      * Look up the [OpdsPublication] by nav key and build the viewmodel.
@@ -276,6 +289,7 @@ class CatalogDetailViewModelFactory(
             ai = ai,
             insightStash = insightStash,
             subjectProvider = subjectProvider,
+            localIdentityResolver = localIdentityResolver,
         )
     }
 }
