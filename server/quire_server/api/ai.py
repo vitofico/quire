@@ -537,13 +537,17 @@ async def get_profile(
     )
 
 
-@router.post("/profile/refresh", response_model=ReaderProfilePayload)
+@router.post("/profile/refresh", response_model=ReaderProfileResponse)
 async def refresh_profile(
     request: Request,
     principal: Annotated[AiPrincipal, Depends(get_ai_principal)],
     session: Annotated[AsyncSession, Depends(get_session)],
-) -> ReaderProfilePayload:
+) -> ReaderProfileResponse:
     """pr-β: refresh (regenerate) the per-user reader profile.
+
+    Returns the same envelope shape as ``GET /ai/v1/profile``
+    (``ReaderProfileResponse``) so server semantics are uniform and the
+    Android client can decode a single DTO for both calls.
 
     Gates (status codes per Lock #10, coordinator §3.5 / §3.14):
 
@@ -569,7 +573,7 @@ async def refresh_profile(
         )
     await _require_opt_in(session, principal.subject)
     try:
-        return await orch.refresh_profile(principal=principal, session=session)
+        payload = await orch.refresh_profile(principal=principal, session=session)
     except QuotaExceeded as exc:
         raise _quota_http_exception(exc) from exc
     except ProfileGenerationError as exc:
@@ -577,6 +581,32 @@ async def refresh_profile(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(exc),
         ) from exc
+
+    # Re-read the persisted row to surface the envelope metadata
+    # (``model_id``, ``prompt_version``, ``input_fingerprint``,
+    # ``generated_at``). ``refresh_profile`` always upserts before
+    # returning, so the row is guaranteed to exist.
+    row = (
+        await session.execute(
+            select(ReaderProfile).where(
+                ReaderProfile.tenant_id == principal.tenant_id,
+                ReaderProfile.subject == principal.subject,
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:  # pragma: no cover — defensive; orchestrator always upserts.
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="profile_missing_after_refresh",
+        )
+    return ReaderProfileResponse(
+        payload=payload,
+        schema_version=row.schema_version,
+        model_id=row.model_id,
+        prompt_version=row.prompt_version,
+        input_fingerprint=row.input_fingerprint,
+        generated_at=row.generated_at,
+    )
 
 
 @router.delete("/profile", status_code=status.HTTP_204_NO_CONTENT)

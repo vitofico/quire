@@ -339,6 +339,46 @@ async def test_get_profile_200_when_present(client_factory, configure_ai, app, s
     assert body["payload"]["stats"]["most_read_authors"] == [{"name": "X", "count": 2}]
 
 
+async def test_refresh_profile_returns_envelope_shape(client_factory, configure_ai, app, session):
+    """``POST /ai/v1/profile/refresh`` MUST return the same envelope as
+    ``GET /ai/v1/profile`` (``ReaderProfileResponse``).
+
+    This regression guards against a previous shape mismatch where the
+    POST returned only the raw ``ReaderProfilePayload`` while the Android
+    client decoded the wrapped envelope, causing every real refresh to
+    fail client-side. The low-data short-circuit (0 finished books) is
+    exercised here so no LLM call is needed and the assertion focuses on
+    the envelope wrapper, not the orchestrator internals.
+    """
+    async with client_factory(ai_enabled=True, ai_base_url="http://x", ai_model="m") as client:
+        configure_ai(app, {"schema_version": 4, "intro": "ok", "confidence": "low"})
+
+        # Opt-in is required by the handler.
+        session.add(UserAIPreference(user_id="alice", ai_enabled=True))
+        await session.commit()
+
+        r = await client.post("/ai/v1/profile/refresh", headers=_basic_header("alice"))
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    # Envelope fields (top-level, NOT under "payload").
+    assert "payload" in body, "missing top-level `payload` — handler likely returns raw payload"
+    assert "model_id" in body
+    assert "prompt_version" in body
+    assert "generated_at" in body
+    # `schema_version` lives both top-level (envelope) and inside the
+    # payload (Lock #15 compatibility surface).
+    assert body["schema_version"] == body["payload"]["schema_version"]
+    # Low-data short-circuit invariants — sanity-check the payload was
+    # actually generated, not just an empty envelope.
+    assert body["payload"]["stats"]["finished_count"] == 0
+    assert body["payload"]["confidence"] == "low"
+    # Envelope must include the fingerprint column when set (low-data
+    # path still computes one).
+    assert body["input_fingerprint"] is not None
+    assert len(body["input_fingerprint"]) == 16
+
+
 async def test_get_profile_200_when_opted_out(client_factory, configure_ai, app, session):
     """No opt-in gate on GET /profile — opted-out callers can still read
     their last generation (spec line 289 / brief line 42).
