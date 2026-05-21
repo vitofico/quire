@@ -81,7 +81,21 @@ jobs:
             git add gradle.properties
             git commit -m ":bookmark: chore: release v$NEW_NAME"
             git tag "v$NEW_NAME"
-            git push origin "HEAD:$GITHUB_REF" "v$NEW_NAME"
+            # A docs-only / server-only merge can land on main between our
+            # checkout and our push, leaving HEAD non-fast-forward. Rebase
+            # onto the latest main and retry; the bump commit only touches
+            # gradle.properties so conflicts here are not expected.
+            attempts=0
+            until git push origin "HEAD:$GITHUB_REF" "v$NEW_NAME"; do
+              attempts=$((attempts + 1))
+              if [ "$attempts" -ge 5 ]; then
+                echo "release bump push failed after $attempts attempts" >&2
+                exit 1
+              fi
+              echo "release bump push rejected; rebasing and retrying ($attempts)…"
+              git fetch origin "$GITHUB_REF"
+              git rebase "origin/${GITHUB_REF#refs/heads/}"
+            done
 
             VERSION="$NEW_NAME"
           else
