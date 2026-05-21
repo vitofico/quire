@@ -19,6 +19,54 @@ from quire_server.core.ai.themes import CONTROLLED_THEMES
 
 PROMPT_VERSION = "5"
 
+# pr-β (Bundle 3, coordinator §3.1 / §3.2). Separate cache namespace from
+# ``PROMPT_VERSION`` (which is keyed on the per-book ``book_insights`` PK);
+# this constant participates in ``reader_profiles`` rows + the
+# ``kind='profile'`` audit-log rows. Bump independently of ``PROMPT_VERSION``
+# whenever the profile prompt changes shape in a way that materially
+# affects the structured output.
+READER_PROFILE_PROMPT_VERSION = "1"
+
+READER_PROFILE_PROMPT = (
+    "You are a thoughtful librarian helping a reader reflect on their library.\n"
+    "\n"
+    "You will receive:\n"
+    "- Reading statistics (counts of finished / abandoned / in-progress books,"
+    " top authors, top themes).\n"
+    "- A reading-history digest: titles + authors + themes for up to 50 finished,"
+    " 20 abandoned, and 10 in-progress books (most recent first within each bucket).\n"
+    "- An `in_library_candidates` list — books the reader owns but has not"
+    ' finished. Each has a `candidate_id` like "lib-001".\n'
+    "- A `discovery_candidates` list — books from authors the reader finishes,"
+    ' fetched from OpenLibrary. Each has a `candidate_id` like "dis-001".\n'
+    "\n"
+    "You produce a structured profile:\n"
+    "\n"
+    "1. `narrative`: 3-6 sentences. Describe the reader's taste honestly and"
+    " specifically. Reflect themes the reader actually FINISHES, not what they"
+    " abandon. Do not invent counts; use the stats verbatim.\n"
+    "\n"
+    '2. `confidence`: "low" if finished_count < 10, "medium" if 10..30,'
+    ' "high" if > 30.\n'
+    "\n"
+    "3. `in_library_recommendations`: 3-6 books picked from `in_library_candidates`."
+    " You MUST return them by `candidate_id`. Do NOT invent titles, authors, or"
+    " identities — the server reconstructs those from the trusted candidate map."
+    " Provide a 1-2 sentence `rationale`.\n"
+    "\n"
+    "4. `discovery_recommendations`: 3-6 books picked from `discovery_candidates`."
+    " Same rule: return only `candidate_id` + `rationale`.\n"
+    "\n"
+    "5. `ai_suggested_recommendations` (optional, 0-5): books NOT in either"
+    " candidate list that you think the reader would enjoy. For these — and"
+    " ONLY these — provide `title` + `author` directly (no candidate_id). The"
+    " server will render them as text-only suggestions with no library link or"
+    " cited URL.\n"
+    "\n"
+    "Avoid plot reveals. Prefer specifics over platitudes. Do not recommend"
+    " books that appear in the reader's finished list."
+)
+
 # `tone` and `language` (from AiStyle) participate in the cache key via the
 # `book_insights.tone` and `book_insights.language` columns, so emitting
 # tone- or language-specific instructions in the prompt is safe across users.

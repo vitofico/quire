@@ -80,6 +80,15 @@ class Settings(BaseSettings):
     # a promote is dominated by the row-copy, not LLM. 0 disables the limit.
     ai_promote_daily_limit: int = 100
 
+    # pr-β (Bundle 3, coordinator §3.11): per-user, per-UTC-day cap on
+    # POST /ai/v1/profile/refresh. Counted against ai_usage_daily.profile_count.
+    # 0 disables the cap entirely.
+    ai_profile_refresh_daily_limit: int = 3
+    # pr-β (Bundle 3, coordinator §3.7 + §3.14): wall-clock timeout for one
+    # /profile/refresh model call. Discovery fetches (sequential, up to 5
+    # authors at ~8s each) plus the LLM call must fit under this cap.
+    ai_profile_timeout_s: float = 90.0
+
     # ---------------------------------------------------------------------
     # PR-B: AI auth abstraction (seam-only). Sync routes unaffected.
     # ---------------------------------------------------------------------

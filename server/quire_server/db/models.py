@@ -169,18 +169,36 @@ class AIUsageDaily(Base):
     regen_count: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0"), default=0
     )
+    # pr-β (Bundle 3, coordinator §3.11): per-user, per-UTC-day counter for
+    # POST /ai/v1/profile/refresh. Bumped from refresh_profile() once the
+    # cap check passes; left at 0 in the low-data short-circuit path so a
+    # 0-finished-books user is never blocked by quota.
+    profile_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0"), default=0
+    )
 
 
 class AIGenerationLog(Base):
-    """Per-call audit row anchored to `book_insights.id`.
+    """Per-call audit row.
 
-    One row per `get()`-hit / `generate()` / `regenerate()` call, regardless of
-    cache state. Future billing rollups query `(tenant_id, created_at)`; the
-    audit UI queries `(book_insight_id)`.
+    One row per AI-flavored call against the shared cache. ``kind`` discriminates
+    the row family (added in ai_006):
 
-    `status` is permissive ('hit' | 'miss' | 'error') so a future PR can
-    introduce error rows without a schema bump. PR-C only emits 'hit' and
-    'miss'; errors go to structured logs because they have no FK target.
+      'insight' — single-book insight generation (PR-C); book_insight_id NOT NULL.
+      'profile' — per-user reader profile refresh (pr-β); book_insight_id NULL.
+      'promote' — catalog→EPUB identity copy (PR-ζ, wired in pr-β);
+                  book_insight_id NOT NULL (points at the copied row at the
+                  ``to`` identity). weight=0 against the daily quota.
+
+    Cross-field invariant enforced by ``ck_ai_generation_log_kind_fk``:
+    profile rows MUST have book_insight_id NULL; insight/promote rows MUST
+    have it non-null. ``_log_generation()`` raises ValueError BEFORE the DB
+    round-trip if a caller violates this.
+
+    ``status`` is permissive ('hit' | 'miss' | 'error'):
+      'hit'   — cache or singleflight collapse, no LLM call.
+      'miss'  — LLM call executed.
+      'error' — generation failed mid-flight.
     """
 
     __tablename__ = "ai_generation_log"
@@ -189,16 +207,37 @@ class AIGenerationLog(Base):
             "status IN ('hit', 'miss', 'error')",
             name="ck_ai_generation_log_status",
         ),
+        CheckConstraint(
+            "kind IN ('insight', 'profile', 'promote')",
+            name="ck_ai_generation_log_kind",
+        ),
+        CheckConstraint(
+            "(kind = 'profile' AND book_insight_id IS NULL) "
+            "OR (kind IN ('insight', 'promote') AND book_insight_id IS NOT NULL)",
+            name="ck_ai_generation_log_kind_fk",
+        ),
         Index("ix_ai_generation_log_tenant_created", "tenant_id", "created_at"),
         Index("ix_ai_generation_log_book_insight", "book_insight_id"),
+        Index(
+            "ix_ai_generation_log_profile",
+            "tenant_id",
+            "subject",
+            "created_at",
+            postgresql_where=text("kind = 'profile'"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    book_insight_id: Mapped[int] = mapped_column(
+    # ai_006: nullable for kind='profile' rows (no parent BookInsight).
+    book_insight_id: Mapped[int | None] = mapped_column(
         BigInteger,
         ForeignKey("book_insights.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
+    # ai_006: discriminator across the audit row families. Default values
+    # are NOT set at the column level — every caller must specify kind
+    # explicitly (the migration's server_default was dropped after backfill).
+    kind: Mapped[str] = mapped_column(String, nullable=False)
     tenant_id: Mapped[str] = mapped_column(
         String, nullable=False, server_default=text("'local'"), default="local"
     )

@@ -29,10 +29,11 @@ async def test_readyz_returns_200_when_db_reachable_and_heads_applied(app_under_
     assert r.status_code == 200
     body = r.json()
     assert body["ready"] is True
-    # ai branch is at ai_005 (pr-α / Bundle 3 added reader_profiles); the
-    # progress branch is at progress_002 (pr-α added abandoned_at). With
-    # the default-true mode flags, both branch heads are reported, sorted.
-    assert body["heads_applied"] == ["ai_005", "progress_002"]
+    # ai branch is at ai_006 (pr-β added the audit-log generalization +
+    # profile_count column); the progress branch is at progress_002 (pr-α
+    # added abandoned_at). With the default-true mode flags, both branch
+    # heads are reported, sorted.
+    assert body["heads_applied"] == ["ai_006", "progress_002"]
 
 
 async def test_old_sync_health_path_is_404(app_under_test):

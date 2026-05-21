@@ -209,8 +209,9 @@ async def test_compute_reader_stats_fixture(session):
     assert stats.most_read_authors[:1] == [AuthorCount(name="Le Guin", count=2)]
     names = {a.name for a in stats.most_read_authors}
     assert "Le Guin" in names and "Stross" in names
-    # pr-α leaves at 0; pr-β populates.
-    assert stats.books_with_themes_count == 0
+    # pr-β / Lock #15: counted in _compute_reader_stats. Fixture has 3
+    # books with v4 themed insights (h1, h2, h3).
+    assert stats.books_with_themes_count == 3
 
 
 async def test_compute_reader_stats_pick_priority_regression(session):

@@ -48,6 +48,7 @@ from quire_server.core.ai.health_state import AiHealthState
 from quire_server.core.ai.service import (
     IdentityUnresolvable,
     InsightOrchestrator,
+    ProfileGenerationError,
     PromoteOwnershipError,
     QuotaExceeded,
 )
@@ -135,6 +136,9 @@ async def get_config(
         daily_budget=settings.ai_daily_budget,
         regen_daily_limit=settings.ai_regen_daily_limit,
         prompt_version=_resolve_prompt_version(settings.ai_prompt_version),
+        # pr-β / Lock #15 / coordinator §3.5: surfaces PROGRESS_ENABLED so
+        # AI-only deploys can suppress the reader profile UI on Android.
+        progress_supported=settings.progress_enabled,
     )
 
 
@@ -530,6 +534,48 @@ async def get_profile(
         input_fingerprint=row.input_fingerprint,
         generated_at=row.generated_at,
     )
+
+
+@router.post("/profile/refresh", response_model=ReaderProfilePayload)
+async def refresh_profile(
+    request: Request,
+    principal: Annotated[AiPrincipal, Depends(get_ai_principal)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> ReaderProfilePayload:
+    """pr-β: refresh (regenerate) the per-user reader profile.
+
+    Gates (status codes per Lock #10, coordinator §3.5 / §3.14):
+
+      * 404 — AI disabled (orchestrator absent).
+      * 503 — Progress disabled (profile requires PROGRESS_ENABLED).
+      * 409 — Caller has not opted in (``{"detail": "ai_not_opted_in"}``).
+      * 429 — Daily cap exceeded (3/day by default, low-data mode is
+              weight=0 and runs even at cap).
+      * 502 — LLM call failed mid-flight.
+
+    Singleflight: concurrent POSTs from the same ``(tenant_id, subject)``
+    serialize through a per-user in-process lock; collapsed waiters each
+    receive a ``status='hit'`` audit row in ``ai_generation_log``.
+    """
+    orch = _orchestrator(request)
+    if orch is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="ai_disabled")
+    settings = get_settings()
+    if not settings.progress_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": "profile_requires_progress_data"},
+        )
+    await _require_opt_in(session, principal.subject)
+    try:
+        return await orch.refresh_profile(principal=principal, session=session)
+    except QuotaExceeded as exc:
+        raise _quota_http_exception(exc) from exc
+    except ProfileGenerationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
 
 
 @router.get("/health", response_model=AiHealthResponse)

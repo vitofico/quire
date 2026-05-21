@@ -510,6 +510,12 @@ class ConfigResponse(BaseModel):
     # do not emit the field decode safely on the Android side because the
     # DTO's default is "1" (the legacy sentinel).
     prompt_version: str = "1"
+    # pr-β (Bundle 3, Lock #15 / coordinator §3.5): true when the server is
+    # configured with PROGRESS_ENABLED=true, i.e. the /sync/v1/progress
+    # surface exists and the reader profile feature is feasible. The Android
+    # Insights screen uses this to gate visibility of the profile UI in
+    # AI-only deploys.
+    progress_supported: bool = True
 
 
 class PreferencesResponse(BaseModel):
@@ -653,7 +659,53 @@ class ReaderProfilePayload(BaseModel):
     narrative: str | None = None
     in_library_recommendations: list[BookRec] = Field(default_factory=list)
     discovery_recommendations: list[BookRec] = Field(default_factory=list)
+    # pr-β (Bundle 3, coordinator §3.4): third rec bucket — books the LLM
+    # suggests that don't appear in either candidate map. Server populates
+    # title + author directly (no candidate_id, no identity, no source_url).
+    ai_suggested_recommendations: list[BookRec] = Field(default_factory=list)
     confidence: Literal["high", "medium", "low"] | None = None
+    # pr-β (Bundle 3, coordinator §3.6, Lock #12): 16-hex-char SHA-256
+    # prefix; non-null on every pr-β-generated payload. Carried inside the
+    # payload so /ai/v1/profile responses include it even when the row
+    # itself (pr-α schema) carries null.
+    input_fingerprint: str | None = None
+
+
+class _LLMRec(BaseModel):
+    """What the model returns for a single recommendation slot. Internal —
+    server post-validates and copies trusted fields into ``BookRec``.
+
+    For seeded recs (in-library / discovery), only ``candidate_id`` and
+    ``rationale`` are required; the server reconstructs title / author /
+    identity / source_url from the trusted candidate map. For
+    ``ai_suggested`` recs the model fills ``title`` + ``author`` directly.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_id: str | None = None
+    title: str | None = None
+    author: str | None = None
+    rationale: str
+
+
+class ReaderProfilePromptOutput(BaseModel):
+    """Direct LLM response schema for the reader-profile prompt. Internal —
+    NEVER serialized in the public API surface. Coordinator §3.4 / pr-β plan
+    §4.4(b).
+
+    The server consumes this, post-filters hallucinated candidate_ids,
+    drops owner-overlap discovery recs, and rewrites trusted fields into
+    the public ``ReaderProfilePayload`` via the ``_materialize_*`` helpers.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    narrative: str | None = None
+    confidence: Literal["low", "medium", "high"]
+    in_library_recommendations: list[_LLMRec] = Field(default_factory=list, max_length=10)
+    discovery_recommendations: list[_LLMRec] = Field(default_factory=list, max_length=10)
+    ai_suggested_recommendations: list[_LLMRec] = Field(default_factory=list, max_length=5)
 
 
 class ReaderProfileResponse(BaseModel):

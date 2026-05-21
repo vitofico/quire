@@ -16,14 +16,26 @@ Responsibilities:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
+import re
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import Protocol
 
-from sqlalchemy import and_, case, delete, func, literal, literal_column, or_, select
+from sqlalchemy import (
+    Integer,
+    and_,
+    case,
+    delete,
+    func,
+    literal,
+    literal_column,
+    or_,
+    select,
+)
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -33,11 +45,15 @@ from quire_server.api.ai_schemas import (
     AuthorCount,
     BookInsightPayload,
     BookInsightResponse,
+    BookRec,
     Citation,
     DocumentIdentity,
     MetadataBundle,
+    ReaderProfilePayload,
+    ReaderProfilePromptOutput,
     ReaderStats,
     SeriesInsight,
+    _LLMRec,
 )
 from quire_server.core.ai.health_state import AiHealthState
 from quire_server.core.ai.identity import (
@@ -47,7 +63,12 @@ from quire_server.core.ai.identity import (
     reconcile_aliases,
     resolve_identity,
 )
-from quire_server.core.ai.prompts import SYSTEM_PROMPT, compose_user_prompt
+from quire_server.core.ai.prompts import (
+    READER_PROFILE_PROMPT,
+    READER_PROFILE_PROMPT_VERSION,
+    SYSTEM_PROMPT,
+    compose_user_prompt,
+)
 from quire_server.core.ai.themes import normalize_theme
 from quire_server.core.logging_ctx import request_id_var
 from quire_server.db.models import (
@@ -59,6 +80,7 @@ from quire_server.db.models import (
     InsightIdentityAlias,
     LibraryItem,
     Progress,
+    ReaderProfile,
 )
 
 logger = logging.getLogger(__name__)
@@ -84,6 +106,98 @@ class PromoteResult:
 
 class PromoteOwnershipError(Exception):
     """Caller does not own a ``library_items`` row at the ``to`` identity."""
+
+
+class ProfileGenerationError(Exception):
+    """Raised when ``refresh_profile`` cannot produce a payload.
+
+    Wraps any underlying LLM / model error (timeout, malformed response, …)
+    so the route handler can map to 502 without leaking implementation
+    details. The ``ai_generation_log`` row with ``status='error'`` is written
+    BEFORE this is raised.
+    """
+
+
+@dataclass(slots=True)
+class _LibCandidate:
+    """One owned-but-not-finished library item, slotted with a ``lib-NNN`` id.
+
+    Materialized server-side from ``library_items`` (filtered against the
+    user's finished set). The LLM receives ``candidate_id`` + minimal hints
+    only; the server reconstructs trusted ``BookRec`` fields from this row
+    when materializing the response.
+    """
+
+    candidate_id: str
+    metadata_id: str | None
+    content_hash: str
+    title: str
+    author: str
+    identity: DocumentIdentity
+
+
+@dataclass(slots=True)
+class _DiscoveryCandidate:
+    """One OpenLibrary-seeded discovery candidate, slotted with a ``dis-NNN`` id.
+
+    ``metadata_id`` is set when a normalized (title, author) match is found in
+    ``library_items`` for the same user — used for the belt-and-suspenders
+    owner-exclusion check at materialize time.
+    """
+
+    candidate_id: str
+    title: str
+    author: str
+    work_key: str
+    source_url: str
+    metadata_id: str | None
+
+
+@dataclass(slots=True)
+class _ProgressRow:
+    """Compact projection used by the reading-history digest helpers."""
+
+    metadata_id: str | None
+    content_hash: str
+    title: str
+    author: str
+    finished_at: datetime | None = None
+    abandoned_at: datetime | None = None
+    last_read_at: datetime | None = None
+
+
+@dataclass(slots=True)
+class _ReaderStatsExtended:
+    """Server-side companion to the public ``ReaderStats`` payload.
+
+    Carries the data the orchestrator needs for owner exclusion (the
+    metadata_id + normalized (title, author) sets), the latest-progress
+    timestamp used by the input_fingerprint, and the total library_items
+    count — none of which are surfaced in the API but all of which the
+    refresh path needs in-memory between stats compute and payload build.
+    """
+
+    public: ReaderStats
+    library_items_count: int
+    latest_progress_updated_at: datetime | None
+    finished_metadata_ids: set[str] = field(default_factory=set)
+    owned_metadata_ids: set[str] = field(default_factory=set)
+    owned_normalized_pairs: set[tuple[str, str]] = field(default_factory=set)
+    top_author_names: list[str] = field(default_factory=list)
+
+
+class _PrincipalLike(Protocol):
+    """Minimal contract for the ``principal`` argument to ``refresh_profile``.
+
+    Mirrors ``quire_server.api.ai_auth.AiPrincipal`` without taking the
+    runtime import dependency (which would create a service → api cycle).
+    """
+
+    @property
+    def subject(self) -> str: ...
+
+    @property
+    def tenant_id(self) -> str: ...
 
 
 class IdentityUnresolvable(Exception):
@@ -134,6 +248,17 @@ class _RetrieverLike(Protocol):
     ) -> list[Citation]: ...
 
 
+class _ProfileRetrieverLike(Protocol):
+    """Minimal contract for the retriever used by ``refresh_profile``.
+
+    Distinct from ``_RetrieverLike`` so unit tests can stub a simpler
+    bibliography-only fake without satisfying the wikipedia / openlibrary
+    methods (which the profile path never calls).
+    """
+
+    async def author_bibliography(self, name: str): ...
+
+
 class InsightOrchestrator:
     def __init__(
         self,
@@ -150,6 +275,13 @@ class InsightOrchestrator:
         regen_daily_limit: int = 3,
         health_state: AiHealthState | None = None,
         session_factory: async_sessionmaker[AsyncSession] | None = None,
+        # pr-β: optional profile-only retriever factory (author bibliography).
+        # When None, ``refresh_profile`` skips discovery candidates entirely.
+        profile_retriever_factory: Callable[[AsyncSession], _ProfileRetrieverLike] | None = None,
+        # pr-β: per-user-per-UTC-day cap on /ai/v1/profile/refresh. 0 disables.
+        profile_refresh_daily_limit: int = 3,
+        # pr-β: overall wall-clock cap on one /profile/refresh model call.
+        profile_timeout_s: float = 90.0,
     ) -> None:
         self.ai = ai
         self.retriever_factory = retriever_factory
@@ -180,6 +312,15 @@ class InsightOrchestrator:
         # no LLM cost. Keyed by (user_id, day) -> count.
         self._promote_counter: dict[tuple[str, date], int] = {}
         self._promote_counter_lock = asyncio.Lock()
+        # pr-β: per-(tenant_id, subject) singleflight locks for the reader
+        # profile refresh path. Mirrors the per-identity insight locks; the
+        # collapse semantics (each waiter still writes a kind='profile'
+        # status='hit' row) are documented in refresh_profile().
+        self._profile_locks: dict[tuple[str, str], asyncio.Lock] = {}
+        self._profile_locks_master = asyncio.Lock()
+        self._profile_retriever_factory = profile_retriever_factory
+        self._profile_refresh_daily_limit = profile_refresh_daily_limit
+        self._profile_timeout_s = profile_timeout_s
 
     # ------- public API -------
 
@@ -390,22 +531,48 @@ class InsightOrchestrator:
         self,
         session: AsyncSession,
         *,
-        book_insight_id: int,
+        kind: str = "insight",
+        book_insight_id: int | None,
         subject: str,
         tenant_id: str,
         status: str,
         latency_ms: int | None,
         error_class: str | None = None,
+        model_id: str | None = None,
+        prompt_version: str | None = None,
     ) -> None:
-        """Stage one ai_generation_log row. Caller commits the surrounding tx."""
+        """Stage one ai_generation_log row. Caller commits the surrounding tx.
+
+        ``kind`` (ai_006): row family discriminator. Defaults to ``'insight'``
+        for back-compat with the original PR-C call sites; pr-β explicitly
+        passes ``'profile'`` for refresh-profile rows and ``'promote'`` for
+        catalog→EPUB copy rows. Schema invariant enforced both at the helper
+        boundary (ValueError BEFORE the DB round-trip) AND at the table
+        (``ck_ai_generation_log_kind_fk``):
+
+          * ``kind='insight'`` or ``'promote'`` → ``book_insight_id`` MUST be
+            non-null.
+          * ``kind='profile'`` → ``book_insight_id`` MUST be null.
+
+        ``model_id`` / ``prompt_version`` override the orchestrator's
+        defaults — used for profile rows that carry the reader-profile prompt
+        version, not the per-book one.
+        """
+        if kind in ("insight", "promote") and book_insight_id is None:
+            raise ValueError(f"kind={kind!r} requires non-null book_insight_id")
+        if kind == "profile" and book_insight_id is not None:
+            raise ValueError("kind='profile' requires book_insight_id IS NULL")
         session.add(
             AIGenerationLog(
+                kind=kind,
                 book_insight_id=book_insight_id,
                 tenant_id=tenant_id,
                 subject=subject,
                 request_id=(request_id_var.get() or None),
-                model_id=self.model_id,
-                prompt_version=self.prompt_version,
+                model_id=model_id if model_id is not None else self.model_id,
+                prompt_version=(
+                    prompt_version if prompt_version is not None else self.prompt_version
+                ),
                 latency_ms=latency_ms,
                 status=status,
                 error_class=error_class,
@@ -978,15 +1145,29 @@ class InsightOrchestrator:
 
         # Step 5: idempotent fast-path.
         if existing_to_id is not None and alias_row_exists:
+            latency_ms = int((time.monotonic() - t0) * 1000)
             self._log_promote_event(
                 source_id=src_row.id,
                 copied_id=existing_to_id,
                 user_id=user_id,
                 tenant_id=tenant_id,
                 source_generated_at=src_row.generated_at,
-                latency_ms=int((time.monotonic() - t0) * 1000),
+                latency_ms=latency_ms,
                 outcome="idempotent",
             )
+            # pr-β / Lock #11 amendment: also write a kind='promote' DB row.
+            await self._log_generation(
+                session,
+                kind="promote",
+                book_insight_id=existing_to_id,
+                tenant_id=tenant_id,
+                subject=user_id,
+                status="hit",
+                latency_ms=latency_ms,
+                model_id=src_row.model_id,
+                prompt_version=src_row.prompt_version,
+            )
+            await session.commit()
             return PromoteResult(insight_id=existing_to_id, already_promoted=True)
 
         # Step 6: row-copy.
@@ -1028,15 +1209,29 @@ class InsightOrchestrator:
                 user_id=user_id,
                 alias_already=alias_row_exists,
             )
+            latency_ms = int((time.monotonic() - t0) * 1000)
             self._log_promote_event(
                 source_id=src_row.id,
                 copied_id=winner_id,
                 user_id=user_id,
                 tenant_id=tenant_id,
                 source_generated_at=src_row.generated_at,
-                latency_ms=int((time.monotonic() - t0) * 1000),
+                latency_ms=latency_ms,
                 outcome="race_lost",
             )
+            # pr-β / Lock #11 amendment: DB row for the race-lost promote.
+            await self._log_generation(
+                session,
+                kind="promote",
+                book_insight_id=winner_id,
+                tenant_id=tenant_id,
+                subject=user_id,
+                status="hit",
+                latency_ms=latency_ms,
+                model_id=src_row.model_id,
+                prompt_version=src_row.prompt_version,
+            )
+            await session.commit()
             return PromoteResult(insight_id=winner_id, already_promoted=True)
 
         # Step 7: book_themes copy (Core INSERT ... SELECT, ON CONFLICT DO NOTHING).
@@ -1064,16 +1259,32 @@ class InsightOrchestrator:
             alias_already=alias_row_exists,
         )
 
+        latency_ms = int((time.monotonic() - t0) * 1000)
+        # pr-β / Lock #11 amendment: kind='promote' audit row alongside the
+        # stdout structured log. Both are kept — stdout for operator-grep
+        # convenience, DB for the authoritative audit trail.
+        await self._log_generation(
+            session,
+            kind="promote",
+            book_insight_id=new_id,
+            tenant_id=tenant_id,
+            subject=user_id,
+            status="hit",
+            latency_ms=latency_ms,
+            model_id=src_row.model_id,
+            prompt_version=src_row.prompt_version,
+        )
         await session.commit()
 
-        # Step 9: stdout audit.
+        # Step 9: stdout audit (retained from PR-ζ; the DB row above is the
+        # primary record post-ai_006).
         self._log_promote_event(
             source_id=src_row.id,
             copied_id=new_id,
             user_id=user_id,
             tenant_id=tenant_id,
             source_generated_at=src_row.generated_at,
-            latency_ms=int((time.monotonic() - t0) * 1000),
+            latency_ms=latency_ms,
             outcome="copied" if copied else "race_lost",
         )
         return PromoteResult(insight_id=new_id, already_promoted=False)
@@ -1149,6 +1360,849 @@ class InsightOrchestrator:
             outcome,
             latency_ms,
         )
+
+    # ------- pr-β reader-profile orchestrator -----------------------------
+
+    async def _acquire_profile_lock(self, *, tenant_id: str, subject: str) -> asyncio.Lock:
+        """Per-(tenant_id, subject) singleflight lock for refresh_profile.
+
+        Mirrors ``_acquire_identity_lock``; the master mutex protects the
+        dict, the returned lock serializes a single user's concurrent
+        refresh calls. Each collapsed waiter still writes a
+        ``kind='profile'`` audit row before returning the existing row
+        (Critical Gap #3 from the v2 plan review).
+        """
+        key = (tenant_id, subject)
+        async with self._profile_locks_master:
+            lock = self._profile_locks.get(key)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._profile_locks[key] = lock
+            return lock
+
+    async def refresh_profile(
+        self,
+        *,
+        principal: _PrincipalLike,
+        session: AsyncSession,
+    ) -> ReaderProfilePayload:
+        """Compute (or short-circuit) the reader profile and persist it.
+
+        Control flow (pr-β plan §4.7.3, with Critical Gap #3/#4 fixes):
+
+          1. Acquire per-user singleflight lock.
+          2. Inside the lock, re-read the existing reader_profiles row. If
+             a fresh row exists (generated_at >= entry time), write a
+             ``kind='profile'`` status='hit' audit row for THIS waiter and
+             return the existing payload (collapsed waiter contract).
+          3. Compute stats UNCONDITIONALLY (before any cap check).
+          4. LOW-DATA short-circuit: if finished_count == 0, persist a
+             stats-only payload with weight=0 (profile_count NOT
+             incremented) and return. This branch runs even when the daily
+             cap is already hit.
+          5. Daily-cap enforcement (raises QuotaExceeded → 429).
+          6. Build digest + candidate maps; call the model under the global
+             semaphore; materialize ``BookRec`` entries from the trusted
+             maps; persist; bump ``profile_count``; write status='miss'
+             audit row.
+        """
+        log = logger
+        started_at = datetime.now(UTC)
+
+        # 1. Singleflight.
+        lock = await self._acquire_profile_lock(
+            tenant_id=principal.tenant_id, subject=principal.subject
+        )
+        async with lock:
+            # 2. Collapse check.
+            existing = await self._read_reader_profile(session, principal)
+            if existing is not None and existing.generated_at >= started_at:
+                latency_ms = _ms_since(started_at)
+                await self._write_profile_log(
+                    session,
+                    principal=principal,
+                    status="hit",
+                    latency_ms=latency_ms,
+                    error_class=None,
+                )
+                await session.commit()
+                log.info(
+                    "profile.refresh.singleflight_collapse tenant=%s subject=%s",
+                    principal.tenant_id,
+                    principal.subject,
+                )
+                return _row_to_payload(existing)
+
+            # 3. Stats — unconditional.
+            extended = await self._compute_extended_stats(session, principal)
+            stats = extended.public
+
+            # 4. Low-data short-circuit BEFORE cap enforcement.
+            if stats.finished_count == 0:
+                payload = _build_low_data_payload(
+                    stats,
+                    extended,
+                    model_id=self.model_id,
+                )
+                await self._upsert_reader_profile(session, principal, payload)
+                await self._write_profile_log(
+                    session,
+                    principal=principal,
+                    status="hit",
+                    latency_ms=0,
+                    error_class=None,
+                )
+                # WEIGHT=0: profile_count is NOT incremented in low-data
+                # mode (Critical Gap #4). This is what lets a 0-finished-
+                # books user receive a stats-only response even at quota
+                # cap.
+                await session.commit()
+                log.info(
+                    "profile.refresh.low_data_short_circuit tenant=%s subject=%s",
+                    principal.tenant_id,
+                    principal.subject,
+                )
+                return payload
+
+            # 5. Daily cap (after low-data short-circuit).
+            await self._enforce_profile_daily_cap(session, principal)
+
+            # 6. Build digest + candidates and call the LLM under the global
+            #    semaphore.
+            async with self._sem:
+                finished = await self._list_finished(session, principal, limit=50)
+                abandoned = await self._list_abandoned(session, principal, limit=20)
+                in_progress = await self._list_in_progress(session, principal, limit=10)
+                themes_by_metadata = await self._themes_by_metadata(session, principal)
+                digest = _build_reading_history_digest(
+                    finished=finished,
+                    abandoned=abandoned,
+                    in_progress=in_progress,
+                    themes_by_metadata=themes_by_metadata,
+                )
+
+                lib_candidates = await self._build_in_library_candidates(
+                    session,
+                    principal,
+                    limit=30,
+                    finished_metadata_ids=extended.finished_metadata_ids,
+                )
+                dis_candidates = await self._build_discovery_seed(
+                    session,
+                    principal,
+                    authors=extended.top_author_names[:5],
+                    owned_metadata_ids=extended.owned_metadata_ids,
+                    owned_norm_pairs=extended.owned_normalized_pairs,
+                )
+
+                user_prompt = _serialize_profile_user_prompt(
+                    stats=stats,
+                    digest=digest,
+                    lib_candidates=lib_candidates,
+                    dis_candidates=dis_candidates,
+                )
+
+                try:
+                    llm_output: ReaderProfilePromptOutput = await asyncio.wait_for(
+                        self.ai.chat_structured(
+                            system=READER_PROFILE_PROMPT,
+                            user=user_prompt,
+                            schema=ReaderProfilePromptOutput,
+                            timeout_s=self._profile_timeout_s,
+                        ),
+                        timeout=self._profile_timeout_s,
+                    )
+                except Exception as exc:
+                    latency_ms = _ms_since(started_at)
+                    await self._write_profile_log(
+                        session,
+                        principal=principal,
+                        status="error",
+                        latency_ms=latency_ms,
+                        error_class=type(exc).__name__,
+                    )
+                    await session.commit()
+                    log.warning(
+                        "profile.refresh.error tenant=%s subject=%s latency_ms=%d err=%s",
+                        principal.tenant_id,
+                        principal.subject,
+                        latency_ms,
+                        type(exc).__name__,
+                    )
+                    raise ProfileGenerationError(str(exc)) from exc
+
+                latency_ms = _ms_since(started_at)
+                lib_map = {c.candidate_id: c for c in lib_candidates}
+                dis_map = {c.candidate_id: c for c in dis_candidates}
+                in_lib_recs = self._materialize_lib_recs(
+                    llm_output.in_library_recommendations,
+                    lib_map,
+                    finished_metadata_ids=extended.finished_metadata_ids,
+                )
+                discovery_recs = self._materialize_discovery_recs(
+                    llm_output.discovery_recommendations,
+                    dis_map,
+                    owned_metadata_ids=extended.owned_metadata_ids,
+                    owned_norm_pairs=extended.owned_normalized_pairs,
+                )
+                ai_suggested_recs = self._materialize_ai_suggested(
+                    llm_output.ai_suggested_recommendations,
+                )
+
+                fingerprint = _compute_input_fingerprint(
+                    stats,
+                    library_items_count=extended.library_items_count,
+                    latest_progress_updated_at=extended.latest_progress_updated_at,
+                )
+                payload = ReaderProfilePayload(
+                    schema_version=1,
+                    stats=stats,
+                    narrative=llm_output.narrative,
+                    confidence=llm_output.confidence,
+                    in_library_recommendations=in_lib_recs,
+                    discovery_recommendations=discovery_recs,
+                    ai_suggested_recommendations=ai_suggested_recs,
+                    input_fingerprint=fingerprint,
+                )
+
+                await self._upsert_reader_profile(session, principal, payload)
+                await self._write_profile_log(
+                    session,
+                    principal=principal,
+                    status="miss",
+                    latency_ms=latency_ms,
+                    error_class=None,
+                )
+                await self._increment_profile_count(session, principal)
+                await session.commit()
+                log.info(
+                    "profile.refresh.success tenant=%s subject=%s latency_ms=%d "
+                    "in_lib=%d discovery=%d ai_suggested=%d confidence=%s",
+                    principal.tenant_id,
+                    principal.subject,
+                    latency_ms,
+                    len(in_lib_recs),
+                    len(discovery_recs),
+                    len(ai_suggested_recs),
+                    llm_output.confidence,
+                )
+                return payload
+
+    async def _write_profile_log(
+        self,
+        session: AsyncSession,
+        *,
+        principal: _PrincipalLike,
+        status: str,
+        latency_ms: int,
+        error_class: str | None,
+    ) -> None:
+        await self._log_generation(
+            session,
+            kind="profile",
+            book_insight_id=None,
+            tenant_id=principal.tenant_id,
+            subject=principal.subject,
+            status=status,
+            latency_ms=latency_ms,
+            error_class=error_class,
+            model_id=self.model_id,
+            prompt_version=READER_PROFILE_PROMPT_VERSION,
+        )
+
+    async def _read_reader_profile(
+        self,
+        session: AsyncSession,
+        principal: _PrincipalLike,
+    ) -> ReaderProfile | None:
+        return (
+            await session.execute(
+                select(ReaderProfile).where(
+                    ReaderProfile.tenant_id == principal.tenant_id,
+                    ReaderProfile.subject == principal.subject,
+                )
+            )
+        ).scalar_one_or_none()
+
+    async def _upsert_reader_profile(
+        self,
+        session: AsyncSession,
+        principal: _PrincipalLike,
+        payload: ReaderProfilePayload,
+    ) -> None:
+        """Insert or replace the reader_profiles row.
+
+        Keys on ``(tenant_id, subject)``. The payload's ``input_fingerprint``
+        is mirrored to the column so the cheap WHERE-filter / Android client
+        staleness compare doesn't require unpacking the JSONB blob.
+        """
+        now = datetime.now(UTC)
+        stmt = (
+            pg_insert(ReaderProfile)
+            .values(
+                tenant_id=principal.tenant_id,
+                subject=principal.subject,
+                payload=payload.model_dump(),
+                schema_version=payload.schema_version,
+                model_id=self.model_id,
+                prompt_version=READER_PROFILE_PROMPT_VERSION,
+                input_fingerprint=payload.input_fingerprint,
+                generated_at=now,
+            )
+            .on_conflict_do_update(
+                index_elements=["tenant_id", "subject"],
+                set_={
+                    "payload": payload.model_dump(),
+                    "schema_version": payload.schema_version,
+                    "model_id": self.model_id,
+                    "prompt_version": READER_PROFILE_PROMPT_VERSION,
+                    "input_fingerprint": payload.input_fingerprint,
+                    "generated_at": now,
+                },
+            )
+        )
+        await session.execute(stmt)
+
+    async def _enforce_profile_daily_cap(
+        self,
+        session: AsyncSession,
+        principal: _PrincipalLike,
+    ) -> None:
+        if self._profile_refresh_daily_limit <= 0:
+            return
+        today = datetime.now(UTC).date()
+        usage = (
+            await session.execute(
+                select(AIUsageDaily).where(
+                    AIUsageDaily.user_id == principal.subject,
+                    AIUsageDaily.day == today,
+                )
+            )
+        ).scalar_one_or_none()
+        if usage is None:
+            usage = AIUsageDaily(user_id=principal.subject, day=today)
+            session.add(usage)
+            await session.flush()
+        if usage.profile_count >= self._profile_refresh_daily_limit:
+            raise QuotaExceeded(
+                used=usage.profile_count,
+                limit=self._profile_refresh_daily_limit,
+                resets_at=_next_utc_midnight(today),
+            )
+
+    async def _increment_profile_count(
+        self,
+        session: AsyncSession,
+        principal: _PrincipalLike,
+    ) -> None:
+        today = datetime.now(UTC).date()
+        usage = (
+            await session.execute(
+                select(AIUsageDaily).where(
+                    AIUsageDaily.user_id == principal.subject,
+                    AIUsageDaily.day == today,
+                )
+            )
+        ).scalar_one_or_none()
+        if usage is None:
+            usage = AIUsageDaily(user_id=principal.subject, day=today, profile_count=1)
+            session.add(usage)
+            await session.flush()
+            return
+        usage.profile_count += 1
+
+    async def _compute_extended_stats(
+        self,
+        session: AsyncSession,
+        principal: _PrincipalLike,
+    ) -> _ReaderStatsExtended:
+        """Compute the public ``ReaderStats`` plus the in-memory extras.
+
+        ``books_with_themes_count`` is now populated by
+        ``_compute_reader_stats`` (pr-β, per Lock #15) so this method just
+        layers the orchestrator-only sets on top.
+        """
+        public = await _compute_reader_stats(session, principal.subject)
+
+        # finished_metadata_ids — needed by owner-state in materialize.
+        finished_metadata_rows = (
+            await session.execute(
+                select(LibraryItem.metadata_id)
+                .select_from(LibraryItem)
+                .join(
+                    Document,
+                    and_(
+                        Document.user_id == LibraryItem.user_id,
+                        Document.content_hash == LibraryItem.content_hash,
+                    ),
+                )
+                .join(Progress, Progress.document_pk == Document.pk)
+                .where(
+                    LibraryItem.user_id == principal.subject,
+                    LibraryItem.deleted_at.is_(None),
+                    Progress.finished_at.is_not(None),
+                    LibraryItem.metadata_id.is_not(None),
+                )
+            )
+        ).all()
+        finished_metadata_ids = {row[0] for row in finished_metadata_rows if row[0]}
+
+        # owned_metadata_ids + owned_normalized_pairs — covers
+        # owner-exclusion for discovery_recs.
+        owned_rows = (
+            await session.execute(
+                select(LibraryItem.metadata_id, LibraryItem.title, LibraryItem.authors).where(
+                    LibraryItem.user_id == principal.subject,
+                    LibraryItem.deleted_at.is_(None),
+                )
+            )
+        ).all()
+        owned_metadata_ids: set[str] = set()
+        owned_normalized_pairs: set[tuple[str, str]] = set()
+        for mid, title, authors in owned_rows:
+            if mid:
+                owned_metadata_ids.add(mid)
+            if title and authors:
+                first_author = authors[0] if isinstance(authors, list) and authors else ""
+                if first_author:
+                    owned_normalized_pairs.add((_norm_text(title), _norm_text(first_author)))
+
+        # library_items_count — total alive count (input to fingerprint).
+        library_items_count = (
+            await session.scalar(
+                select(func.count())
+                .select_from(LibraryItem)
+                .where(
+                    LibraryItem.user_id == principal.subject,
+                    LibraryItem.deleted_at.is_(None),
+                )
+            )
+        ) or 0
+
+        # latest_progress_updated_at — fingerprint input.
+        latest_dt = await session.scalar(
+            select(func.max(Progress.client_updated_at))
+            .select_from(Progress)
+            .join(Document, Document.pk == Progress.document_pk)
+            .where(Document.user_id == principal.subject)
+        )
+
+        return _ReaderStatsExtended(
+            public=public,
+            library_items_count=int(library_items_count),
+            latest_progress_updated_at=latest_dt,
+            finished_metadata_ids=finished_metadata_ids,
+            owned_metadata_ids=owned_metadata_ids,
+            owned_normalized_pairs=owned_normalized_pairs,
+            top_author_names=[a.name for a in public.most_read_authors],
+        )
+
+    async def _list_finished(
+        self,
+        session: AsyncSession,
+        principal: _PrincipalLike,
+        *,
+        limit: int,
+    ) -> list[_ProgressRow]:
+        rows = (
+            await session.execute(
+                select(
+                    LibraryItem.metadata_id,
+                    LibraryItem.content_hash,
+                    LibraryItem.title,
+                    LibraryItem.authors,
+                    Progress.finished_at,
+                )
+                .select_from(LibraryItem)
+                .join(
+                    Document,
+                    and_(
+                        Document.user_id == LibraryItem.user_id,
+                        Document.content_hash == LibraryItem.content_hash,
+                    ),
+                )
+                .join(Progress, Progress.document_pk == Document.pk)
+                .where(
+                    LibraryItem.user_id == principal.subject,
+                    LibraryItem.deleted_at.is_(None),
+                    Progress.finished_at.is_not(None),
+                )
+                .order_by(Progress.finished_at.desc(), LibraryItem.content_hash.asc())
+                .limit(limit)
+            )
+        ).all()
+        return [
+            _ProgressRow(
+                metadata_id=r.metadata_id,
+                content_hash=r.content_hash,
+                title=r.title,
+                author=_first_author(r.authors),
+                finished_at=r.finished_at,
+            )
+            for r in rows
+        ]
+
+    async def _list_abandoned(
+        self,
+        session: AsyncSession,
+        principal: _PrincipalLike,
+        *,
+        limit: int,
+    ) -> list[_ProgressRow]:
+        rows = (
+            await session.execute(
+                select(
+                    LibraryItem.metadata_id,
+                    LibraryItem.content_hash,
+                    LibraryItem.title,
+                    LibraryItem.authors,
+                    Progress.abandoned_at,
+                )
+                .select_from(LibraryItem)
+                .join(
+                    Document,
+                    and_(
+                        Document.user_id == LibraryItem.user_id,
+                        Document.content_hash == LibraryItem.content_hash,
+                    ),
+                )
+                .join(Progress, Progress.document_pk == Document.pk)
+                .where(
+                    LibraryItem.user_id == principal.subject,
+                    LibraryItem.deleted_at.is_(None),
+                    Progress.finished_at.is_(None),
+                    Progress.abandoned_at.is_not(None),
+                )
+                .order_by(Progress.abandoned_at.desc(), LibraryItem.content_hash.asc())
+                .limit(limit)
+            )
+        ).all()
+        return [
+            _ProgressRow(
+                metadata_id=r.metadata_id,
+                content_hash=r.content_hash,
+                title=r.title,
+                author=_first_author(r.authors),
+                abandoned_at=r.abandoned_at,
+            )
+            for r in rows
+        ]
+
+    async def _list_in_progress(
+        self,
+        session: AsyncSession,
+        principal: _PrincipalLike,
+        *,
+        limit: int,
+    ) -> list[_ProgressRow]:
+        rows = (
+            await session.execute(
+                select(
+                    LibraryItem.metadata_id,
+                    LibraryItem.content_hash,
+                    LibraryItem.title,
+                    LibraryItem.authors,
+                    Progress.client_updated_at,
+                )
+                .select_from(LibraryItem)
+                .join(
+                    Document,
+                    and_(
+                        Document.user_id == LibraryItem.user_id,
+                        Document.content_hash == LibraryItem.content_hash,
+                    ),
+                )
+                .join(Progress, Progress.document_pk == Document.pk)
+                .where(
+                    LibraryItem.user_id == principal.subject,
+                    LibraryItem.deleted_at.is_(None),
+                    Progress.finished_at.is_(None),
+                    Progress.abandoned_at.is_(None),
+                    Progress.percent > 0,
+                )
+                .order_by(Progress.client_updated_at.desc(), LibraryItem.content_hash.asc())
+                .limit(limit)
+            )
+        ).all()
+        return [
+            _ProgressRow(
+                metadata_id=r.metadata_id,
+                content_hash=r.content_hash,
+                title=r.title,
+                author=_first_author(r.authors),
+                last_read_at=r.client_updated_at,
+            )
+            for r in rows
+        ]
+
+    async def _themes_by_metadata(
+        self,
+        session: AsyncSession,
+        principal: _PrincipalLike,
+    ) -> dict[str, list[str]]:
+        """Map ``metadata_id`` → up to 5 themes (confidence >= 0.5).
+
+        Skips legacy v3-and-below BookInsight rows by filtering on
+        ``schema_version >= 4``. The metadata_id key lets the digest
+        helpers attach themes per book without a second DB hop.
+        """
+        rows = (
+            await session.execute(
+                select(LibraryItem.metadata_id, BookTheme.theme, BookTheme.confidence)
+                .select_from(LibraryItem)
+                .join(
+                    BookInsight,
+                    and_(
+                        BookInsight.superseded_at.is_(None),
+                        func.cast(
+                            func.json_extract_path_text(BookInsight.payload, "schema_version"),
+                            Integer,
+                        )
+                        >= 4,
+                        or_(
+                            and_(
+                                BookInsight.metadata_id.is_not(None),
+                                BookInsight.metadata_id == LibraryItem.metadata_id,
+                            ),
+                            BookInsight.content_hash == LibraryItem.content_hash,
+                        ),
+                    ),
+                )
+                .join(BookTheme, BookTheme.book_insight_id == BookInsight.id)
+                .where(
+                    LibraryItem.user_id == principal.subject,
+                    LibraryItem.deleted_at.is_(None),
+                    LibraryItem.metadata_id.is_not(None),
+                    BookTheme.confidence >= 0.5,
+                )
+            )
+        ).all()
+        out: dict[str, list[str]] = {}
+        for mid, theme, _conf in rows:
+            if mid is None:
+                continue
+            bucket = out.setdefault(mid, [])
+            if theme not in bucket and len(bucket) < 5:
+                bucket.append(theme)
+        return out
+
+    async def _build_in_library_candidates(
+        self,
+        session: AsyncSession,
+        principal: _PrincipalLike,
+        *,
+        limit: int,
+        finished_metadata_ids: set[str],
+    ) -> list[_LibCandidate]:
+        """Owned-but-not-finished library items, ordered for stable IDs.
+
+        Deterministic tie-breaker (architect Finding #3): primary order by
+        ``created_at DESC`` (a proxy for the spec's ``acquired_at`` — the
+        existing schema lacks an explicit acquired-at column), secondary by
+        ``content_hash ASC`` so duplicate timestamps don't cause
+        candidate_id drift across reruns.
+        """
+        rows = (
+            await session.execute(
+                select(
+                    LibraryItem.metadata_id,
+                    LibraryItem.content_hash,
+                    LibraryItem.title,
+                    LibraryItem.authors,
+                )
+                .select_from(LibraryItem)
+                .where(
+                    LibraryItem.user_id == principal.subject,
+                    LibraryItem.deleted_at.is_(None),
+                )
+                .order_by(LibraryItem.created_at.desc(), LibraryItem.content_hash.asc())
+            )
+        ).all()
+        out: list[_LibCandidate] = []
+        idx = 1
+        for r in rows:
+            if r.metadata_id is not None and r.metadata_id in finished_metadata_ids:
+                continue
+            identity = DocumentIdentity(metadata_id=r.metadata_id, content_hash=r.content_hash)
+            out.append(
+                _LibCandidate(
+                    candidate_id=f"lib-{idx:03d}",
+                    metadata_id=r.metadata_id,
+                    content_hash=r.content_hash,
+                    title=r.title,
+                    author=_first_author(r.authors),
+                    identity=identity,
+                )
+            )
+            idx += 1
+            if len(out) >= limit:
+                break
+        return out
+
+    async def _build_discovery_seed(
+        self,
+        session: AsyncSession,
+        principal: _PrincipalLike,
+        *,
+        authors: list[str],
+        owned_metadata_ids: set[str],
+        owned_norm_pairs: set[tuple[str, str]],
+    ) -> list[_DiscoveryCandidate]:
+        """Sequential per-author OpenLibrary fetches → up to 25 discovery candidates.
+
+        Sequential by design (architect Finding #4 closes OQ 11.3) — at
+        most 5 authors × ~8s comfortably fits under the 90s profile timeout
+        and avoids fan-out load on OpenLibrary's free tier.
+        """
+        if self._profile_retriever_factory is None:
+            return []
+        out: list[_DiscoveryCandidate] = []
+        seen_work_keys: set[str] = set()
+        retriever = self._profile_retriever_factory(session)
+        idx = 1
+        for author in authors:
+            if not author:
+                continue
+            try:
+                books = await retriever.author_bibliography(author)
+            except Exception as exc:  # noqa: BLE001 — never let one author bring down the refresh
+                logger.info(
+                    "profile.refresh.author_bibliography_failed author=%s err=%s",
+                    author,
+                    type(exc).__name__,
+                )
+                continue
+            for book in books:
+                if book.work_key in seen_work_keys:
+                    continue
+                seen_work_keys.add(book.work_key)
+                norm_pair = (_norm_text(book.title), _norm_text(book.author))
+                # Cheap norm-pair owner exclusion at seed time so we don't
+                # waste a candidate slot on a book the user already owns.
+                # Materialize-time check stays as belt-and-suspenders.
+                if norm_pair in owned_norm_pairs:
+                    continue
+                out.append(
+                    _DiscoveryCandidate(
+                        candidate_id=f"dis-{idx:03d}",
+                        title=book.title,
+                        author=book.author,
+                        work_key=book.work_key,
+                        source_url=book.source_url,
+                        metadata_id=None,
+                    )
+                )
+                idx += 1
+                if len(out) >= 25:
+                    return out
+        return out
+
+    def _materialize_lib_recs(
+        self,
+        llm_recs: list[_LLMRec],
+        lib_map: dict[str, _LibCandidate],
+        *,
+        finished_metadata_ids: set[str],
+    ) -> list[BookRec]:
+        out: list[BookRec] = []
+        for rec in llm_recs:
+            cand = lib_map.get(rec.candidate_id or "")
+            if cand is None:
+                logger.info(
+                    "profile.refresh.dropped_unknown_lib_candidate cid=%s",
+                    rec.candidate_id,
+                )
+                continue
+            owned_state = (
+                "owned_read"
+                if cand.metadata_id is not None and cand.metadata_id in finished_metadata_ids
+                else "owned_unread"
+            )
+            out.append(
+                BookRec(
+                    candidate_id=cand.candidate_id,
+                    title=cand.title,
+                    author=cand.author,
+                    identity=cand.identity,
+                    source_type="in_library",
+                    source_url=None,
+                    owned_state=owned_state,
+                    rationale=(rec.rationale or "").strip(),
+                    sources=None,
+                )
+            )
+        return out
+
+    def _materialize_discovery_recs(
+        self,
+        llm_recs: list[_LLMRec],
+        dis_map: dict[str, _DiscoveryCandidate],
+        *,
+        owned_metadata_ids: set[str],
+        owned_norm_pairs: set[tuple[str, str]],
+    ) -> list[BookRec]:
+        out: list[BookRec] = []
+        for rec in llm_recs:
+            cand = dis_map.get(rec.candidate_id or "")
+            if cand is None:
+                logger.info(
+                    "profile.refresh.dropped_unknown_dis_candidate cid=%s",
+                    rec.candidate_id,
+                )
+                continue
+            norm_pair = (_norm_text(cand.title), _norm_text(cand.author))
+            if (
+                cand.metadata_id is not None and cand.metadata_id in owned_metadata_ids
+            ) or norm_pair in owned_norm_pairs:
+                logger.info(
+                    "profile.refresh.dropped_owned_discovery cid=%s title=%s",
+                    rec.candidate_id,
+                    cand.title,
+                )
+                continue
+            out.append(
+                BookRec(
+                    candidate_id=cand.candidate_id,
+                    title=cand.title,
+                    author=cand.author,
+                    identity=None,
+                    source_type="discovery_openlibrary",
+                    source_url=cand.source_url,
+                    owned_state="not_owned",
+                    rationale=(rec.rationale or "").strip(),
+                    sources=[
+                        Citation(
+                            kind="openlibrary",
+                            title=cand.title,
+                            url=cand.source_url,
+                        )
+                    ],
+                )
+            )
+        return out
+
+    def _materialize_ai_suggested(self, llm_recs: list[_LLMRec]) -> list[BookRec]:
+        out: list[BookRec] = []
+        for rec in llm_recs:
+            title = (rec.title or "").strip()
+            author = (rec.author or "").strip()
+            if not title or not author:
+                logger.info("profile.refresh.dropped_ai_suggested_missing_fields")
+                continue
+            out.append(
+                BookRec(
+                    candidate_id=None,
+                    title=title,
+                    author=author,
+                    identity=None,
+                    source_type="ai_suggested",
+                    source_url=None,
+                    owned_state="not_owned",
+                    rationale=(rec.rationale or "").strip(),
+                    sources=None,
+                )
+            )
+        return out
 
     # ------- private helpers ----------------------------------------------
 
@@ -1472,11 +2526,42 @@ async def _compute_reader_stats(session: AsyncSession, user_id: str) -> ReaderSt
         finish_rate_by_theme[row.theme] = finished / total
 
     # --------------------------------------------------------------
-    # 5. books_with_themes_count.
+    # 5. books_with_themes_count (Lock #15 / coordinator §3.6).
     # --------------------------------------------------------------
-    # Lock #15 / CC-8: counted in pr-β. pr-α emits 0 so older clients
-    # that hand-insert a reader_profiles row (tests only) still validate.
-    books_with_themes_count = 0
+    # Count of LibraryItem rows for this user with at least one BookInsight
+    # at schema_version >= 4 AND superseded_at IS NULL. pr-α shipped this
+    # at 0; pr-β populates it via the JSONB schema_version cast. The JOIN
+    # mirrors PR9's alias-aware pattern (metadata-id first, content-hash
+    # fallback). Used by pr-β's input_fingerprint and pr-γ's coverage
+    # meter ("themes available for N of M books").
+    books_with_themes_count = (
+        await session.scalar(
+            select(func.count(func.distinct(LibraryItem.pk)))
+            .select_from(LibraryItem)
+            .join(
+                BookInsight,
+                and_(
+                    BookInsight.superseded_at.is_(None),
+                    or_(
+                        and_(
+                            BookInsight.metadata_id.is_not(None),
+                            BookInsight.metadata_id == LibraryItem.metadata_id,
+                        ),
+                        BookInsight.content_hash == LibraryItem.content_hash,
+                    ),
+                ),
+            )
+            .where(
+                LibraryItem.user_id == user_id,
+                LibraryItem.deleted_at.is_(None),
+                func.cast(
+                    func.json_extract_path_text(BookInsight.payload, "schema_version"),
+                    Integer,
+                )
+                >= 4,
+            )
+        )
+    ) or 0
 
     return ReaderStats(
         total_books=int(total_books),
@@ -1488,3 +2573,175 @@ async def _compute_reader_stats(session: AsyncSession, user_id: str) -> ReaderSt
         most_read_authors=most_read_authors,
         books_with_themes_count=books_with_themes_count,
     )
+
+
+# ===========================================================================
+# Reader Profile — module-level helpers (pr-β / Bundle 3).
+# ===========================================================================
+
+
+def _ms_since(t0: datetime) -> int:
+    """Return whole milliseconds elapsed since ``t0`` (UTC-aware)."""
+    delta = datetime.now(UTC) - t0
+    return max(int(delta.total_seconds() * 1000), 0)
+
+
+_NORM_WS_RE = re.compile(r"\s+")
+
+
+def _norm_text(s: str) -> str:
+    """Lowercase + collapse whitespace + strip. For owner-exclusion compares."""
+    if not s:
+        return ""
+    return _NORM_WS_RE.sub(" ", s.strip().lower())
+
+
+def _first_author(authors) -> str:
+    """Pick the first author name from a JSONB list. Empty string when absent."""
+    if isinstance(authors, list) and authors:
+        first = authors[0]
+        if isinstance(first, str):
+            return first
+    return ""
+
+
+def _compute_input_fingerprint(
+    stats: ReaderStats,
+    *,
+    library_items_count: int,
+    latest_progress_updated_at: datetime | None,
+) -> str:
+    """Soft staleness hint (Lock #12, coordinator §3.6). NOT a security primitive.
+
+    16-hex-char SHA-256 prefix over the deterministic stats blob. Per-user
+    only; collision risk is acknowledged as acceptable freshness metadata.
+    Inputs MUST include ``books_with_themes_count`` (Lock #15 — pr-γ uses
+    the fingerprint to detect when v4+ theme coverage shifted under the
+    profile).
+    """
+    raw = (
+        f"{stats.finished_count}|{stats.in_progress_count}|{stats.abandoned_count}|"
+        f"{latest_progress_updated_at.isoformat() if latest_progress_updated_at else 'none'}|"
+        f"{library_items_count}|{stats.books_with_themes_count}"
+    )
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def _build_low_data_payload(
+    stats: ReaderStats,
+    extended: _ReaderStatsExtended,
+    *,
+    model_id: str,
+) -> ReaderProfilePayload:
+    """Stats-only payload for the low-data short-circuit (NTH #6).
+
+    No narrative, no recs, ``confidence='low'``. ``input_fingerprint`` is
+    still computed so pr-γ's freshness compare works even from a low-data
+    user's first refresh.
+    """
+    _ = model_id  # informational; the row's model_id column is filled by _upsert
+    return ReaderProfilePayload(
+        schema_version=1,
+        stats=stats,
+        narrative=None,
+        in_library_recommendations=[],
+        discovery_recommendations=[],
+        ai_suggested_recommendations=[],
+        confidence="low",
+        input_fingerprint=_compute_input_fingerprint(
+            stats,
+            library_items_count=extended.library_items_count,
+            latest_progress_updated_at=extended.latest_progress_updated_at,
+        ),
+    )
+
+
+def _row_to_payload(row: ReaderProfile) -> ReaderProfilePayload:
+    """Deserialize a persisted ``reader_profiles.payload`` blob.
+
+    The payload column is the authoritative source for the response shape
+    (the column mirrors top-level metadata for cheap WHERE filtering).
+    """
+    return ReaderProfilePayload.model_validate(row.payload)
+
+
+def _build_reading_history_digest(
+    *,
+    finished: list[_ProgressRow],
+    abandoned: list[_ProgressRow],
+    in_progress: list[_ProgressRow],
+    themes_by_metadata: dict[str, list[str]],
+) -> dict:
+    """Flatten three pre-ordered progress lists into the prompt's digest shape.
+
+    Themes are attached from the ``metadata_id`` map (top 5 already capped
+    upstream). Books with no themed insight surface ``themes=[]``.
+    """
+
+    def _row(p: _ProgressRow, status: str) -> dict:
+        themes: list[str] = []
+        if p.metadata_id is not None:
+            themes = themes_by_metadata.get(p.metadata_id, [])[:5]
+        return {
+            "title": p.title,
+            "author": p.author,
+            "themes": themes,
+            "status": status,
+        }
+
+    return {
+        "finished": [_row(p, "finished") for p in finished],
+        "abandoned": [_row(p, "abandoned") for p in abandoned],
+        "in_progress": [_row(p, "in_progress") for p in in_progress],
+    }
+
+
+def _serialize_profile_user_prompt(
+    *,
+    stats: ReaderStats,
+    digest: dict,
+    lib_candidates: list[_LibCandidate],
+    dis_candidates: list[_DiscoveryCandidate],
+) -> str:
+    """Render the JSON-ish user prompt the profile system prompt expects.
+
+    The model expects sections labeled `stats`, `reading_history`,
+    `in_library_candidates`, `discovery_candidates`. We emit them as
+    indented JSON so the model's structured-output decoder doesn't have
+    to parse free-form text.
+    """
+    import json as _json
+
+    stats_block = {
+        "total_books": stats.total_books,
+        "finished_count": stats.finished_count,
+        "in_progress_count": stats.in_progress_count,
+        "abandoned_count": stats.abandoned_count,
+        "books_with_themes_count": stats.books_with_themes_count,
+        "top_authors": [{"name": a.name, "count": a.count} for a in stats.most_read_authors],
+        "top_themes_finish_rate": stats.finish_rate_by_theme,
+    }
+    lib_block = [
+        {
+            "candidate_id": c.candidate_id,
+            "title": c.title,
+            "author": c.author,
+        }
+        for c in lib_candidates
+    ]
+    dis_block = [
+        {
+            "candidate_id": c.candidate_id,
+            "title": c.title,
+            "author": c.author,
+            "source_url": c.source_url,
+        }
+        for c in dis_candidates
+    ]
+    body = {
+        "stats": stats_block,
+        "reading_history": digest,
+        "in_library_candidates": lib_block,
+        "discovery_candidates": dis_block,
+    }
+    return _json.dumps(body, indent=2, ensure_ascii=False)
