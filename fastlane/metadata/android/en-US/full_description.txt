@@ -23,6 +23,10 @@ https://github.com/vitofico/quire
 Optional AI features (off by default): when your Quire Server administrator
 configures an AI endpoint (such as a self-hosted Ollama or a third-party
 provider) and you opt in from Settings, Quire shows generated book
-insights — author, summary, series, themes — grounded with citations
-from Wikipedia and OpenLibrary. No AI request leaves your network until
-you explicitly opt in.
+insights — author, summary, series, themes, craft notes, comparative
+anchors, and book-club style discussion prompts — grounded with
+citations from Wikipedia and OpenLibrary. A separate Library Insights
+screen builds a personal reader profile from your finished books and
+suggests further reads (both from your own library and via OpenLibrary
+discovery). No AI request leaves your network until you explicitly opt
+in, and a single tap in Settings deletes the cached profile.
