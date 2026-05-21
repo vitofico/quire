@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """Forward-only deploy migrator (PR-A).
 
-Reads QUIRE_SERVER_PROGRESS_ENABLED / QUIRE_SERVER_AI_ENABLED (with
-one-cycle back-compat for the legacy prefix via the env-compat helper —
-see `quire_server/_env_compat.py`), then:
+Reads QUIRE_SERVER_PROGRESS_ENABLED / QUIRE_SERVER_AI_ENABLED, then:
   1. Always upgrades the unlabeled backbone to its tip (e.g. 0004 today).
   2. Per enabled+materialized branch: runs `alembic upgrade <branch>@head`.
 
@@ -115,13 +113,8 @@ def main() -> int:
         return 2
 
     cfg = Config(str(cfg_path))
-    # Imported here so test patches of `scripts.migrate.run_migrations`
-    # (and ideally also `resolve_env_prefix_value` for assertion-only
-    # cases) take effect on this module's attribute, not the source module.
-    from quire_server._env_compat import resolve_env_prefix_value
-
-    progress_enabled = _is_truthy(resolve_env_prefix_value("QUIRE_SERVER_PROGRESS_ENABLED"))
-    ai_enabled = _is_truthy(resolve_env_prefix_value("QUIRE_SERVER_AI_ENABLED"))
+    progress_enabled = _is_truthy(os.environ.get("QUIRE_SERVER_PROGRESS_ENABLED"))
+    ai_enabled = _is_truthy(os.environ.get("QUIRE_SERVER_AI_ENABLED"))
     logger.info("modes: progress=%s ai=%s", progress_enabled, ai_enabled)
 
     run_migrations(cfg, progress_enabled=progress_enabled, ai_enabled=ai_enabled)

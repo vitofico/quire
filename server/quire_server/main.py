@@ -1,7 +1,6 @@
 """FastAPI app factory. Mounts routers conditionally based on deploy mode flags.
 
-PR-A introduces three deploy modes controlled by env vars (the legacy
-prefix is also accepted for one release cycle — see _env_compat.py):
+PR-A introduces three deploy modes controlled by env vars:
   * QUIRE_SERVER_PROGRESS_ENABLED=true (default) → /sync/v1/* mounted
   * QUIRE_SERVER_AI_ENABLED=true (default) → /ai/v1/* mounted + AI orchestrator wired
 

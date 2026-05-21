@@ -29,14 +29,8 @@ def pytest_collection_modifyitems(config, items):
     def _flag(name: str) -> bool:
         return os.environ.get(name, "true").strip().lower() in {"1", "true", "yes", "on"}
 
-    def _resolved_flag(new_name: str, legacy_name: str) -> bool:
-        # Prefer the new prefix; fall back to the legacy one (back-compat).
-        if new_name in os.environ:
-            return _flag(new_name)
-        return _flag(legacy_name)
-
-    progress_on = _resolved_flag("QUIRE_SERVER_PROGRESS_ENABLED", "OPDS_SYNC_PROGRESS_ENABLED")
-    ai_on = _resolved_flag("QUIRE_SERVER_AI_ENABLED", "OPDS_SYNC_AI_ENABLED")
+    progress_on = _flag("QUIRE_SERVER_PROGRESS_ENABLED")
+    ai_on = _flag("QUIRE_SERVER_AI_ENABLED")
 
     skip_progress = pytest.mark.skip(reason="QUIRE_SERVER_PROGRESS_ENABLED=false")
     skip_ai = pytest.mark.skip(reason="QUIRE_SERVER_AI_ENABLED=false")

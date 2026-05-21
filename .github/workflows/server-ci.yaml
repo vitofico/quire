@@ -76,11 +76,10 @@ jobs:
           set -o pipefail
           # Lock #20 allowlist:
           #   .claude/, CHANGELOG.md, server/migrations/versions/,
-          #   root README.md, the _env_compat helper itself,
-          #   server/docker-compose*.yml, server/alembic.ini,
-          #   server/.env.example (DB-name / deprecation refs).
-          # Defensive: env-compat tests + tests/conftest.py + the import-graph
-          # regression test reference the legacy names by design.
+          #   root README.md, server/docker-compose*.yml,
+          #   server/alembic.ini, server/.env.example (DB-name / deprecation refs).
+          # Defensive: tests/conftest.py + the import-graph regression test
+          # reference the legacy names by design.
           if rg -n -P '\bopds[-_]sync\b|(?<![A-Z0-9_])OPDS_SYNC_[A-Z0-9_]*' \
                 -g '!.claude/**' \
                 -g '!CHANGELOG.md' \
@@ -88,7 +87,6 @@ jobs:
                 -g '!docs/development.md' \
                 -g '!server/migrations/versions/*.py' \
                 -g '!README.md' \
-                -g '!server/quire_server/_env_compat.py' \
                 -g '!server/quire_server/config.py' \
                 -g '!server/docker-compose.yml' \
                 -g '!server/docker-compose.full.yml' \
@@ -96,10 +94,7 @@ jobs:
                 -g '!server/migrations/env.py' \
                 -g '!server/.env.example' \
                 -g '!server/tests/conftest.py' \
-                -g '!server/tests/unit/test_env_compat.py' \
-                -g '!server/tests/unit/test_settings_env_compat.py' \
                 -g '!server/tests/unit/test_no_stale_opds_sync_imports.py' \
-                -g '!server/tests/integration/test_migrate_env_compat.py' \
                 . ; then
             echo "::error::Rename guard found un-allowlisted OPDS_SYNC / opds-sync / opds_sync references."
             exit 1
@@ -131,8 +126,6 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository_owner }}/quire-server:${{ github.sha }}
             ghcr.io/${{ github.repository_owner }}/quire-server:latest
-            ghcr.io/${{ github.repository_owner }}/opds-sync:${{ github.sha }}
-            ghcr.io/${{ github.repository_owner }}/opds-sync:latest
 
   scan:
     # SARIF upload requires Code Scanning enabled, which is free on

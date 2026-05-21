@@ -1,16 +1,13 @@
 """Tests for quire_server.config.Settings defaults.
 
 PR-A flips ai_enabled default to True and adds progress_enabled +
-max_request_bytes. Primary cases use the new QUIRE_SERVER_ prefix;
-one back-compat test exercises the legacy QUIRE_SERVER_ prefix (the
-dual-prefix logic is covered in detail by tests/unit/test_settings_env_compat.py).
+max_request_bytes.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from quire_server._env_compat import reset_log_state_for_testing
 from quire_server.config import Settings, get_settings
 
 
@@ -19,25 +16,16 @@ def _clear_settings_cache(monkeypatch):
     """Ensure each test sees a fresh settings instance (no env-bleed)."""
     for var in (
         "QUIRE_SERVER_AI_ENABLED",
-        "QUIRE_SERVER_AI_ENABLED",
-        "QUIRE_SERVER_PROGRESS_ENABLED",
         "QUIRE_SERVER_PROGRESS_ENABLED",
         "QUIRE_SERVER_MAX_REQUEST_BYTES",
-        "QUIRE_SERVER_MAX_REQUEST_BYTES",
-        "QUIRE_SERVER_AI_AUTH_MODE",
         "QUIRE_SERVER_AI_AUTH_MODE",
         "QUIRE_SERVER_AI_TOKEN_SECRETS",
-        "QUIRE_SERVER_AI_TOKEN_SECRETS",
         "QUIRE_SERVER_AI_TOKEN_ISSUER",
-        "QUIRE_SERVER_AI_TOKEN_ISSUER",
-        "QUIRE_SERVER_AI_TOKEN_AUDIENCE",
         "QUIRE_SERVER_AI_TOKEN_AUDIENCE",
     ):
         monkeypatch.delenv(var, raising=False)
-    reset_log_state_for_testing()
     get_settings.cache_clear()
     yield
-    reset_log_state_for_testing()
     get_settings.cache_clear()
 
 
@@ -55,13 +43,6 @@ def test_progress_enabled_env_override(monkeypatch):
 
 
 def test_ai_enabled_env_override(monkeypatch):
-    monkeypatch.setenv("QUIRE_SERVER_AI_ENABLED", "false")
-    s = Settings()
-    assert s.ai_enabled is False
-
-
-def test_legacy_prefix_back_compat(monkeypatch):
-    """One back-compat test under the legacy prefix; full matrix in test_settings_env_compat."""
     monkeypatch.setenv("QUIRE_SERVER_AI_ENABLED", "false")
     s = Settings()
     assert s.ai_enabled is False

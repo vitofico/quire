@@ -1,37 +1,11 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic_settings import (
-    BaseSettings,
-    PydanticBaseSettingsSource,
-    SettingsConfigDict,
-)
-
-from quire_server._env_compat import LegacyEnvSettingsSource
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    # env_prefix is the NEW prefix; LegacyEnvSettingsSource consults BOTH
-    # prefixes per field at read time. Per Lock #21 the dotenv source still
-    # uses env_prefix="QUIRE_SERVER_"; legacy names in .env files are NOT
-    # honored.
     model_config = SettingsConfigDict(env_prefix="QUIRE_SERVER_", env_file=".env", extra="ignore")
-
-    @classmethod
-    def settings_customise_sources(
-        cls,
-        settings_cls: type[BaseSettings],
-        init_settings: PydanticBaseSettingsSource,
-        env_settings: PydanticBaseSettingsSource,
-        dotenv_settings: PydanticBaseSettingsSource,
-        file_secret_settings: PydanticBaseSettingsSource,
-    ) -> tuple[PydanticBaseSettingsSource, ...]:
-        # Replace the default env source with our dual-prefix one. Keep
-        # init (kwargs to Settings()), dotenv (.env file — NEW prefix only
-        # per Lock #21), and secrets file sources in their default
-        # precedence: init > env > dotenv > secrets.
-        legacy_env = LegacyEnvSettingsSource(settings_cls)
-        return init_settings, legacy_env, dotenv_settings, file_secret_settings
 
     # DB name in the default URL is the legacy `opds_sync` (a deliberate
     # non-rename per Lock #20); see server/README.md "Migration from

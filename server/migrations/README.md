@@ -98,8 +98,7 @@ The container entrypoint runs `python /app/scripts/migrate.py`, not
 
 1. Always upgrades the unlabeled backbone (today: `0004`).
 2. For each enabled+materialized branch (per `QUIRE_SERVER_PROGRESS_ENABLED` and
-   `QUIRE_SERVER_AI_ENABLED`; the legacy prefix is accepted for one cycle —
-   see `quire_server/_env_compat.py`), runs `alembic upgrade <branch>@head`.
+   `QUIRE_SERVER_AI_ENABLED`), runs `alembic upgrade <branch>@head`.
 
 So a sync-only deploy with `QUIRE_SERVER_AI_ENABLED=false` never advances the
 DB past `0004` on the AI side, regardless of what ai migrations exist in the

@@ -136,7 +136,6 @@ jobs:
                 -g '!docs/development.md' \
                 -g '!server/migrations/versions/*.py' \
                 -g '!README.md' \
-                -g '!server/quire_server/_env_compat.py' \
                 -g '!server/quire_server/config.py' \
                 -g '!server/docker-compose.yml' \
                 -g '!server/docker-compose.full.yml' \
@@ -144,10 +143,7 @@ jobs:
                 -g '!server/migrations/env.py' \
                 -g '!server/.env.example' \
                 -g '!server/tests/conftest.py' \
-                -g '!server/tests/unit/test_env_compat.py' \
-                -g '!server/tests/unit/test_settings_env_compat.py' \
                 -g '!server/tests/unit/test_no_stale_opds_sync_imports.py' \
-                -g '!server/tests/integration/test_migrate_env_compat.py' \
                 . ; then
             echo "::error::Rename guard found un-allowlisted OPDS_SYNC / opds-sync / opds_sync references."
             exit 1
