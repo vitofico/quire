@@ -40,8 +40,21 @@ class LibraryViewModel(
 ) : ViewModel() {
 
     val sort: StateFlow<LibrarySort> = libraryPreferencesStore.flow
+        .map { it.sort }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, libraryPreferencesStore.flow.value.sort)
 
-    fun setSort(next: LibrarySort) = libraryPreferencesStore.update(next)
+    val showAbandoned: StateFlow<Boolean> = libraryPreferencesStore.flow
+        .map { it.showAbandoned }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.Eagerly,
+            libraryPreferencesStore.flow.value.showAbandoned,
+        )
+
+    fun setSort(next: LibrarySort) = libraryPreferencesStore.updateSort(next)
+
+    fun toggleShowAbandoned() =
+        libraryPreferencesStore.updateShowAbandoned(!libraryPreferencesStore.flow.value.showAbandoned)
 
     private val _query = kotlinx.coroutines.flow.MutableStateFlow("")
     val query: StateFlow<String> = _query.asStateFlow()
@@ -61,26 +74,34 @@ class LibraryViewModel(
                         percent = p?.percent ?: 0.0,
                         progressUpdatedAt = p?.updatedAt ?: 0L,
                         finishedAt = p?.finishedAt,
+                        abandonedAt = p?.abandonedAt,
                     )
                 }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val items: StateFlow<List<LibraryRow>> = combine(rows, sort, _query) { list, by, q ->
-        val sorted = applySort(list, by)
-        if (q.isBlank()) sorted else {
-            val needle = q.trim().lowercase()
-            sorted.filter { row ->
-                row.document.title.lowercase().contains(needle) ||
-                    (row.document.author?.lowercase()?.contains(needle) == true)
+    val items: StateFlow<List<LibraryRow>> =
+        combine(rows, libraryPreferencesStore.flow, _query) { list, prefs, q ->
+            val sorted = applySort(list, prefs.sort)
+            if (q.isBlank()) {
+                // pr-δ: hide abandoned by default; the filter toggle reveals them.
+                if (prefs.showAbandoned) sorted else sorted.filter { it.abandonedAt == null }
+            } else {
+                // pr-δ: search bypasses the abandoned filter — a user explicitly
+                // searching for a title should always be able to find it.
+                val needle = q.trim().lowercase()
+                sorted.filter { row ->
+                    row.document.title.lowercase().contains(needle) ||
+                        (row.document.author?.lowercase()?.contains(needle) == true)
+                }
             }
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val continueReading: StateFlow<LibraryRow?> = rows
         .map { list ->
             list
-                .filter { it.percent > 0.0001 && it.finishedAt == null }
+                // pr-δ: abandoned books never re-surface on Continue Reading.
+                .filter { it.percent > 0.0001 && it.finishedAt == null && it.abandonedAt == null }
                 .maxByOrNull { it.progressUpdatedAt }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
@@ -100,6 +121,14 @@ class LibraryViewModel(
 
     fun delete(document: Document) {
         viewModelScope.launch { docs.delete(document) }
+    }
+
+    fun markAbandoned(document: Document) {
+        viewModelScope.launch { progress.markAbandoned(document.id, nowMillis()) }
+    }
+
+    fun unmarkAbandoned(document: Document) {
+        viewModelScope.launch { progress.unmarkAbandoned(document.id, nowMillis()) }
     }
 
     /**
@@ -153,4 +182,5 @@ data class LibraryRow(
     val percent: Double,
     val progressUpdatedAt: Long,
     val finishedAt: Long? = null,
+    val abandonedAt: Long? = null,
 )

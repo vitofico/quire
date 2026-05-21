@@ -23,6 +23,7 @@ class ProgressRepository(private val dao: ProgressDao) {
             localUpdatedAt = now,
             syncedAt = 0L,
             finishedAt = progress.finishedAt,
+            abandonedAt = progress.abandonedAt,
         ))
     }
 
@@ -30,6 +31,23 @@ class ProgressRepository(private val dao: ProgressDao) {
 
     suspend fun markSynced(documentId: Long, syncedAt: Long) =
         dao.markSynced(documentId, syncedAt)
+
+    /**
+     * Mark the document as abandoned. Bumps both `updatedAt` and
+     * `localUpdatedAt` to [now] (pr-α: load-bearing — the LWW guard on the
+     * server only accepts the row when `client_updated_at` is strictly
+     * newer than the stored value). Clears `finishedAt` if set; preserves
+     * `percent`.
+     */
+    suspend fun markAbandoned(documentId: Long, now: Long) =
+        dao.markAbandoned(documentId, now)
+
+    /**
+     * Inverse of [markAbandoned]: clears `abandonedAt` without touching
+     * `percent`. Same LWW timestamp semantics.
+     */
+    suspend fun unmarkAbandoned(documentId: Long, now: Long) =
+        dao.unmarkAbandoned(documentId, now)
 
     suspend fun resetForDocument(documentId: Long, now: Long) {
         dao.upsert(ProgressEntity(
@@ -50,5 +68,6 @@ class ProgressRepository(private val dao: ProgressDao) {
             percent = percent,
             updatedAt = updatedAt,
             finishedAt = finishedAt,
+            abandonedAt = abandonedAt,
         )
 }

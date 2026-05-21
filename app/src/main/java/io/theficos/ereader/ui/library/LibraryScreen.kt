@@ -21,9 +21,11 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material.icons.outlined.FilterAlt
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
@@ -32,14 +34,17 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -47,6 +52,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -61,6 +67,7 @@ import io.theficos.ereader.data.sync.SyncEnqueuer
 import io.theficos.ereader.ui.components.CoverImage
 import io.theficos.ereader.ui.components.SectionLabel
 import io.theficos.ereader.ui.theme.Lora
+import kotlinx.coroutines.launch
 
 private val sortLabels: List<Pair<LibrarySort, String>> = listOf(
     LibrarySort.RECENTLY_READ to "Recently read",
@@ -76,6 +83,7 @@ fun LibraryScreen(
     onOpenBook: (documentId: Long) -> Unit,
     onShowDetails: (documentId: Long) -> Unit = {},
     onShowStats: () -> Unit = {},
+    onShowInsights: () -> Unit = {},
     aiConfigured: Boolean = false,
     contentPadding: PaddingValues,
 ) {
@@ -85,10 +93,12 @@ fun LibraryScreen(
     val items by viewModel.items.collectAsState()
     val cont by viewModel.continueReading.collectAsState()
     val seriesCandidates by viewModel.seriesContinuationCandidates.collectAsState()
-    var menuFor by remember { mutableStateOf<Document?>(null) }
+    val showAbandoned by viewModel.showAbandoned.collectAsState()
+    var menuFor by remember { mutableStateOf<LibraryRow?>(null) }
     var pendingDelete by remember { mutableStateOf<Document?>(null) }
     var pendingRestart by remember { mutableStateOf<Document?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     var searchActive by rememberSaveable { mutableStateOf(false) }
     val query by viewModel.query.collectAsState()
 
@@ -152,6 +162,46 @@ fun LibraryScreen(
                             }
                         }
                     }
+                    // pr-δ: filter icon — abandoned books hidden by default. The
+                    // OUTLINED + primary-tinted icon communicates "items hidden";
+                    // the FILLED icon communicates "abandoned visible."
+                    var filterMenuOpen by rememberSaveable { mutableStateOf(false) }
+                    Box {
+                        IconButton(onClick = { filterMenuOpen = true }) {
+                            Icon(
+                                imageVector = if (showAbandoned) {
+                                    Icons.Filled.FilterAlt
+                                } else {
+                                    Icons.Outlined.FilterAlt
+                                },
+                                contentDescription = if (showAbandoned) {
+                                    "Abandoned books visible"
+                                } else {
+                                    "Abandoned books hidden"
+                                },
+                                tint = if (!showAbandoned) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    LocalContentColor.current
+                                },
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = filterMenuOpen,
+                            onDismissRequest = { filterMenuOpen = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Show abandoned") },
+                                leadingIcon = {
+                                    Checkbox(checked = showAbandoned, onCheckedChange = null)
+                                },
+                                onClick = {
+                                    viewModel.toggleShowAbandoned()
+                                    filterMenuOpen = false
+                                },
+                            )
+                        }
+                    }
                     var moreMenuOpen by rememberSaveable { mutableStateOf(false) }
                     Box {
                         IconButton(onClick = { moreMenuOpen = true }) {
@@ -161,6 +211,15 @@ fun LibraryScreen(
                             expanded = moreMenuOpen,
                             onDismissRequest = { moreMenuOpen = false },
                         ) {
+                            // PR-γ: Insights ranks above Stats — Insights is the
+                            // headline reader-profile surface; Stats is utility.
+                            DropdownMenuItem(
+                                text = { Text("Insights") },
+                                onClick = {
+                                    moreMenuOpen = false
+                                    onShowInsights()
+                                },
+                            )
                             DropdownMenuItem(
                                 text = { Text("Stats") },
                                 onClick = {
@@ -214,7 +273,7 @@ fun LibraryScreen(
                 Column(
                     modifier = Modifier.combinedClickable(
                         onClick = { onOpenBook(row.document.id) },
-                        onLongClick = { menuFor = row.document },
+                        onLongClick = { menuFor = row },
                     ),
                 ) {
                     Box(modifier = Modifier.fillMaxWidth()) {
@@ -260,6 +319,24 @@ fun LibraryScreen(
                                     )
                                 }
                             }
+                        } else if (row.abandonedAt != null) {
+                            // pr-δ: abandoned chip — top-right, mutually exclusive
+                            // with the finished checkmark (server CHECK constraint
+                            // guarantees the two terminal states never coexist).
+                            Surface(
+                                shape = MaterialTheme.shapes.small,
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(6.dp),
+                            ) {
+                                Text(
+                                    text = "Abandoned",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                )
+                            }
                         }
                     }
                     Text(
@@ -285,7 +362,8 @@ fun LibraryScreen(
         SnackbarHost(hostState = snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter))
     }
 
-    menuFor?.let { doc ->
+    menuFor?.let { row ->
+        val doc = row.document
         val sheetState = rememberModalBottomSheetState()
         ModalBottomSheet(
             onDismissRequest = { menuFor = null },
@@ -307,6 +385,36 @@ fun LibraryScreen(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                 ) {
                     Text("Restart book", modifier = Modifier.fillMaxWidth())
+                }
+                // pr-δ: Mark / Unmark abandoned (Lock #18 — augment the existing
+                // sheet, do not introduce a new menu). Snackbar with Undo on mark
+                // so the disappear-on-default-hide feels safe.
+                TextButton(
+                    onClick = {
+                        val wasAbandoned = row.abandonedAt != null
+                        if (wasAbandoned) {
+                            viewModel.unmarkAbandoned(doc)
+                        } else {
+                            viewModel.markAbandoned(doc)
+                            scope.launch {
+                                val result = snackbarHostState.showSnackbar(
+                                    message = "Marked abandoned",
+                                    actionLabel = "Undo",
+                                    duration = SnackbarDuration.Short,
+                                )
+                                if (result == SnackbarResult.ActionPerformed) {
+                                    viewModel.unmarkAbandoned(doc)
+                                }
+                            }
+                        }
+                        menuFor = null
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                ) {
+                    Text(
+                        text = if (row.abandonedAt == null) "Mark as abandoned" else "Unmark abandoned",
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
                 TextButton(
                     onClick = {

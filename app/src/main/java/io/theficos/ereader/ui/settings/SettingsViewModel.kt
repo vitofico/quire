@@ -19,9 +19,12 @@ import io.theficos.ereader.reader.ReaderFontFamily
 import io.theficos.ereader.reader.ReaderPreferences
 import io.theficos.ereader.reader.ReaderPreferencesStore
 import io.theficos.ereader.reader.ReaderTheme
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
@@ -49,6 +52,15 @@ sealed interface InsightSyncStatus {
     data class Error(val message: String) : InsightSyncStatus
 }
 
+/**
+ * One-shot events emitted by [SettingsViewModel] for the UI to render as
+ * snackbars. pr-δ: profile-delete success / failure outcomes.
+ */
+sealed interface SettingsEvent {
+    data object ProfileDeleted : SettingsEvent
+    data class ProfileDeleteFailed(val message: String) : SettingsEvent
+}
+
 class SettingsViewModel(
     private val store: CalibreCredentialStore,
     private val readerStore: ReaderPreferencesStore,
@@ -71,6 +83,12 @@ class SettingsViewModel(
     private val _aiHealth = MutableStateFlow<AiHealthResponse?>(null)
     private val _lastInsightSync = MutableStateFlow<Long?>(null)
     private val _syncStatus = MutableStateFlow<InsightSyncStatus>(InsightSyncStatus.Idle)
+
+    private val _deleteProfileInFlight = MutableStateFlow(false)
+    val deleteProfileInFlight: StateFlow<Boolean> = _deleteProfileInFlight.asStateFlow()
+
+    private val _events = MutableSharedFlow<SettingsEvent>(extraBufferCapacity = 4)
+    val events: SharedFlow<SettingsEvent> = _events.asSharedFlow()
 
     val ai: StateFlow<AiState> = combine(
         combine(aiRepository.config, aiRepository.preferences, _aiHealth) { c, p, h ->
@@ -174,6 +192,28 @@ class SettingsViewModel(
     fun setStyleLanguage(language: String) {
         viewModelScope.launch {
             runCatching { aiRepository.setStyleLanguage(language) }
+        }
+    }
+
+    /**
+     * pr-δ: delete the server-side reader profile. Idempotent — DELETE
+     * `/ai/v1/profile` returns 204 whether or not a row existed. Re-entrancy
+     * is guarded so a button mash can't fire two in-flight requests.
+     */
+    fun deleteReaderProfile() {
+        if (_deleteProfileInFlight.value) return
+        _deleteProfileInFlight.value = true
+        viewModelScope.launch {
+            try {
+                aiRepository.deleteProfile()
+                _events.tryEmit(SettingsEvent.ProfileDeleted)
+            } catch (t: Throwable) {
+                _events.tryEmit(
+                    SettingsEvent.ProfileDeleteFailed(t.message ?: "Unknown error"),
+                )
+            } finally {
+                _deleteProfileInFlight.value = false
+            }
         }
     }
 

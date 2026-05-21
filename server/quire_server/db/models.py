@@ -52,6 +52,16 @@ class Progress(Base):
     __tablename__ = "progress"
     __table_args__ = (
         CheckConstraint("percent >= 0 AND percent <= 1", name="ck_progress_percent_range"),
+        # Terminal-state invariant (coordinator §3.10): a row can be
+        # in-progress, finished, OR abandoned — never simultaneously
+        # finished AND abandoned. The sync write path enforces "clear the
+        # other" on terminal-state flips, and the pull path defensively
+        # drops `abandoned_at` (finished wins) for legacy rows that
+        # pre-date this constraint.
+        CheckConstraint(
+            "finished_at IS NULL OR abandoned_at IS NULL",
+            name="ck_progress_abandoned_xor_finished",
+        ),
         Index("ix_progress_document_client_updated_at", "document_pk", "client_updated_at"),
     )
 
@@ -61,6 +71,11 @@ class Progress(Base):
     locator: Mapped[str] = mapped_column(String, nullable=False)
     percent: Mapped[float] = mapped_column(Float, nullable=False)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # pr-α (Bundle 3) / coordinator §3.10. Mutually exclusive with
+    # `finished_at` (enforced by `ck_progress_abandoned_xor_finished`).
+    # `percent` is intentionally preserved on the abandon transition so
+    # "abandoned at 60% should remember 60%".
+    abandoned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     client_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -154,18 +169,36 @@ class AIUsageDaily(Base):
     regen_count: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0"), default=0
     )
+    # pr-β (Bundle 3, coordinator §3.11): per-user, per-UTC-day counter for
+    # POST /ai/v1/profile/refresh. Bumped from refresh_profile() once the
+    # cap check passes; left at 0 in the low-data short-circuit path so a
+    # 0-finished-books user is never blocked by quota.
+    profile_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0"), default=0
+    )
 
 
 class AIGenerationLog(Base):
-    """Per-call audit row anchored to `book_insights.id`.
+    """Per-call audit row.
 
-    One row per `get()`-hit / `generate()` / `regenerate()` call, regardless of
-    cache state. Future billing rollups query `(tenant_id, created_at)`; the
-    audit UI queries `(book_insight_id)`.
+    One row per AI-flavored call against the shared cache. ``kind`` discriminates
+    the row family (added in ai_006):
 
-    `status` is permissive ('hit' | 'miss' | 'error') so a future PR can
-    introduce error rows without a schema bump. PR-C only emits 'hit' and
-    'miss'; errors go to structured logs because they have no FK target.
+      'insight' — single-book insight generation (PR-C); book_insight_id NOT NULL.
+      'profile' — per-user reader profile refresh (pr-β); book_insight_id NULL.
+      'promote' — catalog→EPUB identity copy (PR-ζ, wired in pr-β);
+                  book_insight_id NOT NULL (points at the copied row at the
+                  ``to`` identity). weight=0 against the daily quota.
+
+    Cross-field invariant enforced by ``ck_ai_generation_log_kind_fk``:
+    profile rows MUST have book_insight_id NULL; insight/promote rows MUST
+    have it non-null. ``_log_generation()`` raises ValueError BEFORE the DB
+    round-trip if a caller violates this.
+
+    ``status`` is permissive ('hit' | 'miss' | 'error'):
+      'hit'   — cache or singleflight collapse, no LLM call.
+      'miss'  — LLM call executed.
+      'error' — generation failed mid-flight.
     """
 
     __tablename__ = "ai_generation_log"
@@ -174,16 +207,37 @@ class AIGenerationLog(Base):
             "status IN ('hit', 'miss', 'error')",
             name="ck_ai_generation_log_status",
         ),
+        CheckConstraint(
+            "kind IN ('insight', 'profile', 'promote')",
+            name="ck_ai_generation_log_kind",
+        ),
+        CheckConstraint(
+            "(kind = 'profile' AND book_insight_id IS NULL) "
+            "OR (kind IN ('insight', 'promote') AND book_insight_id IS NOT NULL)",
+            name="ck_ai_generation_log_kind_fk",
+        ),
         Index("ix_ai_generation_log_tenant_created", "tenant_id", "created_at"),
         Index("ix_ai_generation_log_book_insight", "book_insight_id"),
+        Index(
+            "ix_ai_generation_log_profile",
+            "tenant_id",
+            "subject",
+            "created_at",
+            postgresql_where=text("kind = 'profile'"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    book_insight_id: Mapped[int] = mapped_column(
+    # ai_006: nullable for kind='profile' rows (no parent BookInsight).
+    book_insight_id: Mapped[int | None] = mapped_column(
         BigInteger,
         ForeignKey("book_insights.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
+    # ai_006: discriminator across the audit row families. Default values
+    # are NOT set at the column level — every caller must specify kind
+    # explicitly (the migration's server_default was dropped after backfill).
+    kind: Mapped[str] = mapped_column(String, nullable=False)
     tenant_id: Mapped[str] = mapped_column(
         String, nullable=False, server_default=text("'local'"), default="local"
     )
@@ -353,4 +407,38 @@ class BookTheme(Base):
     theme: Mapped[str] = mapped_column(String, primary_key=True)
     confidence: Mapped[float] = mapped_column(
         Float, nullable=False, server_default=text("1.0"), default=1.0
+    )
+
+
+# ============================================================================
+# `reader_profiles` (pr-α / Bundle 3, 2026-05-20) — `ai` branch.
+# ----------------------------------------------------------------------------
+# Per-user reader profile cache. USER-SCOPED — `(tenant_id, subject)` is the
+# composite primary key. **NOT shared cache**: the cache-integrity invariant
+# documented above `BookInsight` does NOT apply here. The cache namespace is
+# distinct from `book_insights` (different `prompt_version` constant —
+# `READER_PROFILE_PROMPT_VERSION`, introduced in pr-β).
+#
+# pr-α never writes a row; the table is populated by pr-β's
+# `POST /ai/v1/profile/refresh`. The read endpoint (`GET /ai/v1/profile`,
+# in this PR) returns 404 when no row exists.
+#
+# `input_fingerprint` is the 16-hex-char SHA-256 prefix of the stats blob
+# used to compute the profile (Lock #12 / coordinator §3.6). VARCHAR(16)
+# pins the width at the column level. Nullable here because pr-α never
+# writes it; pr-β writes a non-null value on every refresh.
+# ============================================================================
+class ReaderProfile(Base):
+    __tablename__ = "reader_profiles"
+
+    tenant_id: Mapped[str] = mapped_column(String, primary_key=True)
+    subject: Mapped[str] = mapped_column(String, primary_key=True)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    model_id: Mapped[str] = mapped_column(String, nullable=False)
+    prompt_version: Mapped[str] = mapped_column(String, nullable=False)
+    # VARCHAR(16): 16-hex-char SHA-256 prefix (Lock #12, coordinator §3.6).
+    input_fingerprint: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )

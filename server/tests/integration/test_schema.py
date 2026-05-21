@@ -174,6 +174,7 @@ async def test_ai_generation_log_round_trip(session) -> None:
     await session.flush()
 
     log = AIGenerationLog(
+        kind="insight",  # ai_006: discriminator now required (no server default).
         book_insight_id=insight.id,
         subject="alice",
         model_id="m1",

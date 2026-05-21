@@ -26,4 +26,9 @@ data class ProgressEntity(
     val localUpdatedAt: Long,
     val syncedAt: Long,
     val finishedAt: Long? = null,
+    // pr-α (Bundle 3) / coordinator §3.10: terminal-state invariant.
+    // Mutually exclusive with `finishedAt` on write — `ProgressDao.markAbandoned`
+    // clears `finishedAt`, and the sync-pull path drops `abandonedAt` if the
+    // server emits both flags on a legacy row (finished wins).
+    val abandonedAt: Long? = null,
 )

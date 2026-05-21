@@ -16,6 +16,9 @@ data class ProgressItemDto(
     val percent: Double,
     @SerialName("client_updated_at") val clientUpdatedAt: String,
     @SerialName("finished_at") val finishedAt: String? = null,
+    // pr-α (Bundle 3) / coordinator §3.10: terminal-state invariant.
+    // Default `null` keeps existing callers source-compatible.
+    @SerialName("abandoned_at") val abandonedAt: String? = null,
 )
 
 @Serializable

@@ -16,6 +16,7 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import and_, case, or_, select
+from sqlalchemy import delete as sa_delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from quire_server.api.ai_auth import AiPrincipal, get_ai_principal
@@ -39,6 +40,8 @@ from quire_server.api.ai_schemas import (
     PreferencesBody,
     PreferencesResponse,
     QuotaResponse,
+    ReaderProfilePayload,
+    ReaderProfileResponse,
     RetrievalSourceHealth,
 )
 from quire_server.config import get_settings
@@ -46,10 +49,11 @@ from quire_server.core.ai.health_state import AiHealthState
 from quire_server.core.ai.service import (
     IdentityUnresolvable,
     InsightOrchestrator,
+    ProfileGenerationError,
     PromoteOwnershipError,
     QuotaExceeded,
 )
-from quire_server.db.models import BookInsight, LibraryItem, UserAIPreference
+from quire_server.db.models import BookInsight, LibraryItem, ReaderProfile, UserAIPreference
 from quire_server.db.session import get_session
 
 router = APIRouter(tags=["ai"])
@@ -133,6 +137,9 @@ async def get_config(
         daily_budget=settings.ai_daily_budget,
         regen_daily_limit=settings.ai_regen_daily_limit,
         prompt_version=_resolve_prompt_version(settings.ai_prompt_version),
+        # pr-β / Lock #15 / coordinator §3.5: surfaces PROGRESS_ENABLED so
+        # AI-only deploys can suppress the reader profile UI on Android.
+        progress_supported=settings.progress_enabled,
     )
 
 
@@ -497,6 +504,140 @@ async def sync_insights(
         server_time=datetime.now(UTC).isoformat(),
         next_cursor=next_cursor,
     )
+
+
+@router.get("/profile", response_model=ReaderProfileResponse)
+async def get_profile(
+    principal: Annotated[AiPrincipal, Depends(get_ai_principal)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> ReaderProfileResponse:
+    """Cache-only profile read.
+
+    No opt-in gate (opted-out users can still read their last generation),
+    no LLM call. 404 when no row exists. Refresh / generation lives in
+    pr-β's `POST /ai/v1/profile/refresh`.
+    """
+    row = (
+        await session.execute(
+            select(ReaderProfile).where(
+                ReaderProfile.tenant_id == principal.tenant_id,
+                ReaderProfile.subject == principal.subject,
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no_profile")
+    return ReaderProfileResponse(
+        payload=ReaderProfilePayload.model_validate(row.payload),
+        schema_version=row.schema_version,
+        model_id=row.model_id,
+        prompt_version=row.prompt_version,
+        input_fingerprint=row.input_fingerprint,
+        generated_at=row.generated_at,
+    )
+
+
+@router.post("/profile/refresh", response_model=ReaderProfileResponse)
+async def refresh_profile(
+    request: Request,
+    principal: Annotated[AiPrincipal, Depends(get_ai_principal)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> ReaderProfileResponse:
+    """pr-β: refresh (regenerate) the per-user reader profile.
+
+    Returns the same envelope shape as ``GET /ai/v1/profile``
+    (``ReaderProfileResponse``) so server semantics are uniform and the
+    Android client can decode a single DTO for both calls.
+
+    Gates (status codes per Lock #10, coordinator §3.5 / §3.14):
+
+      * 404 — AI disabled (orchestrator absent).
+      * 503 — Progress disabled (profile requires PROGRESS_ENABLED).
+      * 409 — Caller has not opted in (``{"detail": "ai_not_opted_in"}``).
+      * 429 — Daily cap exceeded (3/day by default, low-data mode is
+              weight=0 and runs even at cap).
+      * 502 — LLM call failed mid-flight.
+
+    Singleflight: concurrent POSTs from the same ``(tenant_id, subject)``
+    serialize through a per-user in-process lock; collapsed waiters each
+    receive a ``status='hit'`` audit row in ``ai_generation_log``.
+    """
+    orch = _orchestrator(request)
+    if orch is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="ai_disabled")
+    settings = get_settings()
+    if not settings.progress_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": "profile_requires_progress_data"},
+        )
+    await _require_opt_in(session, principal.subject)
+    try:
+        payload = await orch.refresh_profile(principal=principal, session=session)
+    except QuotaExceeded as exc:
+        raise _quota_http_exception(exc) from exc
+    except ProfileGenerationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
+
+    # Re-read the persisted row to surface the envelope metadata
+    # (``model_id``, ``prompt_version``, ``input_fingerprint``,
+    # ``generated_at``). ``refresh_profile`` always upserts before
+    # returning, so the row is guaranteed to exist.
+    row = (
+        await session.execute(
+            select(ReaderProfile).where(
+                ReaderProfile.tenant_id == principal.tenant_id,
+                ReaderProfile.subject == principal.subject,
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:  # pragma: no cover — defensive; orchestrator always upserts.
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="profile_missing_after_refresh",
+        )
+    return ReaderProfileResponse(
+        payload=payload,
+        schema_version=row.schema_version,
+        model_id=row.model_id,
+        prompt_version=row.prompt_version,
+        input_fingerprint=row.input_fingerprint,
+        generated_at=row.generated_at,
+    )
+
+
+@router.delete("/profile", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_profile(
+    request: Request,
+    principal: Annotated[AiPrincipal, Depends(get_ai_principal)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> Response:
+    """Delete the caller's reader profile. Idempotent — always 204.
+
+    PR-δ. Mode-gated on ``ai_enabled`` (503 ``ai_disabled`` when the
+    orchestrator is absent — mirrors the existing mutating handlers in
+    this file). Opt-in required (409 ``ai_not_opted_in`` via
+    ``_require_opt_in``). On success the row at
+    ``(tenant_id=principal.tenant_id, subject=principal.subject)`` is
+    removed; if no row exists the response is still 204 (idempotent —
+    Lock #3, coordinator §3.8). No audit-log row is written (PR-β owns
+    profile audit-log emission).
+    """
+    orch = _orchestrator(request)
+    if orch is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="ai_disabled")
+    await _require_opt_in(session, principal.subject)
+    await session.execute(
+        sa_delete(ReaderProfile).where(
+            ReaderProfile.tenant_id == principal.tenant_id,
+            ReaderProfile.subject == principal.subject,
+        )
+    )
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/health", response_model=AiHealthResponse)

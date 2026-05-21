@@ -428,7 +428,8 @@ Returns the user-visible AI configuration. Public to authed users.
   "sources_enabled": ["wikipedia", "openlibrary"],
   "daily_budget": 200,
   "regen_daily_limit": 3,
-  "prompt_version": "5"
+  "prompt_version": "5",
+  "progress_supported": true
 }
 ```
 
@@ -437,6 +438,14 @@ sentinel resolution). The Android client reads it so its local-cache PK
 aligns with the server's. Older deploys that don't emit the field decode
 safely on the client side because the DTO default is `"1"` (the legacy
 sentinel which means "use the in-code constant").
+
+`progress_supported` (pr-β, Lock #15 / coordinator §3.5) surfaces the
+deployment's `PROGRESS_ENABLED` flag. The Android Insights screen reads
+this to suppress the reader-profile UI on AI-only deploys (where
+`POST /ai/v1/profile/refresh` would 503 with
+`{"error": "profile_requires_progress_data"}`). Older deploys that don't
+emit the field decode safely on the client because the DTO default is
+`true`.
 
 ### `GET /ai/v1/preferences` / `PUT /ai/v1/preferences`
 
@@ -686,9 +695,88 @@ Rate limit: `QUIRE_SERVER_AI_PROMOTE_DAILY_LIMIT` (default 100). Process-local
 counter; pod restart resets — acceptable because promote has no LLM cost.
 
 Audit: emits a structured stdout line `event=ai.promote ...` with the source
-and copy ids, latency, and outcome. PR-ζ does NOT write an
-`ai_generation_log` row (Lock #11 amendment); PR-β extends the audit-log
-schema and the promote path begins persisting at that point.
+and copy ids, latency, and outcome. Once ai_006 is applied (pr-β) the
+promote path also writes a `kind='promote'` row to `ai_generation_log`
+(Lock #11 amendment); the stdout line is retained for operator-grep
+convenience.
+
+### `POST /ai/v1/profile/refresh`
+
+Pr-β orchestrator: refresh (regenerate) the per-user reader profile.
+
+Empty body. Returns the full `ReaderProfilePayload`:
+
+```jsonc
+{
+  "schema_version": 1,
+  "stats": { /* ReaderStats */ },
+  "narrative": "...",
+  "confidence": "medium",
+  "in_library_recommendations": [
+    {
+      "candidate_id": "lib-001",
+      "title": "...",
+      "author": "...",
+      "identity": { "metadata_id": "...", "content_hash": "..." },
+      "source_type": "in_library",
+      "owned_state": "owned_unread",
+      "rationale": "..."
+    }
+  ],
+  "discovery_recommendations": [
+    {
+      "candidate_id": "dis-001",
+      "title": "...",
+      "author": "...",
+      "source_type": "discovery_openlibrary",
+      "source_url": "https://openlibrary.org/works/OL...W",
+      "owned_state": "not_owned",
+      "rationale": "...",
+      "sources": [{"kind": "openlibrary", "title": "...", "url": "..."}]
+    }
+  ],
+  "ai_suggested_recommendations": [
+    {"title": "...", "author": "...", "source_type": "ai_suggested",
+     "owned_state": "not_owned", "rationale": "..."}
+  ],
+  "input_fingerprint": "abcd1234ef567890"
+}
+```
+
+Status codes (Lock #10 closes the opt-out question on 409):
+
+| Code | Body / detail | Meaning |
+|------|---------------|---------|
+| `200` | `ReaderProfilePayload` | Success (live recompute, low-data short-circuit, or singleflight collapse). |
+| `404` | `{"detail":"ai_disabled"}` | AI disabled or unconfigured on this deploy. |
+| `409` | `{"detail":"ai_not_opted_in"}` | Caller has not opted in (Lock #10). |
+| `429` | `QuotaResponse` + `Retry-After` | Daily refresh cap exceeded. |
+| `502` | `{"detail":"..."}` | LLM call failed mid-flight. |
+| `503` | `{"error":"profile_requires_progress_data"}` | `PROGRESS_ENABLED=false`. |
+
+Rate limit: `QUIRE_SERVER_AI_PROFILE_REFRESH_DAILY_LIMIT` (default 3). Stored
+on `ai_usage_daily.profile_count`; resets at UTC midnight. **Weight = 0**
+in the low-data short-circuit (`stats.finished_count == 0`) so a user with
+no finished books still receives a stats-only payload even at quota cap.
+
+Singleflight: concurrent POSTs from the same `(tenant_id, subject)`
+serialize through a per-user in-process lock. Each collapsed waiter writes
+its own `kind='profile' status='hit'` row to `ai_generation_log`; only the
+winner writes a `status='miss'` row + bumps `profile_count`.
+
+Discovery candidates come from OpenLibrary author bibliographies,
+sequential per author, capped at 5 authors per refresh. Positive cache TTL
+30d; 404 / empty negative cache TTL 24h; 429 is honored via `Retry-After`
+capped at 6h with stale-if-error fallback (coordinator §3.7).
+
+Known limitations:
+
+- Budget row is keyed on `principal.subject` only — no tenant-aware quota
+  migration in this batch.
+- No automatic profile invalidation. The `input_fingerprint` (16 hex chars
+  of a sha256 over stats + library size + latest progress timestamp +
+  themed-book count) lets the client detect when the snapshot diverges
+  from underlying data; the client-side staleness UX lands in pr-γ.
 
 ### `GET /ai/v1/insights/sync`
 

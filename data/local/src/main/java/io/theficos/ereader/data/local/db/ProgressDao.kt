@@ -22,4 +22,52 @@ interface ProgressDao {
 
     @Query("UPDATE progress SET syncedAt = :syncedAt WHERE documentId = :documentId")
     suspend fun markSynced(documentId: Long, syncedAt: Long)
+
+    /**
+     * PR-γ: max `updatedAt` across all progress rows. Used to seed the local
+     * input-fingerprint approximation (Lock #12, coordinator §3.6). Returns
+     * null when no rows exist.
+     */
+    @Query("SELECT MAX(updatedAt) FROM progress")
+    suspend fun maxUpdatedAt(): Long?
+
+    /**
+     * Mark a row abandoned. Sets `abandonedAt`, clears `finishedAt` (terminal
+     * state invariant — coordinator §3.10), and leaves `percent` untouched
+     * so abandoning at 60% remembers 60%.
+     *
+     * Both `updatedAt` AND `localUpdatedAt` are bumped to `now`. This is
+     * load-bearing: the SyncOrchestrator pushes `progress.updatedAt` as
+     * `client_updated_at`, and the server's `push_progress` LWW guard only
+     * accepts the row when `client_updated_at` is strictly newer than the
+     * stored value. Updating only `localUpdatedAt` would make the row
+     * "dirty" locally but the server would silently reject the abandon.
+     */
+    @Query(
+        """
+        UPDATE progress
+        SET abandonedAt    = :now,
+            finishedAt     = NULL,
+            updatedAt      = :now,
+            localUpdatedAt = :now
+        WHERE documentId = :documentId
+        """
+    )
+    suspend fun markAbandoned(documentId: Long, now: Long)
+
+    /**
+     * Inverse of [markAbandoned]: clears `abandonedAt`. `percent` and
+     * `finishedAt` are left untouched. As above, bumps `updatedAt` AND
+     * `localUpdatedAt` to `now` so the LWW push gets through.
+     */
+    @Query(
+        """
+        UPDATE progress
+        SET abandonedAt    = NULL,
+            updatedAt      = :now,
+            localUpdatedAt = :now
+        WHERE documentId = :documentId
+        """
+    )
+    suspend fun unmarkAbandoned(documentId: Long, now: Long)
 }

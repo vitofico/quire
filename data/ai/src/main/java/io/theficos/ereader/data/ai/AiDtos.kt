@@ -18,6 +18,11 @@ data class AiConfig(
     // the field decode safely; new clients re-key their local cache on this
     // value (see InsightEntity PK in :data:local, future work).
     @SerialName("prompt_version") val promptVersion: String = "1",
+    // PR-β / coordinator §3.5: server advertises whether the progress-mirror
+    // (calibre-web / library upload) is wired. Defaults to `true` so an older
+    // deploy that doesn't emit the field is treated as supported — same
+    // behavior we had before the field existed.
+    @SerialName("progress_supported") val progressSupported: Boolean = true,
 )
 
 @Serializable
@@ -188,4 +193,68 @@ data class AiHealthResponse(
     @SerialName("last_failure_at") val lastFailureAt: String? = null,
     @SerialName("last_failure_class") val lastFailureClass: String? = null,
     @SerialName("retrieval_sources") val retrievalSources: List<RetrievalSourceHealth> = emptyList(),
+)
+
+// ===========================================================================
+// Reader Profile (pr-α / Bundle 3) — coordinator §3.2, §3.4, §3.6, Lock #15.
+// ---------------------------------------------------------------------------
+// DTOs mirroring the server's `ReaderProfileResponse`. `source_type`,
+// `owned_state`, and `confidence` are declared as `String` (not enums) so a
+// future server bump doesn't crash existing clients on deserialize — Phase 2
+// deferral list explicitly notes "Android tolerates unknown enum values".
+// ===========================================================================
+
+@Serializable
+data class AuthorCountDto(
+    val name: String,
+    val count: Int,
+)
+
+@Serializable
+data class ReaderStatsDto(
+    @SerialName("total_books") val totalBooks: Int,
+    @SerialName("finished_count") val finishedCount: Int,
+    @SerialName("in_progress_count") val inProgressCount: Int,
+    @SerialName("abandoned_count") val abandonedCount: Int,
+    @SerialName("avg_session_minutes") val avgSessionMinutes: Double? = null,
+    @SerialName("finish_rate_by_theme") val finishRateByTheme: Map<String, Double> = emptyMap(),
+    @SerialName("most_read_authors") val mostReadAuthors: List<AuthorCountDto> = emptyList(),
+    // Lock #15 / CC-8. Default 0 until pr-β populates server-side.
+    @SerialName("books_with_themes_count") val booksWithThemesCount: Int = 0,
+)
+
+@Serializable
+data class BookRecDto(
+    @SerialName("candidate_id") val candidateId: String? = null,
+    val title: String,
+    val author: String,
+    val identity: DocumentIdentity? = null,
+    @SerialName("source_type") val sourceType: String = "ai_suggested",
+    @SerialName("source_url") val sourceUrl: String? = null,
+    @SerialName("owned_state") val ownedState: String = "not_owned",
+    val rationale: String,
+    val sources: List<Citation>? = null,
+)
+
+@Serializable
+data class ReaderProfilePayloadDto(
+    @SerialName("schema_version") val schemaVersion: Int = 1,
+    val stats: ReaderStatsDto,
+    val narrative: String? = null,
+    @SerialName("in_library_recommendations") val inLibraryRecommendations: List<BookRecDto> = emptyList(),
+    @SerialName("discovery_recommendations") val discoveryRecommendations: List<BookRecDto> = emptyList(),
+    // BookRec entries with `source_type == "ai_suggested"`. Defaulted so
+    // older server builds (which omit the field) round-trip cleanly.
+    @SerialName("ai_suggested_recommendations") val aiSuggestedRecommendations: List<BookRecDto> = emptyList(),
+    val confidence: String? = null,
+)
+
+@Serializable
+data class ReaderProfileResponseDto(
+    val payload: ReaderProfilePayloadDto,
+    @SerialName("schema_version") val schemaVersion: Int,
+    @SerialName("model_id") val modelId: String,
+    @SerialName("prompt_version") val promptVersion: String,
+    @SerialName("input_fingerprint") val inputFingerprint: String? = null,
+    @SerialName("generated_at") val generatedAt: String,
 )
