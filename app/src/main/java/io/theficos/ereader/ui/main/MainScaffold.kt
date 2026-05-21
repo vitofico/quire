@@ -15,7 +15,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.vector.ImageVector
 
@@ -30,7 +30,10 @@ fun MainScaffold(
     initial: Tab = Tab.LIBRARY,
     content: @Composable (Tab, PaddingValues) -> Unit,
 ) {
-    var current by remember { mutableStateOf(initial) }
+    // rememberSaveable so the selected tab survives a navigation push to a
+    // detail screen + popBackStack: returning from catalog-detail should land
+    // back on the Catalog tab, not reset to the default LIBRARY.
+    var current by rememberSaveable { mutableStateOf(initial) }
     Scaffold(
         bottomBar = {
             NavigationBar(
