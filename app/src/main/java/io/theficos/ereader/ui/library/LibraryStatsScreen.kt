@@ -90,13 +90,24 @@ private fun ReadyState(padding: PaddingValues, stats: LibraryStatsResponse) {
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                CountCard(label = "Books", value = stats.totalBooks, modifier = Modifier.weight(1f))
-                CountCard(label = "Finished", value = stats.finishedCount, modifier = Modifier.weight(1f))
-                CountCard(label = "Reading", value = stats.inProgressCount, modifier = Modifier.weight(1f))
+            // 2×2 grid — Books / Finished / Reading / Abandoned. PR-9
+            // added Abandoned; 4 cards in one row are too narrow on phones,
+            // 2×2 scales down cleanly and leaves room for future tiles.
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    CountCard(label = "Books", value = stats.totalBooks, modifier = Modifier.weight(1f))
+                    CountCard(label = "Finished", value = stats.finishedCount, modifier = Modifier.weight(1f))
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    CountCard(label = "Reading", value = stats.inProgressCount, modifier = Modifier.weight(1f))
+                    CountCard(label = "Abandoned", value = stats.abandonedCount, modifier = Modifier.weight(1f))
+                }
             }
         }
         item { SectionHeading("Top authors") }

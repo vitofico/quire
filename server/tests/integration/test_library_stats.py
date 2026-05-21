@@ -71,6 +71,27 @@ def _progress_body(content_hash: str, percent: float, finished: bool, when: str)
     }
 
 
+def _abandon_body(content_hash: str, percent: float, when: str) -> dict:
+    """Progress payload that marks a book abandoned.
+
+    PR-α's progress endpoint enforces the XOR invariant: setting
+    `abandoned_at` requires `finished_at` to be null. `percent` is
+    preserved so e.g. abandoning at 60% remembers 60%.
+    """
+    return {
+        "items": [
+            {
+                "document": {"metadata_id": None, "content_hash": content_hash},
+                "locator": "{}",
+                "percent": percent,
+                "client_updated_at": when,
+                "finished_at": None,
+                "abandoned_at": when,
+            }
+        ]
+    }
+
+
 # ---------------------------------------------------------------------------
 # Counts
 # ---------------------------------------------------------------------------
@@ -86,6 +107,7 @@ async def test_empty_library_returns_zero_counts(app_under_test, unique_user):
     assert data["total_books"] == 0
     assert data["finished_count"] == 0
     assert data["in_progress_count"] == 0
+    assert data["abandoned_count"] == 0
     assert data["top_authors"] == []
     assert data["top_themes"] == []
     assert "may be missing" in data["themes_caveat"]
@@ -208,6 +230,175 @@ async def test_user_scoping(app_under_test, unique_user):
         r = await c.get("/library/v1/stats", headers=_basic("bob", "bobpass"))
     assert r.status_code == 200
     assert r.json()["total_books"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Abandoned counts (PR-9 Bundle 4)
+# ---------------------------------------------------------------------------
+
+
+async def test_abandoned_count_requires_abandoned_at(app_under_test, unique_user):
+    """abandoned_count counts only library_items whose Progress.abandoned_at
+    is set. Constructed via valid XOR-satisfying rows.
+    """
+    transport = ASGITransport(app=app_under_test)
+    headers = _basic(*unique_user)
+    now = datetime.now(UTC).isoformat()
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        # a: finished (finished_at set, abandoned_at NULL)
+        # b: abandoned at percent=0 (abandoned_at set, finished_at NULL)
+        # c: abandoned at percent=0.5 (abandoned_at set, finished_at NULL,
+        #    percent>0 — must NOT count as in_progress after PR-9 tightening)
+        await c.put("/library/v1/items", json=_put_body(content_hash="a"), headers=headers)
+        await c.put(
+            "/library/v1/items",
+            json=_put_body(content_hash="b", metadata_id="md-2"),
+            headers=headers,
+        )
+        await c.put(
+            "/library/v1/items",
+            json=_put_body(content_hash="c", metadata_id="md-3"),
+            headers=headers,
+        )
+        await c.post(
+            "/sync/v1/progress",
+            json=_progress_body("a", 1.0, True, now),
+            headers=headers,
+        )
+        await c.post(
+            "/sync/v1/progress",
+            json=_abandon_body("b", 0.0, now),
+            headers=headers,
+        )
+        await c.post(
+            "/sync/v1/progress",
+            json=_abandon_body("c", 0.5, now),
+            headers=headers,
+        )
+        r = await c.get("/library/v1/stats", headers=headers)
+    data = r.json()
+    assert data["abandoned_count"] == 2  # b and c
+    assert data["finished_count"] == 1  # a
+    # PR-9 tightening: c (percent=0.5 + abandoned) does NOT count as in_progress.
+    assert data["in_progress_count"] == 0
+
+
+async def test_counts_are_disjoint(app_under_test, unique_user):
+    """The three count buckets are mutually disjoint and never double-count."""
+    transport = ASGITransport(app=app_under_test)
+    headers = _basic(*unique_user)
+    now = datetime.now(UTC).isoformat()
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        # 5 books:
+        #  fin: finished
+        #  ab0: abandoned at 0
+        #  ab5: abandoned at 0.5
+        #  ip:  in-progress (percent=0.3, neither terminal flag)
+        #  un:  untouched (no progress row at all)
+        for ch, md in [("fin", "md-fin"), ("ab0", "md-ab0"), ("ab5", "md-ab5"),
+                       ("ip", "md-ip"), ("un", "md-un")]:
+            await c.put(
+                "/library/v1/items",
+                json=_put_body(content_hash=ch, metadata_id=md),
+                headers=headers,
+            )
+        await c.post(
+            "/sync/v1/progress", json=_progress_body("fin", 1.0, True, now), headers=headers,
+        )
+        await c.post(
+            "/sync/v1/progress", json=_abandon_body("ab0", 0.0, now), headers=headers,
+        )
+        await c.post(
+            "/sync/v1/progress", json=_abandon_body("ab5", 0.5, now), headers=headers,
+        )
+        await c.post(
+            "/sync/v1/progress", json=_progress_body("ip", 0.3, False, now), headers=headers,
+        )
+        r = await c.get("/library/v1/stats", headers=headers)
+    data = r.json()
+    assert data["total_books"] == 5
+    assert data["finished_count"] == 1
+    assert data["abandoned_count"] == 2
+    assert data["in_progress_count"] == 1
+    assert (
+        data["finished_count"] + data["abandoned_count"] + data["in_progress_count"]
+    ) <= data["total_books"]
+
+
+async def test_abandoned_count_excludes_tombstoned_books(app_under_test, unique_user):
+    """LibraryItem.deleted_at IS NOT NULL → not counted even if the
+    Progress row still has abandoned_at set (matches finished_count's
+    tombstone semantics).
+    """
+    transport = ASGITransport(app=app_under_test)
+    headers = _basic(*unique_user)
+    now = datetime.now(UTC).isoformat()
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        await c.put("/library/v1/items", json=_put_body(content_hash="x"), headers=headers)
+        await c.post(
+            "/sync/v1/progress", json=_abandon_body("x", 0.3, now), headers=headers,
+        )
+        # Tombstone the library item — the progress row survives.
+        await c.request(
+            "DELETE",
+            "/library/v1/items",
+            json={"item": {"content_hash": "x"}},
+            headers=headers,
+        )
+        r = await c.get("/library/v1/stats", headers=headers)
+    data = r.json()
+    assert data["abandoned_count"] == 0
+    assert data["total_books"] == 0
+
+
+async def test_abandoned_count_user_scoped(app_under_test, cwa_users):
+    """User A's abandoned books don't appear in user B's count."""
+    user_a = f"user-{uuid.uuid4().hex[:8]}"
+    user_b = f"user-{uuid.uuid4().hex[:8]}"
+    cwa_users[user_a] = "pw"
+    cwa_users[user_b] = "pw"
+    transport = ASGITransport(app=app_under_test)
+    now = datetime.now(UTC).isoformat()
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        await c.put(
+            "/library/v1/items",
+            json=_put_body(content_hash="a-ch"),
+            headers=_basic(user_a, "pw"),
+        )
+        await c.post(
+            "/sync/v1/progress",
+            json=_abandon_body("a-ch", 0.3, now),
+            headers=_basic(user_a, "pw"),
+        )
+        r_a = await c.get("/library/v1/stats", headers=_basic(user_a, "pw"))
+        r_b = await c.get("/library/v1/stats", headers=_basic(user_b, "pw"))
+    assert r_a.json()["abandoned_count"] == 1
+    assert r_b.json()["abandoned_count"] == 0
+
+
+async def test_in_progress_excludes_abandoned_rows(app_under_test, unique_user):
+    """PR-9 behaviour change: a book marked abandoned no longer counts as
+    in_progress even if percent > 0 and finished_at IS NULL. Backs the
+    'Reading excludes Abandoned' release-note guarantee.
+    """
+    transport = ASGITransport(app=app_under_test)
+    headers = _basic(*unique_user)
+    now = datetime.now(UTC).isoformat()
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        await c.put("/library/v1/items", json=_put_body(content_hash="r"), headers=headers)
+        # Start reading at 0.5
+        await c.post(
+            "/sync/v1/progress", json=_progress_body("r", 0.5, False, now), headers=headers,
+        )
+        # Then mark abandoned (advance client_updated_at to win LWW).
+        later = (datetime.now(UTC) + timedelta(seconds=1)).isoformat()
+        await c.post(
+            "/sync/v1/progress", json=_abandon_body("r", 0.5, later), headers=headers,
+        )
+        r = await c.get("/library/v1/stats", headers=headers)
+    data = r.json()
+    assert data["abandoned_count"] == 1
+    assert data["in_progress_count"] == 0
 
 
 # ---------------------------------------------------------------------------

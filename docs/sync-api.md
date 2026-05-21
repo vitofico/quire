@@ -289,6 +289,7 @@ Response:
   "total_books": 142,
   "finished_count": 37,
   "in_progress_count": 5,
+  "abandoned_count": 3,
   "top_authors": [
     { "name": "Isaac Asimov", "count": 12 },
     { "name": "Ursula K. Le Guin", "count": 7 }
@@ -301,7 +302,12 @@ Response:
 }
 ```
 
-- No `abandoned_count`: there is no explicit abandoned status yet.
+- `abandoned_count` counts library items whose Progress row has
+  `abandoned_at IS NOT NULL` (introduced alongside the
+  `progress.abandoned_at` column, PR-α). The three count buckets
+  (`finished_count`, `in_progress_count`, `abandoned_count`) are
+  mutually disjoint: `in_progress_count` excludes books marked
+  abandoned, even if their progress percent > 0.
 - `themes_caveat` is a constant server-emitted string the client renders
   verbatim. Sourcing it server-side means the wording can change without
   an app release.
