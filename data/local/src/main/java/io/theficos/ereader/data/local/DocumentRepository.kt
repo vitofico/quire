@@ -38,6 +38,18 @@ class DocumentRepository(private val dao: DocumentDao) {
     suspend fun findById(id: Long): Document? = dao.findById(id)?.toDomain()
 
     /**
+     * Lookup an already-downloaded document by the OPDS `downloadUrl` we
+     * stamped on it at download time. Used by the catalog detail view to
+     * detect "user already owns this book" so the insight lookup can target
+     * the LIBRARY identity (EPUB `dc:identifier` + content hash) instead of
+     * the catalog's synthetic `opds-href:<sha>` identity — keeps both views
+     * hitting the same `book_insights` row without needing a server-side
+     * promote (which only fires on fresh downloads).
+     */
+    suspend fun findByDownloadUrl(url: String): Document? =
+        dao.findByDownloadUrl(url)?.toDomain()
+
+    /**
      * Removes the row (cascade-deletes any [progress] row via FK), then best-effort
      * deletes the local EPUB file. The DB delete is the source of truth — if the
      * file unlink fails (e.g. already missing), the document is still gone from

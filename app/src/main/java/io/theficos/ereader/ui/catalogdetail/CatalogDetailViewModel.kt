@@ -58,6 +58,16 @@ class CatalogDetailViewModel(
     private val ai: CatalogAiPort,
     private val insightStash: CatalogInsightStash? = null,
     private val subjectProvider: () -> String? = { null },
+    /**
+     * Optional resolver that maps the catalog row's `epubDownloadHref` to
+     * the LIBRARY-side identity when the user already owns the book. When
+     * non-null AND the user owns the book, we use that identity instead of
+     * the synthetic `opds-href:<sha>` one — keeps catalog and library views
+     * hitting the same `book_insights` row even when no download (and hence
+     * no PR-ζ promote) ever happened. Returns null when the book is not in
+     * the local library or when the local row has no canonical identity.
+     */
+    private val localIdentityResolver: suspend (String) -> DocumentIdentity? = { null },
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(CatalogDetailState(publication = publication))
@@ -79,7 +89,12 @@ class CatalogDetailViewModel(
             return
         }
 
-        val identity = buildIdentity(publication)
+        // Already-owned books: re-use the library identity so the catalog
+        // view hits the same `book_insights` row the reader/library detail
+        // sees. Falls through to the synthetic `opds-href:<sha>` for genuine
+        // pre-download catalog browsing.
+        val identity = localIdentityResolver(publication.epubDownloadHref)
+            ?: buildIdentity(publication)
         val bundle = MetadataBundle(title = publication.title, author = publication.author)
 
         val cached = runCatching { ai.getCachedInsight(identity) }.getOrNull()

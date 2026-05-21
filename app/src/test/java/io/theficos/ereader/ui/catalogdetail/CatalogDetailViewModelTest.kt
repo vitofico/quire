@@ -293,6 +293,69 @@ class CatalogDetailViewModelTest {
         }
     }
 
+    @Test
+    fun `localIdentityResolver hit overrides the synthetic opds-href identity`() = runTest {
+        // Already-owned book: the library has a row at the EPUB's dc:identifier.
+        // The catalog view should look up under THAT identity so it hits the
+        // same `book_insights` row the reader/library detail sees.
+        val libraryIdentity = DocumentIdentity(
+            metadataId = "{7c97d6d5-3c82-41f7-91a6-1bc9fad3b0af}",
+            contentHash = "0ccc17241b8ca70b7c459c994b331678",
+        )
+        fakeAi.configFlow.value = AiConfig(configured = true)
+        fakeAi.prefsFlow.value = AiPreferences(aiEnabled = true, style = AiStyle())
+        fakeAi.cached = null
+        fakeAi.lookupResult = response
+
+        val vm = CatalogDetailViewModel(
+            publication = publication,
+            ai = fakeAi,
+            localIdentityResolver = { href ->
+                assertThat(href).isEqualTo(publication.epubDownloadHref)
+                libraryIdentity
+            },
+        )
+
+        vm.state.test {
+            var s = awaitItem()
+            while (s.insight !is InsightUiState.Loaded) s = awaitItem()
+            cancelAndIgnoreRemainingEvents()
+        }
+
+        val sent = fakeAi.lastLookupIdentity!!
+        assertThat(sent.metadataId).isEqualTo(libraryIdentity.metadataId)
+        assertThat(sent.contentHash).isEqualTo(libraryIdentity.contentHash)
+        // Crucially, the catalog synthetic identity was NOT used.
+        assertThat(sent.metadataId).doesNotContain("opds-href:")
+    }
+
+    @Test
+    fun `localIdentityResolver miss falls through to the synthetic opds-href identity`() = runTest {
+        // Genuine pre-download browse: the user does not own the book locally.
+        // Resolver returns null. We expect the existing PR-ζ behavior — synthetic
+        // identity, all alias hints, recordStashIfPossible runs.
+        fakeAi.configFlow.value = AiConfig(configured = true)
+        fakeAi.prefsFlow.value = AiPreferences(aiEnabled = true, style = AiStyle())
+        fakeAi.cached = null
+        fakeAi.lookupResult = response
+
+        val vm = CatalogDetailViewModel(
+            publication = publication,
+            ai = fakeAi,
+            localIdentityResolver = { null },
+        )
+
+        vm.state.test {
+            var s = awaitItem()
+            while (s.insight !is InsightUiState.Loaded) s = awaitItem()
+            cancelAndIgnoreRemainingEvents()
+        }
+
+        val sent = fakeAi.lastLookupIdentity!!
+        assertThat(sent.metadataId).startsWith("opds-href:")
+        assertThat(sent.opdsHref).isEqualTo(sent.metadataId)
+    }
+
     private class FakeAi : CatalogAiPort {
         override val configFlow = MutableStateFlow<AiConfig?>(null)
         override val prefsFlow = MutableStateFlow<AiPreferences?>(null)
