@@ -286,12 +286,17 @@ class LibraryInsightsViewModel(
     ): String? {
         if (stats == null) return null
         val latestProgressMs = progressDao.maxUpdatedAt()
-        val latestProgressIso = latestProgressMs?.let { Instant.ofEpochMilli(it).toString() }.orEmpty()
+        // Canonical representation MUST match the server (see
+        // `_compute_input_fingerprint` in service.py): epoch millis when
+        // present, literal "none" when absent. Java `Instant.toString()`
+        // emits `...Z` while Python's `datetime.isoformat()` emits
+        // `...+00:00`, so any ISO-based encoding diverges across runtimes.
+        val progressToken = latestProgressMs?.toString() ?: "none"
         val seed = buildString {
             append(profile.payload.stats.finishedCount); append('|')
             append(profile.payload.stats.inProgressCount); append('|')
             append(profile.payload.stats.abandonedCount); append('|')
-            append(latestProgressIso); append('|')
+            append(progressToken); append('|')
             append(stats.totalBooks); append('|')
             // Lock #15 / CC-8: NOT `topThemes.size`.
             append(profile.payload.stats.booksWithThemesCount)

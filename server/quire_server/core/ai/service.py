@@ -2618,10 +2618,22 @@ def _compute_input_fingerprint(
     Inputs MUST include ``books_with_themes_count`` (Lock #15 — pr-γ uses
     the fingerprint to detect when v4+ theme coverage shifted under the
     profile).
+
+    Canonical representation contract (server + Android MUST agree):
+
+      * ``latest_progress_updated_at`` is serialized as epoch milliseconds
+        when present, or the literal string ``"none"`` when absent. This
+        avoids ISO-8601 trailing-offset divergence (``+00:00`` on the
+        server vs ``Z`` from ``java.time.Instant.toString()``) which
+        previously caused gratuitous staleness banners.
     """
+    if latest_progress_updated_at is None:
+        progress_token = "none"
+    else:
+        progress_token = str(int(latest_progress_updated_at.timestamp() * 1000))
     raw = (
         f"{stats.finished_count}|{stats.in_progress_count}|{stats.abandoned_count}|"
-        f"{latest_progress_updated_at.isoformat() if latest_progress_updated_at else 'none'}|"
+        f"{progress_token}|"
         f"{library_items_count}|{stats.books_with_themes_count}"
     )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]

@@ -141,8 +141,25 @@ class LibraryInsightsViewModelTest {
 
     @Test fun `local fingerprint matches when inputs equal server recipe`() = runBlocking {
         progressDao.seed(progressRow(updatedAt = 1_000L))
-        val expectedIso = java.time.Instant.ofEpochMilli(1_000L).toString()
-        val seed = "3|2|1|$expectedIso|12|7"
+        // Canonical recipe: epoch millis (or "none") — must agree with the
+        // Python-side `_compute_input_fingerprint`. Using ISO-8601 here
+        // would diverge: Python emits `+00:00`, Java emits `Z`.
+        val seed = "3|2|1|1000|12|7"
+        val expectedFp = sha256Hex(seed).take(16)
+        server.dispatcher = pathDispatcher(
+            "/ai/v1/profile" to { MockResponse().setResponseCode(200).setBody(profileJsonWithFp(expectedFp)) },
+            "/library/v1/stats" to { MockResponse().setResponseCode(200).setBody(STATS_JSON) },
+        )
+        val vm = newVm()
+        vm.reload()
+        val s = awaitTerminal(vm) as LibraryInsightsUiState.Loaded
+        assertThat(s.stale).isFalse()
+    }
+
+    @Test fun `local fingerprint uses none token when no progress rows exist`() = runBlocking {
+        // progressDao is empty — maxUpdatedAt() returns null, so the
+        // canonical token MUST be the literal "none" (NOT "" or "null").
+        val seed = "3|2|1|none|12|7"
         val expectedFp = sha256Hex(seed).take(16)
         server.dispatcher = pathDispatcher(
             "/ai/v1/profile" to { MockResponse().setResponseCode(200).setBody(profileJsonWithFp(expectedFp)) },
