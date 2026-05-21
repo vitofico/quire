@@ -69,8 +69,8 @@ Routing inside the Caddy front-end (`caddy/Caddyfile`):
 {$QUIRE_SITE_ADDRESS:localhost} {
     tls internal
 
-    @opds path /sync/* /ai/* /library/* /health /readyz
-    handle @opds {
+    @quire path /sync/* /ai/* /library/* /health /readyz
+    handle @quire {
         reverse_proxy quire-server:8000
     }
 
@@ -138,6 +138,66 @@ Set both flags in `.env`. Sync-only deploys don't need
 `QUIRE_SERVER_AI_*`; AI-only deploys don't need calibre-web auth once
 PR-B's token mode is selected (`QUIRE_SERVER_AI_AUTH_MODE=token`).
 
+##### Mode examples
+
+**Full stack** (default — nothing to change):
+
+```dotenv
+QUIRE_SERVER_PROGRESS_ENABLED=true
+QUIRE_SERVER_AI_ENABLED=true
+QUIRE_SERVER_AI_BASE_URL=https://ollama.example.com/v1
+QUIRE_SERVER_AI_MODEL=gpt-oss:120b-cloud
+QUIRE_SERVER_AI_API_KEY=sk-...
+```
+
+**Sync only** (privacy purists; no LLM calls leave the host):
+
+```dotenv
+QUIRE_SERVER_PROGRESS_ENABLED=true
+QUIRE_SERVER_AI_ENABLED=false
+# QUIRE_SERVER_AI_* may be omitted — they're unused.
+```
+
+In sync-only mode:
+
+- The Caddyfile's `/ai/*` matcher still routes to quire-server, which
+  returns **404** for those paths because the AI router is not mounted.
+  This is intentional, not a broken proxy.
+- `GET /health` returns the health payload without an `ai` mode key
+  (the `ai` block is omitted when `QUIRE_SERVER_AI_ENABLED=false`).
+- `GET /ai/v1/health` returns 404 (the router itself is gone, not
+  just the endpoint).
+
+If you want a cleaner 404 surface, drop the `/ai/*` token from the
+Caddyfile's `@quire` matcher so those paths fall through to
+calibre-web (which also 404s — same outcome, different actor).
+
+**AI only** (future hosted Quire Cloud AI — no calibre-web in the
+stack). The full edit set for `docker-compose.full.yml` + `caddy/Caddyfile`:
+
+1. Delete the entire `calibre-web:` service block.
+2. Inside `caddy.depends_on`, remove the `calibre-web: condition: service_healthy`
+   entry. Caddy must NOT depend on a service that doesn't exist, or
+   `docker compose config/up` fails.
+3. In `caddy/Caddyfile`, replace the trailing default handler
+   `handle { reverse_proxy calibre-web:8083 }` with
+   `handle { respond 404 }` so unknown paths return a clean 404
+   rather than a connection failure to a missing upstream.
+
+`.env` for AI-only:
+
+```dotenv
+QUIRE_SERVER_PROGRESS_ENABLED=false
+QUIRE_SERVER_AI_ENABLED=true
+QUIRE_SERVER_AI_BASE_URL=https://...
+QUIRE_SERVER_AI_MODEL=...
+QUIRE_SERVER_AI_API_KEY=...
+QUIRE_SERVER_AI_AUTH_MODE=token
+QUIRE_SERVER_AI_TOKEN_SECRETS='{"kid-2026-05": "..."}'
+QUIRE_SERVER_AI_TOKEN_ISSUER=https://issuer.example.com
+QUIRE_SERVER_AI_TOKEN_AUDIENCE=quire-server
+```
+
 ### Migrations
 
 Migrations run automatically on container start via `scripts/migrate.py`,
@@ -202,6 +262,8 @@ the env-compat helper. The DB-name non-rename is permanent.
 | `QUIRE_SERVER_AI_DAILY_BUDGET`         | `200`                                  | Per-user generations per UTC day; 0 disables.                           |
 | `QUIRE_SERVER_AI_REGEN_DAILY_LIMIT`    | `3`                                    | Per-user `/insights/regenerate` ceiling per UTC day.                    |
 | `QUIRE_SERVER_AI_PROMOTE_DAILY_LIMIT`  | `100`                                  | Per-user `/insights/promote` ceiling per UTC day; process-local counter, 0 disables. (PR-ζ) |
+| `QUIRE_SERVER_AI_PROFILE_REFRESH_DAILY_LIMIT` | `3`                              | Reader Profile refresh cap per user per UTC day. (PR-β)                 |
+| `QUIRE_SERVER_AI_PROFILE_TIMEOUT_S`    | `90`                                   | Reader Profile orchestrator timeout, in seconds. (PR-β)                 |
 | `QUIRE_SERVER_AI_AUTH_MODE`            | `basic`                                | `basic` (default, wraps calibre-web verifier) or `token` (HMAC-SHA256). |
 | `QUIRE_SERVER_AI_TOKEN_SECRETS`        | unset                                  | Token mode: JSON `{kid: secret}`. Each secret ≥32 bytes; multiple kids enable rotation. |
 | `QUIRE_SERVER_AI_TOKEN_ISSUER`         | unset                                  | Token mode: required; validated against `iss`.                          |
@@ -285,6 +347,19 @@ Expect: `/config` reports `configured: true` with the model id, `/preferences`
 echoes `ai_enabled: true`, and `/insights/lookup` returns a populated
 `payload.summary`, at least one Wikipedia or OpenLibrary `sources` entry,
 and `payload.confidence` of `medium` or `high`.
+
+Once the cache has at least one row, the bulk-sync and reader-profile
+surfaces are also reachable from the same shell session:
+
+```sh
+# Insight bulk-sync (PR-η; first call uses empty cursor; the response's
+# `next_cursor` is a (generated_at, id) tuple - persist the full pair).
+curl -fsS -H "Authorization: Basic $AUTH" "$BASE/insights/sync?limit=100" | jq
+
+# Reader profile (PR-α/β; opt-in required via /preferences; refresh
+# capped at QUIRE_SERVER_AI_PROFILE_REFRESH_DAILY_LIMIT per UTC day).
+curl -fsS -H "Authorization: Basic $AUTH" "$BASE/profile" | jq
+```
 
 When the server runs inside a Kubernetes cluster and is not exposed
 locally, the same three calls work from inside the pod:

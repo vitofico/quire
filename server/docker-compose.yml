@@ -10,6 +10,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
       POSTGRES_DB: opds_sync
     volumes:
+      # Volume name retained as `opds_sync_pg` for the back-compat
+      # window; existing deployments must not silently lose their DB.
+      # A future PR may rename it with an explicit upgrade banner.
       - opds_sync_pg:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U opds_sync"]
@@ -24,13 +27,11 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      # New QUIRE_SERVER_* prefix preferred; the server still accepts the
-      # legacy OPDS_SYNC_* names for one release cycle (see server/README.md).
       QUIRE_SERVER_DATABASE_URL: postgresql+asyncpg://opds_sync:${POSTGRES_PASSWORD:-changeme}@postgres:5432/opds_sync
-      QUIRE_SERVER_CWA_BASE_URL: ${QUIRE_SERVER_CWA_BASE_URL:-${OPDS_SYNC_CWA_BASE_URL}}
-      QUIRE_SERVER_LOG_LEVEL: ${QUIRE_SERVER_LOG_LEVEL:-${OPDS_SYNC_LOG_LEVEL:-INFO}}
+      QUIRE_SERVER_CWA_BASE_URL: ${QUIRE_SERVER_CWA_BASE_URL}
+      QUIRE_SERVER_LOG_LEVEL: ${QUIRE_SERVER_LOG_LEVEL:-INFO}
     ports:
-      - "${QUIRE_SERVER_PORT:-${OPDS_SYNC_PORT:-8000}}:8000"
+      - "${QUIRE_SERVER_PORT:-8000}:8000"
     command: >
       sh -c "python /app/scripts/migrate.py &&
              uvicorn quire_server.main:app --host 0.0.0.0 --port 8000"
