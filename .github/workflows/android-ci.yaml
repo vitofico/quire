@@ -78,13 +78,23 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-            git add gradle.properties
-            git commit -m ":bookmark: chore: release v$NEW_NAME"
-            git tag "v$NEW_NAME"
-            # A docs-only / server-only merge can land on main between our
-            # checkout and our push, leaving HEAD non-fast-forward. Rebase
-            # onto the latest main and retry; the bump commit only touches
-            # gradle.properties so conflicts here are not expected.
+
+            # If another main push lands between our checkout and our push
+            # (or between two consecutive bump runs), HEAD is non-fast-forward.
+            # The naive `git rebase` strategy conflicts when both bump commits
+            # mutate the same `VERSION_NAME=` line — that's unrecoverable
+            # without manual resolution. Instead, on rejection we reset hard
+            # to the latest main, re-apply the bump on top, and retry. The
+            # bump value is derived from GITHUB_RUN_NUMBER which is stable
+            # across retries, so we always end up with a unique tag.
+            apply_bump() {
+              sed -i "s/^VERSION_NAME=.*/VERSION_NAME=$NEW_NAME/" gradle.properties
+              sed -i "s/^VERSION_CODE=.*/VERSION_CODE=$NEW_CODE/" gradle.properties
+              git add gradle.properties
+              git commit -m ":bookmark: chore: release v$NEW_NAME"
+              git tag -f "v$NEW_NAME"
+            }
+            apply_bump
             attempts=0
             until git push origin "HEAD:$GITHUB_REF" "v$NEW_NAME"; do
               attempts=$((attempts + 1))
@@ -92,9 +102,11 @@ jobs:
                 echo "release bump push failed after $attempts attempts" >&2
                 exit 1
               fi
-              echo "release bump push rejected; rebasing and retrying ($attempts)…"
+              echo "release bump push rejected; resetting + re-applying bump ($attempts)…"
               git fetch origin "$GITHUB_REF"
-              git rebase "origin/${GITHUB_REF#refs/heads/}"
+              git tag -d "v$NEW_NAME" 2>/dev/null || true
+              git reset --hard "origin/${GITHUB_REF#refs/heads/}"
+              apply_bump
             done
 
             VERSION="$NEW_NAME"
