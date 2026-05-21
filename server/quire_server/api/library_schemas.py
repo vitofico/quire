@@ -141,6 +141,12 @@ class LibraryStatsResponse(BaseModel):
     total_books: int
     finished_count: int
     in_progress_count: int
+    # PR-9 (Bundle 4): purely additive. The three count buckets
+    # (`finished_count`, `in_progress_count`, `abandoned_count`) are
+    # mutually disjoint — a book counted under `abandoned_count` is NOT
+    # also counted under `in_progress_count` even if its percent > 0.
+    # See `library.py::get_stats` for the SQL gates that enforce this.
+    abandoned_count: int
     top_authors: list[TopAuthor]
     top_themes: list[TopTheme]
     themes_caveat: str

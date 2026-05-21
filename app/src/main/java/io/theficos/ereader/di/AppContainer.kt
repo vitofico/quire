@@ -30,6 +30,7 @@ import io.theficos.ereader.ui.catalogdetail.CatalogDetailRegistry
 import io.theficos.ereader.ui.catalogdetail.CatalogDetailViewModel
 import io.theficos.ereader.ui.library.LibraryInsightsViewModel
 import io.theficos.ereader.ui.library.LibraryPreferencesStore
+import io.theficos.ereader.ui.library.LibraryStatsCache
 import io.theficos.ereader.ui.library.LibraryStatsViewModel
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
@@ -282,7 +283,15 @@ class CatalogDetailViewModelFactory(
 class LibraryStatsViewModelFactory(
     private val client: LibraryClient,
 ) {
-    fun create() = LibraryStatsViewModel(fetch = { client.getStats() })
+    // Process-lifetime cache. Held here (not on the ViewModel) so that
+    // navigating away from the Stats screen and back gives the new VM
+    // instance an immediate `Ready(cached)` — i.e. real SWR across VMs.
+    private val cache = LibraryStatsCache()
+
+    fun create() = LibraryStatsViewModel(
+        fetch = { client.getStats() },
+        cache = cache,
+    )
 }
 
 class LibraryInsightsViewModelFactory(

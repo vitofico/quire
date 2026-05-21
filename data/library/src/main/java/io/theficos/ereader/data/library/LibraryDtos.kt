@@ -21,6 +21,12 @@ data class LibraryStatsResponse(
     @SerialName("total_books") val totalBooks: Int,
     @SerialName("finished_count") val finishedCount: Int,
     @SerialName("in_progress_count") val inProgressCount: Int,
+    // PR-9 (Bundle 4): additive. The `= 0` default tolerates a server that
+    // hasn't yet deployed PR-9 (back-compat). Combined with
+    // `LibraryClient`'s `ignoreUnknownKeys = true`, the response is
+    // forward-compat too: a newer server adding more fields won't break
+    // older clients.
+    @SerialName("abandoned_count") val abandonedCount: Int = 0,
     @SerialName("top_authors") val topAuthors: List<TopAuthor>,
     @SerialName("top_themes") val topThemes: List<TopTheme>,
     @SerialName("themes_caveat") val themesCaveat: String,

@@ -158,10 +158,14 @@ class CatalogDetailViewModel(
          *    `synthetic:metadata_id:opds-href:<sha>` via
          *    `_synthetic_content_hash`.
          *
-         * Note: this catalog row does NOT converge with the post-download
-         * row (different identifier spaces — calibre-web's OPDS uuid vs the
-         * EPUB OPF dc:identifier). Convergence requires a server-side
-         * promote endpoint, tracked as a follow-up.
+         * Note: this catalog row uses a different identifier space than the
+         * post-download row (calibre-web's OPDS uuid vs the EPUB OPF
+         * dc:identifier). Convergence is handled by PR-ζ's promote-on-download
+         * flow (server-side `POST /ai/v1/insights/promote` copies the
+         * pre-download book_insight row to the post-download content_hash)
+         * and by PR-η's `:data:ai` local cache + `/ai/v1/insights/sync`
+         * pull, which keeps catalog detail and reader views consistent
+         * without re-generating.
          */
         fun buildIdentity(publication: OpdsPublication): DocumentIdentity {
             val opdsHrefValue = "opds-href:" + sha256Hex(publication.epubDownloadHref)

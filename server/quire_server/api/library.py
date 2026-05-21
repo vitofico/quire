@@ -295,9 +295,15 @@ async def get_stats(
         )
     ) or 0
 
-    # 2b. in_progress_count: started but not finished. We do NOT cap at
-    #     percent < 1: a book at percent=1 with finished_at IS NULL still
-    #     counts as in-progress ("not done until the device says so").
+    # 2b. in_progress_count: started but not finished AND not abandoned.
+    #     We do NOT cap at percent < 1: a book at percent=1 with finished_at
+    #     IS NULL still counts as in-progress ("not done until the device
+    #     says so"). PR-9 (Bundle 4) tightens this to require
+    #     `abandoned_at IS NULL` so the three count buckets
+    #     (`finished_count`, `in_progress_count`, `abandoned_count`) are
+    #     mutually disjoint. User-visible effect: a book marked abandoned
+    #     no longer counts as "Reading", matching the release-note framing
+    #     "Reading excludes Abandoned".
     in_progress_count = (
         await session.scalar(
             select(func.count())
@@ -314,7 +320,34 @@ async def get_stats(
                 LibraryItem.user_id == user_id,
                 LibraryItem.deleted_at.is_(None),
                 Progress.finished_at.is_(None),
+                Progress.abandoned_at.is_(None),
                 Progress.percent > 0,
+            )
+        )
+    ) or 0
+
+    # 2c. abandoned_count: library_items JOIN documents JOIN progress, where
+    #     abandoned_at IS NOT NULL. The XOR check constraint (PR-α migration
+    #     progress_002_abandoned_at) guarantees finished_at IS NULL for
+    #     these rows; we add the explicit predicate as belt-and-suspenders
+    #     against future relaxation of the constraint.
+    abandoned_count = (
+        await session.scalar(
+            select(func.count())
+            .select_from(LibraryItem)
+            .join(
+                Document,
+                and_(
+                    Document.user_id == LibraryItem.user_id,
+                    Document.content_hash == LibraryItem.content_hash,
+                ),
+            )
+            .join(Progress, Progress.document_pk == Document.pk)
+            .where(
+                LibraryItem.user_id == user_id,
+                LibraryItem.deleted_at.is_(None),
+                Progress.abandoned_at.is_not(None),
+                Progress.finished_at.is_(None),
             )
         )
     ) or 0
@@ -409,10 +442,15 @@ async def get_stats(
         TopTheme(theme=row.theme, count=int(row.c), note="v3+ insights only") for row in theme_rows
     ]
 
+    # NOTE (Lock #12): /library/v1/stats does NOT include a fingerprint. The
+    # AI profile envelope owns the input_fingerprint contract; stats uses a
+    # lightweight in-memory cache on the client (stale-while-revalidate) and
+    # does not participate in profile staleness checks.
     return LibraryStatsResponse(
         total_books=int(total_books),
         finished_count=int(finished_count),
         in_progress_count=int(in_progress_count),
+        abandoned_count=int(abandoned_count),
         top_authors=top_authors,
         top_themes=top_themes,
         themes_caveat=LIBRARY_STATS_THEMES_CAVEAT,
