@@ -59,7 +59,33 @@ fun LibraryInsightsScreen(
 ) {
     LaunchedEffect(Unit) { viewModel.reload() }
     val state by viewModel.state.collectAsState()
+    LibraryInsightsScreenContent(
+        state = state,
+        onBack = onBack,
+        onOpenBook = onOpenBook,
+        onOpenWeb = onOpenWeb,
+        onOpenSettings = onOpenSettings,
+        onRefresh = { viewModel.refresh() },
+    )
+}
 
+/**
+ * Stateless overload — drives the screen straight off a [LibraryInsightsUiState]
+ * value so unit/UI tests can render any state without constructing a real
+ * [LibraryInsightsViewModel] (whose deps include AiRepository, LibraryClient,
+ * ProgressDao, …). Production wiring goes through the VM-flavored
+ * `LibraryInsightsScreen` above.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun LibraryInsightsScreenContent(
+    state: LibraryInsightsUiState,
+    onBack: () -> Unit,
+    onOpenBook: (DocumentIdentity) -> Unit,
+    onOpenWeb: (String) -> Unit,
+    onOpenSettings: () -> Unit,
+    onRefresh: () -> Unit,
+) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -76,19 +102,19 @@ fun LibraryInsightsScreen(
             is LibraryInsightsUiState.Disabled ->
                 DisabledScreen(padding, s, onOpenSettings = onOpenSettings)
             is LibraryInsightsUiState.Empty ->
-                EmptyScreen(padding, s, onGenerate = { viewModel.refresh() })
+                EmptyScreen(padding, s, onGenerate = onRefresh)
             is LibraryInsightsUiState.Loading ->
                 LoadingScreen(padding, s)
             is LibraryInsightsUiState.Loaded ->
                 LoadedScreen(
                     padding = padding,
                     loaded = s,
-                    onRefresh = { viewModel.refresh() },
+                    onRefresh = onRefresh,
                     onOpenBook = onOpenBook,
                     onOpenWeb = onOpenWeb,
                 )
             is LibraryInsightsUiState.Error ->
-                ErrorScreen(padding, s, onRetry = { viewModel.refresh() })
+                ErrorScreen(padding, s, onRetry = onRefresh)
         }
     }
 }

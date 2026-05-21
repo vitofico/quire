@@ -115,4 +115,19 @@ dependencies {
     testImplementation(libs.okhttp.mockwebserver)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.room.testing)
+
+    // Compose UI test harness — runs screen-level tests under Robolectric so
+    // `scripts/dgradle :app:testDebugUnitTest` can exercise composables
+    // without an emulator. `ui-test-manifest` ships the ComponentActivity
+    // stub the harness needs to host content; it has to be on the unit-test
+    // classpath alongside `ui-test-junit4`.
+    //
+    // Tests that depend on these live in `src/testDebug/` so they only build
+    // and run against the debug variant — keeps `:app:testReleaseUnitTest`
+    // (which CI runs alongside the debug one) from trying to compile against
+    // `debugImplementation`-scoped deps and failing.
+    testImplementation(platform(libs.compose.bom))
+    testImplementation(libs.compose.ui.test)
+    testImplementation(libs.compose.ui.test.junit4)
+    debugImplementation(libs.compose.ui.test.manifest)
 }
