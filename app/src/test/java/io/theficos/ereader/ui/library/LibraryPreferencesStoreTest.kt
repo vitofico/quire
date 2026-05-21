@@ -12,7 +12,7 @@ import org.robolectric.annotation.Config
 class LibraryPreferencesStoreTest {
 
     private fun fresh() = LibraryPreferencesStore(ApplicationProvider.getApplicationContext()).also {
-        it.update(LibrarySort.RECENTLY_READ)
+        it.updateSort(LibrarySort.RECENTLY_READ)
     }
 
     @Test fun `default sort is RECENTLY_READ when nothing is stored`() {
@@ -20,16 +20,17 @@ class LibraryPreferencesStoreTest {
         ctx.getSharedPreferences("library_prefs", android.content.Context.MODE_PRIVATE)
             .edit().clear().commit()
         val store = LibraryPreferencesStore(ctx)
-        assertThat(store.flow.value).isEqualTo(LibrarySort.RECENTLY_READ)
+        assertThat(store.flow.value.sort).isEqualTo(LibrarySort.RECENTLY_READ)
+        assertThat(store.flow.value.showAbandoned).isFalse()
     }
 
     @Test fun `sort round-trips through update and reload`() {
         val store1 = fresh()
-        store1.update(LibrarySort.AUTHOR)
-        assertThat(store1.flow.value).isEqualTo(LibrarySort.AUTHOR)
+        store1.updateSort(LibrarySort.AUTHOR)
+        assertThat(store1.flow.value.sort).isEqualTo(LibrarySort.AUTHOR)
 
         val store2 = LibraryPreferencesStore(ApplicationProvider.getApplicationContext())
-        assertThat(store2.flow.value).isEqualTo(LibrarySort.AUTHOR)
+        assertThat(store2.flow.value.sort).isEqualTo(LibrarySort.AUTHOR)
     }
 
     @Test fun `unknown stored value falls back to default`() {
@@ -37,6 +38,6 @@ class LibraryPreferencesStoreTest {
         ctx.getSharedPreferences("library_prefs", android.content.Context.MODE_PRIVATE)
             .edit().putString("library_sort", "NONSENSE").apply()
         val store = LibraryPreferencesStore(ctx)
-        assertThat(store.flow.value).isEqualTo(LibrarySort.RECENTLY_READ)
+        assertThat(store.flow.value.sort).isEqualTo(LibrarySort.RECENTLY_READ)
     }
 }

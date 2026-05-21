@@ -2,6 +2,7 @@ package io.theficos.ereader.ui.settings
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -15,14 +16,18 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -68,11 +73,24 @@ fun SettingsScreen(
     val calibre by viewModel.calibre.collectAsState()
     val reader by viewModel.readerPreferences.collectAsState()
     val aiState by viewModel.ai.collectAsState()
+    val deleteInFlight by viewModel.deleteProfileInFlight.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
 
+    LaunchedEffect(Unit) {
+        viewModel.events.collect { event ->
+            val msg = when (event) {
+                SettingsEvent.ProfileDeleted -> "Reader profile deleted."
+                is SettingsEvent.ProfileDeleteFailed ->
+                    "Couldn't delete reader profile: ${event.message}"
+            }
+            snackbarHostState.showSnackbar(msg)
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize().padding(contentPadding)) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(contentPadding)
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
@@ -403,6 +421,28 @@ fun SettingsScreen(
                                 }
                             }
                         }
+
+                        // PR-δ: delete server-side reader profile.
+                        Column {
+                            Text(
+                                "Reader profile",
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            Text(
+                                "Removes the AI-generated profile from the server. " +
+                                    "A new one is built next time you refresh insights.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Button(
+                                onClick = { viewModel.deleteReaderProfile() },
+                                enabled = !deleteInFlight,
+                            ) {
+                                Text(
+                                    if (deleteInFlight) "Deleting…" else "Delete reader profile",
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -429,6 +469,11 @@ fun SettingsScreen(
                 )
             }
         }
+    }
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
     }
 }
 

@@ -16,6 +16,7 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import and_, case, or_, select
+from sqlalchemy import delete as sa_delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from quire_server.api.ai_auth import AiPrincipal, get_ai_principal
@@ -576,6 +577,37 @@ async def refresh_profile(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(exc),
         ) from exc
+
+
+@router.delete("/profile", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_profile(
+    request: Request,
+    principal: Annotated[AiPrincipal, Depends(get_ai_principal)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> Response:
+    """Delete the caller's reader profile. Idempotent — always 204.
+
+    PR-δ. Mode-gated on ``ai_enabled`` (503 ``ai_disabled`` when the
+    orchestrator is absent — mirrors the existing mutating handlers in
+    this file). Opt-in required (409 ``ai_not_opted_in`` via
+    ``_require_opt_in``). On success the row at
+    ``(tenant_id=principal.tenant_id, subject=principal.subject)`` is
+    removed; if no row exists the response is still 204 (idempotent —
+    Lock #3, coordinator §3.8). No audit-log row is written (PR-β owns
+    profile audit-log emission).
+    """
+    orch = _orchestrator(request)
+    if orch is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="ai_disabled")
+    await _require_opt_in(session, principal.subject)
+    await session.execute(
+        sa_delete(ReaderProfile).where(
+            ReaderProfile.tenant_id == principal.tenant_id,
+            ReaderProfile.subject == principal.subject,
+        )
+    )
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/health", response_model=AiHealthResponse)
