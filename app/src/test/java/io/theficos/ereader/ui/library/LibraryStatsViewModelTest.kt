@@ -153,4 +153,76 @@ class LibraryStatsViewModelTest {
             assertThat(ready.stats.abandonedCount).isEqualTo(5)
         }
     }
+
+    /**
+     * Real SWR: navigating away from the screen and reopening it must NOT
+     * show a spinner flash. Achieved by hoisting the cache out of the VM
+     * into a shared holder that lives on the factory (process lifetime).
+     *
+     * Without the fix, the new VM has an empty per-instance cache and emits
+     * Loading until the network call returns.
+     */
+    @Test
+    fun `new VM via shared cache emits Ready before fetch completes`() = runTest(dispatcher) {
+        val cache = LibraryStatsCache()
+        // First VM populates the cache.
+        val vm1 = LibraryStatsViewModel(fetch = { fakeStats }, cache = cache)
+        vm1.state.test {
+            awaitItem() // Loading
+            vm1.load()
+            val first = awaitItem() as LibraryStatsUiState.Ready
+            assertThat(first.stats.totalBooks).isEqualTo(3)
+        }
+
+        // Simulate back-out + re-entry: a fresh VM, same factory-held cache.
+        // The fetch lambda suspends forever so we can prove the cached Ready
+        // is visible BEFORE any network result arrives.
+        val gate = kotlinx.coroutines.CompletableDeferred<LibraryStatsResponse>()
+        val vm2 = LibraryStatsViewModel(fetch = { gate.await() }, cache = cache)
+        vm2.state.test {
+            // Initial state is already Ready(cached) — no Loading flash.
+            val initial = awaitItem()
+            assertThat(initial).isInstanceOf(LibraryStatsUiState.Ready::class.java)
+            assertThat((initial as LibraryStatsUiState.Ready).stats.totalBooks).isEqualTo(3)
+            vm2.load()
+            // Still Ready(cached) while the in-flight fetch is gated.
+            expectNoEvents()
+            // Now let the fetch complete with fresh data.
+            gate.complete(fakeStats.copy(totalBooks = 42))
+            val refreshed = awaitItem() as LibraryStatsUiState.Ready
+            assertThat(refreshed.stats.totalBooks).isEqualTo(42)
+        }
+    }
+
+    /**
+     * Concurrency guard: an in-flight fetch launched before a later load()
+     * must not clobber state once a newer request has started. Regression
+     * test for the catch-path race noted in PR review.
+     */
+    @Test
+    fun `stale catch-path response does not override fresh success`() = runTest(dispatcher) {
+        val slowFail = kotlinx.coroutines.CompletableDeferred<LibraryStatsResponse>()
+        var call = 0
+        val vm = LibraryStatsViewModel(fetch = {
+            call++
+            if (call == 1) {
+                slowFail.await() // never completes normally; we'll fail it
+                error("unreachable")
+            } else {
+                fakeStats.copy(totalBooks = 7)
+            }
+        })
+        vm.state.test {
+            awaitItem() // Loading
+            vm.load() // call 1 in flight
+            // Kick off a second load BEFORE the first errors out.
+            vm.load() // call 2 — succeeds
+            val ready = awaitItem() as LibraryStatsUiState.Ready
+            assertThat(ready.stats.totalBooks).isEqualTo(7)
+            // Now let the first call fail. With the generation guard, the
+            // stale failure must be ignored: no Error emission.
+            slowFail.completeExceptionally(LibraryHttpException(500, "stale"))
+            expectNoEvents()
+        }
+    }
 }
