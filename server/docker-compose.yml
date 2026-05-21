@@ -1,3 +1,10 @@
+# NOTE FOR SELF-HOSTERS UPGRADING FROM A PREVIOUS RELEASE:
+# The Postgres named volume was renamed from `opds_sync_pg` to `pg_data` on
+# 2026-05-21. If you have an existing deployment, DO NOT simply `docker
+# compose up -d` — you must copy the old volume to the new name first or
+# Postgres will start with an empty data directory. See ./UPGRADING.md for
+# step-by-step instructions.
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -10,10 +17,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
       POSTGRES_DB: opds_sync
     volumes:
-      # Volume name retained as `opds_sync_pg` for the back-compat
-      # window; existing deployments must not silently lose their DB.
-      # A future PR may rename it with an explicit upgrade banner.
-      - opds_sync_pg:/var/lib/postgresql/data
+      # Renamed from `opds_sync_pg` on 2026-05-21 to match
+      # docker-compose.full.yml. Existing deployments: see ./UPGRADING.md.
+      - pg_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U opds_sync"]
       interval: 5s
@@ -37,4 +43,4 @@ services:
              uvicorn quire_server.main:app --host 0.0.0.0 --port 8000"
 
 volumes:
-  opds_sync_pg:
+  pg_data:
