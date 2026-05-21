@@ -140,6 +140,7 @@ jobs:
                 -g '!server/quire_server/config.py' \
                 -g '!server/docker-compose.yml' \
                 -g '!server/docker-compose.full.yml' \
+                -g '!server/UPGRADING.md' \
                 -g '!server/alembic.ini' \
                 -g '!server/migrations/env.py' \
                 -g '!server/.env.example' \
