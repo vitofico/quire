@@ -470,3 +470,70 @@ class ReaderProfile(Base):
     generated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+# ============================================================================
+# Native auth (Phase 0, task S-1) — `auth` branch.
+# ----------------------------------------------------------------------------
+# Email/password + opaque session token storage for the Cloud product. The
+# OSS server keeps CalibreWeb Basic auth as default; these tables only get
+# populated when `QUIRE_SERVER_AUTH_BACKEND=native`. They are always
+# materialized regardless of mode (the `auth` Alembic branch is unconditional)
+# so the schema is stable across deployments.
+#
+# Scope discipline (per 2026-05-22-quire-monetization-design.md
+# "Architectural changes → Thin auth abstraction in `quire_server`"):
+# self-host UX polish (password reset, recovery flows, abuse handling) is
+# explicitly deferred. These tables ship only the minimum Cloud needs.
+#
+# user_id namespace: a NativeUser surfaces in existing user-scoped tables
+# (Document.user_id, LibraryItem.user_id, user_ai_preferences.user_id,
+# ai_usage_daily.user_id) as the string `"native:<id>"`. Calibre users keep
+# their lowercase CWA username. Email is the login identity, NOT the storage
+# identity, so renaming an email never rewrites user-scoped rows.
+# ============================================================================
+class NativeUser(Base):
+    __tablename__ = "native_users"
+    __table_args__ = (
+        # The application always lowercases+casefolds before INSERT; the
+        # CHECK guarantees the stored value is canonical at the DB layer,
+        # so a buggy writer can't sneak an inconsistent casing past the
+        # unique index. `casefold()` is not exposed in Postgres, so we
+        # use the closest available rule (`lower()`) at the DB level. The
+        # app-side canonicalization is stricter (NFKC + casefold) — the
+        # DB check is the floor, not the ceiling.
+        CheckConstraint("email = lower(email)", name="ck_native_users_email_lower"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    email: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    # Argon2id PHC string. Stored verbatim; never compared to anything other
+    # than the configured PasswordHasher.
+    password_hash: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class NativeSession(Base):
+    __tablename__ = "native_sessions"
+    __table_args__ = (
+        Index("ix_native_sessions_user", "user_id"),
+        # Sweepers (future) will scan expired rows; index keeps that cheap.
+        Index("ix_native_sessions_expires", "expires_at"),
+    )
+
+    # PRIMARY KEY is the sha256(token) hex digest. The raw token never lives
+    # in the DB, only in the client's Bearer header. Compromise of the DB
+    # therefore does not yield active session secrets.
+    token_hash: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("native_users.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # NULL while the session is live; set to revocation time by `logout`.
+    # A revoked session is rejected even before its expires_at fires.
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
