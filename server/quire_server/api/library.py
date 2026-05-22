@@ -479,13 +479,17 @@ async def sync_library(
     existing_by_hash: dict[str, LibraryItem] = {}
     if hashes:
         existing_rows = (
-            await session.execute(
-                select(LibraryItem).where(
-                    LibraryItem.user_id == user_id,
-                    LibraryItem.content_hash.in_(hashes),
+            (
+                await session.execute(
+                    select(LibraryItem).where(
+                        LibraryItem.user_id == user_id,
+                        LibraryItem.content_hash.in_(hashes),
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         existing_by_hash = {r.content_hash: r for r in existing_rows}
 
     # Cross-row `metadata_id` conflict against an existing row that has a
@@ -497,13 +501,17 @@ async def sync_library(
     }
     if incoming_metadata_ids:
         conflict_rows = (
-            await session.execute(
-                select(LibraryItem).where(
-                    LibraryItem.user_id == user_id,
-                    LibraryItem.metadata_id.in_(incoming_metadata_ids.keys()),
+            (
+                await session.execute(
+                    select(LibraryItem).where(
+                        LibraryItem.user_id == user_id,
+                        LibraryItem.metadata_id.in_(incoming_metadata_ids.keys()),
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for conflict in conflict_rows:
             expected_hash = incoming_metadata_ids.get(conflict.metadata_id or "")
             if expected_hash is not None and conflict.content_hash != expected_hash:

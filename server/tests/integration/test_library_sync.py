@@ -599,12 +599,14 @@ async def test_sync_coexists_with_per_item_put(app_under_test, unique_user):
         # PUT-create.
         r1 = await c.put(
             "/library/v1/items",
-            json={"item": {
-                "content_hash": "ch-shared",
-                "metadata_id": "md-shared",
-                "title": "Via PUT",
-                "authors": ["Author"],
-            }},
+            json={
+                "item": {
+                    "content_hash": "ch-shared",
+                    "metadata_id": "md-shared",
+                    "title": "Via PUT",
+                    "authors": ["Author"],
+                }
+            },
             headers=headers,
         )
         assert r1.status_code == 200
@@ -639,12 +641,14 @@ async def test_existing_per_item_endpoints_still_work(app_under_test, unique_use
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         r = await c.put(
             "/library/v1/items",
-            json={"item": {
-                "content_hash": "ch-put",
-                "metadata_id": "md-put",
-                "title": "Put",
-                "authors": [],
-            }},
+            json={
+                "item": {
+                    "content_hash": "ch-put",
+                    "metadata_id": "md-put",
+                    "title": "Put",
+                    "authors": [],
+                }
+            },
             headers=headers,
         )
         assert r.status_code == 200
