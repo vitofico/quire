@@ -1,7 +1,7 @@
 package io.theficos.ereader.data.opds
 
 import com.google.common.truth.Truth.assertThat
-import io.theficos.ereader.auth.CalibreCredentials
+import io.theficos.ereader.auth.AccountCredentials
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.Dispatcher
@@ -23,9 +23,9 @@ class OpdsClientTest {
 
     @Before fun setUp() {
         server = MockWebServer().apply { start() }
-        val creds = CalibreCredentials(server.url("/").toString().trimEnd('/'), "u", "p")
+        val creds = AccountCredentials.Basic(server.url("/").toString().trimEnd('/'), "u", "p")
         val okHttp = OkHttpClient.Builder()
-            .addInterceptor(BasicAuthInterceptor { creds })
+            .addInterceptor(AccountAuthInterceptor { creds })
             .build()
         client = OpdsClient(okHttp)
         server.dispatcher = object : Dispatcher() {
