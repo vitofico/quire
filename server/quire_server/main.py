@@ -15,6 +15,7 @@ from paying the cost of the other domain's modules.
 from __future__ import annotations
 
 import logging
+import warnings
 
 import httpx
 from fastapi import FastAPI
@@ -93,6 +94,43 @@ def _validate_ai_auth_settings(settings: Settings) -> None:
         raise RuntimeError(
             "QUIRE_SERVER_AI_AUTH_MODE=token requires QUIRE_SERVER_AI_TOKEN_AUDIENCE"
         )
+
+
+def _warn_if_ai_auth_mode_deprecated(settings: Settings) -> None:
+    """Phase 0, task X-2: deprecate ``QUIRE_SERVER_AI_AUTH_MODE=token``.
+
+    The AI-only Bearer auth seam predates the primary :class:`AuthBackend`
+    abstraction introduced in S-1. ``NativeAuth`` is now the long-term home
+    for session-token-based authentication. Token mode of ``AI_AUTH_MODE``
+    is being retired with a removal window of two minor releases.
+
+    Only warns when token mode would actually be active — i.e. AI is
+    enabled. Operators with stale ``AI_AUTH_MODE=token`` in a sync-only
+    ``.env`` are not nagged because the setting is inert for them.
+
+    Emitted **after** ``_validate_ai_auth_settings`` so misconfigured
+    token-mode deploys still crashloop with the original ``RuntimeError``
+    rather than producing a deprecation warning that gets eaten by the
+    subsequent raise.
+
+    The structured ``event=config.deprecated`` suffix matches the existing
+    log-style convention so log scrapers can match on a stable key. Never
+    log token secrets, issuer, or audience.
+    """
+    if not settings.ai_enabled:
+        return
+    if settings.ai_auth_mode != "token":
+        return
+    msg = (
+        "QUIRE_SERVER_AI_AUTH_MODE=token is deprecated and will be removed "
+        "in 2 minor releases. Use QUIRE_SERVER_AUTH_BACKEND=native as the "
+        "long-term replacement for token-based authentication; existing "
+        "HS256 tokens continue to validate during the deprecation window. "
+        "See server/README.md for the migration note. "
+        "event=config.deprecated setting=QUIRE_SERVER_AI_AUTH_MODE value=token"
+    )
+    logging.getLogger(__name__).warning(msg)
+    warnings.warn(msg, DeprecationWarning, stacklevel=2)
 
 
 def _build_ai_authenticator(settings: Settings, validator: CalibreAuthValidator):
@@ -200,6 +238,10 @@ def create_app() -> FastAPI:
         # crashloop here — never silently downgrade to basic. Sync-only
         # deploys (ai_enabled=false) skip this block entirely.
         _validate_ai_auth_settings(settings)
+        # Phase 0, task X-2: surface the deprecation only once token mode
+        # is known to be valid. Misconfigured token deploys still crashloop
+        # via _validate_ai_auth_settings above.
+        _warn_if_ai_auth_mode_deprecated(settings)
         app.state.ai_authenticator = _build_ai_authenticator(settings, app.state.auth_validator)
 
         if settings.ai_base_url and settings.ai_model:

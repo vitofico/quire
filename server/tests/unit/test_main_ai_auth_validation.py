@@ -11,6 +11,8 @@ the actual production wiring, including `_validate_ai_auth_settings` and
 
 from __future__ import annotations
 
+import warnings
+
 import pytest
 
 from quire_server.config import get_settings
@@ -167,7 +169,91 @@ def test_token_mode_fully_configured(monkeypatch):
     _token_env(monkeypatch)
     monkeypatch.setenv("QUIRE_SERVER_AI_BASE_URL", "http://ollama.lan:11434/v1")
     monkeypatch.setenv("QUIRE_SERVER_AI_MODEL", "llama3:8b")
-    app = _create_app()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        app = _create_app()
     from quire_server.api.ai_auth import TokenAiAuthenticator
 
     assert isinstance(app.state.ai_authenticator, TokenAiAuthenticator)
+
+
+# ---------------------------------------------------------------------------
+# Phase 0, task X-2: deprecation warning for AI_AUTH_MODE=token
+# ---------------------------------------------------------------------------
+
+
+def _assert_no_ai_auth_mode_deprecation(records: list[warnings.WarningMessage]) -> None:
+    """Assert no deprecation warning about ``AI_AUTH_MODE=token`` was emitted.
+
+    Tolerates unrelated ``DeprecationWarning``s from third-party libraries
+    (pydantic, sqlalchemy, starlette, etc.) — only matches on the specific
+    Quire deprecation message body.
+    """
+    matches = [
+        r
+        for r in records
+        if issubclass(r.category, DeprecationWarning)
+        and "AI_AUTH_MODE=token is deprecated" in str(r.message)
+    ]
+    assert matches == [], f"unexpected AI_AUTH_MODE deprecation warning: {matches}"
+
+
+def test_token_mode_emits_deprecation_warning(monkeypatch, caplog):
+    """Fully-valid token mode must surface the deprecation as both a
+    ``DeprecationWarning`` (for developers / pytest) and a ``WARNING`` log
+    record (operator-facing signal) at startup.
+    """
+    _token_env(monkeypatch)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with caplog.at_level("WARNING", logger="quire_server.main"):
+            _create_app()
+
+    deprecation_messages = [
+        str(w.message)
+        for w in caught
+        if issubclass(w.category, DeprecationWarning)
+        and "AI_AUTH_MODE=token is deprecated" in str(w.message)
+    ]
+    assert deprecation_messages, "expected DeprecationWarning naming AI_AUTH_MODE=token"
+    # Operator-facing log record carries the structured-event suffix so log
+    # scrapers can match on a stable key. The literal message body is the
+    # same as the DeprecationWarning's, by design.
+    body = deprecation_messages[0]
+    assert "event=config.deprecated" in body
+    assert "setting=QUIRE_SERVER_AI_AUTH_MODE" in body
+    assert "value=token" in body
+    assert "QUIRE_SERVER_AUTH_BACKEND=native" in body
+    assert "2 minor releases" in body
+
+    log_matches = [
+        rec
+        for rec in caplog.records
+        if rec.levelname == "WARNING" and "AI_AUTH_MODE=token is deprecated" in rec.getMessage()
+    ]
+    assert log_matches, "expected WARNING log record naming AI_AUTH_MODE=token"
+
+
+def test_basic_mode_does_not_emit_deprecation_warning(monkeypatch):
+    """Default basic mode must not fire the X-2 deprecation."""
+    # _isolate_env already strips AI_AUTH_MODE; defaults to basic.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        _create_app()
+    _assert_no_ai_auth_mode_deprecation(caught)
+
+
+def test_ai_disabled_token_mode_does_not_emit_deprecation_warning(monkeypatch):
+    """``ai_enabled=false`` short-circuits before the deprecation check.
+
+    Operators with a stale ``AI_AUTH_MODE=token`` in a sync-only ``.env``
+    should not be nagged: the setting is inert when the AI block doesn't
+    run. The DeprecationWarning is reserved for deploys where token mode
+    is actually being used to authenticate AI requests.
+    """
+    monkeypatch.setenv("QUIRE_SERVER_AI_ENABLED", "false")
+    monkeypatch.setenv("QUIRE_SERVER_AI_AUTH_MODE", "token")
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        _create_app()
+    _assert_no_ai_auth_mode_deprecation(caught)
