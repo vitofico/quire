@@ -29,6 +29,9 @@ def _isolate_env(monkeypatch):
         "QUIRE_SERVER_AI_BASE_URL",
         "QUIRE_SERVER_AI_MODEL",
         "QUIRE_SERVER_AI_API_KEY",
+        # Phase 0, task S-1: keep these tests focused on AI auth wiring;
+        # the primary auth backend must stay at its default ``calibreweb``.
+        "QUIRE_SERVER_AUTH_BACKEND",
     ):
         monkeypatch.delenv(var, raising=False)
     # Avoid the real DB / CWA wiring touching the network in create_app.
