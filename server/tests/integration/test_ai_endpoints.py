@@ -8,11 +8,12 @@ from __future__ import annotations
 
 import base64
 import json
+from decimal import Decimal
 
 import pytest
 from sqlalchemy import select
 
-from quire_server.db.models import BookInsight
+from quire_server.db.models import BookInsight, LibraryItem
 
 # All tests in this file hit /ai/v1/* and so require the ai router.
 pytestmark = pytest.mark.requires_ai
@@ -199,3 +200,345 @@ async def test_invalidate_drops_cache(client_factory, configure_ai, app, session
             json={"identity": {"content_hash": "ch-inv"}},
         )
         assert r2.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Phase 0, task S-3: client-supplied metadata + deprecated server-side
+# fallback. These tests pin the push-model contract on
+# /ai/v1/insights/{lookup,regenerate}.
+# ---------------------------------------------------------------------------
+
+
+async def _opt_in(client, user: str = "alice") -> None:
+    r = await client.put(
+        "/ai/v1/preferences",
+        headers=_basic_header(user),
+        json={"ai_enabled": True},
+    )
+    assert r.status_code == 200
+
+
+async def _seed_library_item(
+    session,
+    *,
+    user_id: str,
+    metadata_id: str | None,
+    content_hash: str,
+    title: str = "Foundation",
+    authors: list[str] | None = None,
+    series_name: str | None = None,
+    series_index: Decimal | None = None,
+    language: str | None = None,
+    isbn: str | None = None,
+    subjects: list[str] | None = None,
+) -> None:
+    session.add(
+        LibraryItem(
+            user_id=user_id,
+            metadata_id=metadata_id,
+            content_hash=content_hash,
+            title=title,
+            authors=authors if authors is not None else ["Isaac Asimov"],
+            series_name=series_name,
+            series_index=series_index,
+            language=language,
+            isbn=isbn,
+            subjects=subjects if subjects is not None else [],
+        )
+    )
+    await session.commit()
+
+
+async def test_lookup_400_when_bundle_omitted_and_flag_off(
+    client_factory, configure_ai, app, session
+):
+    """S-3: push-model default — clients MUST send their own metadata."""
+    async with client_factory(ai_enabled=True, ai_base_url="http://x", ai_model="m") as client:
+        configure_ai(app, {"schema_version": 2, "intro": "ok", "confidence": "low"})
+        await _opt_in(client)
+
+        r = await client.post(
+            "/ai/v1/insights/lookup",
+            headers=_basic_header("alice"),
+            json={"identity": {"content_hash": "ch-no-meta"}},
+        )
+        assert r.status_code == 400
+        assert r.json()["detail"] == "metadata_required"
+
+        # No BookInsight row was written — the 400 short-circuits before
+        # the orchestrator reserves quota or acquires a generation lock.
+        rows = (await session.execute(select(BookInsight))).scalars().all()
+        assert rows == []
+
+
+async def test_regenerate_400_when_bundle_omitted_and_flag_off(
+    client_factory, configure_ai, app, session
+):
+    """S-3: regenerate inherits the same push-model contract.
+
+    Bundle resolution happens BEFORE the orchestrator supersedes any live
+    row, so an unusable request leaves the existing row alone.
+    """
+    async with client_factory(ai_enabled=True, ai_base_url="http://x", ai_model="m") as client:
+        configure_ai(app, {"schema_version": 2, "intro": "first", "confidence": "low"})
+        await _opt_in(client)
+
+        # Seed a live insight via the happy lookup path.
+        r0 = await client.post(
+            "/ai/v1/insights/lookup",
+            headers=_basic_header("alice"),
+            json={
+                "identity": {"content_hash": "ch-regen"},
+                "bundle": {"title": "X"},
+            },
+        )
+        assert r0.status_code == 200
+
+        live_before = (
+            await session.execute(
+                select(BookInsight).where(BookInsight.superseded_at.is_(None))
+            )
+        ).scalars().all()
+        assert len(live_before) == 1
+
+        # Now regenerate WITHOUT a bundle, with the flag off → 400.
+        r1 = await client.post(
+            "/ai/v1/insights/regenerate",
+            headers=_basic_header("alice"),
+            json={
+                "identity": {"content_hash": "ch-regen"},
+                "reason": "force",
+            },
+        )
+        assert r1.status_code == 400
+        assert r1.json()["detail"] == "metadata_required"
+
+        # The existing live row was NOT superseded.
+        live_after = (
+            await session.execute(
+                select(BookInsight).where(BookInsight.superseded_at.is_(None))
+            )
+        ).scalars().all()
+        assert len(live_after) == 1
+        assert live_after[0].id == live_before[0].id
+
+
+async def test_lookup_falls_back_to_library_item_when_flag_on(
+    client_factory, configure_ai, app, session
+):
+    """S-3: deprecated server-side fallback regression test.
+
+    With ``ai_metadata_server_lookup_enabled=true``, an omitted bundle is
+    reconstructed from the caller's ``library_items`` row. The
+    ``series_name`` + ``series_index`` from that row drive the post-LLM
+    ``payload.series`` override — proving the reconstructed bundle is
+    actually used by ``_do_generate``, not just silently dropped.
+    """
+    async with client_factory(
+        ai_enabled=True,
+        ai_base_url="http://x",
+        ai_model="m",
+        ai_metadata_server_lookup_enabled=True,
+        progress_enabled=True,
+    ) as client:
+        # Fake LLM returns NO `series` block; the bundle override must
+        # supply it from LibraryItem.series_name.
+        configure_ai(
+            app,
+            {"schema_version": 2, "intro": "Reconstructed.", "confidence": "low"},
+        )
+        await _opt_in(client)
+
+        await _seed_library_item(
+            session,
+            user_id="alice",
+            metadata_id="md-fallback",
+            content_hash="ch-fallback",
+            title="Foundation",
+            authors=["Isaac Asimov"],
+            series_name="Foundation Saga",
+            series_index=Decimal("1"),
+            language="en",
+        )
+
+        r = await client.post(
+            "/ai/v1/insights/lookup",
+            headers=_basic_header("alice"),
+            json={"identity": {"metadata_id": "md-fallback", "content_hash": "ch-fallback"}},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["payload"]["intro"] == "Reconstructed."
+        # The series override only fires when bundle.series_name is set.
+        assert body["payload"]["series"]["name"] == "Foundation Saga"
+        assert body["payload"]["series"]["position"] == 1
+
+
+async def test_lookup_400_when_flag_on_but_no_library_item(
+    client_factory, configure_ai, app, session
+):
+    """S-3: fallback can't fabricate metadata — no row, no insight."""
+    async with client_factory(
+        ai_enabled=True,
+        ai_base_url="http://x",
+        ai_model="m",
+        ai_metadata_server_lookup_enabled=True,
+        progress_enabled=True,
+    ) as client:
+        configure_ai(app, {"schema_version": 2, "intro": "x", "confidence": "low"})
+        await _opt_in(client)
+
+        r = await client.post(
+            "/ai/v1/insights/lookup",
+            headers=_basic_header("alice"),
+            json={"identity": {"content_hash": "ch-missing"}},
+        )
+        assert r.status_code == 400
+        assert r.json()["detail"] == "metadata_required"
+
+        rows = (await session.execute(select(BookInsight))).scalars().all()
+        assert rows == []
+
+
+async def test_lookup_persists_identity_hash_version(
+    client_factory, configure_ai, app, session
+):
+    """S-3 + F-1: client-supplied identity_hash_version survives bundle
+    plumbing and lands on the persisted BookInsight row."""
+    async with client_factory(ai_enabled=True, ai_base_url="http://x", ai_model="m") as client:
+        configure_ai(app, {"schema_version": 2, "intro": "v2 hash", "confidence": "low"})
+        await _opt_in(client)
+
+        r = await client.post(
+            "/ai/v1/insights/lookup",
+            headers=_basic_header("alice"),
+            json={
+                "identity": {
+                    "metadata_id": "md-ihv",
+                    "content_hash": "ch-ihv",
+                    "identity_hash_version": 2,
+                },
+                "bundle": {"title": "T"},
+            },
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["identity_hash_version"] == 2
+
+        row = (
+            await session.execute(
+                select(BookInsight).where(BookInsight.content_hash == "ch-ihv")
+            )
+        ).scalar_one()
+        assert row.identity_hash_version == 2
+
+
+async def test_lookup_cache_invariant_first_writer_wins(
+    client_factory, configure_ai, app, session
+):
+    """S-3: bundle does NOT participate in the cache key.
+
+    Divergent bundles for the same canonical identity (and same
+    ``model_id`` + ``prompt_version`` + ``tone`` + ``language``) share
+    a single cache row. The first-writer determines the persisted
+    payload; the second call is a pure cache hit. This is the documented
+    Phase 0 limitation; bundle fingerprinting is a later task.
+    """
+    async with client_factory(ai_enabled=True, ai_base_url="http://x", ai_model="m") as client:
+        configure_ai(app, {"schema_version": 2, "intro": "first writer", "confidence": "low"})
+        await _opt_in(client)
+
+        identity = {"content_hash": "ch-cache-invariant"}
+
+        r1 = await client.post(
+            "/ai/v1/insights/lookup",
+            headers=_basic_header("alice"),
+            json={
+                "identity": identity,
+                "bundle": {"title": "Original Title", "author": "A"},
+            },
+        )
+        assert r1.status_code == 200
+        assert r1.json()["payload"]["intro"] == "first writer"
+
+        # Second call with a wildly different bundle should hit the cache
+        # and return the FIRST writer's payload, NOT regenerate.
+        r2 = await client.post(
+            "/ai/v1/insights/lookup",
+            headers=_basic_header("alice"),
+            json={
+                "identity": identity,
+                "bundle": {"title": "Completely Different Book", "author": "B"},
+            },
+        )
+        assert r2.status_code == 200
+        assert r2.json()["payload"]["intro"] == "first writer"
+
+        # And only one BookInsight row exists for the identity.
+        rows = (
+            await session.execute(
+                select(BookInsight).where(BookInsight.content_hash == "ch-cache-invariant")
+            )
+        ).scalars().all()
+        assert len(rows) == 1
+
+
+async def test_regenerate_falls_back_to_library_item_when_flag_on(
+    client_factory, configure_ai, app, session
+):
+    """S-3: regenerate's fallback path mirrors lookup's."""
+    async with client_factory(
+        ai_enabled=True,
+        ai_base_url="http://x",
+        ai_model="m",
+        ai_metadata_server_lookup_enabled=True,
+        progress_enabled=True,
+    ) as client:
+        configure_ai(app, {"schema_version": 2, "intro": "regen-fallback", "confidence": "low"})
+        await _opt_in(client)
+
+        await _seed_library_item(
+            session,
+            user_id="alice",
+            metadata_id="md-regen-fb",
+            content_hash="ch-regen-fb",
+            title="Foundation",
+            authors=["Isaac Asimov"],
+        )
+
+        r = await client.post(
+            "/ai/v1/insights/regenerate",
+            headers=_basic_header("alice"),
+            json={
+                "identity": {"metadata_id": "md-regen-fb", "content_hash": "ch-regen-fb"},
+                "reason": "user requested a redo",
+            },
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["payload"]["intro"] == "regen-fallback"
+
+
+async def test_regenerate_400_when_flag_on_but_no_library_item(
+    client_factory, configure_ai, app, session
+):
+    """S-3: regenerate can't fabricate metadata either; existing live rows
+    (if any) remain untouched."""
+    async with client_factory(
+        ai_enabled=True,
+        ai_base_url="http://x",
+        ai_model="m",
+        ai_metadata_server_lookup_enabled=True,
+        progress_enabled=True,
+    ) as client:
+        configure_ai(app, {"schema_version": 2, "intro": "n/a", "confidence": "low"})
+        await _opt_in(client)
+
+        r = await client.post(
+            "/ai/v1/insights/regenerate",
+            headers=_basic_header("alice"),
+            json={
+                "identity": {"content_hash": "ch-regen-missing"},
+                "reason": "force",
+            },
+        )
+        assert r.status_code == 400
+        assert r.json()["detail"] == "metadata_required"

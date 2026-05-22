@@ -251,16 +251,42 @@ class DocumentIdentity(BaseModel):
 
 
 class MetadataBundle(BaseModel):
-    title: str
-    author: str | None = None
-    language: str | None = None
-    isbn: str | None = None
-    publisher: str | None = None
-    publish_date: str | None = None
-    subjects: list[str] = Field(default_factory=list)
-    description: str | None = None
-    series_name: str | None = None
-    series_position: int | None = None
+    """Book metadata block driving the AI insight prompt + retrieval.
+
+    Phase 0, task S-3: this block is supplied by the client as the
+    authoritative source of metadata for the request. The optional
+    deprecated server-side fallback (when ``ai_metadata_server_lookup_enabled``
+    is True) reconstructs the same shape from the caller's local
+    ``library_items`` row.
+
+    Field-level length caps bound the LLM prompt size and protect against
+    accidental large payloads / prompt-injection vectors. They are loose
+    enough to accommodate real-world OPF + Calibre metadata.
+    """
+
+    # Title is required: the prompt cannot identify the work without it.
+    title: str = Field(min_length=1, max_length=512)
+    author: str | None = Field(default=None, max_length=512)
+    language: str | None = Field(default=None, max_length=32)
+    isbn: str | None = Field(default=None, max_length=64)
+    publisher: str | None = Field(default=None, max_length=256)
+    publish_date: str | None = Field(default=None, max_length=32)
+    subjects: list[str] = Field(default_factory=list, max_length=64)
+    description: str | None = Field(default=None, max_length=4096)
+    series_name: str | None = Field(default=None, max_length=256)
+    series_position: int | None = Field(default=None, ge=0, le=10_000)
+
+    @field_validator("subjects")
+    @classmethod
+    def _validate_subject_items(cls, v: list[str]) -> list[str]:
+        # Per-item length cap; rejects rather than truncates so a regression
+        # in client OPF parsing surfaces as a 422 instead of silent data loss.
+        for s in v:
+            if not isinstance(s, str):
+                raise ValueError("subjects entries must be strings")
+            if len(s) > 80:
+                raise ValueError("each subject must be <= 80 chars")
+        return v
 
 
 class Citation(BaseModel):
@@ -387,8 +413,22 @@ class BookInsightResponse(BaseModel):
 
 
 class InsightLookupBody(BaseModel):
+    """Body of ``POST /ai/v1/insights/lookup``.
+
+    Phase 0, task S-3: ``bundle`` is now optional. The push-model API treats
+    client-supplied metadata as authoritative — when present the server
+    uses it directly. When absent, the server returns 400 unless the
+    deprecated ``ai_metadata_server_lookup_enabled`` flag is set, in which
+    case it falls back to reconstructing the bundle from the caller's
+    local ``library_items`` row. The fallback is kept only for the
+    duration of the OSS push-model migration; S-4 will surface the
+    deprecation message and a future release will remove it entirely.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
     identity: DocumentIdentity
-    bundle: MetadataBundle
+    bundle: MetadataBundle | None = None
 
 
 class InsightGetBody(BaseModel):
@@ -473,10 +513,18 @@ class InsightRegenerateBody(BaseModel):
 
     `reason` is appended to the user prompt so the model knows what to fix.
     Rate-limited harder than regular lookup (AI_REGEN_DAILY_LIMIT per user/day).
+
+    Phase 0, task S-3: ``bundle`` is optional and follows the same
+    push-model + deprecated-flag fallback semantics as
+    ``InsightLookupBody``. The bundle resolution happens BEFORE the
+    existing live row is superseded — a missing bundle with the flag
+    off short-circuits to 400, so no row is touched.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     identity: DocumentIdentity
-    bundle: MetadataBundle
+    bundle: MetadataBundle | None = None
     reason: str = Field(min_length=1, max_length=500)
 
 
