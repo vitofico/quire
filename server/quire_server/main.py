@@ -23,8 +23,38 @@ from quire_server.api import health
 from quire_server.api.middleware import RequestIDMiddleware, RequestSizeMiddleware
 from quire_server.config import Settings, get_settings
 from quire_server.core.auth import CalibreAuthValidator
+from quire_server.core.auth_backend import CalibreWebBasicAuth, NativeAuth
 from quire_server.core.logging_ctx import RequestIdLogFilter
 from quire_server.db.session import configure, make_engine, make_session_factory
+
+
+def _validate_auth_backend_settings(settings: Settings) -> None:
+    """Phase 0, task S-1: cross-config guard for the primary AuthBackend.
+
+    The independent AI auth seam (``ai_auth_mode``) means a Cloud-style
+    deployment that flips ``auth_backend`` to ``native`` could
+    accidentally leave ``ai_auth_mode=basic``, which would route AI
+    requests through CalibreWeb Basic — a backend that doesn't exist in
+    a Cloud deployment. Fail loudly at startup.
+
+    Valid combinations:
+      * ``auth_backend=calibreweb`` + any ``ai_auth_mode`` (today's OSS).
+      * ``auth_backend=native``    + ``ai_enabled=false`` OR
+                                     ``ai_auth_mode=token``.
+    """
+    if settings.auth_backend != "native":
+        return
+    if not settings.ai_enabled:
+        return
+    if settings.ai_auth_mode != "basic":
+        return
+    raise RuntimeError(
+        "QUIRE_SERVER_AUTH_BACKEND=native is incompatible with "
+        "QUIRE_SERVER_AI_AUTH_MODE=basic when AI is enabled: AI requests "
+        "would silently route through the CalibreWeb verifier. Either "
+        "disable AI (QUIRE_SERVER_AI_ENABLED=false) or switch AI auth to "
+        "token mode (QUIRE_SERVER_AI_AUTH_MODE=token)."
+    )
 
 
 def _validate_ai_auth_settings(settings: Settings) -> None:
@@ -111,6 +141,11 @@ def create_app() -> FastAPI:
 
     httpx_client = httpx.AsyncClient(timeout=settings.cwa_probe_timeout_s)
     app.state.httpx_client = httpx_client
+    # The CalibreWeb validator is kept constructed unconditionally so that
+    # tests overriding ``app.state.auth_validator`` (the pre-S-1 pattern)
+    # still work even in NativeAuth deployments. The AI-routes Basic
+    # authenticator also relies on its existence. In NativeAuth mode the
+    # primary-auth path simply doesn't dispatch through it.
     app.state.auth_validator = CalibreAuthValidator(
         client=httpx_client,
         cwa_base_url=settings.cwa_base_url,
@@ -120,6 +155,19 @@ def create_app() -> FastAPI:
         max_entries=settings.auth_cache_max_entries,
     )
 
+    # Phase 0, task S-1: pick the primary AuthBackend before any router
+    # mounts so /readyz and the AI-auth wiring below see a consistent
+    # picture. The cross-config guard runs first; misconfigurations
+    # crashloop here instead of silently 401-ing users.
+    _validate_auth_backend_settings(settings)
+    if settings.auth_backend == "native":
+        app.state.auth_backend = NativeAuth(
+            session_factory=session_factory,
+            session_ttl_s=settings.native_session_ttl_s,
+        )
+    else:
+        app.state.auth_backend = CalibreWebBasicAuth(app.state.auth_validator)
+
     @app.on_event("shutdown")
     async def _close() -> None:
         await httpx_client.aclose()
@@ -127,6 +175,14 @@ def create_app() -> FastAPI:
     # Always-on root endpoints (no prefix). Mounted before mode gates so they
     # remain available even when both flags are false.
     app.include_router(health.router)
+
+    # Phase 0, task S-1: ``/auth/v1/*`` exists only when NativeAuth is the
+    # primary backend. A CalibreWeb deployment treats those URLs as 404 —
+    # which is the correct shape for "this server doesn't speak that".
+    if settings.auth_backend == "native":
+        from quire_server.api.auth import router as auth_router
+
+        app.include_router(auth_router, prefix="/auth/v1")
 
     if settings.progress_enabled:
         # Lazy import: only pull progress + library routers when progress mode
