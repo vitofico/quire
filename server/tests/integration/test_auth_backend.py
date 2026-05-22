@@ -39,6 +39,12 @@ from quire_server.db.models import NativeSession, NativeUser
 _NATIVE_KW = {
     "auth_backend": "native",
     "ai_enabled": "false",
+    # Force the library router on so the token-round-trip / logout / expired
+    # tests can exercise a real `current_user_id`-protected endpoint
+    # (`GET /library/v1/items`) under the `test (ai_only)` CI matrix entry,
+    # which sets `progress_enabled=false` globally. Tests that only hit
+    # `/auth/v1/*` are unaffected by the extra router being mounted.
+    "progress_enabled": "true",
     "skip_auth_overrides": True,
 }
 
@@ -62,9 +68,7 @@ async def _register(app, *, email: str, password: str) -> int:
 async def test_calibreweb_mode_does_not_mount_auth_router(client_factory):
     """In OSS / default mode the auth router is invisible."""
     async with client_factory() as client:
-        r = await client.post(
-            "/auth/v1/login", json={"email": "x@y.z", "password": "p"}
-        )
+        r = await client.post("/auth/v1/login", json={"email": "x@y.z", "password": "p"})
     assert r.status_code == 404
 
 
@@ -112,9 +116,7 @@ async def test_native_login_token_round_trips_protected_endpoint(client_factory,
 # ----------------------------------------------------------------------------
 
 
-async def test_unknown_email_and_wrong_password_return_identical_401(
-    client_factory, app
-):
+async def test_unknown_email_and_wrong_password_return_identical_401(client_factory, app):
     """The response body shape must be byte-identical for both failures."""
     async with client_factory(**_NATIVE_KW) as client:
         await _register(app, email="carol@example.com", password="carols-strong-pw")
@@ -142,9 +144,7 @@ async def test_unknown_email_triggers_dummy_hash_verify(monkeypatch, client_fact
         calls.append(stored_hash)
         return False
 
-    monkeypatch.setattr(
-        "quire_server.core.auth_backend.verify_password", _spy_verify
-    )
+    monkeypatch.setattr("quire_server.core.auth_backend.verify_password", _spy_verify)
 
     async with client_factory(**_NATIVE_KW) as client:
         r = await client.post(
@@ -218,11 +218,7 @@ async def test_expired_session_is_rejected(client_factory, app, engine):
         sf = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
         async with sf() as s:
             row = (
-                await s.execute(
-                    select(NativeSession).where(
-                        NativeSession.token_hash == token_hash
-                    )
-                )
+                await s.execute(select(NativeSession).where(NativeSession.token_hash == token_hash))
             ).scalar_one()
             row.expires_at = datetime.now(UTC) - timedelta(seconds=1)
             await s.commit()
@@ -241,9 +237,7 @@ async def test_expired_session_is_rejected(client_factory, app, engine):
 
 async def test_magic_link_request_returns_202_stub(client_factory):
     async with client_factory(**_NATIVE_KW) as client:
-        r = await client.post(
-            "/auth/v1/magic-link/request", json={"email": "x@y.z"}
-        )
+        r = await client.post("/auth/v1/magic-link/request", json={"email": "x@y.z"})
     assert r.status_code == 202
     body = r.json()
     assert body["status"] == "accepted"
@@ -335,8 +329,8 @@ async def test_native_user_unique_email_constraint(client_factory, app):
         backend: NativeAuth = app.state.auth_backend  # type: ignore[assignment]
         async with backend._sf() as s:  # type: ignore[attr-defined]
             rows = (
-                await s.execute(
-                    select(NativeUser).where(NativeUser.email == "dup@example.com")
-                )
-            ).scalars().all()
+                (await s.execute(select(NativeUser).where(NativeUser.email == "dup@example.com")))
+                .scalars()
+                .all()
+            )
         assert len(rows) == 1

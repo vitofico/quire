@@ -231,9 +231,7 @@ class NativeAuth:
             user_row = None
             if canon:
                 user_row = (
-                    await s.execute(
-                        select(NativeUser).where(NativeUser.email == canon)
-                    )
+                    await s.execute(select(NativeUser).where(NativeUser.email == canon))
                 ).scalar_one_or_none()
 
             if user_row is None:
@@ -286,9 +284,7 @@ class NativeAuth:
         now = self._clock()
         async with self._sf() as s:
             row = (
-                await s.execute(
-                    select(NativeSession).where(NativeSession.token_hash == token_hash)
-                )
+                await s.execute(select(NativeSession).where(NativeSession.token_hash == token_hash))
             ).scalar_one_or_none()
             if row is None or row.revoked_at is not None:
                 return REVOKE_NOOP
@@ -307,9 +303,7 @@ class NativeAuth:
 
         async with self._sf() as s:
             row = (
-                await s.execute(
-                    select(NativeSession).where(NativeSession.token_hash == token_hash)
-                )
+                await s.execute(select(NativeSession).where(NativeSession.token_hash == token_hash))
             ).scalar_one_or_none()
             if row is None:
                 logger.info("event=auth.session_invalid reason=unknown_token")

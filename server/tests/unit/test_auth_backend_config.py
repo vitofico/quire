@@ -104,9 +104,7 @@ def test_native_with_ai_token_auth_is_ok(monkeypatch):
     monkeypatch.setenv("QUIRE_SERVER_AUTH_BACKEND", "native")
     monkeypatch.setenv("QUIRE_SERVER_AI_ENABLED", "true")
     monkeypatch.setenv("QUIRE_SERVER_AI_AUTH_MODE", "token")
-    monkeypatch.setenv(
-        "QUIRE_SERVER_AI_TOKEN_SECRETS", '{"k1": "' + "x" * 32 + '"}'
-    )
+    monkeypatch.setenv("QUIRE_SERVER_AI_TOKEN_SECRETS", '{"k1": "' + "x" * 32 + '"}')
     monkeypatch.setenv("QUIRE_SERVER_AI_TOKEN_ISSUER", "quire-cloud")
     monkeypatch.setenv("QUIRE_SERVER_AI_TOKEN_AUDIENCE", "quire-server")
     app = _create_app()

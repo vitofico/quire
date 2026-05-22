@@ -1,4 +1,4 @@
-""" ``/auth/v1/*`` router for NativeAuth.
+"""``/auth/v1/*`` router for NativeAuth.
 
 Phase 0, task S-1 (per
 ``docs/superpowers/specs/2026-05-22-quire-monetization-design.md``,
