@@ -221,6 +221,11 @@ class DocumentIdentity(BaseModel):
     metadata_id: str | None = None
     content_hash: str | None = None
 
+    # Phase 0, task F-1: identity-hash algorithm version. Default `1` keeps
+    # pre-versioning clients compatible; the server's write paths apply
+    # `max(existing, incoming)` so an old client cannot downgrade a row.
+    identity_hash_version: int = Field(default=1, ge=1)
+
     # Alias hints (PR2). All optional. The resolver maps them to a
     # canonical via insight_identity_aliases when present.
     opds_href: str | None = None
@@ -373,6 +378,12 @@ class BookInsightResponse(BaseModel):
     model_id: str
     prompt_version: str
     generated_at: str  # ISO-8601
+    # Phase 0, task F-1: identity-hash algorithm version of the persisted
+    # row this response represents. Clients use this to decide whether to
+    # recompute their local hash on the next sync (when their computed
+    # version > N). Defaults to `1` for older serialized rows that
+    # pre-date the column.
+    identity_hash_version: int = 1
 
 
 class InsightLookupBody(BaseModel):
