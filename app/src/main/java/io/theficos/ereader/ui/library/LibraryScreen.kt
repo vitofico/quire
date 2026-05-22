@@ -19,12 +19,16 @@ import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material3.Button
 import androidx.compose.material.icons.outlined.FilterAlt
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
@@ -64,6 +68,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.theficos.ereader.core.model.Document
 import io.theficos.ereader.data.sync.SyncEnqueuer
+import io.theficos.ereader.sideload.SideloadFailure
+import io.theficos.ereader.sideload.SideloadImporter
+import io.theficos.ereader.sideload.SideloadResult
 import io.theficos.ereader.ui.components.CoverImage
 import io.theficos.ereader.ui.components.SectionLabel
 import io.theficos.ereader.ui.theme.Lora
@@ -76,6 +83,19 @@ private val sortLabels: List<Pair<LibrarySort, String>> = listOf(
     LibrarySort.AUTHOR to "Author",
 )
 
+/**
+ * MIME types the `+ Import` picker accepts. EPUB officially registers as
+ * `application/epub+zip`; the fallback `application/zip` covers file pickers
+ * (notably some stock Android Files apps) that fall back to a generic zip
+ * MIME for `.epub`. The structural EPUB validation in `SideloadImporter`
+ * filters out actual non-EPUB zips later — this filter is just to keep the
+ * picker UX from listing every file on the device.
+ */
+private val IMPORT_MIME_FILTER: Array<String> = arrayOf(
+    "application/epub+zip",
+    "application/zip",
+)
+
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(
@@ -85,6 +105,7 @@ fun LibraryScreen(
     onShowStats: () -> Unit = {},
     onShowInsights: () -> Unit = {},
     aiConfigured: Boolean = false,
+    sideloadImporter: SideloadImporter? = null,
     contentPadding: PaddingValues,
 ) {
     val context = LocalContext.current
@@ -111,8 +132,40 @@ fun LibraryScreen(
         }
     }
 
+    // Phase-0 / A-3: `+ Import` button. Picker launches OpenDocument with an
+    // EPUB MIME filter; result Uri is fed into the same SideloadImporter the
+    // share-sheet ImportActivity uses. Importer may be null in previews/tests
+    // — the button is suppressed in that case.
+    val importLauncher = if (sideloadImporter != null) {
+        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) {
+                scope.launch {
+                    val displayName = SideloadImporter.queryDisplayName(context.contentResolver, uri)
+                    val result = sideloadImporter.import(uri, displayName)
+                    val msg = when (result) {
+                        is SideloadResult.Imported -> "Imported: ${result.title}"
+                        is SideloadResult.AlreadyImported -> "Already in your library: ${result.title}"
+                        is SideloadResult.Failed -> when (result.reason) {
+                            SideloadFailure.InvalidEpub -> "Not a valid EPUB."
+                            SideloadFailure.UriUnreadable -> "Couldn't read the file."
+                            SideloadFailure.IoError -> "Import failed — try again."
+                        }
+                    }
+                    snackbarHostState.showSnackbar(msg)
+                }
+            }
+        }
+    } else null
+
+    val launchPicker: (() -> Unit)? = importLauncher?.let { l ->
+        { l.launch(IMPORT_MIME_FILTER) }
+    }
+
     if (items.isEmpty() && !searchActive && query.isBlank()) {
-        EmptyState(modifier = Modifier.padding(contentPadding))
+        EmptyState(
+            modifier = Modifier.padding(contentPadding),
+            onImport = launchPicker,
+        )
         return
     }
 
@@ -137,6 +190,11 @@ fun LibraryScreen(
                     )
                     IconButton(onClick = { searchActive = true }) {
                         Icon(Icons.Filled.Search, contentDescription = "Search")
+                    }
+                    launchPicker?.let { picker ->
+                        IconButton(onClick = picker) {
+                            Icon(Icons.Filled.Add, contentDescription = "Import EPUB")
+                        }
                     }
                     var sortMenuOpen by rememberSaveable { mutableStateOf(false) }
                     val currentSort by viewModel.sort.collectAsState()
@@ -478,7 +536,7 @@ fun LibraryScreen(
 }
 
 @Composable
-private fun EmptyState(modifier: Modifier = Modifier) {
+private fun EmptyState(modifier: Modifier = Modifier, onImport: (() -> Unit)? = null) {
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
@@ -494,11 +552,23 @@ private fun EmptyState(modifier: Modifier = Modifier) {
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
-                text = "Open the Catalog tab to find books.",
+                text = "Open the Catalog tab to find books, or import an EPUB.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp),
             )
+            // Phase-0 / A-3: the top-bar `+ Import` button is hidden when the
+            // library is empty (top bar isn't rendered at all in that branch),
+            // so surface the same action here for first-time-sideload users.
+            onImport?.let { picker ->
+                Button(
+                    onClick = picker,
+                    modifier = Modifier.padding(top = 16.dp),
+                ) {
+                    Icon(Icons.Filled.Add, contentDescription = null)
+                    Text(text = "Import EPUB", modifier = Modifier.padding(start = 8.dp))
+                }
+            }
         }
     }
 }
