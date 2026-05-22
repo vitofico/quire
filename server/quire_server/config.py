@@ -29,6 +29,15 @@ class Settings(BaseSettings):
     # Enforced by RequestSizeMiddleware; oversized requests get 413.
     max_request_bytes: int = 1_048_576
 
+    # Phase 0, task S-2: hard cap on the number of entries `POST
+    # /library/v1/sync` will accept in a single request. Middleware
+    # already enforces a byte ceiling (max_request_bytes); this guards the
+    # parsed-entry count so a tightly-packed but valid payload can't blow
+    # past Postgres bind-parameter ceilings or balloon a single transaction.
+    # Conservative default; raise once we have data on real Android-side
+    # library sizes.
+    library_sync_max_items: int = 500
+
     # AI substrate (Phase 1). Default flipped from False → True in PR-A so the
     # full-stack mode is the documented default. Existing prod deployments
     # already set QUIRE_SERVER_AI_ENABLED=true explicitly, so this flip is
