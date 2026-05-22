@@ -33,6 +33,7 @@ import io.theficos.ereader.ui.library.LibraryInsightsViewModel
 import io.theficos.ereader.ui.library.LibraryPreferencesStore
 import io.theficos.ereader.ui.library.LibraryStatsCache
 import io.theficos.ereader.ui.library.LibraryStatsViewModel
+import io.theficos.ereader.ui.onboarding.WelcomePreferencesStore
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -66,6 +67,12 @@ class AppContainer(context: Context) {
     val readerPreferencesStore = ReaderPreferencesStore(appContext)
     val libraryPreferencesStore = LibraryPreferencesStore(appContext)
     val catalogPreferencesStore = CatalogPreferencesStore(appContext)
+    /**
+     * A-2: tracks whether the user finished (or deliberately skipped) the
+     * first-launch flow. Combined with [credentialStore] presence to pick
+     * the navgraph's start destination.
+     */
+    val welcomePreferencesStore = WelcomePreferencesStore(appContext)
 
     val syncClient: SyncClient = SyncClient(
         baseUrlProvider = { credentialStore.getAccount()?.baseUrl },

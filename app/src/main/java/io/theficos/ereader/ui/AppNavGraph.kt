@@ -37,6 +37,11 @@ import io.theficos.ereader.ui.library.LibraryStatsScreen
 import io.theficos.ereader.ui.library.LibraryViewModel
 import io.theficos.ereader.ui.main.MainScaffold
 import io.theficos.ereader.ui.main.Tab
+import io.theficos.ereader.ui.onboarding.CloudComingSoonScreen
+import io.theficos.ereader.ui.onboarding.ConnectServerScreen
+import io.theficos.ereader.ui.onboarding.ConnectServerViewModel
+import io.theficos.ereader.ui.onboarding.WelcomeScreen
+import io.theficos.ereader.ui.onboarding.pickStartDestination
 import io.theficos.ereader.ui.reader.ReaderScreen
 import io.theficos.ereader.ui.reader.ReaderViewModel
 import io.theficos.ereader.ui.settings.LicensesScreen
@@ -46,7 +51,45 @@ import io.theficos.ereader.ui.settings.SettingsViewModel
 @Composable
 fun AppNavGraph(container: AppContainer) {
     val nav = rememberNavController()
-    NavHost(navController = nav, startDestination = "home") {
+    // First-launch gating (A-2). Computed once per composition — the
+    // navgraph rebuilds when the configured account or welcome marker
+    // changes (via Compose recomposition driven by AppContainer state), and
+    // anyway we only need to pick a start destination on cold launch.
+    val startDestination = pickStartDestination(
+        hasAccount = container.credentialStore.getAccount() != null,
+        welcomeCompleted = container.welcomePreferencesStore.isCompleted(),
+    )
+    NavHost(navController = nav, startDestination = startDestination) {
+        composable("welcome") {
+            WelcomeScreen(
+                onConnectServer = { nav.navigate("connect-server") },
+                onCloudSignIn = { nav.navigate("cloud-coming-soon") },
+                onSkipOffline = {
+                    container.welcomePreferencesStore.markCompleted()
+                    nav.navigate("home") {
+                        popUpTo("welcome") { inclusive = true }
+                    }
+                },
+            )
+        }
+        composable("connect-server") {
+            val vm = remember {
+                ConnectServerViewModel(credentialStore = container.credentialStore)
+            }
+            ConnectServerScreen(
+                viewModel = vm,
+                onBack = { nav.popBackStack() },
+                onCompleted = {
+                    container.welcomePreferencesStore.markCompleted()
+                    nav.navigate("home") {
+                        popUpTo("welcome") { inclusive = true }
+                    }
+                },
+            )
+        }
+        composable("cloud-coming-soon") {
+            CloudComingSoonScreen(onBack = { nav.popBackStack() })
+        }
         composable("home") {
             val libVm = remember {
                 LibraryViewModel(
