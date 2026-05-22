@@ -2248,9 +2248,7 @@ def _language_of(style: AiStyle | None) -> str:
     return style.language if style is not None else "auto"
 
 
-def _maybe_upgrade_identity_hash_version(
-    row: BookInsight, ident: DocumentIdentity
-) -> None:
+def _maybe_upgrade_identity_hash_version(row: BookInsight, ident: DocumentIdentity) -> None:
     """Phase 0, task F-1: apply `max(existing, incoming)` to the persisted
     identity-hash version on a cache-hit.
 

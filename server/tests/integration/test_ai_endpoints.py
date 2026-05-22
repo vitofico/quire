@@ -295,10 +295,10 @@ async def test_regenerate_400_when_bundle_omitted_and_flag_off(
         assert r0.status_code == 200
 
         live_before = (
-            await session.execute(
-                select(BookInsight).where(BookInsight.superseded_at.is_(None))
-            )
-        ).scalars().all()
+            (await session.execute(select(BookInsight).where(BookInsight.superseded_at.is_(None))))
+            .scalars()
+            .all()
+        )
         assert len(live_before) == 1
 
         # Now regenerate WITHOUT a bundle, with the flag off → 400.
@@ -315,10 +315,10 @@ async def test_regenerate_400_when_bundle_omitted_and_flag_off(
 
         # The existing live row was NOT superseded.
         live_after = (
-            await session.execute(
-                select(BookInsight).where(BookInsight.superseded_at.is_(None))
-            )
-        ).scalars().all()
+            (await session.execute(select(BookInsight).where(BookInsight.superseded_at.is_(None))))
+            .scalars()
+            .all()
+        )
         assert len(live_after) == 1
         assert live_after[0].id == live_before[0].id
 
@@ -400,9 +400,7 @@ async def test_lookup_400_when_flag_on_but_no_library_item(
         assert rows == []
 
 
-async def test_lookup_persists_identity_hash_version(
-    client_factory, configure_ai, app, session
-):
+async def test_lookup_persists_identity_hash_version(client_factory, configure_ai, app, session):
     """S-3 + F-1: client-supplied identity_hash_version survives bundle
     plumbing and lands on the persisted BookInsight row."""
     async with client_factory(ai_enabled=True, ai_base_url="http://x", ai_model="m") as client:
@@ -425,16 +423,12 @@ async def test_lookup_persists_identity_hash_version(
         assert r.json()["identity_hash_version"] == 2
 
         row = (
-            await session.execute(
-                select(BookInsight).where(BookInsight.content_hash == "ch-ihv")
-            )
+            await session.execute(select(BookInsight).where(BookInsight.content_hash == "ch-ihv"))
         ).scalar_one()
         assert row.identity_hash_version == 2
 
 
-async def test_lookup_cache_invariant_first_writer_wins(
-    client_factory, configure_ai, app, session
-):
+async def test_lookup_cache_invariant_first_writer_wins(client_factory, configure_ai, app, session):
     """S-3: bundle does NOT participate in the cache key.
 
     Divergent bundles for the same canonical identity (and same
@@ -475,10 +469,14 @@ async def test_lookup_cache_invariant_first_writer_wins(
 
         # And only one BookInsight row exists for the identity.
         rows = (
-            await session.execute(
-                select(BookInsight).where(BookInsight.content_hash == "ch-cache-invariant")
+            (
+                await session.execute(
+                    select(BookInsight).where(BookInsight.content_hash == "ch-cache-invariant")
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert len(rows) == 1
 
 
