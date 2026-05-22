@@ -23,7 +23,14 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 
 
 class LibraryItemRequest(BaseModel):
@@ -211,14 +218,24 @@ class LibrarySyncEntry(BaseModel):
     """One book in a `POST /library/v1/sync` request.
 
     Validation is status-aware (see `_check_present_requires_title`). For
-    `status=deleted`, only `content_hash` (plus the optional
+    `status=deleted`, only `identity_hash` (plus the optional
     `identity_hash_version` / `last_seen_at`) is meaningful; metadata fields
     are accepted but ignored. For `status=present`, `title` is required
     (matches the `LibraryItem.title` NOT-NULL column).
+
+    Wire naming (Phase 0, task X-1): this endpoint canonicalizes the
+    book-identity field as `identity_hash` per the monetization spec
+    ("Architectural changes → Push-model API"). The legacy server DB
+    column is still named `content_hash`; the handler bridges the rename
+    at the ORM boundary. Unknown fields are rejected (`extra='forbid'`)
+    so a legacy client sending `content_hash` fails loudly with 422
+    rather than silently dropping its identity payload.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     # Identity (the only required field across both statuses).
-    content_hash: str = Field(min_length=1)
+    identity_hash: str = Field(min_length=1)
 
     # Phase 0, task F-1: identity-hash algorithm version. Defaults to 1 so
     # pre-versioning clients round-trip. The sync handler applies
@@ -288,6 +305,8 @@ class LibrarySyncRequest(BaseModel):
     nothing new this cycle" is a legitimate no-op heartbeat).
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     items: list[LibrarySyncEntry] = Field(default_factory=list)
 
 
@@ -298,6 +317,8 @@ class LibrarySyncSummary(BaseModel):
     per-row response is wasted bytes (the client trusts the counts; if it
     wants per-row state it calls `GET /library/v1/items?since=`).
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     # Raw count of entries in the request body, pre-dedup. Useful to
     # confirm the client and server agree on what was sent.
@@ -321,7 +342,7 @@ class LibrarySyncSummary(BaseModel):
     #   - `deleted` for an already-tombstoned row (preserves timestamps so
     #     `?since=` doesn't re-deliver the same tombstone forever).
     skipped: int
-    # `deleted` entries that referenced a `content_hash` the server has
+    # `deleted` entries that referenced an `identity_hash` the server has
     # never seen for this user. Counted, not failed — the server is not
     # the source of truth for what the client believes it deleted, and a
     # stale tombstone command is harmless.

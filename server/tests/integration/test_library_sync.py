@@ -37,9 +37,13 @@ def unique_user(cwa_users) -> tuple[str, str]:
 
 
 def _entry(**overrides) -> dict:
-    """Build a `present` sync entry. Required-ish defaults match the PUT path."""
+    """Build a `present` sync entry. Required-ish defaults match the PUT path.
+
+    Wire field is `identity_hash` (Phase 0, task X-1). Callers pass it as
+    a kwarg; the helper rewrites it into the JSON dict verbatim.
+    """
     base = {
-        "content_hash": "ch-1",
+        "identity_hash": "ch-1",
         "status": "present",
         "metadata_id": "md-1",
         "title": "Foundation",
@@ -65,7 +69,7 @@ async def test_sync_happy_path_creates_multiple_books(app_under_test, unique_use
     headers = _basic(*unique_user)
     payload = {
         "items": [
-            _entry(content_hash=f"ch-{i}", metadata_id=f"md-{i}", title=f"Book {i}")
+            _entry(identity_hash=f"ch-{i}", metadata_id=f"md-{i}", title=f"Book {i}")
             for i in range(3)
         ]
     }
@@ -222,7 +226,7 @@ async def test_sync_rejects_over_max_items(app_under_test, unique_user, monkeypa
         headers = _basic(*unique_user)
         payload = {
             "items": [
-                _entry(content_hash=f"ch-{i}", metadata_id=f"md-{i}", title=f"Book {i}")
+                _entry(identity_hash=f"ch-{i}", metadata_id=f"md-{i}", title=f"Book {i}")
                 for i in range(3)  # 3 > limit=2
             ]
         }
@@ -277,7 +281,7 @@ async def test_sync_status_deleted_tombstones_existing_row(app_under_test, uniqu
         await c.post("/library/v1/sync", json={"items": [_entry()]}, headers=headers)
         r = await c.post(
             "/library/v1/sync",
-            json={"items": [{"content_hash": "ch-1", "status": "deleted"}]},
+            json={"items": [{"identity_hash": "ch-1", "status": "deleted"}]},
             headers=headers,
         )
         assert r.status_code == 200
@@ -303,7 +307,7 @@ async def test_sync_status_deleted_for_unknown_is_skipped(app_under_test, unique
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         r = await c.post(
             "/library/v1/sync",
-            json={"items": [{"content_hash": "never-seen", "status": "deleted"}]},
+            json={"items": [{"identity_hash": "never-seen", "status": "deleted"}]},
             headers=headers,
         )
         assert r.status_code == 200
@@ -331,7 +335,7 @@ async def test_sync_repeat_delete_is_idempotent_and_preserves_timestamps(
         await c.post("/library/v1/sync", json={"items": [_entry()]}, headers=headers)
         await c.post(
             "/library/v1/sync",
-            json={"items": [{"content_hash": "ch-1", "status": "deleted"}]},
+            json={"items": [{"identity_hash": "ch-1", "status": "deleted"}]},
             headers=headers,
         )
         snap = await c.get(
@@ -343,7 +347,7 @@ async def test_sync_repeat_delete_is_idempotent_and_preserves_timestamps(
         await asyncio.sleep(0.02)
         r = await c.post(
             "/library/v1/sync",
-            json={"items": [{"content_hash": "ch-1", "status": "deleted"}]},
+            json={"items": [{"identity_hash": "ch-1", "status": "deleted"}]},
             headers=headers,
         )
         assert r.json()["skipped"] == 1
@@ -363,7 +367,7 @@ async def test_sync_deleted_then_present_reactivates(app_under_test, unique_user
         await c.post("/library/v1/sync", json={"items": [_entry()]}, headers=headers)
         await c.post(
             "/library/v1/sync",
-            json={"items": [{"content_hash": "ch-1", "status": "deleted"}]},
+            json={"items": [{"identity_hash": "ch-1", "status": "deleted"}]},
             headers=headers,
         )
         r = await c.post("/library/v1/sync", json={"items": [_entry()]}, headers=headers)
@@ -381,7 +385,7 @@ async def test_sync_deleted_then_present_reactivates(app_under_test, unique_user
 
 
 async def test_sync_dedup_collapses_identical_duplicates(app_under_test, unique_user):
-    """Same content_hash listed twice, identical → treated as one entry."""
+    """Same identity_hash listed twice, identical → treated as one entry."""
     transport = ASGITransport(app=app_under_test)
     headers = _basic(*unique_user)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
@@ -406,13 +410,13 @@ async def test_sync_dedup_rejects_conflicting_status_duplicates(app_under_test, 
             json={
                 "items": [
                     _entry(),
-                    {"content_hash": "ch-1", "status": "deleted"},
+                    {"identity_hash": "ch-1", "status": "deleted"},
                 ]
             },
             headers=headers,
         )
     assert r.status_code == 422
-    assert r.json()["detail"]["error"] == "duplicate_content_hash_conflict"
+    assert r.json()["detail"]["error"] == "duplicate_identity_hash_conflict"
 
 
 async def test_sync_dedup_rejects_conflicting_metadata_duplicates(app_under_test, unique_user):
@@ -430,7 +434,7 @@ async def test_sync_dedup_rejects_conflicting_metadata_duplicates(app_under_test
             headers=headers,
         )
     assert r.status_code == 422
-    assert r.json()["detail"]["error"] == "duplicate_content_hash_conflict"
+    assert r.json()["detail"]["error"] == "duplicate_identity_hash_conflict"
 
 
 async def test_sync_intra_payload_metadata_id_collision_rejected(app_under_test, unique_user):
@@ -441,8 +445,8 @@ async def test_sync_intra_payload_metadata_id_collision_rejected(app_under_test,
             "/library/v1/sync",
             json={
                 "items": [
-                    _entry(content_hash="ch-A", metadata_id="MD-X"),
-                    _entry(content_hash="ch-B", metadata_id="MD-X"),
+                    _entry(identity_hash="ch-A", metadata_id="MD-X"),
+                    _entry(identity_hash="ch-B", metadata_id="MD-X"),
                 ]
             },
             headers=headers,
@@ -463,20 +467,20 @@ async def test_sync_metadata_id_conflict_against_existing_row(app_under_test, un
         # Seed row A with metadata_id=MD-X.
         await c.post(
             "/library/v1/sync",
-            json={"items": [_entry(content_hash="ch-A", metadata_id="MD-X")]},
+            json={"items": [_entry(identity_hash="ch-A", metadata_id="MD-X")]},
             headers=headers,
         )
-        # Push a different content_hash claiming MD-X → 409.
+        # Push a different identity_hash claiming MD-X → 409.
         r = await c.post(
             "/library/v1/sync",
-            json={"items": [_entry(content_hash="ch-B", metadata_id="MD-X")]},
+            json={"items": [_entry(identity_hash="ch-B", metadata_id="MD-X")]},
             headers=headers,
         )
     assert r.status_code == 409
     detail = r.json()["detail"]
     assert detail["error"] == "metadata_id_conflict"
-    assert detail["existing_content_hash"] == "ch-A"
-    assert detail["incoming_content_hash"] == "ch-B"
+    assert detail["existing_identity_hash"] == "ch-A"
+    assert detail["incoming_identity_hash"] == "ch-B"
 
 
 async def test_sync_metadata_conflict_aborts_whole_batch_atomically(app_under_test, unique_user):
@@ -488,7 +492,7 @@ async def test_sync_metadata_conflict_aborts_whole_batch_atomically(app_under_te
         # Seed: ch-A holds MD-X.
         await c.post(
             "/library/v1/sync",
-            json={"items": [_entry(content_hash="ch-A", metadata_id="MD-X")]},
+            json={"items": [_entry(identity_hash="ch-A", metadata_id="MD-X")]},
             headers=headers,
         )
         # Batch: a fresh ch-C entry (would otherwise be created) + a
@@ -497,8 +501,8 @@ async def test_sync_metadata_conflict_aborts_whole_batch_atomically(app_under_te
             "/library/v1/sync",
             json={
                 "items": [
-                    _entry(content_hash="ch-C", metadata_id="MD-Y", title="Fresh"),
-                    _entry(content_hash="ch-B", metadata_id="MD-X", title="Conflict"),
+                    _entry(identity_hash="ch-C", metadata_id="MD-Y", title="Fresh"),
+                    _entry(identity_hash="ch-B", metadata_id="MD-X", title="Conflict"),
                 ]
             },
             headers=headers,
@@ -521,7 +525,7 @@ async def test_sync_present_without_title_rejected(app_under_test, unique_user):
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         r = await c.post(
             "/library/v1/sync",
-            json={"items": [{"content_hash": "ch-X", "status": "present"}]},
+            json={"items": [{"identity_hash": "ch-X", "status": "present"}]},
             headers=headers,
         )
     assert r.status_code == 422
@@ -535,7 +539,7 @@ async def test_sync_deleted_entry_without_title_accepted(app_under_test, unique_
         await c.post("/library/v1/sync", json={"items": [_entry()]}, headers=headers)
         r = await c.post(
             "/library/v1/sync",
-            json={"items": [{"content_hash": "ch-1", "status": "deleted"}]},
+            json={"items": [{"identity_hash": "ch-1", "status": "deleted"}]},
             headers=headers,
         )
     assert r.status_code == 200
@@ -570,14 +574,53 @@ async def test_sync_last_seen_at_aware_accepted_but_not_durable(app_under_test, 
     assert r.json()["created"] == 1
 
 
-async def test_sync_missing_content_hash_rejected(app_under_test, unique_user):
+async def test_sync_missing_identity_hash_rejected(app_under_test, unique_user):
     transport = ASGITransport(app=app_under_test)
     headers = _basic(*unique_user)
     payload = {"items": [_entry()]}
-    payload["items"][0].pop("content_hash")
+    payload["items"][0].pop("identity_hash")
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         r = await c.post("/library/v1/sync", json=payload, headers=headers)
     assert r.status_code == 422
+
+
+async def test_sync_legacy_content_hash_field_rejected(app_under_test, unique_user):
+    """Phase 0, task X-1: a legacy client that still uses `content_hash`
+    on the wire must be rejected loudly (no silent identity drop).
+
+    The push-model schema sets `extra='forbid'`; FastAPI surfaces
+    pydantic's `extra_forbidden` error type and (because the canonical
+    `identity_hash` is also missing) a `missing` error. Either alone is
+    sufficient evidence that the contract is being enforced; both are
+    asserted here so a future loosening of the schema fails this test
+    rather than silently regressing the wire shape.
+    """
+    transport = ASGITransport(app=app_under_test)
+    headers = _basic(*unique_user)
+    # Construct a legacy payload by removing the canonical field and
+    # re-inserting it under the old name. This guards against the
+    # specific failure mode (an old client sending `content_hash`)
+    # rather than just an arbitrary bad-field case.
+    legacy_item = _entry()
+    legacy_item.pop("identity_hash")
+    legacy_item["content_hash"] = "ch-legacy"
+    payload = {"items": [legacy_item]}
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        r = await c.post("/library/v1/sync", json=payload, headers=headers)
+    assert r.status_code == 422, r.text
+    body = r.json()
+    # FastAPI/pydantic surface a list of error objects under "detail".
+    errors = body["detail"]
+    assert isinstance(errors, list), body
+    error_types = {e.get("type") for e in errors}
+    # `extra='forbid'` catches the unknown `content_hash` field.
+    assert "extra_forbidden" in error_types, errors
+    # `identity_hash` is required, so its absence also produces a `missing`.
+    assert "missing" in error_types, errors
+    # And the extra-forbidden one must target the exact legacy key, so
+    # the failure points at the right footgun in the response.
+    extra_locs = [tuple(e["loc"]) for e in errors if e.get("type") == "extra_forbidden"]
+    assert any("content_hash" in loc for loc in extra_locs), errors
 
 
 # ---------------------------------------------------------------------------
@@ -617,7 +660,7 @@ async def test_sync_coexists_with_per_item_put(app_under_test, unique_user):
             json={
                 "items": [
                     _entry(
-                        content_hash="ch-shared",
+                        identity_hash="ch-shared",
                         metadata_id="md-shared",
                         title="Via Sync",
                     )

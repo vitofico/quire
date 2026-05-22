@@ -274,7 +274,14 @@ async def delete_item(
 #   trustworthy delta source.
 # - Missing entries are NEVER auto-deleted. Tombstones travel via an
 #   explicit `status=deleted` command. A tombstone command for an unknown
-#   `content_hash` is counted as `missing_deleted` and otherwise ignored.
+#   `identity_hash` is counted as `missing_deleted` and otherwise ignored.
+#
+# Wire naming (Phase 0, task X-1): the JSON wire field for book identity
+# on this endpoint is `identity_hash`. The DB column is still legacy-
+# named `content_hash` and is never renamed. The Pydantic schema exposes
+# `identity_hash` on the Python side; this handler bridges by assigning
+# `LibraryItem(content_hash=entry.identity_hash, ...)` at the ORM
+# boundary.
 # ---------------------------------------------------------------------------
 
 
@@ -362,7 +369,7 @@ def _apply_sync_payload(
 
 
 def _dedupe_entries(entries: list[LibrarySyncEntry]) -> list[LibrarySyncEntry]:
-    """Collapse intra-payload duplicates by `content_hash`.
+    """Collapse intra-payload duplicates by `identity_hash`.
 
     Architect-flagged footgun: Postgres `ON CONFLICT DO UPDATE` blows up
     when one INSERT batch touches the same key twice. We don't use raw
@@ -374,22 +381,22 @@ def _dedupe_entries(entries: list[LibrarySyncEntry]) -> list[LibrarySyncEntry]:
     - If all fields match exactly (post `identity_hash_version` maxing),
       collapse silently. This is the "the client emitted the same entry
       twice in one sync" benign case.
-    - Otherwise, raise — duplicate `content_hash` with conflicting
+    - Otherwise, raise — duplicate `identity_hash` with conflicting
       `status` or different metadata is a client bug and the safest
       response is rejection rather than picking a winner.
     """
     by_hash: dict[str, LibrarySyncEntry] = {}
     for e in entries:
-        prev = by_hash.get(e.content_hash)
+        prev = by_hash.get(e.identity_hash)
         if prev is None:
-            by_hash[e.content_hash] = e
+            by_hash[e.identity_hash] = e
             continue
         if prev.status != e.status:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail={
-                    "error": "duplicate_content_hash_conflict",
-                    "content_hash": e.content_hash,
+                    "error": "duplicate_identity_hash_conflict",
+                    "identity_hash": e.identity_hash,
                     "reason": "conflicting status values",
                 },
             )
@@ -402,22 +409,22 @@ def _dedupe_entries(entries: list[LibrarySyncEntry]) -> list[LibrarySyncEntry]:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail={
-                    "error": "duplicate_content_hash_conflict",
-                    "content_hash": e.content_hash,
+                    "error": "duplicate_identity_hash_conflict",
+                    "identity_hash": e.identity_hash,
                     "reason": "conflicting metadata across duplicate entries",
                 },
             )
         # Identical entries (modulo hash version): keep the max version.
         if e.identity_hash_version > prev.identity_hash_version:
-            by_hash[e.content_hash] = e
+            by_hash[e.identity_hash] = e
     return list(by_hash.values())
 
 
 def _check_intra_payload_metadata_collisions(entries: list[LibrarySyncEntry]) -> None:
     """Reject payloads that internally claim one `metadata_id` for two books.
 
-    Maps `metadata_id -> first content_hash that claimed it`. A second
-    entry with the same `metadata_id` and a DIFFERENT `content_hash`
+    Maps `metadata_id -> first identity_hash that claimed it`. A second
+    entry with the same `metadata_id` and a DIFFERENT `identity_hash`
     means the client is internally inconsistent: per the existing PUT
     semantics (and the partial unique index
     `uq_library_items_user_metadata`), one `metadata_id` belongs to one
@@ -433,16 +440,16 @@ def _check_intra_payload_metadata_collisions(entries: list[LibrarySyncEntry]) ->
         if e.metadata_id is None:
             continue
         prior = claimants.get(e.metadata_id)
-        if prior is not None and prior != e.content_hash:
+        if prior is not None and prior != e.identity_hash:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail={
                     "error": "metadata_id_collision_in_payload",
                     "metadata_id": e.metadata_id,
-                    "content_hashes": sorted({prior, e.content_hash}),
+                    "identity_hashes": sorted({prior, e.identity_hash}),
                 },
             )
-        claimants[e.metadata_id] = e.content_hash
+        claimants[e.metadata_id] = e.identity_hash
 
 
 @router.post("/sync", response_model=LibrarySyncSummary)
@@ -475,7 +482,9 @@ async def sync_library(
     _check_intra_payload_metadata_collisions(entries)
 
     # Bulk-fetch all rows this batch touches in a single SELECT.
-    hashes = [e.content_hash for e in entries]
+    # Wire field `identity_hash` maps to the legacy DB column `content_hash`
+    # (no DB rename — see module docstring for the X-1 bridge rule).
+    hashes = [e.identity_hash for e in entries]
     existing_by_hash: dict[str, LibraryItem] = {}
     if hashes:
         existing_rows = (
@@ -493,9 +502,9 @@ async def sync_library(
         existing_by_hash = {r.content_hash: r for r in existing_rows}
 
     # Cross-row `metadata_id` conflict against an existing row that has a
-    # DIFFERENT `content_hash`. Mirror the per-item PUT's 409 contract.
+    # DIFFERENT `identity_hash`. Mirror the per-item PUT's 409 contract.
     incoming_metadata_ids = {
-        e.metadata_id: e.content_hash
+        e.metadata_id: e.identity_hash
         for e in entries
         if e.status is LibrarySyncStatus.PRESENT and e.metadata_id is not None
     }
@@ -520,8 +529,8 @@ async def sync_library(
                     detail={
                         "error": "metadata_id_conflict",
                         "metadata_id": conflict.metadata_id,
-                        "existing_content_hash": conflict.content_hash,
-                        "incoming_content_hash": expected_hash,
+                        "existing_identity_hash": conflict.content_hash,
+                        "incoming_identity_hash": expected_hash,
                     },
                 )
 
@@ -529,7 +538,7 @@ async def sync_library(
     created = updated = reactivated = deleted = skipped = missing_deleted = 0
 
     for entry in entries:
-        existing = existing_by_hash.get(entry.content_hash)
+        existing = existing_by_hash.get(entry.identity_hash)
 
         if entry.status is LibrarySyncStatus.DELETED:
             if existing is None:
@@ -555,9 +564,10 @@ async def sync_library(
         # status == PRESENT
         payload = _entry_to_payload(entry)
         if existing is None:
+            # DB bridge: wire `identity_hash` -> legacy column `content_hash`.
             row = LibraryItem(
                 user_id=user_id,
-                content_hash=entry.content_hash,
+                content_hash=entry.identity_hash,
                 identity_hash_version=entry.identity_hash_version,
                 metadata_id=payload["metadata_id"],
                 title=payload["title"],
