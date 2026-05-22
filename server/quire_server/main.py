@@ -15,6 +15,7 @@ from paying the cost of the other domain's modules.
 from __future__ import annotations
 
 import logging
+import warnings
 
 import httpx
 from fastapi import FastAPI
@@ -25,6 +26,42 @@ from quire_server.config import Settings, get_settings
 from quire_server.core.auth import CalibreAuthValidator
 from quire_server.core.logging_ctx import RequestIdLogFilter
 from quire_server.db.session import configure, make_engine, make_session_factory
+
+
+def _warn_deprecated_ai_metadata_lookup(settings: Settings) -> None:
+    """Emit a startup deprecation notice for ``ai_metadata_server_lookup_enabled``.
+
+    Phase 0, task S-4: the server-side AI metadata lookup fallback (added by
+    task S-3) is the only path on which `quire_server` still pulls book
+    metadata from the operator's own DB instead of accepting it on the
+    request body. The Phase 0 push-model contract makes the client the sole
+    source of metadata; this flag is the migration escape hatch.
+
+    Deprecated since the Phase 0 release (2026-05-22). Removal target:
+    2 minor releases later. Both channels fire so that:
+
+    * `warnings.warn(..., DeprecationWarning)` surfaces in test runs, IDEs,
+      and any tooling that opts into `-W error::DeprecationWarning`.
+    * `logging.warning` is the channel operators actually read in container
+      logs and Loki/Grafana dashboards.
+
+    Fires once at boot. Per-request signalling on the fallback path is
+    intentionally NOT added — the operator already has the boot warning,
+    and per-request log spam would not change their behavior.
+    """
+    if not settings.ai_metadata_server_lookup_enabled:
+        return
+    message = (
+        "QUIRE_SERVER_AI_METADATA_SERVER_LOOKUP_ENABLED is deprecated and will be "
+        "removed in 2 minor releases. Have clients push metadata via the `bundle` "
+        "block on POST /ai/v1/insights/{lookup,regenerate} instead. See "
+        "server/README.md and docs/sync-api.md for the push-model contract."
+    )
+    # stacklevel=3: warn() -> this helper -> create_app() -> caller of create_app().
+    # Points the warning at the boot site (e.g. uvicorn factory) rather than this
+    # helper, which is the useful frame for tooling.
+    warnings.warn(message, DeprecationWarning, stacklevel=3)
+    logging.getLogger(__name__).warning(message)
 
 
 def _validate_ai_auth_settings(settings: Settings) -> None:
@@ -102,6 +139,14 @@ def create_app() -> FastAPI:
     for _h in logging.getLogger().handlers:
         if not any(isinstance(f, RequestIdLogFilter) for f in _h.filters):
             _h.addFilter(_filter)
+
+    # Phase 0, task S-4: surface the deprecation of the server-side AI
+    # metadata lookup fallback. Fires once at boot when the flag is True;
+    # the helper is a no-op otherwise. Placed AFTER logging setup so the
+    # operator-channel warning goes through the configured root handler,
+    # and BEFORE engine creation so a misconfigured DB URL doesn't
+    # accidentally mask the notice.
+    _warn_deprecated_ai_metadata_lookup(settings)
 
     engine = make_engine(settings.database_url)
     configure(engine)

@@ -515,6 +515,20 @@ header if the user's daily budget is exhausted. Body:
 }
 ```
 
+**Push-model contract (Phase 0, 2026-05-22).** `bundle` is **required** on
+the request body — the server is the consumer, not the source, of book
+metadata. Omitted `bundle` is rejected with `400 metadata_required`.
+
+The operator-controlled
+`QUIRE_SERVER_AI_METADATA_SERVER_LOOKUP_ENABLED` flag (default `false`)
+restores the legacy server-side fallback that reconstructs the bundle
+from the caller's `library_items` row. **The flag is deprecated since
+this release and will be removed 2 minor releases later.** When enabled,
+the server emits a `DeprecationWarning` + `logging.warning` at boot. Plan
+client cutover to the push model within that window. See `server/README.md`
+("Push-model API: deprecated server-side metadata fallback") for the
+operator-side detail.
+
 **Identity fields (PR2 update, 2026-05-16).** `identity.content_hash` is now
 **optional** so the catalog-preview flow can request insights before the EPUB
 body is downloaded. The full set of accepted hints is:
@@ -648,6 +662,11 @@ Body adds a required `reason`:
 ```
 
 The reason is included in the prompt sent to the model so it knows what to fix.
+
+`bundle` follows the same push-model contract as `/insights/lookup`: required
+on the request body, with the deprecated
+`QUIRE_SERVER_AI_METADATA_SERVER_LOOKUP_ENABLED` fallback as the only
+escape hatch and the same 2-minor-release removal window.
 
 ### `POST /ai/v1/insights/get`
 

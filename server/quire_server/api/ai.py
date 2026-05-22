@@ -185,10 +185,11 @@ async def _resolve_bundle(
     * Client-supplied ``request_bundle`` wins. The server uses it verbatim.
     * If absent AND ``ai_metadata_server_lookup_enabled`` is True, the
       server falls back to reconstructing a bundle from the caller's
-      local ``library_items`` row (deprecated path; kept only for the
-      OSS push-model migration window). Lookup is user-scoped and
-      alive-only; ``metadata_id`` wins over ``content_hash`` when both
-      could match.
+      local ``library_items`` row. **DEPRECATED since the Phase 0 release
+      (2026-05-22); slated for removal in 2 minor releases (task S-4).**
+      Kept only for the OSS push-model migration window. Lookup is
+      user-scoped and alive-only; ``metadata_id`` wins over
+      ``content_hash`` when both could match.
     * If absent AND the flag is False, the server returns 400
       ``metadata_required`` — clients MUST send their own metadata.
 
