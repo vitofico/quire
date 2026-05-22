@@ -14,7 +14,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SyncStateEntity::class,
         InsightEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 abstract class EReaderDatabase : RoomDatabase() {
@@ -143,6 +143,33 @@ abstract class EReaderDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Phase-0 / F-2: stamps every identity-hash-carrying row with the
+         * schema version of the hash function that produced it. Backfills
+         * existing rows to `1` (the current MD5-sampled hash in
+         * `core/identity/ContentHash.kt`). Paired with
+         * `core.model.CURRENT_IDENTITY_HASH_VERSION` and
+         * `core.model.isStaleHashVersion`. Server-side change is handled by
+         * the sibling F-1 task.
+         *
+         * Two ALTER TABLEs: `documents` (the primary owner — also drives
+         * re-upload via `LibraryUploader` when stale) and `book_insights`
+         * (metadata only; this DAO cannot re-key its rows, so a future v2
+         * bump will be handled by re-syncing the cache from the server).
+         */
+        internal val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE documents ADD COLUMN identityHashVersion " +
+                        "INTEGER NOT NULL DEFAULT 1"
+                )
+                db.execSQL(
+                    "ALTER TABLE book_insights ADD COLUMN identityHashVersion " +
+                        "INTEGER NOT NULL DEFAULT 1"
+                )
+            }
+        }
+
         fun build(context: Context): EReaderDatabase =
             Room.databaseBuilder(context, EReaderDatabase::class.java, "ereader.db")
                 .addMigrations(
@@ -153,6 +180,7 @@ abstract class EReaderDatabase : RoomDatabase() {
                     MIGRATION_5_6,
                     MIGRATION_6_7,
                     MIGRATION_7_8,
+                    MIGRATION_8_9,
                 )
                 .build()
     }

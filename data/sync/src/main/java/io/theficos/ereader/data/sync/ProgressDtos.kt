@@ -7,6 +7,11 @@ import kotlinx.serialization.Serializable
 data class DocumentIdDto(
     @SerialName("metadata_id") val metadataId: String? = null,
     @SerialName("content_hash") val contentHash: String,
+    // Phase-0 / F-2: schema version of the client-side hash function that
+    // produced `contentHash`. Defaults to `1` so an older server that does
+    // not yet emit the field (pre-F-1) decodes safely — every existing
+    // hash on the wire is v1.
+    @SerialName("identity_hash_version") val identityHashVersion: Int = 1,
 )
 
 @Serializable

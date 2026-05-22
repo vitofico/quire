@@ -1,5 +1,6 @@
 package io.theficos.ereader.data.local
 
+import io.theficos.ereader.core.model.CURRENT_IDENTITY_HASH_VERSION
 import io.theficos.ereader.core.model.Document
 import io.theficos.ereader.core.model.DocumentIdentity
 import io.theficos.ereader.data.local.db.DocumentDao
@@ -80,6 +81,7 @@ class DocumentRepository(private val dao: DocumentDao) {
         downloadedAt: Long,
         seriesName: String? = null,
         seriesIndex: Double? = null,
+        identityHashVersion: Int = CURRENT_IDENTITY_HASH_VERSION,
     ): Long = dao.insert(DocumentEntity(
         metadataId = identity.metadataId,
         contentHash = requireNotNull(identity.contentHash) {
@@ -93,11 +95,16 @@ class DocumentRepository(private val dao: DocumentDao) {
         downloadedAt = downloadedAt,
         seriesName = seriesName?.takeIf { it.isNotBlank() },
         seriesIndex = seriesIndex,
+        identityHashVersion = identityHashVersion,
     ))
 
     private fun DocumentEntity.toDomain(): Document = Document(
         id = id,
-        identity = DocumentIdentity(metadataId = metadataId, contentHash = contentHash),
+        identity = DocumentIdentity(
+            metadataId = metadataId,
+            contentHash = contentHash,
+            identityHashVersion = identityHashVersion,
+        ),
         title = title,
         author = author,
         downloadUrl = downloadUrl,
@@ -106,6 +113,7 @@ class DocumentRepository(private val dao: DocumentDao) {
         downloadedAt = downloadedAt,
         seriesName = seriesName,
         seriesIndex = seriesIndex,
+        identityHashVersion = identityHashVersion,
     )
 
     companion object {

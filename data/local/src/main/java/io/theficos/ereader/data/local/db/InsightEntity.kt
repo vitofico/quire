@@ -1,5 +1,6 @@
 package io.theficos.ereader.data.local.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 
@@ -41,4 +42,17 @@ data class InsightEntity(
     val generatedAt: Long,
     /** When this row was upserted locally; wall clock millis. */
     val syncedAt: Long,
+    /**
+     * Phase-0 / F-2: schema version of the client-side hash function that
+     * produced the [contentHash] / [identityKey] this row is filed under.
+     * `INTEGER NOT NULL DEFAULT 1` on disk.
+     *
+     * Stored as metadata only — this DAO cannot re-key existing rows when
+     * the hash function bumps because the `identityKey` is part of the
+     * primary key and the source EPUB is not addressable from here. A
+     * future hash-function change will be handled by re-syncing the cache
+     * (server-driven) rather than by mutating this column in place.
+     */
+    @ColumnInfo(defaultValue = "1")
+    val identityHashVersion: Int = 1,
 )
