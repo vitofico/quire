@@ -225,7 +225,9 @@ Dockerfile            Reproducible Android build environment (linux/amd64)
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md). TL;DR: gitmoji + conventional
 commits, `scripts/dgradle test` and `cd server && uv run pytest` must
-pass, no telemetry / analytics PRs.
+pass, no telemetry / analytics PRs. External contributors also need to
+sign the [Quire CLA](CLA.md) on the PR before it can be merged — see
+CONTRIBUTING.md for the one-line comment.
 
 ## Security
 

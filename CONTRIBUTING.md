@@ -153,7 +153,33 @@ participates in the cache key.
 
 By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
 
+## Contributor License Agreement
+
+Before a pull request from any contributor other than the maintainer
+can be merged, every such contributor on the PR must sign the [Quire
+Contributor License Agreement](CLA.md) by posting a new comment on the
+PR containing **exactly**:
+
+```
+I have read the Quire Contributor License Agreement and I hereby sign the CLA
+```
+
+The maintainer reviews PR comments before merge and will not merge a PR
+until every required signer has commented the phrase above. Automation
+bots that don't author copyrightable changes (`dependabot[bot]`,
+`github-actions[bot]`, `renovate[bot]`) are implicitly exempt.
+
+The CLA does **not** change Quire's outbound license. Quire remains
+Apache-2.0 unless a specific file, subtree, or future release states
+otherwise. What the CLA does is grant the maintainer the option to also
+license accepted contributions under AGPL-3.0-or-later for parts of the
+Project (notably the `server/` subtree) in the future, without needing
+to re-collect permission from every past contributor. See `CLA.md` §4.
+
 ## License
 
-By submitting a contribution you agree it is licensed under the
-project's [LICENSE](LICENSE) (Apache-2.0).
+Quire is licensed under [Apache-2.0](LICENSE). By Submitting a
+contribution You agree it is provided under Apache-2.0 and under the
+terms of [the Quire CLA](CLA.md), which (per CLA §4) also lets the
+maintainer license it under AGPL-3.0-or-later for parts of the Project
+in the future.
