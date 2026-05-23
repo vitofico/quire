@@ -56,6 +56,10 @@ data class LibraryItemRequest(
     val language: String? = null,
     val subjects: List<String> = emptyList(),
     @SerialName("opds_href") val opdsHref: String? = null,
+    // Phase-0 / F-2: stamps which client hash-function version produced
+    // `contentHash`. Defaults to `1` for wire back-compat with an older
+    // server that doesn't yet emit the field (F-1 lands it server-side).
+    @SerialName("identity_hash_version") val identityHashVersion: Int = 1,
 )
 
 /**
@@ -90,4 +94,7 @@ data class LibraryItemResponse(
     @SerialName("created_at") val createdAt: String,
     @SerialName("updated_at") val updatedAt: String,
     @SerialName("deleted_at") val deletedAt: String? = null,
+    // Phase-0 / F-2: defaults to `1` so an older server (pre-F-1) decodes
+    // safely — every hash on the wire today is v1.
+    @SerialName("identity_hash_version") val identityHashVersion: Int = 1,
 )

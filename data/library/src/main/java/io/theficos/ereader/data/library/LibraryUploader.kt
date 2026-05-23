@@ -119,6 +119,10 @@ class LibraryUploader(
             language = null,    // v2: parse from OPF
             subjects = emptyList(), // v2: parse from OPF
             opdsHref = downloadUrl,
+            // Phase-0 / F-2: forward the row's stored hash version. Today
+            // this is always 1; a future hash-function bump will set it to
+            // the version that was current when this row was hashed.
+            identityHashVersion = identityHashVersion,
         )
 
     private companion object {

@@ -1,5 +1,6 @@
 package io.theficos.ereader.data.local.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -37,4 +38,14 @@ data class DocumentEntity(
      * presence marker; we never compare it against server timestamps.
      */
     val librarySyncedAt: Long? = null,
+    /**
+     * Phase-0 / F-2: schema version of the client-side hash function that
+     * produced [contentHash]. `INTEGER NOT NULL DEFAULT 1` on disk so the
+     * 8→9 migration can backfill pre-existing rows in a single ALTER TABLE.
+     * Today every row is v1; the field exists so a future hash-function
+     * change can be detected via
+     * `io.theficos.ereader.core.model.isStaleHashVersion`.
+     */
+    @ColumnInfo(defaultValue = "1")
+    val identityHashVersion: Int = 1,
 )

@@ -258,5 +258,116 @@ class MigrationTest {
         }
     }
 
+    @Test fun `migrate 8 to 9 stamps identityHashVersion=1 on documents and book_insights`() {
+        // v8 fixture: seed one row in `documents` and one in `book_insights`
+        // (both tables exist at v8). identityHashVersion does NOT exist yet.
+        helper.createDatabase(DB, 8).use { db ->
+            db.execSQL(
+                "INSERT INTO documents (id, metadataId, contentHash, title, author, downloadUrl, " +
+                    "localPath, coverPath, downloadedAt, seriesName, seriesIndex, librarySyncedAt) " +
+                    "VALUES (41, 'm41', 'h41', 'Pre-F2 title', NULL, 'u', 'p', NULL, 51, NULL, NULL, NULL)"
+            )
+            db.execSQL(
+                "INSERT INTO book_insights (identityKey, metadataId, contentHash, modelId, " +
+                    "promptVersion, tone, language, payloadJson, sourcesJson, schemaVersion, " +
+                    "serverId, generatedAt, syncedAt) VALUES " +
+                    "('m41', 'm41', 'h41', 'llama3.1', '4', 'neutral', 'auto', '{}', '[]', 4, " +
+                    "100, 1000, 1100)"
+            )
+        }
+
+        helper.runMigrationsAndValidate(DB, 9, true, EReaderDatabase.MIGRATION_8_9).use { db ->
+            // Both tables gained the column.
+            for (table in listOf("documents", "book_insights")) {
+                db.query("PRAGMA table_info('$table')").use { c ->
+                    val cols = mutableSetOf<String>()
+                    while (c.moveToNext()) cols += c.getString(c.getColumnIndexOrThrow("name"))
+                    assertThat(cols).contains("identityHashVersion")
+                }
+            }
+            // Existing rows backfill to 1 via the DEFAULT clause.
+            db.query("SELECT identityHashVersion FROM documents WHERE id=41").use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.getInt(0)).isEqualTo(1)
+            }
+            db.query(
+                "SELECT identityHashVersion FROM book_insights " +
+                    "WHERE identityKey='m41' AND modelId='llama3.1' AND promptVersion='4'"
+            ).use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.getInt(0)).isEqualTo(1)
+            }
+            // New rows round-trip a non-default value.
+            db.execSQL(
+                "INSERT INTO documents (id, metadataId, contentHash, title, author, downloadUrl, " +
+                    "localPath, coverPath, downloadedAt, seriesName, seriesIndex, librarySyncedAt, " +
+                    "identityHashVersion) " +
+                    "VALUES (42, 'm42', 'h42', 'Post-F2 title', NULL, 'u', 'p', NULL, 52, NULL, " +
+                    "NULL, NULL, 2)"
+            )
+            db.query("SELECT identityHashVersion FROM documents WHERE id=42").use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.getInt(0)).isEqualTo(2)
+            }
+            db.execSQL(
+                "INSERT INTO book_insights (identityKey, metadataId, contentHash, modelId, " +
+                    "promptVersion, tone, language, payloadJson, sourcesJson, schemaVersion, " +
+                    "serverId, generatedAt, syncedAt, identityHashVersion) VALUES " +
+                    "('m42', 'm42', 'h42', 'llama3.1', '4', 'neutral', 'auto', '{}', '[]', 4, " +
+                    "200, 2000, 2100, 3)"
+            )
+            db.query(
+                "SELECT identityHashVersion FROM book_insights " +
+                    "WHERE identityKey='m42' AND modelId='llama3.1' AND promptVersion='4'"
+            ).use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.getInt(0)).isEqualTo(3)
+            }
+        }
+    }
+
+    @Test fun `migrate 6 to 9 chains all additive migrations`() {
+        // Long-tail upgrade path: a v6 install (pre-PR-η) jumps straight to
+        // v9 (post-F-2). Every additive migration in between must survive.
+        helper.createDatabase(DB, 6).use { db ->
+            db.execSQL(
+                "INSERT INTO documents (id, metadataId, contentHash, title, author, downloadUrl, " +
+                    "localPath, coverPath, downloadedAt, seriesName, seriesIndex, librarySyncedAt) " +
+                    "VALUES (51, 'm51', 'h51', 'Pre-F2 chain title', NULL, 'u', 'p', NULL, 61, NULL, NULL, NULL)"
+            )
+            db.execSQL(
+                "INSERT INTO progress (id, documentId, locator, percent, updatedAt, " +
+                    "localUpdatedAt, syncedAt, finishedAt) " +
+                    "VALUES (51, 51, 'loc', 0.8, 100, 100, 0, NULL)"
+            )
+        }
+
+        helper.runMigrationsAndValidate(
+            DB,
+            9,
+            true,
+            EReaderDatabase.MIGRATION_6_7,
+            EReaderDatabase.MIGRATION_7_8,
+            EReaderDatabase.MIGRATION_8_9,
+        ).use { db ->
+            // F-2 column landed on both tables.
+            db.query("SELECT identityHashVersion FROM documents WHERE id=51").use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.getInt(0)).isEqualTo(1)
+            }
+            db.query("PRAGMA table_info('book_insights')").use { c ->
+                val cols = mutableSetOf<String>()
+                while (c.moveToNext()) cols += c.getString(c.getColumnIndexOrThrow("name"))
+                assertThat(cols).contains("identityHashVersion")
+            }
+            // Earlier additive migrations still present.
+            db.query("PRAGMA table_info('progress')").use { c ->
+                val cols = mutableSetOf<String>()
+                while (c.moveToNext()) cols += c.getString(c.getColumnIndexOrThrow("name"))
+                assertThat(cols).contains("abandonedAt")
+            }
+        }
+    }
+
     private companion object { const val DB = "migration-test.db" }
 }

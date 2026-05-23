@@ -113,4 +113,23 @@ class ProgressDtosTest {
         assertThat(r.items.first().abandonedAt).isEqualTo("2026-05-20T12:00:00+00:00")
         assertThat(r.items.first().finishedAt).isNull()
     }
+
+    // ---------- Phase-0 / F-2: identity_hash_version ----------
+
+    @Test fun `DocumentIdDto carries identity_hash_version on the wire`() {
+        val encJson = Json { encodeDefaults = true }
+        val dto = DocumentIdDto(metadataId = "m1", contentHash = "h1", identityHashVersion = 2)
+        val encoded = encJson.encodeToString(DocumentIdDto.serializer(), dto)
+        assertThat(encoded).contains("\"identity_hash_version\":2")
+        val decoded = encJson.decodeFromString(DocumentIdDto.serializer(), encoded)
+        assertThat(decoded.identityHashVersion).isEqualTo(2)
+    }
+
+    @Test fun `DocumentIdDto missing identity_hash_version defaults to 1`() {
+        // Pre-F-1 server payload — the field hasn't landed server-side yet
+        // (or the deploy lags). Every hash on the wire today is v1.
+        val raw = """{"metadata_id":"m1","content_hash":"h1"}"""
+        val decoded = json.decodeFromString(DocumentIdDto.serializer(), raw)
+        assertThat(decoded.identityHashVersion).isEqualTo(1)
+    }
 }
