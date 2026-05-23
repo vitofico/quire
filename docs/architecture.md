@@ -16,6 +16,88 @@ calibre-web is stateless from the reader's perspective — no reading state ever
 lives there. (A planned read-only Calibre plugin will pull progress from
 `quire-server` into Calibre custom columns.)
 
+## Push-model architecture (Phase 0, 2026-05-22)
+
+Phase 0 pins the data-flow shape that the future Quire Cloud product will
+reuse. **The Android client is the only thing that touches local EPUB files
+and the user's calibre-web instance.** Everything the server knows about a
+book or a user's library, it knows because the client pushed it. The server
+makes no outbound calls into the user's environment on the sync/library
+surfaces — the one acknowledged exception is the optional
+`CalibreWebBasicAuth` probe to `{CWA_BASE_URL}/opds` for credential
+validation, which the operator can replace with `NativeAuth` (see
+[AuthBackend abstraction](#authbackend-abstraction-phase-0-2026-05-22)).
+
+```
+                          ┌─────────────────────────┐
+                          │  calibre-web (catalog)  │
+                          └────────────▲────────────┘
+                                       │  OPDS + EPUB download
+                                       │  HTTP Basic
+                                       │
+┌──────────────┐    EPUB body /        │
+│  Sideload    │──► OPF metadata ──┐   │
+│  (share /    │    on device      │   │
+│   import)    │                   ▼   │
+└──────────────┘            ┌──────────┴──────────┐
+                            │  Android: Quire     │
+                            │  - identity hash    │
+                            │  - metadata extract │
+                            │  - library mirror   │
+                            └──────────┬──────────┘
+                                       │  Push only
+                                       │  HTTPS
+                                       │  POST /library/v1/sync
+                                       │  POST /sync/v1/progress
+                                       │  POST /ai/v1/insights/{lookup,regenerate}
+                                       ▼
+                            ┌─────────────────────┐
+                            │  quire-server       │◄── optional probe
+                            │  (FastAPI)          │    to calibre-web
+                            │                     │    for Basic auth
+                            └──────────┬──────────┘    (CalibreWebBasicAuth)
+                                       │
+                                       ▼
+                            ┌─────────────────────┐
+                            │     Postgres        │
+                            └─────────────────────┘
+```
+
+Outbound-call posture, by surface:
+
+- **`/sync/v1/*`, `/library/v1/*`** — no outbound calls into the user's
+  environment. (Auth-probe exception above, configurable away.)
+- **`/ai/v1/*`** — outbound to the configured AI provider and
+  retrieval sources (`wikipedia`, `openlibrary`); per-user opt-in. The
+  metadata `bundle` for an insight lookup is **pushed by the client**
+  rather than reconstructed server-side (the legacy server-side fallback
+  is the deprecated `QUIRE_SERVER_AI_METADATA_SERVER_LOOKUP_ENABLED`
+  flag — see [`sync-api.md`](sync-api.md#compatibility-and-deprecations)).
+
+### Wire-name convention
+
+The push-model `POST /library/v1/sync` endpoint uses **`identity_hash`** on
+the JSON wire; the persisted column on `library_items` stays
+**`content_hash`** for historical compatibility. This is a deliberate
+stable contract pinned by Phase 0 task X-1: the wire name is a long-lived
+Cloud-bound contract; the column name is a long-lived on-disk contract.
+Do not rename in either direction. Translation happens at the handler
+boundary (`server/quire_server/api/library.py`).
+
+The hashing algorithm itself is unchanged in Phase 0 (KOReader-style
+sampled MD5 — see [Sampled hash](#sampled-hash)). What's new is
+`identity_hash_version`, an integer (`>= 1`, default `1`) that travels on
+every record carrying an identity hash. The server applies
+`max(existing, incoming)` on write so older clients cannot downgrade a
+row. The version field is row-freshness metadata only — it is
+intentionally NOT part of any cache-key. The migrations that add the
+column (`ai_007`, `progress_003`) back-fill pre-existing rows to `1`
+atomically via the column default.
+
+The legacy per-item `PUT/GET/DELETE /library/v1/items` endpoints keep
+`content_hash` on their wire. Only the new push-model endpoint
+canonicalizes to `identity_hash`.
+
 ## Module layout (Android)
 
 ```
@@ -204,6 +286,13 @@ This handles "EPUB republished with shifted CFIs" without silent data loss.
 
 ## Authentication
 
+This section describes the **default OSS authentication backend**
+(`CalibreWebBasicAuth`). Phase 0 introduced a thin
+[`AuthBackend` abstraction](#authbackend-abstraction-phase-0-2026-05-22)
+that lets the same `quire-server` codebase run under a different backend
+(`NativeAuth`) in Quire Cloud deployments. The self-hosted default
+behavior below is unchanged.
+
 One credential, one mental model. The user gives the Android app their
 calibre-web username and password; everything else flows from that.
 
@@ -240,6 +329,104 @@ calibre-web username and password; everything else flows from that.
 - Basic credentials live in Keystore; never on disk in plaintext.
 - On `401` the app prompts re-auth (no refresh token to rotate).
 - Logout clears the Keystore entry.
+
+## AuthBackend abstraction (Phase 0, 2026-05-22)
+
+The OSS server's primary authentication is now selected through a thin
+`AuthBackend` Protocol in `server/quire_server/core/auth_backend.py`. The
+public dependency `current_user_id` keeps its `-> str` signature; route
+consumers and dependency overrides are untouched. Internally it resolves
+through whichever backend the `QUIRE_SERVER_AUTH_BACKEND` env var
+selects.
+
+Two implementations ship today:
+
+### `CalibreWebBasicAuth` — OSS default
+
+Wraps the existing `CalibreAuthValidator` byte-for-byte: probe
+`{CWA_BASE_URL}{CWA_PROBE_PATH}` (default `/opds`) with the incoming
+`Authorization` header, treat `200` as authenticated and `401` as not;
+TTL-cache results (60 s positive, 10 s negative, LRU-bounded). The
+`user_id` recorded on every persisted row is the lowercased calibre-web
+username extracted from the Basic header. This is the **recommended
+backend for self-hosters today** and the default behavior described in
+the [Authentication](#authentication) section above.
+
+### `NativeAuth` — Cloud-readiness scaffold
+
+Email + argon2id-hashed password + opaque session tokens. The user_id
+namespace is `"native:<NativeUser.id>"` so it cannot collide with
+CalibreWeb usernames. Configured via `QUIRE_SERVER_AUTH_BACKEND=native`.
+
+This backend exists to satisfy the future Quire Cloud product's identity
+layer — **it is deliberately minimum-viable, not a self-host-recommended
+path.** What ships:
+
+- `argon2id` password hashing (`t=3, m=64 MiB, p=4, hash_len=32`, salt
+  16 bytes) — above OWASP's argon2id minimum and inside RFC 9106's
+  recommended profile. Verification runs off the event loop.
+- Constant-time unknown-email path: a precomputed dummy PHC hash is
+  verified against on every login attempt where the email is unknown,
+  so wrong-password and unknown-email responses are indistinguishable in
+  cost and in body.
+- Email canonicalization: `strip + NFKC + casefold`.
+- Session tokens: 32 bytes from `secrets.token_urlsafe`, persisted as
+  `sha256(token)` hex. Plaintext lives only in the client.
+- `POST /auth/v1/login` (returns `{token, expires_at}`) and
+  `POST /auth/v1/logout` (revokes the bearer).
+- `POST /auth/v1/magic-link/request` and `GET /auth/v1/magic-link/consume`
+  are **HTTP stubs** in Phase 0: request always returns `202` and sends
+  nothing; consume returns `501`. They will be wired by Cloud's control
+  plane later.
+
+Deferred (not in Phase 0, not on the self-host path): signup endpoint
+(Cloud's control plane will own signup), password reset / recovery /
+email change flows, refresh tokens, rate limiting, lockout, CAPTCHA,
+MFA, OAuth, CSRF, account-deletion / DSAR endpoints (Cloud-side),
+audit-log surfacing, session sweeper.
+
+### Cross-config guard
+
+`auth_backend=native + ai_enabled=true + ai_auth_mode=basic` crashloops
+at startup. Without it, AI requests in a Cloud-style deployment would
+silently route through the CalibreWeb verifier that no longer exists
+upstream. The legacy `QUIRE_SERVER_AI_AUTH_MODE=token` AI-only Bearer
+seam is **deprecated** as of 2026.05.22; new deployments needing
+session-token primary authentication should use `NativeAuth` via
+`QUIRE_SERVER_AUTH_BACKEND=native`. See
+[`sync-api.md`](sync-api.md#compatibility-and-deprecations) for the
+removal window.
+
+### Configuration env vars
+
+| Env var                              | Default       | Notes                                                            |
+| ------------------------------------ | ------------- | ---------------------------------------------------------------- |
+| `QUIRE_SERVER_AUTH_BACKEND`          | `calibreweb`  | `calibreweb` or `native`. Selects the primary `AuthBackend`.     |
+| `QUIRE_SERVER_NATIVE_SESSION_TTL_S`  | `2592000` (30 d) | Session lifetime under `NativeAuth`.                          |
+
+### Schema
+
+A new `auth` Alembic branch is **always materialized** (no env gate) so
+switching backends is a config-only flip. `native_users(id, email
+UNIQUE + CHECK lower(email), password_hash, created_at)` and
+`native_sessions(token_hash PK, user_id FK CASCADE, created_at,
+expires_at, revoked_at)` with indexes on `user_id` and `expires_at`.
+Self-hosters running `CalibreWebBasicAuth` carry the empty tables; the
+cost is one DDL roundtrip at first migration.
+
+## Process boundary
+
+Cloud-only AI workers and the future Cloud control plane will run as
+**separate processes** from `quire-server`. They communicate over HTTP
+and share the Postgres database. **No Python imports cross the boundary.**
+Phase 0 enables this by keeping all Cloud-specific behavior behind the
+`AuthBackend` interface and the push-model API — there is no
+`if cloud:` branch inside `quire_server`. No Cloud code exists in this
+repository today.
+
+The practical consequence for contributors: code added under `server/`
+must be useful to a self-hoster, must not import from any future Cloud
+package, and must not assume a Cloud-only feature is present.
 
 ## Deploy modes
 

@@ -1,8 +1,13 @@
 # Sync API
 
-REST surface of the `quire-server` server. All endpoints are versioned under
-`/sync/v1`, all request and response bodies are JSON, and all sync endpoints
-require an HTTP Basic header valid against the upstream calibre-web instance.
+REST surface of the `quire-server` server. Endpoints live under four
+prefixes — `/sync/v1` (progress + planned bookmarks), `/library/v1`
+(per-user library mirror, including the Phase 0 push-model
+`POST /library/v1/sync` bulk endpoint), `/ai/v1` (optional book insights
+and reader profile), and the unprefixed `/health` / `/readyz` operational
+probes. All request and response bodies are JSON. Authenticated
+endpoints accept the same credential as calibre-web by default; see
+[Authentication](#authentication) for the Phase 0 pluggable backend.
 
 For the rationale behind the conflict-resolution model, see
 [`architecture.md`](architecture.md).
@@ -58,6 +63,65 @@ it never participates in any shared-cache key. See `docs/architecture.md`
 §"AI auth seam" for the rationale and `server/quire_server/api/ai_auth.py` for
 the implementation.
 
+> The `token` mode above is **deprecated** since the 2026.05.22 release
+> and will be removed two minor releases later. New deployments that need
+> session-token primary authentication should use the
+> `AuthBackend` interface via `QUIRE_SERVER_AUTH_BACKEND=native`
+> (`NativeAuth`); see `docs/architecture.md` §"AuthBackend abstraction"
+> and the [deprecations table](#compatibility-and-deprecations) below.
+
+## Push model
+
+Phase 0 (2026-05-22) pins the data-flow shape that Quire Cloud will reuse:
+**the Android client is the only thing that touches local EPUB files and
+the user's calibre-web instance.** The server consumes whatever the client
+chooses to push; the new `POST /library/v1/sync` endpoint exists to make
+that a first-class flow. Existing per-item `PUT /library/v1/items` and
+`POST /sync/v1/progress` paths remain shipped and unchanged.
+
+Outbound-call posture, by surface:
+
+- **`/sync/v1/*`, `/library/v1/*`** — no outbound calls into the user's
+  environment. The one acknowledged exception is the optional
+  `CalibreWebBasicAuth` probe to `{CWA_BASE_URL}/opds` for credential
+  validation (default OSS auth backend).
+- **`/ai/v1/*`** — outbound calls to the configured AI provider and the
+  retrieval sources (`wikipedia`, `openlibrary`) continue to fire, gated
+  by per-user opt-in. Unchanged from earlier releases.
+
+### Wire-vs-attribute naming (X-1)
+
+The new `POST /library/v1/sync` endpoint uses **`identity_hash`** on the
+JSON wire. The persisted DB column on `library_items` stays
+**`content_hash`** for historical compatibility — no rename, no
+migration. The translation happens at the handler boundary
+(`server/quire_server/api/library.py`). Do not rename either side: the
+wire name is a stable Cloud-bound contract; the column name is a stable
+on-disk contract. Pre-Phase-0 endpoints (`PUT/GET/DELETE
+/library/v1/items`) keep `content_hash` on their wire too — only the new
+push-model endpoint canonicalizes to `identity_hash`.
+
+The hashing algorithm itself is unchanged in Phase 0 — KOReader-style
+sampled MD5 over the EPUB body (see
+[`architecture.md`](architecture.md#sampled-hash)). The new
+`identity_hash_version` field on every record (default `1` for all
+existing rows) is the version handle that lets a future hash algorithm
+change cleanly; the server applies `max(existing, incoming)` on write so
+older clients cannot downgrade a row.
+
+## Compatibility and deprecations
+
+Operator-facing config flags scheduled for removal. Each row's removal
+window starts at the listed release.
+
+| Setting (env var)                                | Default   | Deprecated since   | Removal target              | Recommended replacement                                                                  | Notes                                                                                                          |
+| ------------------------------------------------ | --------- | ------------------ | --------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `QUIRE_SERVER_AI_METADATA_SERVER_LOOKUP_ENABLED` | `false`   | 2026.05.22 release | +2 minor releases           | Client always sends `bundle` in `POST /ai/v1/insights/{lookup,regenerate}` body (push model). | When enabled, server reconstructs the bundle from the caller's `library_items` row. Emits `DeprecationWarning` + `logging.warning` at boot. |
+| `QUIRE_SERVER_AI_AUTH_MODE=token`                | `basic`   | 2026.05.22 release | +2 minor releases           | `QUIRE_SERVER_AUTH_BACKEND=native` (`NativeAuth`).                                       | Token-mode code path remains functional during the window; existing HS256 tokens continue to validate until normal expiry. Emits `DeprecationWarning` + `logging.warning` at startup. |
+
+A removed flag is a hard error — the server will refuse to start until
+the operator migrates. Plan cutover within the two-minor-release window.
+
 ## Endpoints
 
 | Method | Path | Auth | Purpose |
@@ -69,6 +133,7 @@ the implementation.
 | `POST` | `/sync/v1/documents/alias` | yes | Reconcile a hash-keyed record with a newly-known metadata-id (planned) |
 | `POST` | `/sync/v1/bookmarks` | yes | Push bookmark create/delete (planned) |
 | `GET` | `/sync/v1/bookmarks` | yes | Pull bookmark deltas (planned) |
+| `POST` | `/library/v1/sync` | yes | Push-model bulk upsert + tombstone batch (Phase 0; wire field `identity_hash`) |
 | `PUT` | `/library/v1/items` | yes | Upsert one library item (mode-gated on `QUIRE_SERVER_PROGRESS_ENABLED`) |
 | `GET` | `/library/v1/items` | yes | List items, optional `since=<ISO>` cursor with tombstones |
 | `DELETE` | `/library/v1/items` | yes | Soft-delete one library item by `content_hash` |
@@ -216,8 +281,132 @@ Per-user mirror of the on-device library. Mounted only when
 part of every uniqueness constraint and not shared cache.
 
 Identity travels in the request body (URL-encoded sha256s in paths are a
-footgun). Single-item-per-request today; a future bulk endpoint can ship
-as `{"items": [...]}` without breaking clients.
+footgun). Two write surfaces ship today: the per-item `PUT/GET/DELETE
+/library/v1/items` flow (legacy, wire-field `content_hash`) and the
+push-model `POST /library/v1/sync` bulk batch introduced in Phase 0
+(wire-field `identity_hash`). Both write to the same `library_items`
+table; the wire-vs-attribute naming split is documented in
+[Push model § Wire-vs-attribute naming](#wire-vs-attribute-naming-x-1).
+
+### `POST /library/v1/sync`
+
+> **Status.** Phase 0 / pre-Cloud push-model contract, shipped
+> 2026-05-22. Currently consumed by the monorepo Android client. Pinned
+> fields (`identity_hash`, `identity_hash_version`, `status`) are stable;
+> the rest of the request and response shape may evolve before the Cloud
+> private beta as new fields land.
+
+Bulk upsert + tombstone batch. The client pushes whatever entries it
+believes need attention; the server merges them into `library_items` in
+one transaction.
+
+```http
+POST /library/v1/sync
+Authorization: Basic ...   (or Bearer ... under NativeAuth)
+Content-Type: application/json
+
+{
+  "items": [
+    {
+      "identity_hash": "8e3a...",
+      "identity_hash_version": 1,
+      "status": "present",
+      "title": "Crime and Punishment",
+      "metadata_id": "9780141036144",
+      "authors": ["Fyodor Dostoevsky"],
+      "series_name": null,
+      "series_index": null,
+      "isbn": "9780141036144",
+      "language": "en",
+      "subjects": ["Fiction", "Classics"],
+      "opds_href": "/opds/book/42/download",
+      "last_seen_at": "2026-05-22T10:15:32+00:00"
+    },
+    {
+      "identity_hash": "f04c...",
+      "identity_hash_version": 1,
+      "status": "deleted"
+    }
+  ]
+}
+```
+
+Per-entry fields:
+
+| Field                   | Required when…             | Notes                                                                                       |
+| ----------------------- | -------------------------- | ------------------------------------------------------------------------------------------- |
+| `identity_hash`         | always                     | sha256/MD5 hex of the EPUB body — same value the legacy `content_hash` column holds.        |
+| `identity_hash_version` | always                     | Integer `>= 1`. Server applies `max(existing, incoming)`; older clients cannot downgrade.   |
+| `status`                | always                     | `"present"` (upsert) or `"deleted"` (tombstone).                                            |
+| `title`                 | `status == "present"`      | Required to populate the `NOT NULL` column.                                                 |
+| `metadata_id`           | optional                   | Normalized OPF `dc:identifier`. Conflict with a different `identity_hash` aborts the batch. |
+| `authors`               | optional                   | List of strings.                                                                            |
+| `series_name`           | optional                   |                                                                                             |
+| `series_index`          | optional                   |                                                                                             |
+| `isbn`                  | optional                   |                                                                                             |
+| `language`              | optional                   |                                                                                             |
+| `subjects`              | optional                   | List of strings.                                                                            |
+| `opds_href`             | optional                   |                                                                                             |
+| `last_seen_at`          | optional                   | ISO-8601, **tz-aware** (naive rejected). Validated but not persisted in v1.                 |
+
+Batch semantics:
+
+- **All-or-nothing.** Any `409 metadata_id_conflict` or any `422`
+  aborts the entire batch — no partial commit. Atomicity is enforced
+  by a single end-of-handler commit.
+- **Bounded.** `QUIRE_SERVER_LIBRARY_SYNC_MAX_ITEMS` (default 500) caps
+  the parsed entry count; `QUIRE_SERVER_MAX_REQUEST_BYTES` (default
+  1 MiB) caps the raw body. Either limit returns `422` /`413`
+  respectively.
+- **Diff-skip idempotency.** A `present` entry whose persisted row
+  already matches every field (and would not move
+  `identity_hash_version`) is counted as `skipped`, NOT rewritten.
+  Bumping `updated_at` on every replay would flood
+  `GET /library/v1/items?since=` with the entire library each cycle.
+- **No soft-delete heuristic.** Missing entries are NEVER auto-tombstoned.
+  Deletes travel as explicit `status="deleted"` commands.
+- **Unknown-hash tombstones are no-ops.** A `status="deleted"` entry
+  for an `identity_hash` the server has never seen is counted as
+  `missing_deleted` and produces nothing (the `title` column is
+  `NOT NULL` and we refuse to materialize phantom rows).
+- **Reactivation.** A `present` entry whose row exists with
+  `deleted_at IS NOT NULL` reactivates the row (counted as
+  `reactivated`).
+- **Intra-payload duplicates.** Two entries with the same
+  `identity_hash` collapse if identical; otherwise `422
+  duplicate_identity_hash_conflict`. Two entries claiming the same
+  `metadata_id` for different `identity_hash`es → `422
+  metadata_id_collision_in_payload`.
+- **Strict request schema.** `LibrarySyncEntry` /
+  `LibrarySyncRequest` set `extra="forbid"`. Legacy clients sending the
+  old `content_hash` field fail loudly with `422 extra_forbidden` rather
+  than silently dropping their identity payload.
+
+Response (`LibrarySyncSummary`):
+
+```json
+{
+  "received": 2,
+  "processed": 2,
+  "created": 1,
+  "updated": 0,
+  "reactivated": 0,
+  "deleted": 1,
+  "skipped": 0,
+  "missing_deleted": 0,
+  "server_time": "2026-05-22T10:15:32.000+00:00"
+}
+```
+
+Error codes specific to this endpoint:
+
+| Status | Body `detail.error`                  | Trigger                                                              |
+| ------ | ------------------------------------ | -------------------------------------------------------------------- |
+| 409    | `metadata_id_conflict`               | A persisted row has the same `metadata_id` under a different `identity_hash`. Detail also carries `existing_identity_hash` + `incoming_identity_hash`. |
+| 422    | `too_many_items`                     | `len(items) > library_sync_max_items`. Detail carries `limit` + `received`. |
+| 422    | `duplicate_identity_hash_conflict`   | Same `identity_hash` appears twice in the payload with conflicting status/metadata. |
+| 422    | `metadata_id_collision_in_payload`   | Two payload entries claim the same `metadata_id` for different `identity_hash` values. |
+| 422    | `extra_forbidden`                    | Schema rejection (e.g. legacy `content_hash` field). |
 
 ### `PUT /library/v1/items`
 
@@ -517,17 +706,32 @@ header if the user's daily budget is exhausted. Body:
 
 **Push-model contract (Phase 0, 2026-05-22).** `bundle` is **required** on
 the request body — the server is the consumer, not the source, of book
-metadata. Omitted `bundle` is rejected with `400 metadata_required`.
+metadata. Omitted `bundle` is rejected with `400 metadata_required`. The
+client computes the metadata on the device (from the EPUB OPF or the OPDS
+entry) and ships it as part of the same request that asks for an insight.
+
+`MetadataBundle` field caps are enforced server-side:
+`title <= 512`, `author <= 512`, `language <= 32`, `isbn <= 64`,
+`publisher <= 256`, `publish_date <= 32`, `subjects <= 64 × 80`,
+`description <= 4096`, `series_name <= 256`, `series_position 0–10000`.
+Both `InsightLookupBody` and `InsightRegenerateBody` set `extra="forbid"`.
+
+**Cache-key invariant.** The shared `book_insights` cache is keyed on
+`(identity, model_id, prompt_version, tone, language)` — `bundle` does
+**NOT** participate. Divergent metadata for the same canonical identity
+share the cache row (first-writer-wins). Bumping any of the cache-key
+dimensions still invalidates naturally; bundle drift does not.
 
 The operator-controlled
 `QUIRE_SERVER_AI_METADATA_SERVER_LOOKUP_ENABLED` flag (default `false`)
 restores the legacy server-side fallback that reconstructs the bundle
 from the caller's `library_items` row. **The flag is deprecated since
-this release and will be removed 2 minor releases later.** When enabled,
-the server emits a `DeprecationWarning` + `logging.warning` at boot. Plan
-client cutover to the push model within that window. See `server/README.md`
-("Push-model API: deprecated server-side metadata fallback") for the
-operator-side detail.
+the 2026.05.22 release and will be removed two minor releases later**
+— see the [Compatibility and deprecations table](#compatibility-and-deprecations).
+When enabled, the server emits a `DeprecationWarning` + `logging.warning`
+at boot. Plan client cutover to the push model within that window. See
+`server/README.md` ("Push-model API: deprecated server-side metadata
+fallback") for the operator-side detail.
 
 **Identity fields (PR2 update, 2026-05-16).** `identity.content_hash` is now
 **optional** so the catalog-preview flow can request insights before the EPUB
@@ -666,7 +870,8 @@ The reason is included in the prompt sent to the model so it knows what to fix.
 `bundle` follows the same push-model contract as `/insights/lookup`: required
 on the request body, with the deprecated
 `QUIRE_SERVER_AI_METADATA_SERVER_LOOKUP_ENABLED` fallback as the only
-escape hatch and the same 2-minor-release removal window.
+escape hatch and the same 2-minor-release removal window
+(see [Compatibility and deprecations](#compatibility-and-deprecations)).
 
 ### `POST /ai/v1/insights/get`
 
