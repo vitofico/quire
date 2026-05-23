@@ -61,6 +61,7 @@ def _to_response(row: LibraryItem) -> LibraryItemResponse:
     return LibraryItemResponse(
         metadata_id=row.metadata_id,
         content_hash=row.content_hash,
+        identity_hash_version=row.identity_hash_version,
         title=row.title,
         authors=list(row.authors or []),
         series_name=row.series_name,
@@ -78,6 +79,11 @@ def _to_response(row: LibraryItem) -> LibraryItemResponse:
 def _apply_payload(row: LibraryItem, payload: LibraryItemRequest) -> None:
     """Write payload fields onto `row`. Caller is responsible for timestamps."""
     row.metadata_id = payload.metadata_id
+    # Phase 0, task F-1: downgrade protection. An old client (sending the
+    # default `1`) MUST NOT overwrite a row whose hash version was advanced
+    # by a newer client. `max(existing, incoming)` is the load-bearing rule.
+    if payload.identity_hash_version > row.identity_hash_version:
+        row.identity_hash_version = payload.identity_hash_version
     row.title = payload.title
     row.authors = list(payload.authors)
     row.series_name = payload.series_name
@@ -134,6 +140,7 @@ async def put_item(
         row = LibraryItem(
             user_id=user_id,
             content_hash=payload.content_hash,
+            identity_hash_version=payload.identity_hash_version,
             title=payload.title,
             authors=list(payload.authors),
             metadata_id=payload.metadata_id,

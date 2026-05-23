@@ -131,5 +131,8 @@ internal fun InsightSyncItem.toEntity(syncedAtMs: Long, json: Json): InsightEnti
         serverId = id,
         generatedAt = parseIsoMillis(generatedAt) ?: syncedAtMs,
         syncedAt = syncedAtMs,
+        // Phase-0 / F-2: cache row inherits the hash version stamped by
+        // the server on the source identity.
+        identityHashVersion = identity.identityHashVersion,
     )
 }

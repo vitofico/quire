@@ -53,8 +53,9 @@ async def restore_after(postgres_url: str, alembic_upgrade):
 
 
 async def test_readyz_200_when_at_ai_head(monkeypatch, postgres_url, alembic_upgrade):
-    """With ai@head (ai_006) + progress@head (progress_002) materialized,
-    /readyz reports both heads. (ai_006 added by pr-β.)
+    """With ai@head (ai_007) + progress@head (progress_003) materialized,
+    /readyz reports both heads. (ai_007 / progress_003 added by Phase 0
+    task F-1: server identity-hash schema versioning.)
     """
     # Some earlier test in the session may have downgraded the DB
     # (test_migrate_script.py exercises rollback). Ensure both branches are
@@ -72,14 +73,15 @@ async def test_readyz_200_when_at_ai_head(monkeypatch, postgres_url, alembic_upg
     assert r.status_code == 200
     body = r.json()
     assert body["ready"] is True
-    assert body["heads_applied"] == ["ai_006", "progress_002"]
+    assert body["heads_applied"] == ["ai_007", "progress_003"]
 
 
 async def test_readyz_503_when_db_below_backbone(
     monkeypatch, postgres_url, alembic_upgrade, restore_after
 ):
     """DB stamped below backbone; with both modes enabled, required head is
-    ai_006 (ai@head after pr-β) — that's what should be reported missing."""
+    ai_007 (ai@head after Phase 0 / F-1) — that's what should be reported
+    missing."""
     await _stamp(postgres_url, "0003")
     app = _build_app(monkeypatch, postgres_url, progress=True, ai=True)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
@@ -87,7 +89,7 @@ async def test_readyz_503_when_db_below_backbone(
     assert r.status_code == 503
     body = r.json()
     assert body["ready"] is False
-    assert "ai_006" in body["missing"]
+    assert "ai_007" in body["missing"]
 
 
 async def test_readyz_200_with_neither_mode_at_backbone(

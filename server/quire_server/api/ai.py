@@ -411,6 +411,9 @@ async def sync_insights(
             BookInsight.id.label("ins_id"),
             BookInsight.metadata_id.label("ins_metadata_id"),
             BookInsight.content_hash.label("ins_content_hash"),
+            # Phase 0, task F-1: surface persisted identity-hash version
+            # to the client via the sync envelope.
+            BookInsight.identity_hash_version.label("ins_identity_hash_version"),
             BookInsight.model_id.label("ins_model_id"),
             BookInsight.prompt_version.label("ins_prompt_version"),
             BookInsight.tone.label("ins_tone"),
@@ -487,6 +490,7 @@ async def sync_insights(
             identity=DocumentIdentity(
                 metadata_id=r.ins_metadata_id,
                 content_hash=r.ins_content_hash,
+                identity_hash_version=r.ins_identity_hash_version,
             ),
             payload=BookInsightPayload.model_validate(r.ins_payload),
             sources=[Citation.model_validate(c) for c in (r.ins_sources or [])],

@@ -301,6 +301,9 @@ class AiRepository(
             serverId = 0L,
             generatedAt = parseIsoMillis(resp.generatedAt) ?: clock(),
             syncedAt = clock(),
+            // Phase-0 / F-2: stamp the cache row with the hash version of
+            // the identity used to fetch it. See `InsightEntity.identityHashVersion`.
+            identityHashVersion = identity.identityHashVersion,
         )
         insightDao.upsert(entity)
     }

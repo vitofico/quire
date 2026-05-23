@@ -2,11 +2,11 @@
 
 Cases covered:
 1. Default state with real migrations: wrapper upgrades backbone + ai branch,
-   DB ends at ai@head (currently `ai_006`).
+   DB ends at ai@head (currently `ai_007`).
 2. Idempotent: running twice in a row is a no-op.
-3. Synthetic branched script directory (tmp copy of migrations + an ai_test_006
-   revision chained off the current ai@head):
-   - ai_enabled=true → upgrades to ai_test_006.
+3. Synthetic branched script directory (tmp copy of migrations + an
+   ai_test_008 revision chained off the current ai@head):
+   - ai_enabled=true → upgrades to ai_test_008.
    - ai_enabled=false → stays at 0004 (no ai branch applied).
 """
 
@@ -53,7 +53,7 @@ async def _downgrade_in_thread(cfg, target: str) -> None:
 
 
 async def test_default_state_upgrades_backbone_then_ai_branch(postgres_url: str):
-    """Fresh DB → wrapper upgrades to backbone, then to ai@head (ai_006)."""
+    """Fresh DB → wrapper upgrades to backbone, then to ai@head (ai_007)."""
 
     # Wipe DB to fresh state.
     eng = create_async_engine(postgres_url, future=True)
@@ -66,9 +66,11 @@ async def test_default_state_upgrades_backbone_then_ai_branch(postgres_url: str)
 
     versions = await _alembic_versions(eng)
     await eng.dispose()
-    # ai branch is at ai_006 (pr-β / Bundle 3 added the audit-log generalization
-    # + profile_count column). The progress branch is at progress_002.
-    assert versions == {"ai_006", "progress_002"}
+    # ai branch is at ai_007 (Phase 0 / task F-1 added
+    # `book_insights.identity_hash_version`). The progress branch is at
+    # progress_003 (same task, added the column to `documents` and
+    # `library_items`).
+    assert versions == {"ai_007", "progress_003"}
 
 
 async def test_idempotent_second_run(postgres_url: str):
@@ -81,14 +83,14 @@ async def test_idempotent_second_run(postgres_url: str):
     eng = create_async_engine(postgres_url, future=True)
     versions = await _alembic_versions(eng)
     await eng.dispose()
-    assert versions == {"ai_006", "progress_002"}
+    assert versions == {"ai_007", "progress_003"}
 
 
 async def test_synthetic_ai_branch_upgrades_when_enabled(postgres_url: str, tmp_path: Path):
-    """Copy real migrations to tmp + add a synthetic ai_test_007 chained off
-    ai_006; verify enabled run advances to ai_test_007 (the new ai@head)."""
+    """Copy real migrations to tmp + add a synthetic ai_test_008 chained off
+    ai_007; verify enabled run advances to ai_test_008 (the new ai@head)."""
 
-    # First, ensure DB is at ai@head (real migrations include ai_001 .. ai_006).
+    # First, ensure DB is at ai@head (real migrations include ai_001 .. ai_007).
     real_cfg = _make_cfg(postgres_url)
     await _run_migrations_in_thread(real_cfg, progress_enabled=True, ai_enabled=True)
 
@@ -96,22 +98,23 @@ async def test_synthetic_ai_branch_upgrades_when_enabled(postgres_url: str, tmp_
     synth_dir = tmp_path / "migrations"
     shutil.copytree("migrations", synth_dir)
     versions_dir = synth_dir / "versions"
-    # Chain off ai_006 (the current ai@head after pr-β) with branch_labels=None.
-    (versions_dir / "ai_test_007.py").write_text(
+    # Chain off ai_007 (the current ai@head after Phase 0 / F-1) with
+    # branch_labels=None.
+    (versions_dir / "ai_test_008.py").write_text(
         textwrap.dedent(
             '''
             """synthetic ai branch test migration.
 
-            Revision ID: ai_test_007
-            Revises: ai_006
-            Create Date: 2026-05-21 00:00:00.000000
+            Revision ID: ai_test_008
+            Revises: ai_007
+            Create Date: 2026-05-22 00:00:00.000000
             """
 
             import sqlalchemy as sa
             from alembic import op
 
-            revision = "ai_test_007"
-            down_revision = "ai_006"
+            revision = "ai_test_008"
+            down_revision = "ai_007"
             branch_labels = None
             depends_on = None
 
@@ -132,18 +135,18 @@ async def test_synthetic_ai_branch_upgrades_when_enabled(postgres_url: str, tmp_
     eng = create_async_engine(postgres_url, future=True)
     versions = await _alembic_versions(eng)
     # ai branch advances to the new tip.
-    assert "ai_test_007" in versions, versions
+    assert "ai_test_008" in versions, versions
     await eng.dispose()
 
     # Cleanup: roll back the synthetic migration so other tests aren't affected.
-    await _downgrade_in_thread(cfg, "ai_006")
+    await _downgrade_in_thread(cfg, "ai_007")
 
 
 async def test_synthetic_ai_branch_skipped_when_disabled(postgres_url: str, tmp_path: Path):
     """With ai_enabled=False, the wrapper skips advancing the ai branch.
 
     Pre-condition: DB is rolled back to 0004 (no ai branch applied), then the
-    wrapper is invoked with ai_enabled=False. ai_test_007 (the synthetic head)
+    wrapper is invoked with ai_enabled=False. ai_test_008 (the synthetic head)
     must NOT be applied; the backbone stays at 0004.
     """
     # Stamp DB back to backbone (pre-ai-branch state) for this test.
@@ -152,15 +155,15 @@ async def test_synthetic_ai_branch_skipped_when_disabled(postgres_url: str, tmp_
 
     synth_dir = tmp_path / "migrations"
     shutil.copytree("migrations", synth_dir)
-    (synth_dir / "versions" / "ai_test_007.py").write_text(
+    (synth_dir / "versions" / "ai_test_008.py").write_text(
         textwrap.dedent(
             '''
             """synthetic ai branch test migration."""
             import sqlalchemy as sa
             from alembic import op
 
-            revision = "ai_test_007"
-            down_revision = "ai_006"
+            revision = "ai_test_008"
+            down_revision = "ai_007"
             branch_labels = None
             depends_on = None
 
@@ -179,17 +182,19 @@ async def test_synthetic_ai_branch_skipped_when_disabled(postgres_url: str, tmp_
     eng = create_async_engine(postgres_url, future=True)
     versions = await _alembic_versions(eng)
     await eng.dispose()
-    # ai branch skipped → ai_test_007 not applied, ai_006 not applied,
-    # ai_001 not applied. The `progress` branch still advanced.
-    assert "ai_test_007" not in versions
+    # ai branch skipped → ai_test_008 not applied, ai_007 not applied,
+    # ai_006 not applied, ai_001 not applied. The `progress` branch still
+    # advanced.
+    assert "ai_test_008" not in versions
+    assert "ai_007" not in versions
     assert "ai_006" not in versions
     assert "ai_005" not in versions
     assert "ai_004" not in versions
     assert "ai_003" not in versions
     assert "ai_001" not in versions
     # progress branch advanced (progress_enabled=True). The backbone itself
-    # is no longer a head once progress_002 sits on top of 0004.
-    assert "progress_002" in versions
+    # is no longer a head once progress_003 sits on top of 0004.
+    assert "progress_003" in versions
 
     # Restore DB for subsequent tests.
     await _run_migrations_in_thread(real_cfg, progress_enabled=True, ai_enabled=True)

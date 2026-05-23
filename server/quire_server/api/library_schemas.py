@@ -26,6 +26,11 @@ class LibraryItemRequest(BaseModel):
 
     metadata_id: str | None = None
     content_hash: str
+    # Phase 0, task F-1: identity-hash algorithm version. Default `1`
+    # accepts pre-versioning clients; the server's PUT path applies
+    # `max(existing, incoming)` so an old client cannot downgrade a row
+    # written by a newer client.
+    identity_hash_version: int = Field(default=1, ge=1)
     title: str
     authors: list[str] = Field(default_factory=list)
     series_name: str | None = None
@@ -47,6 +52,12 @@ class LibraryItemIdentity(BaseModel):
     """The identity sub-object inside a DELETE body."""
 
     content_hash: str
+    # Phase 0, task F-1: optional on DELETE. The current matcher keys
+    # exclusively on `content_hash` so the field is accepted but not used
+    # for row selection — clients can already locate a row by hash alone.
+    # Once a real hash-version migration happens this field becomes the
+    # tiebreaker for delete semantics.
+    identity_hash_version: int = Field(default=1, ge=1)
 
 
 class LibraryItemDeleteBody(BaseModel):
@@ -58,6 +69,10 @@ class LibraryItemResponse(BaseModel):
 
     metadata_id: str | None
     content_hash: str
+    # Phase 0, task F-1: always emitted from server, so clients can detect
+    # the row's persisted hash-algorithm version and trigger recompute on
+    # next sync when their computed-version > N.
+    identity_hash_version: int
     title: str
     authors: list[str]
     series_name: str | None

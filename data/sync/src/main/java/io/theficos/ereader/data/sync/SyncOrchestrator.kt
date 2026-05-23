@@ -31,6 +31,9 @@ class SyncOrchestrator(
                         contentHash = requireNotNull(doc.identity.contentHash) {
                             "downloaded document must have a contentHash"
                         },
+                        // Phase-0 / F-2: stamp every outbound progress push
+                        // with the hash version of the row it references.
+                        identityHashVersion = doc.identityHashVersion,
                     ),
                     locator = progress.locator,
                     percent = progress.percent,
@@ -65,7 +68,15 @@ class SyncOrchestrator(
     }
 
     private suspend fun applyPulled(item: ProgressItemDto) {
-        val identity = DocumentIdentity(metadataId = item.document.metadataId, contentHash = item.document.contentHash)
+        // Phase-0 / F-2: forward the server-reported identity_hash_version
+        // into the DocumentIdentity used for local lookup. We don't act on
+        // it here (progress doesn't carry a hash on disk; doc rows are
+        // looked up by metadataId/contentHash) — but the field travels.
+        val identity = DocumentIdentity(
+            metadataId = item.document.metadataId,
+            contentHash = item.document.contentHash,
+            identityHashVersion = item.document.identityHashVersion,
+        )
         val doc = documentRepo.findByIdentity(identity) ?: return
         val incomingUpdatedAt = Instant.parse(item.clientUpdatedAt).toEpochMilli()
         val incomingFinishedAt = item.finishedAt?.let { Instant.parse(it).toEpochMilli() }

@@ -664,6 +664,10 @@ class InsightOrchestrator:
         row = BookInsight(
             metadata_id=ident.metadata_id,
             content_hash=effective_content_hash,
+            # Phase 0, task F-1: persist the incoming identity-hash version
+            # so future reads return the correct level. Defaults to `1` for
+            # pre-versioning clients.
+            identity_hash_version=getattr(ident, "identity_hash_version", 1),
             model_id=self.model_id,
             prompt_version=self.prompt_version,
             tone=tone,
@@ -857,6 +861,7 @@ class InsightOrchestrator:
                 )
             ).scalar_one_or_none()
             if row is not None:
+                _maybe_upgrade_identity_hash_version(row, ident)
                 return row
         # Step 2: by content_hash (live rows only)
         if not ident.content_hash:
@@ -875,6 +880,10 @@ class InsightOrchestrator:
         ).scalar_one_or_none()
         if row is None:
             return None
+        # Phase 0, task F-1: upgrade the row's identity_hash_version if the
+        # incoming identity is newer. Same downgrade-protection rule as
+        # Document/LibraryItem: max(existing, incoming).
+        _maybe_upgrade_identity_hash_version(row, ident)
         # Alias reconciliation: backfill metadata_id if we just learned it.
         if allow_backfill and ident.metadata_id and row.metadata_id is None:
             row.metadata_id = ident.metadata_id
@@ -1174,6 +1183,13 @@ class InsightOrchestrator:
         new_row = BookInsight(
             metadata_id=to_identity.metadata_id,
             content_hash=to_identity.content_hash or src_row.content_hash,
+            # Phase 0, task F-1: the copied row takes the maximum of the
+            # source row's version and the destination identity's version
+            # so a v2 destination promoted from a v1 source persists as v2.
+            identity_hash_version=max(
+                src_row.identity_hash_version,
+                getattr(to_identity, "identity_hash_version", 1),
+            ),
             model_id=src_row.model_id,
             prompt_version=src_row.prompt_version,
             tone=src_row.tone,
@@ -2213,6 +2229,10 @@ class InsightOrchestrator:
             model_id=row.model_id,
             prompt_version=row.prompt_version,
             generated_at=row.generated_at.isoformat(),
+            # Phase 0, task F-1: surface the persisted identity-hash version
+            # so clients can detect rows produced under an older algorithm
+            # and trigger their own recompute logic (F-2 territory).
+            identity_hash_version=row.identity_hash_version,
         )
 
 
@@ -2226,6 +2246,22 @@ def _tone_of(style: AiStyle | None) -> str:
 
 def _language_of(style: AiStyle | None) -> str:
     return style.language if style is not None else "auto"
+
+
+def _maybe_upgrade_identity_hash_version(row: BookInsight, ident: DocumentIdentity) -> None:
+    """Phase 0, task F-1: apply `max(existing, incoming)` to the persisted
+    identity-hash version on a cache-hit.
+
+    Operates in-place on `row`. The surrounding transaction commits as
+    part of the normal cache-hit log write, so we do not flush here.
+
+    Defensive: ``ident.identity_hash_version`` is wire-side and defaults to
+    `1` when the client did not supply it (pre-versioning clients). The
+    `>` comparison therefore protects against accidental downgrades.
+    """
+    incoming = getattr(ident, "identity_hash_version", 1)
+    if incoming > row.identity_hash_version:
+        row.identity_hash_version = incoming
 
 
 # ---------- PR2 identity-resolution helpers ---------------------------------
