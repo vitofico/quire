@@ -32,6 +32,10 @@ class Document(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "metadata_id", name="uq_documents_user_metadata"),
         UniqueConstraint("user_id", "content_hash", name="uq_documents_user_content_hash"),
+        CheckConstraint(
+            "identity_hash_version >= 1",
+            name="ck_documents_identity_hash_version_ge_1",
+        ),
         Index("ix_documents_user", "user_id"),
     )
 
@@ -39,6 +43,15 @@ class Document(Base):
     user_id: Mapped[str] = mapped_column(String, nullable=False)
     metadata_id: Mapped[str | None] = mapped_column(String, nullable=True)
     content_hash: Mapped[str] = mapped_column(String, nullable=False)
+    # Phase 0, task F-1 (one-way-door per 2026-05-22 monetization spec):
+    # version of the identity-hash algorithm used to derive `content_hash`.
+    # Persisted with every record so a future hash-function change does not
+    # break sync/cache/recs/export/deletion across millions of rows. Always
+    # >= 1; current rows backfill to 1 in migration `progress_003`. Clients
+    # reading vN rows recompute on next sync when their algorithm > N.
+    identity_hash_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("1"), default=1
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -108,6 +121,14 @@ class BookInsight(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     metadata_id: Mapped[str | None] = mapped_column(String, nullable=True)
     content_hash: Mapped[str] = mapped_column(String, nullable=False)
+    # Phase 0, task F-1: identity-hash algorithm version. NOT part of the
+    # cache key (see architect decision in Phase 0 plan): treated as row-
+    # freshness metadata only. A higher-version client hitting an existing
+    # cache row upgrades the persisted value via max(existing, incoming).
+    # CHECK constraint lives in migration `ai_007`.
+    identity_hash_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("1"), default=1
+    )
     model_id: Mapped[str] = mapped_column(String, nullable=False)
     prompt_version: Mapped[str] = mapped_column(String, nullable=False)
     # Part of the cache key so users with different AiStyle.tone get their own
@@ -349,6 +370,13 @@ class LibraryItem(Base):
     user_id: Mapped[str] = mapped_column(String, nullable=False)
     metadata_id: Mapped[str | None] = mapped_column(String, nullable=True)
     content_hash: Mapped[str] = mapped_column(String, nullable=False)
+    # Phase 0, task F-1: identity-hash algorithm version (see Document for
+    # full rationale). The CHECK constraint is declared in the alembic
+    # migration `progress_003` because partial-index-style metadata for
+    # this table lives there.
+    identity_hash_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("1"), default=1
+    )
     title: Mapped[str] = mapped_column(String, nullable=False)
     authors: Mapped[list[str]] = mapped_column(
         JSONB, nullable=False, server_default=text("'[]'::jsonb"), default=list

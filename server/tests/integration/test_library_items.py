@@ -392,3 +392,87 @@ async def test_unauthenticated_request_rejected(app_under_test, unique_user):
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         r = await c.get("/library/v1/items")
     assert r.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Phase 0, task F-1 — identity-hash schema versioning on /library/v1/items.
+# ---------------------------------------------------------------------------
+# Three behaviours travel together:
+#   1. Default round-trip: omitting `identity_hash_version` in the PUT body
+#      persists as `1` and the GET response carries it.
+#   2. Explicit value round-trip: sending `identity_hash_version=2` persists
+#      `2` and the response/GET reflect it.
+#   3. Downgrade protection: after writing version `2`, a later PUT that
+#      defaults to `1` (or explicitly sends `1`) MUST keep the row at `2`.
+#      This is the `max(existing, incoming)` rule that prevents an old
+#      client from clobbering a newer client's row.
+
+
+async def test_identity_hash_version_defaults_to_1_when_absent(app_under_test, unique_user):
+    transport = ASGITransport(app=app_under_test)
+    headers = _basic(*unique_user)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        r = await c.put("/library/v1/items", json=_put_body(), headers=headers)
+        assert r.status_code == 200, r.text
+        assert r.json()["identity_hash_version"] == 1
+
+        r2 = await c.get("/library/v1/items", headers=headers)
+        assert r2.status_code == 200
+        items = r2.json()["items"]
+        assert len(items) == 1
+        assert items[0]["identity_hash_version"] == 1
+
+
+async def test_identity_hash_version_round_trips_explicit_value(app_under_test, unique_user):
+    transport = ASGITransport(app=app_under_test)
+    headers = _basic(*unique_user)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        r = await c.put(
+            "/library/v1/items",
+            json=_put_body(identity_hash_version=2),
+            headers=headers,
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["identity_hash_version"] == 2
+
+        r2 = await c.get("/library/v1/items", headers=headers)
+        assert r2.json()["items"][0]["identity_hash_version"] == 2
+
+
+async def test_identity_hash_version_protects_against_downgrade(app_under_test, unique_user):
+    transport = ASGITransport(app=app_under_test)
+    headers = _basic(*unique_user)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        # Newer client writes v2.
+        r1 = await c.put(
+            "/library/v1/items",
+            json=_put_body(identity_hash_version=2),
+            headers=headers,
+        )
+        assert r1.json()["identity_hash_version"] == 2
+
+        # Older client sends nothing (defaults to v1) — must NOT downgrade.
+        r2 = await c.put("/library/v1/items", json=_put_body(), headers=headers)
+        assert r2.status_code == 200
+        assert r2.json()["identity_hash_version"] == 2
+
+        # Explicit v1 must also not downgrade.
+        r3 = await c.put(
+            "/library/v1/items",
+            json=_put_body(identity_hash_version=1),
+            headers=headers,
+        )
+        assert r3.json()["identity_hash_version"] == 2
+
+
+async def test_identity_hash_version_rejects_zero(app_under_test, unique_user):
+    """Pydantic `ge=1` returns 422 for non-positive versions."""
+    transport = ASGITransport(app=app_under_test)
+    headers = _basic(*unique_user)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        r = await c.put(
+            "/library/v1/items",
+            json=_put_body(identity_hash_version=0),
+            headers=headers,
+        )
+    assert r.status_code == 422, r.text

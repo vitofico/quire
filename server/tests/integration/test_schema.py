@@ -154,6 +154,65 @@ async def test_library_items_table_exists(engine) -> None:
     assert where_alive is not None and "deleted_at" in str(where_alive).lower()
 
 
+# ---------------------------------------------------------------------------
+# Phase 0, task F-1 — identity-hash schema versioning (server side).
+# ---------------------------------------------------------------------------
+# Two migrations land the same `identity_hash_version INTEGER NOT NULL DEFAULT 1`
+# column with `CHECK (>= 1)`:
+#   * `progress_003` → `documents`, `library_items`.
+#   * `ai_007`       → `book_insights`.
+# These tests reflect the live schema (post-migration) and assert the column
+# shape on every table that should carry it.
+
+
+def _identity_hash_version_column_meta(sync_conn, table: str) -> dict:
+    insp = inspect(sync_conn)
+    cols = {c["name"]: c for c in insp.get_columns(table)}
+    checks = {c["name"]: c for c in insp.get_check_constraints(table)}
+    return {"col": cols.get("identity_hash_version"), "checks": checks}
+
+
+async def test_documents_has_identity_hash_version_column(engine) -> None:
+    async with engine.connect() as conn:
+        info = await conn.run_sync(_identity_hash_version_column_meta, "documents")
+    col = info["col"]
+    assert col is not None, "documents.identity_hash_version missing"
+    assert col["nullable"] is False
+    assert "1" in str(col.get("default", "")), col.get("default")
+    assert "ck_documents_identity_hash_version_ge_1" in info["checks"]
+
+
+@pytest.mark.requires_progress
+async def test_library_items_has_identity_hash_version_column(engine) -> None:
+    async with engine.connect() as conn:
+        info = await conn.run_sync(_identity_hash_version_column_meta, "library_items")
+    col = info["col"]
+    assert col is not None, "library_items.identity_hash_version missing"
+    assert col["nullable"] is False
+    assert "1" in str(col.get("default", "")), col.get("default")
+    assert "ck_library_items_identity_hash_version_ge_1" in info["checks"]
+
+
+@pytest.mark.requires_ai
+async def test_book_insights_has_identity_hash_version_column(engine) -> None:
+    async with engine.connect() as conn:
+        info = await conn.run_sync(_identity_hash_version_column_meta, "book_insights")
+    col = info["col"]
+    assert col is not None, "book_insights.identity_hash_version missing"
+    assert col["nullable"] is False
+    assert "1" in str(col.get("default", "")), col.get("default")
+    assert "ck_book_insights_identity_hash_version_ge_1" in info["checks"]
+
+
+async def test_documents_identity_hash_version_default_round_trip(session) -> None:
+    """A row created without supplying `identity_hash_version` defaults to 1."""
+    doc = Document(user_id="alice-v1", metadata_id="md-ver-1", content_hash="ch-ver-1")
+    session.add(doc)
+    await session.commit()
+    await session.refresh(doc)
+    assert doc.identity_hash_version == 1
+
+
 @pytest.mark.requires_ai
 async def test_ai_generation_log_round_trip(session) -> None:
     """ORM model writes and reads ai_generation_log rows."""

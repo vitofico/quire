@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel, field_serializer
+from pydantic import BaseModel, Field, field_serializer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +19,11 @@ router = APIRouter(tags=["progress"])
 class DocumentIdentity(BaseModel):
     metadata_id: str | None = None
     content_hash: str
+    # Phase 0, task F-1: identity-hash algorithm version travelling on the
+    # wire. Default `1` keeps old clients (pre-versioning) round-trippable;
+    # new clients send their own value and the server's write paths apply
+    # `max(existing, incoming)` so an old client cannot downgrade a row.
+    identity_hash_version: int = Field(default=1, ge=1)
 
 
 class ProgressItem(BaseModel):
@@ -102,6 +107,10 @@ async def _resolve_or_create_document(
             )
         ).scalar_one_or_none()
         if existing:
+            # Phase 0, task F-1: downgrade protection. An old client (sending
+            # `1`) MUST NOT overwrite a row written by a newer client.
+            if ident.identity_hash_version > existing.identity_hash_version:
+                existing.identity_hash_version = ident.identity_hash_version
             return existing
     existing = (
         await session.execute(
@@ -114,8 +123,16 @@ async def _resolve_or_create_document(
         # Backfill metadata_id if we just learned it
         if ident.metadata_id and existing.metadata_id is None:
             existing.metadata_id = ident.metadata_id
+        # Phase 0, task F-1: downgrade protection (see above).
+        if ident.identity_hash_version > existing.identity_hash_version:
+            existing.identity_hash_version = ident.identity_hash_version
         return existing
-    doc = Document(user_id=user_id, metadata_id=ident.metadata_id, content_hash=ident.content_hash)
+    doc = Document(
+        user_id=user_id,
+        metadata_id=ident.metadata_id,
+        content_hash=ident.content_hash,
+        identity_hash_version=ident.identity_hash_version,
+    )
     session.add(doc)
     await session.flush()  # populate doc.pk
     return doc
@@ -130,6 +147,14 @@ async def push_progress(
     results: list[ProgressPushResult] = []
     for item in body.items:
         doc = await _resolve_or_create_document(session, user_id, item.document)
+        # Phase 0, task F-1: the result echoes the persisted Document's
+        # identity_hash_version (which may be >= the incoming one after the
+        # downgrade-protection logic in _resolve_or_create_document).
+        persisted_identity = DocumentIdentity(
+            metadata_id=doc.metadata_id,
+            content_hash=doc.content_hash,
+            identity_hash_version=doc.identity_hash_version,
+        )
         existing = (
             await session.execute(select(Progress).where(Progress.document_pk == doc.pk))
         ).scalar_one_or_none()
@@ -158,7 +183,7 @@ async def push_progress(
             )
             results.append(
                 ProgressPushResult(
-                    document=item.document,
+                    document=persisted_identity,
                     status="accepted",
                     server_client_updated_at=item.client_updated_at,
                 )
@@ -172,7 +197,7 @@ async def push_progress(
             existing.abandoned_at = abandoned_at
             results.append(
                 ProgressPushResult(
-                    document=item.document,
+                    document=persisted_identity,
                     status="accepted",
                     server_client_updated_at=item.client_updated_at,
                 )
@@ -180,7 +205,7 @@ async def push_progress(
         else:
             results.append(
                 ProgressPushResult(
-                    document=item.document,
+                    document=persisted_identity,
                     status="stale",
                     server_client_updated_at=existing.client_updated_at,
                 )
@@ -223,7 +248,11 @@ async def pull_progress(
             effective_abandoned_at = None
         items.append(
             ProgressPullItem(
-                document=DocumentIdentity(metadata_id=d.metadata_id, content_hash=d.content_hash),
+                document=DocumentIdentity(
+                    metadata_id=d.metadata_id,
+                    content_hash=d.content_hash,
+                    identity_hash_version=d.identity_hash_version,
+                ),
                 locator=p.locator,
                 percent=p.percent,
                 client_updated_at=p.client_updated_at,
