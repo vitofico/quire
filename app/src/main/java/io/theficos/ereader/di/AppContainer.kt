@@ -33,6 +33,7 @@ import io.theficos.ereader.ui.library.LibraryInsightsViewModel
 import io.theficos.ereader.ui.library.LibraryPreferencesStore
 import io.theficos.ereader.ui.library.LibraryStatsCache
 import io.theficos.ereader.ui.library.LibraryStatsViewModel
+import io.theficos.ereader.ui.onboarding.WelcomePreferencesStore
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -66,9 +67,15 @@ class AppContainer(context: Context) {
     val readerPreferencesStore = ReaderPreferencesStore(appContext)
     val libraryPreferencesStore = LibraryPreferencesStore(appContext)
     val catalogPreferencesStore = CatalogPreferencesStore(appContext)
+    /**
+     * A-2: tracks whether the user finished (or deliberately skipped) the
+     * first-launch flow. Combined with [credentialStore] presence to pick
+     * the navgraph's start destination.
+     */
+    val welcomePreferencesStore = WelcomePreferencesStore(appContext)
 
     val syncClient: SyncClient = SyncClient(
-        baseUrlProvider = { credentialStore.get()?.baseUrl },
+        baseUrlProvider = { credentialStore.getAccount()?.baseUrl },
         okHttp = opdsHttp.okHttp,
     )
     val syncOrchestrator: SyncOrchestrator = SyncOrchestrator(
@@ -80,7 +87,7 @@ class AppContainer(context: Context) {
     )
 
     val aiClient: AiClient = AiClient(
-        baseUrlProvider = { credentialStore.get()?.baseUrl },
+        baseUrlProvider = { credentialStore.getAccount()?.baseUrl },
         http = opdsHttp.okHttp,
     )
     val insightDao = db.insightDao()
@@ -95,15 +102,17 @@ class AppContainer(context: Context) {
 
     /**
      * Subject identifier used to partition the [catalogInsightStash] and
-     * the promote alias. We use the calibre-web username (case-normalized
-     * to match the server's basic-auth principal) which mirrors the value
-     * the server uses for `principal.subject` under default basic auth.
+     * the promote alias. Delegated to [AccountCredentials.subject] so the
+     * scheme owns the canonical form: lowercased calibre-web username for
+     * BASIC, lowercased email for BEARER. Matches the server's
+     * `principal.subject` derivation in both `auth_mode=basic` and
+     * `auth_mode=token`. See `docs/sync-api.md`.
      */
     private fun currentSubject(): String? =
-        credentialStore.get()?.username?.lowercase()
+        credentialStore.getAccount()?.subject
 
     val libraryClient: LibraryClient = LibraryClient(
-        baseUrlProvider = { credentialStore.get()?.baseUrl },
+        baseUrlProvider = { credentialStore.getAccount()?.baseUrl },
         http = opdsHttp.okHttp,
     )
 
@@ -232,9 +241,11 @@ class AppContainer(context: Context) {
         // AI opt-out toggle hook lives in PR-δ (Bundle 3); until then a
         // stale stash entry is harmless — its TTL expires within 30 min.
         libraryUploaderScope.launch {
-            var seen: String? = credentialStore.get()?.baseUrl
-            credentialStore.flow.collect { creds ->
-                val next = creds?.baseUrl
+            var seen: String? = credentialStore.getAccount()?.baseUrl
+            // Observe the scheme-aware account flow so a BASIC → BEARER
+            // re-onboarding (different baseUrl) also clears the stash.
+            credentialStore.accountFlow.collect { account ->
+                val next = account?.baseUrl
                 if (next != seen) {
                     seen = next
                     catalogInsightStash.clearAll()

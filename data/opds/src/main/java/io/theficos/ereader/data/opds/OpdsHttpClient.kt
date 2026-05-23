@@ -8,6 +8,10 @@ class OpdsHttpClient(credentialStore: CalibreCredentialStore) {
     val okHttp: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
-        .addInterceptor(BasicAuthInterceptor { credentialStore.get() })
+        // Account-scheme-aware auth: emits `Basic ...` for calibre-web
+        // credentials and `Bearer ...` for `quire_server` / Cloud accounts.
+        // The interceptor origin-guards against attaching credentials to
+        // requests that target hosts other than the configured baseUrl.
+        .addInterceptor(AccountAuthInterceptor { credentialStore.getAccount() })
         .build()
 }
