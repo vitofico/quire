@@ -25,6 +25,26 @@ class LibraryClient(
     private val http: OkHttpClient,
     private val json: Json = Json { ignoreUnknownKeys = true },
 ) {
+    /**
+     * Json instance used for `/library/v1/sync` (Phase 0, task A-4).
+     *
+     * Strict mode (`encodeDefaults = true`) so every entry serializes
+     * with the full X-1 wire shape — explicit `identity_hash_version`,
+     * explicit `status`, empty `authors`/`subjects` lists — rather than
+     * relying on the server's default-fill paths. The server uses
+     * Pydantic `extra="forbid"` so any unknown field becomes a 422, but
+     * missing-with-default fields are accepted; emitting them explicitly
+     * keeps the wire trace auditable and decouples Android from any
+     * future server default changes.
+     *
+     * `ignoreUnknownKeys = true` on response decode lets a Phase-1 server
+     * add new summary counters without breaking older clients.
+     */
+    private val syncJson: Json = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+    }
+
     private fun resolveBaseUrl(): String {
         val raw = baseUrlProvider()
         if (raw.isNullOrBlank()) {
@@ -70,6 +90,37 @@ class LibraryClient(
             val body = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) throw LibraryHttpException(resp.code, body)
             json.decodeFromString(LibraryItemResponse.serializer(), body)
+        }
+    }
+
+    /**
+     * Push a batch of library mirror entries to `POST /library/v1/sync`.
+     *
+     * Wire contract (Phase 0 / X-1):
+     * - Body shape: `{"items": [LibrarySyncEntry, ...]}`.
+     * - Identity field is `identity_hash`. Sending `content_hash` here is
+     *   rejected with 422 (Pydantic `extra="forbid"`).
+     * - Caller is responsible for chunking — server enforces a 500-item
+     *   ceiling per request (`library_sync_max_items`); over → 422.
+     *
+     * Failure modes (callers map these to WorkManager outcomes):
+     * - 401 → `LibraryHttpException(401)` — caller should fail without
+     *   retry; credentials need attention.
+     * - 4xx (other than 401/429) → `LibraryHttpException(code)` — caller
+     *   should log + drop the batch, not retry forever.
+     * - 429 / 5xx / network — `LibraryHttpException` or `IOException`
+     *   propagated; caller should retry with backoff.
+     */
+    suspend fun syncBatch(payload: LibrarySyncRequest): LibrarySyncSummary = withContext(Dispatchers.IO) {
+        val bodyJson = syncJson.encodeToString(LibrarySyncRequest.serializer(), payload)
+        val req = Request.Builder()
+            .url(resolveBaseUrl() + LibraryApi.PATH_SYNC)
+            .post(bodyJson.toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        http.newCall(req).execute().use { resp ->
+            val body = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) throw LibraryHttpException(resp.code, body)
+            syncJson.decodeFromString(LibrarySyncSummary.serializer(), body)
         }
     }
 

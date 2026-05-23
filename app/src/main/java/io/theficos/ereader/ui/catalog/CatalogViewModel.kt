@@ -64,7 +64,10 @@ class CatalogViewModel(
 
     init {
         viewModelScope.launch {
-            credentialStore.flow
+            // Scheme-aware: also re-loads when a BEARER account is configured
+            // (legacy `flow` would have emitted null in that case and left the
+            // catalog stuck on the "configure in Settings" branch).
+            credentialStore.accountFlow
                 .map { it?.baseUrl }
                 .distinctUntilChanged()
                 .collect { baseUrl ->
@@ -74,7 +77,7 @@ class CatalogViewModel(
     }
 
     fun loadRoot() {
-        val baseUrl = credentialStore.get()?.baseUrl
+        val baseUrl = credentialStore.getAccount()?.baseUrl
         if (baseUrl.isNullOrBlank()) {
             _state.value = CatalogUiState.Error("Configure calibre-web in Settings first.")
             return

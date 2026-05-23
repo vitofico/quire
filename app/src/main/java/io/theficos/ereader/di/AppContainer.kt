@@ -10,6 +10,8 @@ import io.theficos.ereader.data.ai.CatalogInsightStash
 import io.theficos.ereader.data.ai.InsightSyncRepository
 import io.theficos.ereader.data.library.LibraryClient
 import io.theficos.ereader.data.library.LibraryUploader
+import io.theficos.ereader.data.library.sync.CredentialsProvider
+import io.theficos.ereader.data.library.sync.LibraryMirrorPushDependencies
 import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.ProgressRepository
 import io.theficos.ereader.data.local.db.EReaderDatabase
@@ -18,9 +20,11 @@ import io.theficos.ereader.data.opds.OpdsClient
 import io.theficos.ereader.data.opds.OpdsHttpClient
 import io.theficos.ereader.data.sync.SyncClient
 import io.theficos.ereader.data.sync.SyncDependencies
+import io.theficos.ereader.data.sync.SyncEnqueuer
 import io.theficos.ereader.data.sync.SyncOrchestrator
 import io.theficos.ereader.reader.ReaderPreferencesStore
 import io.theficos.ereader.reader.ReadiumFactory
+import io.theficos.ereader.sideload.SideloadImporter
 import io.theficos.ereader.ui.bookdetail.AppInsightAuditSource
 import io.theficos.ereader.ui.bookdetail.BookDetailViewModel
 import io.theficos.ereader.ui.bookdetail.InsightAuditViewModel
@@ -33,6 +37,7 @@ import io.theficos.ereader.ui.library.LibraryInsightsViewModel
 import io.theficos.ereader.ui.library.LibraryPreferencesStore
 import io.theficos.ereader.ui.library.LibraryStatsCache
 import io.theficos.ereader.ui.library.LibraryStatsViewModel
+import io.theficos.ereader.ui.onboarding.WelcomePreferencesStore
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -66,9 +71,15 @@ class AppContainer(context: Context) {
     val readerPreferencesStore = ReaderPreferencesStore(appContext)
     val libraryPreferencesStore = LibraryPreferencesStore(appContext)
     val catalogPreferencesStore = CatalogPreferencesStore(appContext)
+    /**
+     * A-2: tracks whether the user finished (or deliberately skipped) the
+     * first-launch flow. Combined with [credentialStore] presence to pick
+     * the navgraph's start destination.
+     */
+    val welcomePreferencesStore = WelcomePreferencesStore(appContext)
 
     val syncClient: SyncClient = SyncClient(
-        baseUrlProvider = { credentialStore.get()?.baseUrl },
+        baseUrlProvider = { credentialStore.getAccount()?.baseUrl },
         okHttp = opdsHttp.okHttp,
     )
     val syncOrchestrator: SyncOrchestrator = SyncOrchestrator(
@@ -80,7 +91,7 @@ class AppContainer(context: Context) {
     )
 
     val aiClient: AiClient = AiClient(
-        baseUrlProvider = { credentialStore.get()?.baseUrl },
+        baseUrlProvider = { credentialStore.getAccount()?.baseUrl },
         http = opdsHttp.okHttp,
     )
     val insightDao = db.insightDao()
@@ -95,15 +106,17 @@ class AppContainer(context: Context) {
 
     /**
      * Subject identifier used to partition the [catalogInsightStash] and
-     * the promote alias. We use the calibre-web username (case-normalized
-     * to match the server's basic-auth principal) which mirrors the value
-     * the server uses for `principal.subject` under default basic auth.
+     * the promote alias. Delegated to [AccountCredentials.subject] so the
+     * scheme owns the canonical form: lowercased calibre-web username for
+     * BASIC, lowercased email for BEARER. Matches the server's
+     * `principal.subject` derivation in both `auth_mode=basic` and
+     * `auth_mode=token`. See `docs/sync-api.md`.
      */
     private fun currentSubject(): String? =
-        credentialStore.get()?.username?.lowercase()
+        credentialStore.getAccount()?.subject
 
     val libraryClient: LibraryClient = LibraryClient(
-        baseUrlProvider = { credentialStore.get()?.baseUrl },
+        baseUrlProvider = { credentialStore.getAccount()?.baseUrl },
         http = opdsHttp.okHttp,
     )
 
@@ -120,6 +133,31 @@ class AppContainer(context: Context) {
         client = libraryClient,
         dao = db.documentDao(),
         scope = libraryUploaderScope,
+    )
+
+    /**
+     * Phase-0 / A-3: ingest pipeline for share-sheet + `+ Import` button.
+     * Constructed after [documentRepository], [libraryUploader], and
+     * [booksDir] so it can reuse the same physical book directory and
+     * upload pump the catalog download path uses — sideloaded rows behave
+     * identically to OPDS-downloaded rows post-insert.
+     */
+    val sideloadImporter: SideloadImporter = SideloadImporter(
+        documentRepository = documentRepository,
+        libraryUploader = libraryUploader,
+        booksDir = booksDir,
+        contentResolver = appContext.contentResolver,
+        uploaderScope = libraryUploaderScope,
+        onSuccessfulImport = {
+            // Catalog-download parity: a returning user may have
+            // server-side progress for this identity that an earlier pull
+            // dropped (no local doc to attach to). Resetting the cursor +
+            // expedited enqueue lets the next pull re-attach from epoch 0.
+            runCatching { syncStateDao.clearAll() }
+            runCatching {
+                SyncEnqueuer.enqueue(appContext, expedited = true, replaceExisting = true)
+            }
+        },
     )
 
     val aiRepository: AiRepository = AiRepository(
@@ -227,14 +265,29 @@ class AppContainer(context: Context) {
 
     init {
         SyncDependencies.holder = SyncDependencies.Holder(syncOrchestrator)
+        // Phase-0 / A-3: clean up any `*.epub.part` files leaked by an
+        // import that was killed mid-copy (process death between
+        // openInputStream and renameTo). Cheap, best-effort, silent.
+        libraryUploaderScope.launch { sideloadImporter.sweepStaleParts() }
+        // Phase 0 / A-4: wire the library-mirror push worker's DI before
+        // any WorkManager run can fire. Same pattern as SyncDependencies
+        // above. The `CredentialsProvider` indirection keeps the worker
+        // testable without touching the Android KeyStore-backed store.
+        LibraryMirrorPushDependencies.holder = LibraryMirrorPushDependencies.Holder(
+            client = libraryClient,
+            dao = db.documentDao(),
+            credentials = CredentialsProvider { credentialStore.get() != null },
+        )
         // PR-ζ: clear the catalog stash whenever the server base URL
         // changes (different deploy → entries are no longer relevant). The
         // AI opt-out toggle hook lives in PR-δ (Bundle 3); until then a
         // stale stash entry is harmless — its TTL expires within 30 min.
         libraryUploaderScope.launch {
-            var seen: String? = credentialStore.get()?.baseUrl
-            credentialStore.flow.collect { creds ->
-                val next = creds?.baseUrl
+            var seen: String? = credentialStore.getAccount()?.baseUrl
+            // Observe the scheme-aware account flow so a BASIC → BEARER
+            // re-onboarding (different baseUrl) also clears the stash.
+            credentialStore.accountFlow.collect { account ->
+                val next = account?.baseUrl
                 if (next != seen) {
                     seen = next
                     catalogInsightStash.clearAll()

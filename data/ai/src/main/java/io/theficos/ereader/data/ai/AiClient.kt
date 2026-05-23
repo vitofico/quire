@@ -17,8 +17,9 @@ import okhttp3.RequestBody.Companion.toRequestBody
 /**
  * REST client for the AI endpoints on quire-server.
  *
- * Auth: relies on the OkHttpClient already having BasicAuthInterceptor wired
- * (the same one used by :data:sync). This client does not add headers.
+ * Auth: relies on the OkHttpClient already having AccountAuthInterceptor wired
+ * (the same one used by :data:sync). The interceptor emits Basic or Bearer
+ * per the configured account scheme. This client does not add headers.
  */
 class AiClient(
     private val baseUrlProvider: () -> String?,

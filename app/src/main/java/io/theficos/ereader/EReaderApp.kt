@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Log
 import coil.ImageLoader
 import coil.ImageLoaderFactory
+import io.theficos.ereader.data.library.sync.LibraryMirrorPushScheduler
 import io.theficos.ereader.di.AppContainer
 import kotlinx.coroutines.launch
 
@@ -34,6 +35,23 @@ class EReaderApp : Application(), ImageLoaderFactory {
                 container.insightSyncRepository.requestSync("app_start_post_upload")
             }
         }
+
+        // Phase 0 / A-4: schedule the library-mirror push worker.
+        //
+        // The per-item PUT path above (`LibraryUploader`) is unchanged
+        // and stays the fast path for "this specific download just
+        // landed". The new bulk-push job is the durable mirror of
+        // everything the user has — it survives app restarts, runs
+        // daily under WorkManager's Doze-aware scheduler, and pushes
+        // through transient network failures via WorkManager's built-in
+        // exponential backoff.
+        //
+        // Expedited on app start so the user-perceptible delay between
+        // "fresh install / re-launch after a long pause" and "server
+        // catches up" is minimised. `RUN_AS_NON_EXPEDITED_WORK_REQUEST`
+        // (set inside the scheduler) handles expedited-quota exhaustion.
+        LibraryMirrorPushScheduler.enqueueOneTime(this, expedited = true)
+        LibraryMirrorPushScheduler.enqueuePeriodic(this)
     }
 
     override fun newImageLoader(): ImageLoader =
