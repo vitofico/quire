@@ -7,6 +7,7 @@ from quire_server.api.ai_schemas import (
     ComparativeAnchor,
     InsightLookupBody,
     InsightRegenerateBody,
+    MetadataBundle,
     SeriesInsight,
 )
 
@@ -310,5 +311,94 @@ def test_regenerate_requires_reason():
                 "identity": {"content_hash": "abc"},
                 "bundle": {"title": "y"},
                 "reason": "",
+            }
+        )
+
+
+# ---------------------------------------------------------------------------
+# Phase 0, task S-3: MetadataBundle field caps + optional bundle on
+# {Lookup,Regenerate} bodies.
+# ---------------------------------------------------------------------------
+
+
+def test_metadata_bundle_minimal_title_only():
+    """Sanity: only title is required; other fields default sensibly."""
+    b = MetadataBundle.model_validate({"title": "Foundation"})
+    assert b.title == "Foundation"
+    assert b.author is None
+    assert b.subjects == []
+    assert b.description is None
+
+
+def test_metadata_bundle_rejects_empty_title():
+    with pytest.raises(ValidationError):
+        MetadataBundle.model_validate({"title": ""})
+
+
+def test_metadata_bundle_rejects_oversized_title():
+    """S-3 cap: bounds prompt size + protects against pathological inputs."""
+    with pytest.raises(ValidationError):
+        MetadataBundle.model_validate({"title": "x" * 513})
+
+
+def test_metadata_bundle_rejects_oversized_description():
+    with pytest.raises(ValidationError):
+        MetadataBundle.model_validate({"title": "t", "description": "x" * 4097})
+
+
+def test_metadata_bundle_rejects_too_many_subjects():
+    with pytest.raises(ValidationError):
+        MetadataBundle.model_validate({"title": "t", "subjects": ["s"] * 65})
+
+
+def test_metadata_bundle_rejects_oversized_subject_item():
+    with pytest.raises(ValidationError):
+        MetadataBundle.model_validate({"title": "t", "subjects": ["x" * 81]})
+
+
+def test_metadata_bundle_rejects_negative_series_position():
+    with pytest.raises(ValidationError):
+        MetadataBundle.model_validate({"title": "t", "series_position": -1})
+
+
+def test_metadata_bundle_rejects_overlarge_series_position():
+    with pytest.raises(ValidationError):
+        MetadataBundle.model_validate({"title": "t", "series_position": 10_001})
+
+
+def test_lookup_body_bundle_optional():
+    """S-3: clients can omit the bundle (server-side handler then either
+    falls back to library_items behind a flag or returns 400)."""
+    b = InsightLookupBody.model_validate({"identity": {"content_hash": "abc"}})
+    assert b.bundle is None
+
+
+def test_lookup_body_rejects_extra_fields():
+    """S-3 hardening: ``extra='forbid'`` so a typo in the request body
+    surfaces as 422 instead of being silently ignored."""
+    with pytest.raises(ValidationError):
+        InsightLookupBody.model_validate(
+            {
+                "identity": {"content_hash": "abc"},
+                "bundle": {"title": "t"},
+                "metadata": {"title": "typo"},  # not 'bundle'
+            }
+        )
+
+
+def test_regenerate_body_bundle_optional():
+    b = InsightRegenerateBody.model_validate(
+        {"identity": {"content_hash": "abc"}, "reason": "force"}
+    )
+    assert b.bundle is None
+
+
+def test_regenerate_body_rejects_extra_fields():
+    with pytest.raises(ValidationError):
+        InsightRegenerateBody.model_validate(
+            {
+                "identity": {"content_hash": "abc"},
+                "reason": "force",
+                "unknown": True,
             }
         )

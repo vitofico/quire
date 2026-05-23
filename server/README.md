@@ -137,6 +137,10 @@ match the table in [Deploy modes](#deploy-modes).
 Set both flags in `.env`. Sync-only deploys don't need
 `QUIRE_SERVER_AI_*`; AI-only deploys don't need calibre-web auth once
 PR-B's token mode is selected (`QUIRE_SERVER_AI_AUTH_MODE=token`).
+Token mode is **deprecated** as of Phase 0, task X-2 (removal scheduled in
+2 minor releases); new AI-only / Cloud-style deploys should adopt
+`QUIRE_SERVER_AUTH_BACKEND=native` (NativeAuth) instead. See the
+"AI auth mode" section below.
 
 ##### Mode examples
 
@@ -264,7 +268,8 @@ the env-compat helper. The DB-name non-rename is permanent.
 | `QUIRE_SERVER_AI_PROMOTE_DAILY_LIMIT`  | `100`                                  | Per-user `/insights/promote` ceiling per UTC day; process-local counter, 0 disables. (PR-ζ) |
 | `QUIRE_SERVER_AI_PROFILE_REFRESH_DAILY_LIMIT` | `3`                              | Reader Profile refresh cap per user per UTC day. (PR-β)                 |
 | `QUIRE_SERVER_AI_PROFILE_TIMEOUT_S`    | `90`                                   | Reader Profile orchestrator timeout, in seconds. (PR-β)                 |
-| `QUIRE_SERVER_AI_AUTH_MODE`            | `basic`                                | `basic` (default, wraps calibre-web verifier) or `token` (HMAC-SHA256). |
+| `QUIRE_SERVER_AI_METADATA_SERVER_LOOKUP_ENABLED` | `false`                          | **DEPRECATED (Phase 0, 2026-05-22).** Legacy fallback: when `true`, `/ai/v1/insights/{lookup,regenerate}` reconstruct a `MetadataBundle` from the caller's `library_items` row when the client omits the `bundle` block. The push-model contract has the client send `bundle` on every request; this flag is the migration escape hatch. Boots emit a `DeprecationWarning` + `logging.warning` when enabled. Slated for removal 2 minor releases after the Phase 0 release. |
+| `QUIRE_SERVER_AI_AUTH_MODE`            | `basic`                                | `basic` (default, wraps calibre-web verifier) or `token` (HMAC-SHA256, **deprecated** — see "AI auth mode" below; use `QUIRE_SERVER_AUTH_BACKEND=native` instead). |
 | `QUIRE_SERVER_AI_TOKEN_SECRETS`        | unset                                  | Token mode: JSON `{kid: secret}`. Each secret ≥32 bytes; multiple kids enable rotation. |
 | `QUIRE_SERVER_AI_TOKEN_ISSUER`         | unset                                  | Token mode: required; validated against `iss`.                          |
 | `QUIRE_SERVER_AI_TOKEN_AUDIENCE`       | unset                                  | Token mode: required; validated against `aud`.                          |
@@ -275,6 +280,26 @@ the env-compat helper. The DB-name non-rename is permanent.
 | `QUIRE_SERVER_AUTH_CACHE_MAX_ENTRIES`  | `1024`                                 | Upper bound on the auth-probe LRU cache.                                |
 | `QUIRE_SERVER_AI_PROMPT_VERSION`       | `""` (in-code default)                 | Advanced / incident-response only. Pins the AI prompt version for cache-key compat during a model regression. The legacy value `"1"` is treated as "unset" (falls back to the in-code constant); see PR-ε for runtime resolution. |
 
+#### Push-model API: deprecated server-side metadata fallback (Phase 0, 2026-05-22)
+
+`POST /ai/v1/insights/{lookup,regenerate}` now require a `bundle`
+(`MetadataBundle`) block in the request body — clients are the sole source
+of book metadata. Requests that omit `bundle` are rejected with `400
+metadata_required`.
+
+For one migration window, `QUIRE_SERVER_AI_METADATA_SERVER_LOOKUP_ENABLED=true`
+restores the legacy behavior: when `bundle` is absent, the server
+reconstructs a `MetadataBundle` from the caller's `library_items` row keyed
+by identity. The flag is **off by default**, **deprecated since this
+release**, and **will be removed 2 minor releases later**. Boots with the
+flag enabled emit a `DeprecationWarning` and a `logging.warning` so the
+deprecation is visible to both Python tooling and operators reading
+container logs. Plan your client cutover within the window.
+
+The push-model contract (request shape, identity-hint hierarchy, alias
+resolution) is documented in `docs/sync-api.md` under `POST
+/ai/v1/insights/lookup` and `POST /ai/v1/insights/regenerate`.
+
 #### AI auth mode (PR-B, 2026-05-16)
 
 `/ai/v1/*` routes go through a pluggable `AiAuthenticator` (sync routes are
@@ -282,11 +307,21 @@ unaffected). Two modes:
 
 - **`basic`** (default) — wraps the existing calibre-web Basic verifier;
   `AiPrincipal.tenant_id` is always `"local"`. No additional config required.
-- **`token`** — HMAC-SHA256 bearer tokens. Wire format: `header.payload.signature`
-  with header `{alg=HS256, kid}` and payload claims
+- **`token`** (**deprecated** as of Phase 0, task X-2 — removal scheduled in 2
+  minor releases) — HMAC-SHA256 bearer tokens. Wire format:
+  `header.payload.signature` with header `{alg=HS256, kid}` and payload claims
   `{iss, aud, exp, iat, sub, tenant_id, scope?}`, each segment URL-safe
   base64 with no padding. Token issuance is out of scope here — this server
-  only verifies.
+  only verifies. **Use `QUIRE_SERVER_AUTH_BACKEND=native` (NativeAuth) as the
+  long-term replacement**: NativeAuth (added by Phase 0, task S-1) is the
+  primary `AuthBackend` for session-token authentication and is the new
+  home for Cloud-style multi-tenant deployments. The `token` code path
+  remains fully functional through the deprecation window; existing HS256
+  tokens continue to validate until their normal expiry and no client-side
+  rotation is required during the window. A `DeprecationWarning` plus a
+  `WARNING`-level log record (`event=config.deprecated
+  setting=QUIRE_SERVER_AI_AUTH_MODE value=token`) fires at startup when this
+  mode is active with `AI_ENABLED=true`.
 
 Token-mode misconfiguration (`QUIRE_SERVER_AI_TOKEN_SECRETS` missing or empty,
 any secret shorter than 32 bytes, missing issuer or audience) raises at

@@ -15,6 +15,7 @@ from paying the cost of the other domain's modules.
 from __future__ import annotations
 
 import logging
+import warnings
 
 import httpx
 from fastapi import FastAPI
@@ -23,8 +24,74 @@ from quire_server.api import health
 from quire_server.api.middleware import RequestIDMiddleware, RequestSizeMiddleware
 from quire_server.config import Settings, get_settings
 from quire_server.core.auth import CalibreAuthValidator
+from quire_server.core.auth_backend import CalibreWebBasicAuth, NativeAuth
 from quire_server.core.logging_ctx import RequestIdLogFilter
 from quire_server.db.session import configure, make_engine, make_session_factory
+
+
+def _validate_auth_backend_settings(settings: Settings) -> None:
+    """Phase 0, task S-1: cross-config guard for the primary AuthBackend.
+
+    The independent AI auth seam (``ai_auth_mode``) means a Cloud-style
+    deployment that flips ``auth_backend`` to ``native`` could
+    accidentally leave ``ai_auth_mode=basic``, which would route AI
+    requests through CalibreWeb Basic — a backend that doesn't exist in
+    a Cloud deployment. Fail loudly at startup.
+
+    Valid combinations:
+      * ``auth_backend=calibreweb`` + any ``ai_auth_mode`` (today's OSS).
+      * ``auth_backend=native``    + ``ai_enabled=false`` OR
+                                     ``ai_auth_mode=token``.
+    """
+    if settings.auth_backend != "native":
+        return
+    if not settings.ai_enabled:
+        return
+    if settings.ai_auth_mode != "basic":
+        return
+    raise RuntimeError(
+        "QUIRE_SERVER_AUTH_BACKEND=native is incompatible with "
+        "QUIRE_SERVER_AI_AUTH_MODE=basic when AI is enabled: AI requests "
+        "would silently route through the CalibreWeb verifier. Either "
+        "disable AI (QUIRE_SERVER_AI_ENABLED=false) or switch AI auth to "
+        "token mode (QUIRE_SERVER_AI_AUTH_MODE=token)."
+    )
+
+
+def _warn_deprecated_ai_metadata_lookup(settings: Settings) -> None:
+    """Emit a startup deprecation notice for ``ai_metadata_server_lookup_enabled``.
+
+    Phase 0, task S-4: the server-side AI metadata lookup fallback (added by
+    task S-3) is the only path on which `quire_server` still pulls book
+    metadata from the operator's own DB instead of accepting it on the
+    request body. The Phase 0 push-model contract makes the client the sole
+    source of metadata; this flag is the migration escape hatch.
+
+    Deprecated since the Phase 0 release (2026-05-22). Removal target:
+    2 minor releases later. Both channels fire so that:
+
+    * `warnings.warn(..., DeprecationWarning)` surfaces in test runs, IDEs,
+      and any tooling that opts into `-W error::DeprecationWarning`.
+    * `logging.warning` is the channel operators actually read in container
+      logs and Loki/Grafana dashboards.
+
+    Fires once at boot. Per-request signalling on the fallback path is
+    intentionally NOT added — the operator already has the boot warning,
+    and per-request log spam would not change their behavior.
+    """
+    if not settings.ai_metadata_server_lookup_enabled:
+        return
+    message = (
+        "QUIRE_SERVER_AI_METADATA_SERVER_LOOKUP_ENABLED is deprecated and will be "
+        "removed in 2 minor releases. Have clients push metadata via the `bundle` "
+        "block on POST /ai/v1/insights/{lookup,regenerate} instead. See "
+        "server/README.md and docs/sync-api.md for the push-model contract."
+    )
+    # stacklevel=3: warn() -> this helper -> create_app() -> caller of create_app().
+    # Points the warning at the boot site (e.g. uvicorn factory) rather than this
+    # helper, which is the useful frame for tooling.
+    warnings.warn(message, DeprecationWarning, stacklevel=3)
+    logging.getLogger(__name__).warning(message)
 
 
 def _validate_ai_auth_settings(settings: Settings) -> None:
@@ -65,6 +132,43 @@ def _validate_ai_auth_settings(settings: Settings) -> None:
         )
 
 
+def _warn_if_ai_auth_mode_deprecated(settings: Settings) -> None:
+    """Phase 0, task X-2: deprecate ``QUIRE_SERVER_AI_AUTH_MODE=token``.
+
+    The AI-only Bearer auth seam predates the primary :class:`AuthBackend`
+    abstraction introduced in S-1. ``NativeAuth`` is now the long-term home
+    for session-token-based authentication. Token mode of ``AI_AUTH_MODE``
+    is being retired with a removal window of two minor releases.
+
+    Only warns when token mode would actually be active — i.e. AI is
+    enabled. Operators with stale ``AI_AUTH_MODE=token`` in a sync-only
+    ``.env`` are not nagged because the setting is inert for them.
+
+    Emitted **after** ``_validate_ai_auth_settings`` so misconfigured
+    token-mode deploys still crashloop with the original ``RuntimeError``
+    rather than producing a deprecation warning that gets eaten by the
+    subsequent raise.
+
+    The structured ``event=config.deprecated`` suffix matches the existing
+    log-style convention so log scrapers can match on a stable key. Never
+    log token secrets, issuer, or audience.
+    """
+    if not settings.ai_enabled:
+        return
+    if settings.ai_auth_mode != "token":
+        return
+    msg = (
+        "QUIRE_SERVER_AI_AUTH_MODE=token is deprecated and will be removed "
+        "in 2 minor releases. Use QUIRE_SERVER_AUTH_BACKEND=native as the "
+        "long-term replacement for token-based authentication; existing "
+        "HS256 tokens continue to validate during the deprecation window. "
+        "See server/README.md for the migration note. "
+        "event=config.deprecated setting=QUIRE_SERVER_AI_AUTH_MODE value=token"
+    )
+    logging.getLogger(__name__).warning(msg)
+    warnings.warn(msg, DeprecationWarning, stacklevel=2)
+
+
 def _build_ai_authenticator(settings: Settings, validator: CalibreAuthValidator):
     """Construct the AiAuthenticator implied by settings.ai_auth_mode.
 
@@ -103,6 +207,14 @@ def create_app() -> FastAPI:
         if not any(isinstance(f, RequestIdLogFilter) for f in _h.filters):
             _h.addFilter(_filter)
 
+    # Phase 0, task S-4: surface the deprecation of the server-side AI
+    # metadata lookup fallback. Fires once at boot when the flag is True;
+    # the helper is a no-op otherwise. Placed AFTER logging setup so the
+    # operator-channel warning goes through the configured root handler,
+    # and BEFORE engine creation so a misconfigured DB URL doesn't
+    # accidentally mask the notice.
+    _warn_deprecated_ai_metadata_lookup(settings)
+
     engine = make_engine(settings.database_url)
     configure(engine)
     session_factory = make_session_factory(engine)
@@ -111,6 +223,11 @@ def create_app() -> FastAPI:
 
     httpx_client = httpx.AsyncClient(timeout=settings.cwa_probe_timeout_s)
     app.state.httpx_client = httpx_client
+    # The CalibreWeb validator is kept constructed unconditionally so that
+    # tests overriding ``app.state.auth_validator`` (the pre-S-1 pattern)
+    # still work even in NativeAuth deployments. The AI-routes Basic
+    # authenticator also relies on its existence. In NativeAuth mode the
+    # primary-auth path simply doesn't dispatch through it.
     app.state.auth_validator = CalibreAuthValidator(
         client=httpx_client,
         cwa_base_url=settings.cwa_base_url,
@@ -120,6 +237,19 @@ def create_app() -> FastAPI:
         max_entries=settings.auth_cache_max_entries,
     )
 
+    # Phase 0, task S-1: pick the primary AuthBackend before any router
+    # mounts so /readyz and the AI-auth wiring below see a consistent
+    # picture. The cross-config guard runs first; misconfigurations
+    # crashloop here instead of silently 401-ing users.
+    _validate_auth_backend_settings(settings)
+    if settings.auth_backend == "native":
+        app.state.auth_backend = NativeAuth(
+            session_factory=session_factory,
+            session_ttl_s=settings.native_session_ttl_s,
+        )
+    else:
+        app.state.auth_backend = CalibreWebBasicAuth(app.state.auth_validator)
+
     @app.on_event("shutdown")
     async def _close() -> None:
         await httpx_client.aclose()
@@ -127,6 +257,14 @@ def create_app() -> FastAPI:
     # Always-on root endpoints (no prefix). Mounted before mode gates so they
     # remain available even when both flags are false.
     app.include_router(health.router)
+
+    # Phase 0, task S-1: ``/auth/v1/*`` exists only when NativeAuth is the
+    # primary backend. A CalibreWeb deployment treats those URLs as 404 —
+    # which is the correct shape for "this server doesn't speak that".
+    if settings.auth_backend == "native":
+        from quire_server.api.auth import router as auth_router
+
+        app.include_router(auth_router, prefix="/auth/v1")
 
     if settings.progress_enabled:
         # Lazy import: only pull progress + library routers when progress mode
@@ -144,6 +282,10 @@ def create_app() -> FastAPI:
         # crashloop here — never silently downgrade to basic. Sync-only
         # deploys (ai_enabled=false) skip this block entirely.
         _validate_ai_auth_settings(settings)
+        # Phase 0, task X-2: surface the deprecation only once token mode
+        # is known to be valid. Misconfigured token deploys still crashloop
+        # via _validate_ai_auth_settings above.
+        _warn_if_ai_auth_mode_deprecated(settings)
         app.state.ai_authenticator = _build_ai_authenticator(settings, app.state.auth_validator)
 
         if settings.ai_base_url and settings.ai_model:

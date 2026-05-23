@@ -29,6 +29,15 @@ class Settings(BaseSettings):
     # Enforced by RequestSizeMiddleware; oversized requests get 413.
     max_request_bytes: int = 1_048_576
 
+    # Phase 0, task S-2: hard cap on the number of entries `POST
+    # /library/v1/sync` will accept in a single request. Middleware
+    # already enforces a byte ceiling (max_request_bytes); this guards the
+    # parsed-entry count so a tightly-packed but valid payload can't blow
+    # past Postgres bind-parameter ceilings or balloon a single transaction.
+    # Conservative default; raise once we have data on real Android-side
+    # library sizes.
+    library_sync_max_items: int = 500
+
     # AI substrate (Phase 1). Default flipped from False → True in PR-A so the
     # full-stack mode is the documented default. Existing prod deployments
     # already set QUIRE_SERVER_AI_ENABLED=true explicitly, so this flip is
@@ -42,6 +51,26 @@ class Settings(BaseSettings):
     ai_sources: str = "wikipedia,openlibrary"  # CSV; "" disables retrieval
     ai_retrieval_timeout_s: float = 8.0
     ai_prompt_version: str = "1"
+
+    # Phase 0, task S-3: deprecated server-side metadata fallback for the
+    # AI insight endpoints. When False (the default per the push-model API
+    # direction), POST /ai/v1/insights/{lookup,regenerate} reject requests
+    # that omit the `bundle` block with 400 `metadata_required`. When True,
+    # the server falls back to reconstructing a MetadataBundle from the
+    # caller's local `library_items` row keyed by identity_hash. The flag
+    # exists only for backward compatibility during the OSS push-model
+    # migration.
+    #
+    # DEPRECATED since the Phase 0 release (2026-05-22). Slated for removal
+    # in 2 minor releases. When the flag is True at boot, `create_app()`
+    # emits both a `DeprecationWarning` (Python tooling channel) and a
+    # `logging.warning` (operator channel) naming the env var and the
+    # removal window. See `_warn_deprecated_ai_metadata_lookup` in
+    # `quire_server/main.py` and the "Environment variables" table in
+    # `server/README.md`. The push-model contract (clients send `bundle`
+    # in the request body) is documented in `docs/sync-api.md` under
+    # POST /ai/v1/insights/lookup.
+    ai_metadata_server_lookup_enabled: bool = False
 
     # Quota protection — important when AI_BASE_URL points at a metered/cloud provider
     # (Ollama Cloud subscription, OpenAI, Anthropic, OpenRouter, …). Free-tier Ollama
@@ -69,9 +98,14 @@ class Settings(BaseSettings):
     # Mode of the /ai/v1/* authenticator:
     #   * "basic"  – wraps the existing calibre-web Basic-auth verifier;
     #                tenant_id is always "local". Default.
-    #   * "token"  – validates HMAC-SHA256 bearer tokens with claims
-    #                {iss, aud, exp, iat, sub, tenant_id, scope?} and a
-    #                header {alg=HS256, kid}. Multi-tenant.
+    #   * "token"  – DEPRECATED (Phase 0, task X-2): HMAC-SHA256 bearer
+    #                tokens with claims {iss, aud, exp, iat, sub,
+    #                tenant_id, scope?} and a header {alg=HS256, kid}.
+    #                Predates the primary AuthBackend abstraction; will be
+    #                removed in 2 minor releases. Use
+    #                ``QUIRE_SERVER_AUTH_BACKEND=native`` (NativeAuth) as
+    #                the long-term replacement. A startup warning fires
+    #                when this mode is active with ai_enabled=true.
     ai_auth_mode: Literal["basic", "token"] = "basic"
 
     # JSON object env var mapping `kid -> secret` (UTF-8 string >= 32 bytes).
@@ -88,6 +122,23 @@ class Settings(BaseSettings):
 
     # Required when ai_auth_mode == "token". Validated against token `aud`.
     ai_token_audience: str | None = None
+
+    # ---------------------------------------------------------------------
+    # Phase 0, task S-1: primary AuthBackend selector.
+    # ---------------------------------------------------------------------
+    # Which AuthBackend resolves ``Depends(current_user_id)``:
+    #   * ``"calibreweb"`` (default, OSS) – wraps the existing
+    #     :class:`CalibreAuthValidator`. ``Authorization: Basic ...``.
+    #     ``user_id`` is the lowercase CWA username.
+    #   * ``"native"`` – Quire Cloud. Email/password + opaque bearer
+    #     session tokens. ``user_id`` is ``"native:<NativeUser.id>"``.
+    #     Mounts the ``/auth/v1/*`` router; CalibreWeb mode does not.
+    auth_backend: Literal["calibreweb", "native"] = "calibreweb"
+
+    # NativeAuth session lifetime. Default 30 days; clients should refresh
+    # by logging in again before expiry. No refresh-token mechanism exists
+    # at this stage (deferred per spec).
+    native_session_ttl_s: int = 30 * 24 * 3600
 
 
 @lru_cache(maxsize=1)

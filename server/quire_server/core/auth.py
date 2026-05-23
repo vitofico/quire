@@ -114,11 +114,51 @@ async def get_validator(request: Request) -> CalibreAuthValidator:
     return request.app.state.auth_validator
 
 
+# Phase 0, task S-1: primary-auth dependency now resolves through the
+# configured :class:`AuthBackend` instead of going straight to the CalibreWeb
+# validator. The public signature stays ``-> str`` so every existing route
+# and every test that overrides ``current_user_id`` via
+# ``app.dependency_overrides`` keeps working unchanged.
+#
+# Routes that need the full :class:`AuthUser` (notably ``/auth/v1/logout``,
+# which needs the session token hash) use :func:`current_auth_user` instead.
+#
+# Implementation note: importing :class:`AuthBackend` at module level would
+# create a circular import (auth_backend imports from this module). The
+# dependency loads it lazily.
+
+
+async def get_auth_backend(request: Request):
+    """FastAPI dependency: pull the configured backend off ``app.state``."""
+    backend = getattr(request.app.state, "auth_backend", None)
+    if backend is None:
+        # main.py always wires this. A 500 surfaces the misconfiguration
+        # rather than silently 401-ing every request.
+        logger.error("auth_backend missing from app.state")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="auth_backend_not_configured",
+        )
+    return backend
+
+
 async def current_user_id(
     request: Request,
-    validator: Annotated[CalibreAuthValidator, Depends(get_validator)],
+    backend: Annotated[object, Depends(get_auth_backend)],
 ) -> str:
-    auth = request.headers.get("authorization")
-    if not auth:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="missing credentials")
-    return await validator.validate(auth)
+    """Return the storage-scope user id for the authenticated request.
+
+    Format depends on the configured backend: CalibreWeb yields a lowercase
+    CWA username; NativeAuth yields ``"native:<id>"``. Existing user-scoped
+    tables persist this string verbatim.
+    """
+    user = await backend.current_user(request)  # type: ignore[attr-defined]
+    return user.user_id
+
+
+async def current_auth_user(
+    request: Request,
+    backend: Annotated[object, Depends(get_auth_backend)],
+):
+    """Return the full :class:`AuthUser`. Used by ``/auth/v1/logout``."""
+    return await backend.current_user(request)  # type: ignore[attr-defined]
