@@ -90,7 +90,16 @@ def _required_heads(script, progress_enabled: bool, ai_enabled: bool) -> set[str
     labels = _existing_branch_labels(script)
     required: set[str] = set()
 
-    candidates = [(True, "core"), (progress_enabled, "progress"), (ai_enabled, "ai")]
+    # Phase 0, task S-1: ``auth`` is foundational (NativeAuth tables exist
+    # regardless of the configured backend) so it is required whenever the
+    # label is present, on a par with ``core``. The actual selection of a
+    # backend is a config-only flip — schema must be there either way.
+    candidates = [
+        (True, "core"),
+        (True, "auth"),
+        (progress_enabled, "progress"),
+        (ai_enabled, "ai"),
+    ]
     for enabled, label in candidates:
         if enabled and label in labels:
             rev = script.get_revision(f"{label}@head")

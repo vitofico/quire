@@ -95,6 +95,14 @@ def run_migrations(cfg: Config, *, progress_enabled: bool, ai_enabled: bool) -> 
     if "core" in labels:
         _upgrade_branch(cfg, "core")
 
+    # Phase 0, task S-1: ``auth`` is foundational, not a feature. It carries
+    # NativeAuth tables that must exist whether or not the deployment has
+    # ``QUIRE_SERVER_AUTH_BACKEND=native`` set, so a flip between backends
+    # is config-only (no schema migration). Always upgrade when the label
+    # exists.
+    if "auth" in labels:
+        _upgrade_branch(cfg, "auth")
+
     if progress_enabled and "progress" in labels:
         _upgrade_branch(cfg, "progress")
     elif progress_enabled:

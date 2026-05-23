@@ -24,25 +24,32 @@ def _build_app(monkeypatch, postgres_url: str, *, progress: bool, ai: bool):
     return create_app()
 
 
-async def _stamp(postgres_url: str, revision: str) -> None:
-    """Forcibly set alembic_version to the given revision (single row).
+async def _stamp(postgres_url: str, revision: str | tuple[str, ...]) -> None:
+    """Forcibly set alembic_version to the given revision(s).
 
-    Bypasses Alembic so we can put the DB into states it wouldn't normally
-    reach via legal upgrade paths.
+    Accepts a single revision or a tuple of revisions (Alembic stores one
+    row per head, so multi-head DBs need a tuple). Bypasses Alembic so we
+    can put the DB into states it wouldn't normally reach via legal
+    upgrade paths.
     """
+    revs = (revision,) if isinstance(revision, str) else tuple(revision)
     eng = create_async_engine(postgres_url, future=True)
     async with eng.begin() as conn:
         await conn.execute(text("DELETE FROM alembic_version"))
-        await conn.execute(
-            text("INSERT INTO alembic_version (version_num) VALUES (:r)"),
-            {"r": revision},
-        )
+        for r in revs:
+            await conn.execute(
+                text("INSERT INTO alembic_version (version_num) VALUES (:r)"),
+                {"r": r},
+            )
     await eng.dispose()
 
 
 async def _restore_to_0004(postgres_url: str) -> None:
-    """Set alembic_version row back to 0004 (the real schema state)."""
-    await _stamp(postgres_url, "0004")
+    """Set alembic_version rows back to {0004, auth_001} — the canonical
+    "backbone + always-on auth branch" state expected by the rest of the
+    suite (which depends on the session-scoped alembic_upgrade fixture).
+    """
+    await _stamp(postgres_url, ("0004", "auth_001"))
 
 
 @pytest.fixture
@@ -73,15 +80,18 @@ async def test_readyz_200_when_at_ai_head(monkeypatch, postgres_url, alembic_upg
     assert r.status_code == 200
     body = r.json()
     assert body["ready"] is True
-    assert body["heads_applied"] == ["ai_007", "progress_003"]
+    # Phase 0, task S-1 added the always-materialized `auth` branch:
+    # `auth_001` joins `ai_007` / `progress_003` in `heads_applied`.
+    assert body["heads_applied"] == ["ai_007", "auth_001", "progress_003"]
 
 
 async def test_readyz_503_when_db_below_backbone(
     monkeypatch, postgres_url, alembic_upgrade, restore_after
 ):
-    """DB stamped below backbone; with both modes enabled, required head is
-    ai_007 (ai@head after Phase 0 / F-1) — that's what should be reported
-    missing."""
+    """DB stamped below backbone; with both modes enabled, required heads
+    include ai_007 (ai@head after Phase 0 / F-1) and auth_001 (auth@head
+    after Phase 0 / S-1) — both should be reported missing.
+    """
     await _stamp(postgres_url, "0003")
     app = _build_app(monkeypatch, postgres_url, progress=True, ai=True)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
@@ -90,25 +100,29 @@ async def test_readyz_503_when_db_below_backbone(
     body = r.json()
     assert body["ready"] is False
     assert "ai_007" in body["missing"]
+    assert "auth_001" in body["missing"]
 
 
 async def test_readyz_200_with_neither_mode_at_backbone(
     monkeypatch, postgres_url, alembic_upgrade, restore_after
 ):
-    """With neither mode enabled, backbone tip (0004) is the only required head.
+    """With neither feature-mode enabled, the required heads collapse to
+    {backbone, auth} — `auth` is unconditionally required (Phase 0 / S-1).
 
-    Stamp the DB to 0004 explicitly because the session-scoped fixture brings
-    everything up to ai@head; we want to exercise the "fresh sync-only deploy
-    that never materialized the ai branch" code path.
+    Stamp the DB to ``(0004, auth_001)`` to exercise the "fresh sync-only
+    deploy that never materialized the ai or progress branches" code path.
     """
-    await _stamp(postgres_url, "0004")
+    await _stamp(postgres_url, ("0004", "auth_001"))
     app = _build_app(monkeypatch, postgres_url, progress=False, ai=False)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         r = await c.get("/readyz")
     assert r.status_code == 200
     body = r.json()
     assert body["modes"] == []
-    assert body["heads_applied"] == ["0004"]
+    # ``heads_applied`` lists every row in ``alembic_version`` (sorted).
+    # We stamped both to simulate a deploy that explicitly walked the
+    # backbone + always-on ``auth`` branch.
+    assert body["heads_applied"] == ["0004", "auth_001"]
 
 
 async def test_readyz_503_with_neither_mode_below_backbone(
@@ -120,4 +134,5 @@ async def test_readyz_503_with_neither_mode_below_backbone(
         r = await c.get("/readyz")
     assert r.status_code == 503
     body = r.json()
-    assert "0004" in body["missing"]
+    # Both the backbone tip and the always-on `auth` head are missing.
+    assert "auth_001" in body["missing"]

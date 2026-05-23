@@ -69,9 +69,14 @@ class Settings(BaseSettings):
     # Mode of the /ai/v1/* authenticator:
     #   * "basic"  – wraps the existing calibre-web Basic-auth verifier;
     #                tenant_id is always "local". Default.
-    #   * "token"  – validates HMAC-SHA256 bearer tokens with claims
-    #                {iss, aud, exp, iat, sub, tenant_id, scope?} and a
-    #                header {alg=HS256, kid}. Multi-tenant.
+    #   * "token"  – DEPRECATED (Phase 0, task X-2): HMAC-SHA256 bearer
+    #                tokens with claims {iss, aud, exp, iat, sub,
+    #                tenant_id, scope?} and a header {alg=HS256, kid}.
+    #                Predates the primary AuthBackend abstraction; will be
+    #                removed in 2 minor releases. Use
+    #                ``QUIRE_SERVER_AUTH_BACKEND=native`` (NativeAuth) as
+    #                the long-term replacement. A startup warning fires
+    #                when this mode is active with ai_enabled=true.
     ai_auth_mode: Literal["basic", "token"] = "basic"
 
     # JSON object env var mapping `kid -> secret` (UTF-8 string >= 32 bytes).
@@ -88,6 +93,23 @@ class Settings(BaseSettings):
 
     # Required when ai_auth_mode == "token". Validated against token `aud`.
     ai_token_audience: str | None = None
+
+    # ---------------------------------------------------------------------
+    # Phase 0, task S-1: primary AuthBackend selector.
+    # ---------------------------------------------------------------------
+    # Which AuthBackend resolves ``Depends(current_user_id)``:
+    #   * ``"calibreweb"`` (default, OSS) – wraps the existing
+    #     :class:`CalibreAuthValidator`. ``Authorization: Basic ...``.
+    #     ``user_id`` is the lowercase CWA username.
+    #   * ``"native"`` – Quire Cloud. Email/password + opaque bearer
+    #     session tokens. ``user_id`` is ``"native:<NativeUser.id>"``.
+    #     Mounts the ``/auth/v1/*`` router; CalibreWeb mode does not.
+    auth_backend: Literal["calibreweb", "native"] = "calibreweb"
+
+    # NativeAuth session lifetime. Default 30 days; clients should refresh
+    # by logging in again before expiry. No refresh-token mechanism exists
+    # at this stage (deferred per spec).
+    native_session_ttl_s: int = 30 * 24 * 3600
 
 
 @lru_cache(maxsize=1)

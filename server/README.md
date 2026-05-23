@@ -137,6 +137,10 @@ match the table in [Deploy modes](#deploy-modes).
 Set both flags in `.env`. Sync-only deploys don't need
 `QUIRE_SERVER_AI_*`; AI-only deploys don't need calibre-web auth once
 PR-B's token mode is selected (`QUIRE_SERVER_AI_AUTH_MODE=token`).
+Token mode is **deprecated** as of Phase 0, task X-2 (removal scheduled in
+2 minor releases); new AI-only / Cloud-style deploys should adopt
+`QUIRE_SERVER_AUTH_BACKEND=native` (NativeAuth) instead. See the
+"AI auth mode" section below.
 
 ##### Mode examples
 
@@ -264,7 +268,7 @@ the env-compat helper. The DB-name non-rename is permanent.
 | `QUIRE_SERVER_AI_PROMOTE_DAILY_LIMIT`  | `100`                                  | Per-user `/insights/promote` ceiling per UTC day; process-local counter, 0 disables. (PR-ζ) |
 | `QUIRE_SERVER_AI_PROFILE_REFRESH_DAILY_LIMIT` | `3`                              | Reader Profile refresh cap per user per UTC day. (PR-β)                 |
 | `QUIRE_SERVER_AI_PROFILE_TIMEOUT_S`    | `90`                                   | Reader Profile orchestrator timeout, in seconds. (PR-β)                 |
-| `QUIRE_SERVER_AI_AUTH_MODE`            | `basic`                                | `basic` (default, wraps calibre-web verifier) or `token` (HMAC-SHA256). |
+| `QUIRE_SERVER_AI_AUTH_MODE`            | `basic`                                | `basic` (default, wraps calibre-web verifier) or `token` (HMAC-SHA256, **deprecated** — see "AI auth mode" below; use `QUIRE_SERVER_AUTH_BACKEND=native` instead). |
 | `QUIRE_SERVER_AI_TOKEN_SECRETS`        | unset                                  | Token mode: JSON `{kid: secret}`. Each secret ≥32 bytes; multiple kids enable rotation. |
 | `QUIRE_SERVER_AI_TOKEN_ISSUER`         | unset                                  | Token mode: required; validated against `iss`.                          |
 | `QUIRE_SERVER_AI_TOKEN_AUDIENCE`       | unset                                  | Token mode: required; validated against `aud`.                          |
@@ -282,11 +286,21 @@ unaffected). Two modes:
 
 - **`basic`** (default) — wraps the existing calibre-web Basic verifier;
   `AiPrincipal.tenant_id` is always `"local"`. No additional config required.
-- **`token`** — HMAC-SHA256 bearer tokens. Wire format: `header.payload.signature`
-  with header `{alg=HS256, kid}` and payload claims
+- **`token`** (**deprecated** as of Phase 0, task X-2 — removal scheduled in 2
+  minor releases) — HMAC-SHA256 bearer tokens. Wire format:
+  `header.payload.signature` with header `{alg=HS256, kid}` and payload claims
   `{iss, aud, exp, iat, sub, tenant_id, scope?}`, each segment URL-safe
   base64 with no padding. Token issuance is out of scope here — this server
-  only verifies.
+  only verifies. **Use `QUIRE_SERVER_AUTH_BACKEND=native` (NativeAuth) as the
+  long-term replacement**: NativeAuth (added by Phase 0, task S-1) is the
+  primary `AuthBackend` for session-token authentication and is the new
+  home for Cloud-style multi-tenant deployments. The `token` code path
+  remains fully functional through the deprecation window; existing HS256
+  tokens continue to validate until their normal expiry and no client-side
+  rotation is required during the window. A `DeprecationWarning` plus a
+  `WARNING`-level log record (`event=config.deprecated
+  setting=QUIRE_SERVER_AI_AUTH_MODE value=token`) fires at startup when this
+  mode is active with `AI_ENABLED=true`.
 
 Token-mode misconfiguration (`QUIRE_SERVER_AI_TOKEN_SECRETS` missing or empty,
 any secret shorter than 32 bytes, missing issuer or audience) raises at

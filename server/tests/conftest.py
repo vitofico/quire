@@ -137,6 +137,7 @@ def app_under_test(postgres_url, alembic_upgrade, monkeypatch, cwa_transport):
     get_settings.cache_clear()
 
     from quire_server.core.auth import CalibreAuthValidator
+    from quire_server.core.auth_backend import CalibreWebBasicAuth
     from quire_server.main import create_app
 
     app = create_app()
@@ -148,4 +149,9 @@ def app_under_test(postgres_url, alembic_upgrade, monkeypatch, cwa_transport):
         client=test_client,
         cwa_base_url="http://test-cwa",
     )
+    # Phase 0, task S-1: the primary auth dependency now resolves through
+    # ``app.state.auth_backend``, which captured a reference to the
+    # ORIGINAL validator at create_app() time. Rebuild the backend so it
+    # wraps the test's CWA-mock validator instead.
+    app.state.auth_backend = CalibreWebBasicAuth(app.state.auth_validator)
     return app

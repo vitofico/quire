@@ -13,6 +13,10 @@ dependencies = [
     "pydantic-settings>=2.4",
     "httpx>=0.27",
     "python-json-logger>=2.0",
+    # Phase 0, task S-1: argon2id password hashing for NativeAuth. The CFFI
+    # binding is the canonical Python implementation; no alternative is
+    # acceptable for password-hash storage.
+    "argon2-cffi>=23.1",
 ]
 
 [project.optional-dependencies]

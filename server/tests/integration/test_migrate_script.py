@@ -66,11 +66,12 @@ async def test_default_state_upgrades_backbone_then_ai_branch(postgres_url: str)
 
     versions = await _alembic_versions(eng)
     await eng.dispose()
-    # ai branch is at ai_007 (Phase 0 / task F-1 added
-    # `book_insights.identity_hash_version`). The progress branch is at
-    # progress_003 (same task, added the column to `documents` and
-    # `library_items`).
-    assert versions == {"ai_007", "progress_003"}
+    # Phase 0 branch heads:
+    #   * ai_007 — F-1 added `book_insights.identity_hash_version`
+    #   * auth_001 — S-1 added native_users + native_sessions (always-on
+    #     `auth` branch, materialized regardless of mode flags)
+    #   * progress_003 — F-1 added the column to `documents` + `library_items`
+    assert versions == {"ai_007", "auth_001", "progress_003"}
 
 
 async def test_idempotent_second_run(postgres_url: str):
@@ -83,7 +84,7 @@ async def test_idempotent_second_run(postgres_url: str):
     eng = create_async_engine(postgres_url, future=True)
     versions = await _alembic_versions(eng)
     await eng.dispose()
-    assert versions == {"ai_007", "progress_003"}
+    assert versions == {"ai_007", "auth_001", "progress_003"}
 
 
 async def test_synthetic_ai_branch_upgrades_when_enabled(postgres_url: str, tmp_path: Path):
@@ -184,7 +185,7 @@ async def test_synthetic_ai_branch_skipped_when_disabled(postgres_url: str, tmp_
     await eng.dispose()
     # ai branch skipped → ai_test_008 not applied, ai_007 not applied,
     # ai_006 not applied, ai_001 not applied. The `progress` branch still
-    # advanced.
+    # advanced; the always-on `auth` branch (Phase 0 / S-1) also advanced.
     assert "ai_test_008" not in versions
     assert "ai_007" not in versions
     assert "ai_006" not in versions
@@ -195,6 +196,8 @@ async def test_synthetic_ai_branch_skipped_when_disabled(postgres_url: str, tmp_
     # progress branch advanced (progress_enabled=True). The backbone itself
     # is no longer a head once progress_003 sits on top of 0004.
     assert "progress_003" in versions
+    # The always-on `auth` branch advances regardless of mode flags.
+    assert "auth_001" in versions
 
     # Restore DB for subsequent tests.
     await _run_migrations_in_thread(real_cfg, progress_enabled=True, ai_enabled=True)
