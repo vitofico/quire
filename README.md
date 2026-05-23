@@ -70,6 +70,12 @@ is Quire-specific.
 
 ## Privacy
 
+Self-hosted Quire — what this repository ships — is the only Quire that
+exists today. It stays Apache-2.0, calibre-web-only, and **no telemetry,
+ever.**
+
+### Self-hosted (this repository)
+
 - No analytics, no crash reporting, no third-party SDKs.
 - Network calls go to your calibre-web instance and your Quire Server.
   If your administrator has enabled AI features and you have opted in,
@@ -81,6 +87,30 @@ is Quire-specific.
   calibre-web instance and your Quire Server.
 - Credentials are stored in Android Keystore (hardware-backed where the
   device supports it).
+
+### Quire Cloud (future paid hosted service, separate)
+
+Quire Cloud is a planned, separate, paid hosted service operated by the
+author. It does not exist yet and is not part of this repository.
+
+> Quire Cloud is a paid service that processes service data only to
+> provide its features. See the privacy notice for what we store, why,
+> for how long, and the subprocessor list.
+
+Before any Cloud private beta opens, the following will ship as
+non-negotiable prerequisites:
+
+- A published Cloud privacy notice covering data categories, processing
+  purposes, retention, user rights, and the full subprocessor list.
+- A data-subject access / export endpoint ("download everything").
+- Cascading account deletion (delete account → all associated rows go
+  with it).
+
+None of the above changes anything about the self-hosted edition.
+There is no Cloud sign-in requirement in the OSS app, no telemetry
+back-channel, and no feature gated behind Cloud. Self-hosters and
+Cloud users will hit the same `quire_server` codebase via the same
+HTTP API; only the operator and the data-controller differ.
 
 ## AI features (optional)
 
