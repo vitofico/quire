@@ -26,6 +26,8 @@ does not cover this table.
 
 from __future__ import annotations
 
+import logging
+import time
 from datetime import UTC, datetime
 from typing import Annotated
 
@@ -41,9 +43,14 @@ from quire_server.api.library_schemas import (
     LibraryItemRequest,
     LibraryItemResponse,
     LibraryStatsResponse,
+    LibrarySyncEntry,
+    LibrarySyncRequest,
+    LibrarySyncStatus,
+    LibrarySyncSummary,
     TopAuthor,
     TopTheme,
 )
+from quire_server.config import Settings, get_settings
 from quire_server.core.auth import current_user_id
 from quire_server.db.models import (
     BookInsight,
@@ -53,6 +60,8 @@ from quire_server.db.models import (
     Progress,
 )
 from quire_server.db.session import get_session
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["library"])
 
@@ -238,6 +247,399 @@ async def delete_item(
         await session.refresh(row)
 
     return _to_response(row)
+
+
+# ---------------------------------------------------------------------------
+# POST /sync — Phase 0, task S-2: push-model bulk library mirror.
+# ---------------------------------------------------------------------------
+# The client is authoritative about its library and pushes a bag of
+# `{present, deleted}` entries here; the server upserts and never reaches
+# outward. Per spec section "Architectural changes → Push-model API" in
+# `docs/superpowers/specs/2026-05-22-quire-monetization-design.md`, the
+# existing single-item PUT/GET/DELETE endpoints stay reachable unchanged
+# (deprecation window comes in a sibling task S-4, not here).
+#
+# Design contract:
+# - All-or-nothing per request. Validation conflicts (`422`) and existing-row
+#   metadata_id conflicts (`409`) abort the whole batch with no partial
+#   commit. Per-entry partial success would require savepoints around every
+#   row and a far more complex client contract; v1 keeps it simple.
+# - Idempotent on replay. A `present` entry whose persisted row already
+#   matches every field is skipped, NOT rewritten — bumping `updated_at`
+#   on every replay would flood `GET /library/v1/items?since=` with the
+#   entire library on every sync cycle.
+# - `last_seen_at` is wire-only in v1: validated tz-aware, never stored
+#   (no column exists). The architect-flagged footgun was using a client
+#   clock as a server cursor; the server's own `updated_at` is the only
+#   trustworthy delta source.
+# - Missing entries are NEVER auto-deleted. Tombstones travel via an
+#   explicit `status=deleted` command. A tombstone command for an unknown
+#   `identity_hash` is counted as `missing_deleted` and otherwise ignored.
+#
+# Wire naming (Phase 0, task X-1): the JSON wire field for book identity
+# on this endpoint is `identity_hash`. The DB column is still legacy-
+# named `content_hash` and is never renamed. The Pydantic schema exposes
+# `identity_hash` on the Python side; this handler bridges by assigning
+# `LibraryItem(content_hash=entry.identity_hash, ...)` at the ORM
+# boundary.
+# ---------------------------------------------------------------------------
+
+
+# Fields whose values participate in the "row already matches" diff for a
+# `present` entry. Order doesn't matter for set membership but does matter
+# for list-valued comparisons (authors order is meaningful — `[Smith, Doe]`
+# is a different shelf face than `[Doe, Smith]`).
+_DIFF_FIELDS: tuple[str, ...] = (
+    "metadata_id",
+    "title",
+    "authors",
+    "series_name",
+    "series_index",
+    "isbn",
+    "language",
+    "subjects",
+    "opds_href",
+)
+
+
+def _entry_to_payload(entry: LibrarySyncEntry) -> dict[str, object]:
+    """Materialize a `present` sync entry into the field dict used for diff/apply.
+
+    Centralises the "missing optional field → empty default" rule. Sync is
+    full-replace semantics: an entry that omits `authors` is asserting "no
+    authors", same as the existing PUT endpoint. Bulk sync MUST NOT
+    diverge from per-item PUT on this rule.
+    """
+    return {
+        "metadata_id": entry.metadata_id,
+        "title": entry.title or "",
+        "authors": list(entry.authors),
+        "series_name": entry.series_name,
+        "series_index": entry.series_index,
+        "isbn": entry.isbn,
+        "language": entry.language,
+        "subjects": list(entry.subjects),
+        "opds_href": entry.opds_href,
+    }
+
+
+def _row_matches_payload(row: LibraryItem, payload: dict[str, object]) -> bool:
+    """True if every diff field on `row` already equals `payload`.
+
+    The `identity_hash_version` is deliberately NOT compared here — it has
+    its own `max(existing, incoming)` rule applied separately, and a
+    client sending the same value as the existing row is the common case
+    we want to skip.
+    """
+    for f in _DIFF_FIELDS:
+        existing = getattr(row, f)
+        incoming = payload[f]
+        # JSONB fields (authors/subjects) come back from SQLAlchemy as
+        # plain Python lists; the in-memory comparison is reliable.
+        # Numeric (series_index) is tricky: a Decimal('1.0') and
+        # Decimal('1.00') are equal under `==` (Decimal compares by
+        # value, not representation), but Decimal('1') != int(1) under
+        # `is`; the broad `!=` here covers both with Decimal semantics.
+        if existing != incoming:
+            return False
+    return True
+
+
+def _apply_sync_payload(
+    row: LibraryItem, entry: LibrarySyncEntry, payload: dict[str, object]
+) -> None:
+    """Write a `present` sync entry's fields onto an existing row.
+
+    Mirrors `_apply_payload` (the PUT path) but takes the pre-built
+    payload dict to avoid re-materializing. Downgrade-protection on
+    `identity_hash_version` is identical to the PUT path — the load-
+    bearing `max(existing, incoming)` rule from F-1 stays intact.
+    """
+    if entry.identity_hash_version > row.identity_hash_version:
+        row.identity_hash_version = entry.identity_hash_version
+    row.metadata_id = payload["metadata_id"]  # type: ignore[assignment]
+    row.title = payload["title"]  # type: ignore[assignment]
+    row.authors = payload["authors"]  # type: ignore[assignment]
+    row.series_name = payload["series_name"]  # type: ignore[assignment]
+    row.series_index = payload["series_index"]  # type: ignore[assignment]
+    row.isbn = payload["isbn"]  # type: ignore[assignment]
+    row.language = payload["language"]  # type: ignore[assignment]
+    row.subjects = payload["subjects"]  # type: ignore[assignment]
+    row.opds_href = payload["opds_href"]  # type: ignore[assignment]
+
+
+def _dedupe_entries(entries: list[LibrarySyncEntry]) -> list[LibrarySyncEntry]:
+    """Collapse intra-payload duplicates by `identity_hash`.
+
+    Architect-flagged footgun: Postgres `ON CONFLICT DO UPDATE` blows up
+    when one INSERT batch touches the same key twice. We don't use raw
+    UPSERT — we do select+merge in the ORM — but the same logical
+    problem applies: a row updated twice in one transaction gets the
+    last writer's payload non-deterministically.
+
+    Rules:
+    - If all fields match exactly (post `identity_hash_version` maxing),
+      collapse silently. This is the "the client emitted the same entry
+      twice in one sync" benign case.
+    - Otherwise, raise — duplicate `identity_hash` with conflicting
+      `status` or different metadata is a client bug and the safest
+      response is rejection rather than picking a winner.
+    """
+    by_hash: dict[str, LibrarySyncEntry] = {}
+    for e in entries:
+        prev = by_hash.get(e.identity_hash)
+        if prev is None:
+            by_hash[e.identity_hash] = e
+            continue
+        if prev.status != e.status:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "error": "duplicate_identity_hash_conflict",
+                    "identity_hash": e.identity_hash,
+                    "reason": "conflicting status values",
+                },
+            )
+        # Compare all wire fields except `identity_hash_version` (max-merge)
+        # and `last_seen_at` (wire-only, never durable). Anything else
+        # diverging means the client emitted two conflicting truths.
+        prev_payload = _entry_to_payload(prev) if prev.status is LibrarySyncStatus.PRESENT else {}
+        curr_payload = _entry_to_payload(e) if e.status is LibrarySyncStatus.PRESENT else {}
+        if prev_payload != curr_payload:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "error": "duplicate_identity_hash_conflict",
+                    "identity_hash": e.identity_hash,
+                    "reason": "conflicting metadata across duplicate entries",
+                },
+            )
+        # Identical entries (modulo hash version): keep the max version.
+        if e.identity_hash_version > prev.identity_hash_version:
+            by_hash[e.identity_hash] = e
+    return list(by_hash.values())
+
+
+def _check_intra_payload_metadata_collisions(entries: list[LibrarySyncEntry]) -> None:
+    """Reject payloads that internally claim one `metadata_id` for two books.
+
+    Maps `metadata_id -> first identity_hash that claimed it`. A second
+    entry with the same `metadata_id` and a DIFFERENT `identity_hash`
+    means the client is internally inconsistent: per the existing PUT
+    semantics (and the partial unique index
+    `uq_library_items_user_metadata`), one `metadata_id` belongs to one
+    book per user. PR2 will introduce identity-aliases to reconcile
+    these; until then, surface as `422` rather than letting one of the
+    INSERTs blow up with a Postgres unique-violation midway through the
+    batch.
+    """
+    claimants: dict[str, str] = {}
+    for e in entries:
+        if e.status is LibrarySyncStatus.DELETED:
+            continue  # tombstones don't carry a binding metadata_id
+        if e.metadata_id is None:
+            continue
+        prior = claimants.get(e.metadata_id)
+        if prior is not None and prior != e.identity_hash:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "error": "metadata_id_collision_in_payload",
+                    "metadata_id": e.metadata_id,
+                    "identity_hashes": sorted({prior, e.identity_hash}),
+                },
+            )
+        claimants[e.metadata_id] = e.identity_hash
+
+
+@router.post("/sync", response_model=LibrarySyncSummary)
+async def sync_library(
+    body: LibrarySyncRequest,
+    user_id: Annotated[str, Depends(current_user_id)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> LibrarySyncSummary:
+    received = len(body.items)
+    t0 = time.monotonic()
+    now = datetime.now(UTC)
+
+    # Bounded payload. The RequestSizeMiddleware already enforces a byte
+    # ceiling (`max_request_bytes`); this guards the parsed-entry count
+    # so a tightly-packed but valid body can't blow past Postgres bind-
+    # parameter ceilings or balloon one transaction.
+    if received > settings.library_sync_max_items:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "error": "too_many_items",
+                "limit": settings.library_sync_max_items,
+                "received": received,
+            },
+        )
+
+    # ---- Preflight (all checks abort the batch before any DB writes) ----
+    entries = _dedupe_entries(list(body.items))
+    _check_intra_payload_metadata_collisions(entries)
+
+    # Bulk-fetch all rows this batch touches in a single SELECT.
+    # Wire field `identity_hash` maps to the legacy DB column `content_hash`
+    # (no DB rename — see module docstring for the X-1 bridge rule).
+    hashes = [e.identity_hash for e in entries]
+    existing_by_hash: dict[str, LibraryItem] = {}
+    if hashes:
+        existing_rows = (
+            (
+                await session.execute(
+                    select(LibraryItem).where(
+                        LibraryItem.user_id == user_id,
+                        LibraryItem.content_hash.in_(hashes),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        existing_by_hash = {r.content_hash: r for r in existing_rows}
+
+    # Cross-row `metadata_id` conflict against an existing row that has a
+    # DIFFERENT `identity_hash`. Mirror the per-item PUT's 409 contract.
+    incoming_metadata_ids = {
+        e.metadata_id: e.identity_hash
+        for e in entries
+        if e.status is LibrarySyncStatus.PRESENT and e.metadata_id is not None
+    }
+    if incoming_metadata_ids:
+        conflict_rows = (
+            (
+                await session.execute(
+                    select(LibraryItem).where(
+                        LibraryItem.user_id == user_id,
+                        LibraryItem.metadata_id.in_(incoming_metadata_ids.keys()),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for conflict in conflict_rows:
+            expected_hash = incoming_metadata_ids.get(conflict.metadata_id or "")
+            if expected_hash is not None and conflict.content_hash != expected_hash:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "error": "metadata_id_conflict",
+                        "metadata_id": conflict.metadata_id,
+                        "existing_identity_hash": conflict.content_hash,
+                        "incoming_identity_hash": expected_hash,
+                    },
+                )
+
+    # ---- Apply ----
+    created = updated = reactivated = deleted = skipped = missing_deleted = 0
+
+    for entry in entries:
+        existing = existing_by_hash.get(entry.identity_hash)
+
+        if entry.status is LibrarySyncStatus.DELETED:
+            if existing is None:
+                # Architect rule: don't materialize tombstones for rows the
+                # server has never seen. Count and move on.
+                missing_deleted += 1
+                continue
+            if existing.deleted_at is not None:
+                # Already tombstoned. Preserve timestamps to avoid the
+                # `?since=` re-delivery bug documented on `delete_item`.
+                skipped += 1
+                continue
+            existing.deleted_at = now
+            existing.updated_at = now
+            # Downgrade-protected version bump still applies on delete:
+            # a newer client noticing a deletion shouldn't downgrade the
+            # row's version metadata.
+            if entry.identity_hash_version > existing.identity_hash_version:
+                existing.identity_hash_version = entry.identity_hash_version
+            deleted += 1
+            continue
+
+        # status == PRESENT
+        payload = _entry_to_payload(entry)
+        if existing is None:
+            # DB bridge: wire `identity_hash` -> legacy column `content_hash`.
+            row = LibraryItem(
+                user_id=user_id,
+                content_hash=entry.identity_hash,
+                identity_hash_version=entry.identity_hash_version,
+                metadata_id=payload["metadata_id"],
+                title=payload["title"],
+                authors=payload["authors"],
+                series_name=payload["series_name"],
+                series_index=payload["series_index"],
+                isbn=payload["isbn"],
+                language=payload["language"],
+                subjects=payload["subjects"],
+                opds_href=payload["opds_href"],
+                created_at=now,
+                updated_at=now,
+                deleted_at=None,
+            )
+            session.add(row)
+            created += 1
+            continue
+
+        if existing.deleted_at is not None:
+            # Tombstoned → reactivate. Always counts as a write (timestamps
+            # change); diff-skip doesn't apply because the deleted_at
+            # transition is itself state-changing.
+            _apply_sync_payload(existing, entry, payload)
+            existing.deleted_at = None
+            existing.updated_at = now
+            reactivated += 1
+            continue
+
+        # Existing alive row. Diff-skip if and only if nothing meaningful
+        # changes — including the hash version (clients sending the same
+        # value as persisted shouldn't move `updated_at`).
+        version_would_change = entry.identity_hash_version > existing.identity_hash_version
+        if not version_would_change and _row_matches_payload(existing, payload):
+            skipped += 1
+            continue
+
+        _apply_sync_payload(existing, entry, payload)
+        existing.updated_at = now
+        updated += 1
+
+    await session.commit()
+
+    duration_ms = int((time.monotonic() - t0) * 1000)
+    # One aggregate log line per request — per-entry logging at this scale
+    # is noise. `extra` fields land in structured-log adapters when
+    # configured; the f-string keeps human-readable plain-text logs sane.
+    logger.info(
+        "library_sync user_id=%s received=%d processed=%d created=%d updated=%d "
+        "reactivated=%d deleted=%d skipped=%d missing_deleted=%d duration_ms=%d",
+        user_id,
+        received,
+        len(entries),
+        created,
+        updated,
+        reactivated,
+        deleted,
+        skipped,
+        missing_deleted,
+        duration_ms,
+    )
+
+    return LibrarySyncSummary(
+        received=received,
+        processed=len(entries),
+        created=created,
+        updated=updated,
+        reactivated=reactivated,
+        deleted=deleted,
+        skipped=skipped,
+        missing_deleted=missing_deleted,
+        server_time=now,
+    )
 
 
 # ---------------------------------------------------------------------------
