@@ -52,6 +52,26 @@ class Settings(BaseSettings):
     ai_retrieval_timeout_s: float = 8.0
     ai_prompt_version: str = "1"
 
+    # Phase 0, task S-3: deprecated server-side metadata fallback for the
+    # AI insight endpoints. When False (the default per the push-model API
+    # direction), POST /ai/v1/insights/{lookup,regenerate} reject requests
+    # that omit the `bundle` block with 400 `metadata_required`. When True,
+    # the server falls back to reconstructing a MetadataBundle from the
+    # caller's local `library_items` row keyed by identity_hash. The flag
+    # exists only for backward compatibility during the OSS push-model
+    # migration.
+    #
+    # DEPRECATED since the Phase 0 release (2026-05-22). Slated for removal
+    # in 2 minor releases. When the flag is True at boot, `create_app()`
+    # emits both a `DeprecationWarning` (Python tooling channel) and a
+    # `logging.warning` (operator channel) naming the env var and the
+    # removal window. See `_warn_deprecated_ai_metadata_lookup` in
+    # `quire_server/main.py` and the "Environment variables" table in
+    # `server/README.md`. The push-model contract (clients send `bundle`
+    # in the request body) is documented in `docs/sync-api.md` under
+    # POST /ai/v1/insights/lookup.
+    ai_metadata_server_lookup_enabled: bool = False
+
     # Quota protection — important when AI_BASE_URL points at a metered/cloud provider
     # (Ollama Cloud subscription, OpenAI, Anthropic, OpenRouter, …). Free-tier Ollama
     # Cloud burns quota the same as a paid API.

@@ -37,6 +37,7 @@ from quire_server.api.ai_schemas import (
     InsightSyncCursor,
     InsightSyncItem,
     InsightSyncResponse,
+    MetadataBundle,
     PreferencesBody,
     PreferencesResponse,
     QuotaResponse,
@@ -102,6 +103,151 @@ def _style_from_pref(pref: UserAIPreference) -> AiStyle:
         return AiStyle.model_validate(filtered)
     except Exception:
         return AiStyle()
+
+
+def _truncate(value: str | None, *, limit: int) -> str | None:
+    """Defensive cap when reconstructing a bundle from a `library_items` row.
+
+    Bundle field validators raise 422 on over-cap values; that's the right
+    behavior for client-supplied input but a 422 would be hostile on the
+    deprecated server-side fallback path (the row was accepted earlier by
+    /library/v1/items, which has its own caps). Truncate instead.
+    """
+    if value is None:
+        return None
+    return value if len(value) <= limit else value[:limit]
+
+
+def _bundle_from_library_item(row: LibraryItem) -> MetadataBundle:
+    """Reconstruct a ``MetadataBundle`` from a persisted ``library_items`` row.
+
+    Phase 0, task S-3: backs the deprecated
+    ``ai_metadata_server_lookup_enabled`` fallback. ``LibraryItem`` does
+    NOT carry ``description``, ``publisher``, or ``publish_date``; those
+    are left ``None``. ``authors`` (list) is joined into the bundle's
+    scalar ``author`` field. ``series_index`` is a ``Decimal`` and only
+    propagates into ``series_position`` when it represents a small
+    non-negative integer — fractional positions (e.g. ``1.5``) are
+    dropped to ``None`` because the bundle field is ``int | None`` and
+    silently flooring would distort the prompt.
+    """
+    author: str | None = None
+    if row.authors:
+        joined = ", ".join(a for a in row.authors if isinstance(a, str) and a)
+        author = joined or None
+
+    series_position: int | None = None
+    if row.series_index is not None:
+        try:
+            # ``Decimal == int(Decimal)`` only when there's no fractional part.
+            as_int = int(row.series_index)
+            if as_int == row.series_index and 0 <= as_int <= 10_000:
+                series_position = as_int
+        except (TypeError, ValueError):
+            series_position = None
+
+    # Defensive: cap fields before handing them to the validator so a
+    # legacy library_items row (whose caps may be looser than the
+    # bundle's) doesn't 422 on the fallback path.
+    subjects: list[str] = []
+    for s in row.subjects or []:
+        if not isinstance(s, str) or not s:
+            continue
+        subjects.append(s[:80])
+        if len(subjects) >= 64:
+            break
+
+    return MetadataBundle(
+        title=_truncate(row.title, limit=512) or row.title[:512],
+        author=_truncate(author, limit=512),
+        language=_truncate(row.language, limit=32),
+        isbn=_truncate(row.isbn, limit=64),
+        publisher=None,
+        publish_date=None,
+        subjects=subjects,
+        description=None,
+        series_name=_truncate(row.series_name, limit=256),
+        series_position=series_position,
+    )
+
+
+async def _resolve_bundle(
+    session: AsyncSession,
+    *,
+    principal: AiPrincipal,
+    identity: DocumentIdentity,
+    request_bundle: MetadataBundle | None,
+) -> MetadataBundle:
+    """Return the ``MetadataBundle`` to drive an insight generation.
+
+    Phase 0, task S-3 — push-model contract:
+
+    * Client-supplied ``request_bundle`` wins. The server uses it verbatim.
+    * If absent AND ``ai_metadata_server_lookup_enabled`` is True, the
+      server falls back to reconstructing a bundle from the caller's
+      local ``library_items`` row. **DEPRECATED since the Phase 0 release
+      (2026-05-22); slated for removal in 2 minor releases (task S-4).**
+      Kept only for the OSS push-model migration window. Lookup is
+      user-scoped and alive-only; ``metadata_id`` wins over
+      ``content_hash`` when both could match.
+    * If absent AND the flag is False, the server returns 400
+      ``metadata_required`` — clients MUST send their own metadata.
+
+    NOTE on cache invariants: the bundle does NOT participate in the
+    ``BookInsight`` cache key today. Divergent metadata for the same
+    canonical identity therefore shares a cache row (first-writer-wins).
+    A future task will introduce bundle fingerprinting to harden this
+    contract; see the spec section "Push-model API" in
+    ``docs/superpowers/specs/2026-05-22-quire-monetization-design.md``.
+    """
+    if request_bundle is not None:
+        return request_bundle
+
+    settings = get_settings()
+    if not settings.ai_metadata_server_lookup_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="metadata_required",
+        )
+
+    # Deterministic selection: prefer metadata_id, fall back to
+    # content_hash, scope by user + alive. ``limit(1)`` + a stable
+    # ``order_by(pk)`` so we never raise ``MultipleResultsFound`` even if
+    # two LibraryItem rows somehow share a canonical (defensive — the
+    # /library/v1/items partial unique index forbids it for alive rows).
+    row: LibraryItem | None = None
+    if identity.metadata_id:
+        row = (
+            await session.execute(
+                select(LibraryItem)
+                .where(
+                    LibraryItem.user_id == principal.subject,
+                    LibraryItem.deleted_at.is_(None),
+                    LibraryItem.metadata_id == identity.metadata_id,
+                )
+                .order_by(LibraryItem.pk.asc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+    if row is None and identity.content_hash:
+        row = (
+            await session.execute(
+                select(LibraryItem)
+                .where(
+                    LibraryItem.user_id == principal.subject,
+                    LibraryItem.deleted_at.is_(None),
+                    LibraryItem.content_hash == identity.content_hash,
+                )
+                .order_by(LibraryItem.pk.asc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="metadata_required",
+        )
+    return _bundle_from_library_item(row)
 
 
 def _quota_http_exception(exc: QuotaExceeded) -> HTTPException:
@@ -203,11 +349,17 @@ async def lookup_insight(
     if orch is None:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="ai_disabled")
     pref = await _require_opt_in(session, principal.subject)
+    # Phase 0, task S-3: resolve the metadata bundle BEFORE delegating to the
+    # orchestrator. Returning 400 here means we never reserve quota / acquire
+    # a generation lock when the request is unusable.
+    bundle = await _resolve_bundle(
+        session, principal=principal, identity=body.identity, request_bundle=body.bundle
+    )
     try:
         return await orch.generate(
             session,
             body.identity,
-            body.bundle,
+            bundle,
             user_id=principal.subject,
             style=_style_from_pref(pref),
             tenant_id=principal.tenant_id,
@@ -235,11 +387,17 @@ async def regenerate_insight(
     if orch is None:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="ai_disabled")
     pref = await _require_opt_in(session, principal.subject)
+    # Phase 0, task S-3: resolve the metadata bundle BEFORE delegating to the
+    # orchestrator. Returning 400 here means we never supersede the live row
+    # or reserve regen quota when the request is unusable.
+    bundle = await _resolve_bundle(
+        session, principal=principal, identity=body.identity, request_bundle=body.bundle
+    )
     try:
         return await orch.regenerate(
             session,
             body.identity,
-            body.bundle,
+            bundle,
             user_id=principal.subject,
             reason=body.reason,
             style=_style_from_pref(pref),

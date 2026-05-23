@@ -268,6 +268,7 @@ the env-compat helper. The DB-name non-rename is permanent.
 | `QUIRE_SERVER_AI_PROMOTE_DAILY_LIMIT`  | `100`                                  | Per-user `/insights/promote` ceiling per UTC day; process-local counter, 0 disables. (PR-ζ) |
 | `QUIRE_SERVER_AI_PROFILE_REFRESH_DAILY_LIMIT` | `3`                              | Reader Profile refresh cap per user per UTC day. (PR-β)                 |
 | `QUIRE_SERVER_AI_PROFILE_TIMEOUT_S`    | `90`                                   | Reader Profile orchestrator timeout, in seconds. (PR-β)                 |
+| `QUIRE_SERVER_AI_METADATA_SERVER_LOOKUP_ENABLED` | `false`                          | **DEPRECATED (Phase 0, 2026-05-22).** Legacy fallback: when `true`, `/ai/v1/insights/{lookup,regenerate}` reconstruct a `MetadataBundle` from the caller's `library_items` row when the client omits the `bundle` block. The push-model contract has the client send `bundle` on every request; this flag is the migration escape hatch. Boots emit a `DeprecationWarning` + `logging.warning` when enabled. Slated for removal 2 minor releases after the Phase 0 release. |
 | `QUIRE_SERVER_AI_AUTH_MODE`            | `basic`                                | `basic` (default, wraps calibre-web verifier) or `token` (HMAC-SHA256, **deprecated** — see "AI auth mode" below; use `QUIRE_SERVER_AUTH_BACKEND=native` instead). |
 | `QUIRE_SERVER_AI_TOKEN_SECRETS`        | unset                                  | Token mode: JSON `{kid: secret}`. Each secret ≥32 bytes; multiple kids enable rotation. |
 | `QUIRE_SERVER_AI_TOKEN_ISSUER`         | unset                                  | Token mode: required; validated against `iss`.                          |
@@ -278,6 +279,26 @@ the env-compat helper. The DB-name non-rename is permanent.
 | `QUIRE_SERVER_AUTH_CACHE_NEGATIVE_TTL_S` | `10`                                 | Cached `401` from the auth probe.                                       |
 | `QUIRE_SERVER_AUTH_CACHE_MAX_ENTRIES`  | `1024`                                 | Upper bound on the auth-probe LRU cache.                                |
 | `QUIRE_SERVER_AI_PROMPT_VERSION`       | `""` (in-code default)                 | Advanced / incident-response only. Pins the AI prompt version for cache-key compat during a model regression. The legacy value `"1"` is treated as "unset" (falls back to the in-code constant); see PR-ε for runtime resolution. |
+
+#### Push-model API: deprecated server-side metadata fallback (Phase 0, 2026-05-22)
+
+`POST /ai/v1/insights/{lookup,regenerate}` now require a `bundle`
+(`MetadataBundle`) block in the request body — clients are the sole source
+of book metadata. Requests that omit `bundle` are rejected with `400
+metadata_required`.
+
+For one migration window, `QUIRE_SERVER_AI_METADATA_SERVER_LOOKUP_ENABLED=true`
+restores the legacy behavior: when `bundle` is absent, the server
+reconstructs a `MetadataBundle` from the caller's `library_items` row keyed
+by identity. The flag is **off by default**, **deprecated since this
+release**, and **will be removed 2 minor releases later**. Boots with the
+flag enabled emit a `DeprecationWarning` and a `logging.warning` so the
+deprecation is visible to both Python tooling and operators reading
+container logs. Plan your client cutover within the window.
+
+The push-model contract (request shape, identity-hint hierarchy, alias
+resolution) is documented in `docs/sync-api.md` under `POST
+/ai/v1/insights/lookup` and `POST /ai/v1/insights/regenerate`.
 
 #### AI auth mode (PR-B, 2026-05-16)
 
