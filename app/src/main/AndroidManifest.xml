@@ -30,5 +30,35 @@
             </intent-filter>
         </activity>
 
+        <!-- Phase 0 / A-3: sideload sink. Receives ACTION_SEND from the share
+             sheet (any app sharing an EPUB) and ACTION_VIEW from file managers
+             (user opens an .epub). Kept off the MainActivity task stack and
+             out of recents so a quick share doesn't pollute the user's task
+             switcher with Quire. The actual import is awaited on the
+             activity's lifecycleScope so the content-URI grant outlives the
+             read. -->
+        <activity
+            android:name="io.theficos.ereader.sideload.ImportActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Quire"
+            android:label="@string/sideload_import_label">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/epub+zip" />
+                <data android:mimeType="application/zip" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="application/epub+zip" />
+            </intent-filter>
+        </activity>
+
     </application>
 </manifest>

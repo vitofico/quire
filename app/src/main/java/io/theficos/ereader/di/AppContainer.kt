@@ -18,9 +18,11 @@ import io.theficos.ereader.data.opds.OpdsClient
 import io.theficos.ereader.data.opds.OpdsHttpClient
 import io.theficos.ereader.data.sync.SyncClient
 import io.theficos.ereader.data.sync.SyncDependencies
+import io.theficos.ereader.data.sync.SyncEnqueuer
 import io.theficos.ereader.data.sync.SyncOrchestrator
 import io.theficos.ereader.reader.ReaderPreferencesStore
 import io.theficos.ereader.reader.ReadiumFactory
+import io.theficos.ereader.sideload.SideloadImporter
 import io.theficos.ereader.ui.bookdetail.AppInsightAuditSource
 import io.theficos.ereader.ui.bookdetail.BookDetailViewModel
 import io.theficos.ereader.ui.bookdetail.InsightAuditViewModel
@@ -131,6 +133,31 @@ class AppContainer(context: Context) {
         scope = libraryUploaderScope,
     )
 
+    /**
+     * Phase-0 / A-3: ingest pipeline for share-sheet + `+ Import` button.
+     * Constructed after [documentRepository], [libraryUploader], and
+     * [booksDir] so it can reuse the same physical book directory and
+     * upload pump the catalog download path uses — sideloaded rows behave
+     * identically to OPDS-downloaded rows post-insert.
+     */
+    val sideloadImporter: SideloadImporter = SideloadImporter(
+        documentRepository = documentRepository,
+        libraryUploader = libraryUploader,
+        booksDir = booksDir,
+        contentResolver = appContext.contentResolver,
+        uploaderScope = libraryUploaderScope,
+        onSuccessfulImport = {
+            // Catalog-download parity: a returning user may have
+            // server-side progress for this identity that an earlier pull
+            // dropped (no local doc to attach to). Resetting the cursor +
+            // expedited enqueue lets the next pull re-attach from epoch 0.
+            runCatching { syncStateDao.clearAll() }
+            runCatching {
+                SyncEnqueuer.enqueue(appContext, expedited = true, replaceExisting = true)
+            }
+        },
+    )
+
     val aiRepository: AiRepository = AiRepository(
         client = aiClient,
         insightDao = insightDao,
@@ -236,6 +263,10 @@ class AppContainer(context: Context) {
 
     init {
         SyncDependencies.holder = SyncDependencies.Holder(syncOrchestrator)
+        // Phase-0 / A-3: clean up any `*.epub.part` files leaked by an
+        // import that was killed mid-copy (process death between
+        // openInputStream and renameTo). Cheap, best-effort, silent.
+        libraryUploaderScope.launch { sideloadImporter.sweepStaleParts() }
         // PR-ζ: clear the catalog stash whenever the server base URL
         // changes (different deploy → entries are no longer relevant). The
         // AI opt-out toggle hook lives in PR-δ (Bundle 3); until then a

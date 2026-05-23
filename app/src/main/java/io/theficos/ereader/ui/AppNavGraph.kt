@@ -139,6 +139,7 @@ fun AppNavGraph(container: AppContainer) {
                         onShowStats = { nav.navigate("library/stats") },
                         onShowInsights = { nav.navigate("library/insights") },
                         aiConfigured = aiConfig?.configured == true,
+                        sideloadImporter = container.sideloadImporter,
                         contentPadding = padding,
                     )
                     Tab.CATALOG -> CatalogScreen(
