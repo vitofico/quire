@@ -10,6 +10,8 @@ import io.theficos.ereader.data.ai.CatalogInsightStash
 import io.theficos.ereader.data.ai.InsightSyncRepository
 import io.theficos.ereader.data.library.LibraryClient
 import io.theficos.ereader.data.library.LibraryUploader
+import io.theficos.ereader.data.library.sync.CredentialsProvider
+import io.theficos.ereader.data.library.sync.LibraryMirrorPushDependencies
 import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.ProgressRepository
 import io.theficos.ereader.data.local.db.EReaderDatabase
@@ -267,6 +269,15 @@ class AppContainer(context: Context) {
         // import that was killed mid-copy (process death between
         // openInputStream and renameTo). Cheap, best-effort, silent.
         libraryUploaderScope.launch { sideloadImporter.sweepStaleParts() }
+        // Phase 0 / A-4: wire the library-mirror push worker's DI before
+        // any WorkManager run can fire. Same pattern as SyncDependencies
+        // above. The `CredentialsProvider` indirection keeps the worker
+        // testable without touching the Android KeyStore-backed store.
+        LibraryMirrorPushDependencies.holder = LibraryMirrorPushDependencies.Holder(
+            client = libraryClient,
+            dao = db.documentDao(),
+            credentials = CredentialsProvider { credentialStore.get() != null },
+        )
         // PR-ζ: clear the catalog stash whenever the server base URL
         // changes (different deploy → entries are no longer relevant). The
         // AI opt-out toggle hook lives in PR-δ (Bundle 3); until then a
