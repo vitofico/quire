@@ -12,6 +12,7 @@ import io.theficos.ereader.data.library.LibraryClient
 import io.theficos.ereader.data.library.LibraryUploader
 import io.theficos.ereader.data.library.sync.CredentialsProvider
 import io.theficos.ereader.data.library.sync.LibraryMirrorPushDependencies
+import io.theficos.ereader.data.library.sync.LibraryMirrorPushScheduler
 import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.ProgressRepository
 import io.theficos.ereader.data.local.db.EReaderDatabase
@@ -157,6 +158,11 @@ class AppContainer(context: Context) {
             runCatching {
                 SyncEnqueuer.enqueue(appContext, expedited = true, replaceExisting = true)
             }
+            // Wire the freshly-imported book into the library-mirror push
+            // path right away instead of waiting for the next periodic
+            // run. The scheduler coalesces concurrent enqueues, so this
+            // is safe to call alongside the periodic worker.
+            runCatching { LibraryMirrorPushScheduler.enqueueAfterLibraryChange(appContext) }
         },
     )
 
