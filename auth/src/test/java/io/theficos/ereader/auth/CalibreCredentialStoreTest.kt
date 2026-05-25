@@ -202,4 +202,85 @@ class CalibreCredentialStoreTest {
         val bearer = AccountCredentials.Bearer("https://cloud", "a@b", "tok_secret_xyz")
         assertThat(bearer.toString()).doesNotContain("tok_secret_xyz")
     }
+
+    // ---------- Tier 1: optional Quire server URL override ----------
+
+    @Test fun `saveBasicAccount persists optional quireServerUrl`() {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.clear()
+        store.saveBasicAccount(
+            baseUrl = "https://lib.example",
+            username = "alice",
+            password = "s3cret",
+            quireServerUrl = "https://quire.example",
+        )
+        val basic = store.getAccount() as AccountCredentials.Basic
+        assertThat(basic.quireServerUrl).isEqualTo("https://quire.example")
+        // Survives a fresh load (round-trips through EncryptedSharedPreferences).
+        val reread = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        val rereadBasic = reread.getAccount() as AccountCredentials.Basic
+        assertThat(rereadBasic.quireServerUrl).isEqualTo("https://quire.example")
+    }
+
+    @Test fun `saveBasicAccount without quireServerUrl stores null`() {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.clear()
+        store.saveBasicAccount("https://lib.example", "alice", "s3cret")
+        val basic = store.getAccount() as AccountCredentials.Basic
+        assertThat(basic.quireServerUrl).isNull()
+    }
+
+    @Test fun `saveBasicAccount canonicalizes quireServerUrl trailing slash`() {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.clear()
+        store.saveBasicAccount(
+            baseUrl = "https://lib.example",
+            username = "alice",
+            password = "s3cret",
+            quireServerUrl = "  https://quire.example/  ",
+        )
+        val basic = store.getAccount() as AccountCredentials.Basic
+        assertThat(basic.quireServerUrl).isEqualTo("https://quire.example")
+    }
+
+    @Test fun `blank quireServerUrl persists as null`() {
+        // Settings will pass "" when the user clears the field; treat that
+        // as "no override" rather than persisting an empty string.
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.clear()
+        store.saveBasicAccount(
+            baseUrl = "https://lib.example",
+            username = "alice",
+            password = "s3cret",
+            quireServerUrl = "   ",
+        )
+        val basic = store.getAccount() as AccountCredentials.Basic
+        assertThat(basic.quireServerUrl).isNull()
+    }
+
+    @Test fun `switch to bearer removes quireServerUrl key`() {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.clear()
+        store.saveBasicAccount("https://lib.example", "alice", "s3cret", "https://quire.example")
+        store.saveBearerAccount("https://cloud.quire.app", "alice@example.com", "tok_abc")
+        // Re-read from a fresh store. The override key must be gone — a future
+        // switch back to BASIC without an override must NOT resurrect it.
+        val reread = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        assertThat(reread.getAccount()).isInstanceOf(AccountCredentials.Bearer::class.java)
+        reread.saveBasicAccount("https://lib.example", "alice", "new-pw")
+        val basic = reread.getAccount() as AccountCredentials.Basic
+        assertThat(basic.quireServerUrl).isNull()
+    }
+
+    @Test fun `pre-tier-1 record without quireServerUrl key loads as null`() {
+        // Seed a BASIC account via the older 3-arg API (no override key written).
+        val seed = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        seed.clear()
+        seed.saveBasicAccount("https://lib.example", "alice", "s3cret")
+        // Fresh store load — quireServerUrl must surface as null, not as an
+        // empty string or a default-baseUrl fallback.
+        val reread = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        val basic = reread.getAccount() as AccountCredentials.Basic
+        assertThat(basic.quireServerUrl).isNull()
+    }
 }
