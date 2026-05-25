@@ -28,15 +28,29 @@ sealed class AccountCredentials {
      */
     abstract val subject: String
 
+    /**
+     * Calibre-web style credentials (HTTP Basic).
+     *
+     * [quireServerUrl] optionally routes sync/library/AI calls to a different
+     * host than the OPDS catalog at [baseUrl]. Null means "use [baseUrl] for
+     * everything" (the common single-URL deployment). When set, both URLs
+     * share the same Basic credential — the operator is responsible for
+     * configuring quire-server's `QUIRE_SERVER_CWA_BASE_URL` to validate
+     * incoming Basic headers against the same calibre-web instance.
+     *
+     * See `docs/superpowers/split-server-urls.md` for the tiered scope and
+     * the deferred BEARER + separate-calibre-web case.
+     */
     data class Basic(
         override val baseUrl: String,
         val username: String,
         val password: String,
+        val quireServerUrl: String? = null,
     ) : AccountCredentials() {
         override val scheme: AuthScheme = AuthScheme.BASIC
         override val subject: String get() = username.lowercase()
         override fun toString(): String =
-            "AccountCredentials.Basic(baseUrl=$baseUrl, username=$username, password=***)"
+            "AccountCredentials.Basic(baseUrl=$baseUrl, username=$username, password=***, quireServerUrl=$quireServerUrl)"
     }
 
     data class Bearer(
