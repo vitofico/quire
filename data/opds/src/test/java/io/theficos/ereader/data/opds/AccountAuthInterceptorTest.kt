@@ -162,4 +162,83 @@ class AccountAuthInterceptorTest {
             bearerServer.shutdown()
         }
     }
+
+    @Test fun `attaches basic header to override quireServerUrl host`() {
+        val quire = MockWebServer().apply { start() }
+        try {
+            quire.enqueue(MockResponse().setBody("ok"))
+            val provider = {
+                AccountCredentials.Basic(
+                    baseUrl = server.url("/").toString(),
+                    username = "alice",
+                    password = "s3cret",
+                    quireServerUrl = quire.url("/").toString(),
+                )
+            }
+            val client = OkHttpClient.Builder()
+                .addInterceptor(AccountAuthInterceptor(provider))
+                .build()
+            client.newCall(Request.Builder().url(quire.url("/ai/v1/config")).build())
+                .execute().close()
+
+            val recorded = quire.takeRequest()
+            val expected = "Basic " + Base64.getEncoder().encodeToString("alice:s3cret".toByteArray())
+            assertThat(recorded.getHeader("Authorization")).isEqualTo(expected)
+        } finally {
+            quire.shutdown()
+        }
+    }
+
+    @Test fun `still attaches header to primary baseUrl host when override set`() {
+        val quire = MockWebServer().apply { start() }
+        try {
+            server.enqueue(MockResponse().setBody("ok"))
+            val provider = {
+                AccountCredentials.Basic(
+                    baseUrl = server.url("/").toString(),
+                    username = "alice",
+                    password = "s3cret",
+                    quireServerUrl = quire.url("/").toString(),
+                )
+            }
+            val client = OkHttpClient.Builder()
+                .addInterceptor(AccountAuthInterceptor(provider))
+                .build()
+            client.newCall(Request.Builder().url(server.url("/opds")).build())
+                .execute().close()
+
+            val recorded = server.takeRequest()
+            val expected = "Basic " + Base64.getEncoder().encodeToString("alice:s3cret".toByteArray())
+            assertThat(recorded.getHeader("Authorization")).isEqualTo(expected)
+        } finally {
+            quire.shutdown()
+        }
+    }
+
+    @Test fun `does not attach to third foreign host even when override set`() {
+        val quire = MockWebServer().apply { start() }
+        val foreign = MockWebServer().apply { start() }
+        try {
+            foreign.enqueue(MockResponse().setBody("ok"))
+            val provider = {
+                AccountCredentials.Basic(
+                    baseUrl = server.url("/").toString(),
+                    username = "alice",
+                    password = "s3cret",
+                    quireServerUrl = quire.url("/").toString(),
+                )
+            }
+            val client = OkHttpClient.Builder()
+                .addInterceptor(AccountAuthInterceptor(provider))
+                .build()
+            client.newCall(Request.Builder().url(foreign.url("/cover.jpg")).build())
+                .execute().close()
+
+            val recorded = foreign.takeRequest()
+            assertThat(recorded.getHeader("Authorization")).isNull()
+        } finally {
+            quire.shutdown()
+            foreign.shutdown()
+        }
+    }
 }

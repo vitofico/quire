@@ -45,7 +45,7 @@ class AccountAuthInterceptor(
             return chain.proceed(request)
         }
         val account = accountProvider() ?: return chain.proceed(request)
-        if (!sameOrigin(account.baseUrl, request.url)) {
+        if (!isAllowedOrigin(account, request.url)) {
             return chain.proceed(request)
         }
         val headerValue = when (account) {
@@ -55,6 +55,21 @@ class AccountAuthInterceptor(
         return chain.proceed(
             request.newBuilder().header(HEADER_AUTHORIZATION, headerValue).build()
         )
+    }
+
+    /**
+     * Returns true when [requestUrl] targets either the primary [baseUrl] OR,
+     * for a [AccountCredentials.Basic] with an override, its [quireServerUrl].
+     * Bearer accounts have no override in tier-1; their check stays
+     * single-URL.
+     */
+    private fun isAllowedOrigin(
+        account: AccountCredentials,
+        requestUrl: HttpUrl,
+    ): Boolean {
+        if (sameOrigin(account.baseUrl, requestUrl)) return true
+        val override = (account as? AccountCredentials.Basic)?.quireServerUrl
+        return override != null && sameOrigin(override, requestUrl)
     }
 
     private fun basicHeader(account: AccountCredentials.Basic): String {
