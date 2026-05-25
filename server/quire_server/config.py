@@ -7,9 +7,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="QUIRE_SERVER_", env_file=".env", extra="ignore")
 
-    # DB name in the default URL is the legacy `opds_sync` (a deliberate
-    # non-rename per Lock #20); see server/README.md "Migration from
-    # opds-sync" for the rationale.
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/opds_sync"
     cwa_base_url: str = "http://calibre-web.calibre-web.svc.cluster.local:8083"
     cwa_probe_path: str = "/opds"

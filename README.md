@@ -28,10 +28,8 @@ A self-hosted reading stack for people who already run [calibre-web]:
 
 - **Quire** — native Android EPUB reader (Kotlin / Compose / Readium).
 - **Quire Server** — small FastAPI service that stores reading progress
-  (and later bookmarks) in Postgres. Formerly named `opds-sync`; the
-  Python package is now `quire_server` and the container image is
-  `ghcr.io/vitofico/quire-server` (the legacy `ghcr.io/vitofico/opds-sync`
-  tag is dual-published for one release cycle).
+  (and later bookmarks) in Postgres. The Python package is `quire_server`
+  and the container image is `ghcr.io/vitofico/quire-server`.
 
 calibre-web stays the source of truth for books. Quire Server is the
 source of truth for reading state. Quire reconciles both on the device.
@@ -61,12 +59,11 @@ That's harder than it sounds in the self-hosted world:
 - **Stock OPDS readers** on Android either don't sync reading position
   to a server you control, or sync it through a vendor cloud.
 
-So Quire Server (originally shipped as `opds-sync`) is the piece that
-was missing: a small, reader-agnostic progress server that speaks
-OPDS-style document identity and uses your **calibre-web account as
-the only credential** — no second IdP, no separate sync account. Quire
-is the Android client built against it; nothing in the server design
-is Quire-specific.
+So Quire Server is the piece that was missing: a small, reader-agnostic
+progress server that speaks OPDS-style document identity and uses your
+**calibre-web account as the only credential** — no second IdP, no
+separate sync account. Quire is the Android client built against it;
+nothing in the server design is Quire-specific.
 
 ## Privacy
 
@@ -120,8 +117,14 @@ For configuration details see [`server/README.md`](server/README.md).
 
 ## Install
 
-Grab the latest APK from [Releases], install it, and point it at your
-calibre-web URL on first launch. F-Droid listing is planned.
+Install Quire from [F-Droid] or grab the latest APK from [Releases],
+then point it at your calibre-web URL on first launch.
+
+<a href="https://f-droid.org/packages/io.theficos.quire/">
+  <img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png"
+       alt="Get it on F-Droid"
+       height="80">
+</a>
 
 For the sync server, see [`server/README.md`](server/README.md) — it
 ships two reference docker-compose files (`docker-compose.yml` for
@@ -179,7 +182,7 @@ data/opds/            calibre-web OPDS client
 data/sync/            quire-server REST client + WorkManager job
 data/library/         quire-server /library/v1 HTTP client (stats today)
 reader/               Readium navigator integration
-server/               quire-server (Python / FastAPI; formerly opds-sync)
+server/               quire-server (Python / FastAPI)
 docs/                 Architecture, development, sync API reference
 scripts/dgradle       Gradle wrapper that runs inside the project's Docker image
 Dockerfile            Reproducible Android build environment (linux/amd64)
@@ -218,3 +221,4 @@ If Quire is useful to you and you'd like to chip in, you can buy me a coffee:
 
 [calibre-web]: https://github.com/janeczku/calibre-web
 [Releases]: https://github.com/vitofico/quire/releases
+[F-Droid]: https://f-droid.org/packages/io.theficos.quire/
