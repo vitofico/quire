@@ -14,31 +14,16 @@
 #
 # See server/README.md "Full-stack reference compose" for smoke commands
 # and the TLS swap for production.
-#
-# Env-var compatibility: this compose uses the post-rename
-# QUIRE_SERVER_* prefix. The server also accepts legacy OPDS_SYNC_*
-# from REAL environment variables only (the back-compat shim does NOT
-# read .env files - see server/README.md "Migration from opds-sync").
-# Pick one prefix per deployment; do not mix.
 
 services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      # DB role / DB name remain 'opds_sync' as a deliberate non-rename
-      # (Lock #20). The Python package and image are 'quire_server' /
-      # 'quire-server' respectively.
       POSTGRES_USER: opds_sync
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
       POSTGRES_DB: opds_sync
     volumes:
-      # Volume name kept as `pg_data` for the back-compat window so
-      # existing deployments from v2026.05.17.95 onwards do not
-      # silently get an empty new volume. A future PR may rename it
-      # with an explicit upgrade banner; see README "Migration from
-      # opds-sync". Note: the minimal compose uses `opds_sync_pg` for
-      # the same reason - it shipped earlier with that name.
       - pg_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U opds_sync"]

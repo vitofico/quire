@@ -114,7 +114,7 @@ Listens on `http://localhost:8000`. Configuration is via environment variables;
 see `quire_server/config.py` for the full list. At minimum:
 
 ```
-QUIRE_SERVER_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/opds_sync
+QUIRE_SERVER_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/quire
 QUIRE_SERVER_CWA_BASE_URL=https://library.example.com
 # Optional, defaults shown:
 QUIRE_SERVER_CWA_PROBE_PATH=/opds

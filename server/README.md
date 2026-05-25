@@ -224,30 +224,6 @@ Update the health-probe path: it moved from `/sync/v1/healthz` (pre-PR-A) to
 `/health` in PR-A. The k8s manifests in `theficos-cluster` need a one-line
 bump alongside this release.
 
-### Migration from opds-sync
-
-The server was renamed from `opds-sync` to `quire-server` in 2026-05.
-For one release cycle:
-
-- **Env vars** — `QUIRE_SERVER_*` is the preferred prefix. The legacy
-  prefix is still honored when set on **real environment variables**.
-  **Known limitation (Lock #21):** legacy values placed in a `.env`
-  file are NOT honored. To migrate a legacy `.env` file, rename the
-  keys; alternatively, export the legacy names as real env vars at
-  process start.
-- **Image** — `ghcr.io/vitofico/quire-server:<sha>` and
-  `ghcr.io/vitofico/quire-server:latest` are the new tags. The legacy
-  `ghcr.io/vitofico/opds-sync:<sha>` / `:latest` tags are dual-published
-  from the same digest for one release cycle to give operators a window
-  to repin.
-- **DB role / DB name** — these are explicitly **not renamed**. The
-  postgres role and database stay named `opds_sync` (matches the value
-  in `alembic.ini` and the `database_url` default). Renaming a
-  production DB is high-risk and out of scope for this PR.
-
-A future release will drop the legacy prefix, the legacy image tag, and
-the env-compat helper. The DB-name non-rename is permanent.
-
 ### Environment variables
 
 `QUIRE_SERVER_` prefix; full list in `quire_server/config.py`. Most-load-bearing:
