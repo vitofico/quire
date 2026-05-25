@@ -126,24 +126,33 @@ class SettingsViewModel(
     }
 
     private fun loadInitialCalibre(): CalibreUiState {
-        val creds = store.get()
+        val account = store.getAccount() as? io.theficos.ereader.auth.AccountCredentials.Basic
         return CalibreUiState(
-            baseUrl = creds?.baseUrl.orEmpty(),
-            username = creds?.username.orEmpty(),
-            password = creds?.password.orEmpty(),
-            saved = creds != null,
+            baseUrl = account?.baseUrl.orEmpty(),
+            username = account?.username.orEmpty(),
+            password = account?.password.orEmpty(),
+            quireServerUrl = account?.quireServerUrl.orEmpty(),
+            saved = account != null,
         )
     }
 
     fun onBaseUrlChange(value: String) { _calibre.value = _calibre.value.copy(baseUrl = value, saved = false) }
     fun onUsernameChange(value: String) { _calibre.value = _calibre.value.copy(username = value, saved = false) }
     fun onPasswordChange(value: String) { _calibre.value = _calibre.value.copy(password = value, saved = false) }
+    fun onQuireServerUrlChange(value: String) {
+        _calibre.value = _calibre.value.copy(quireServerUrl = value, saved = false)
+    }
 
     fun saveCalibre() {
         val s = _calibre.value
         if (s.baseUrl.isBlank() || s.username.isBlank() || s.password.isBlank()) return
         viewModelScope.launch {
-            store.put(CalibreCredentials(s.baseUrl.trim().trimEnd('/'), s.username, s.password))
+            store.saveBasicAccount(
+                baseUrl = s.baseUrl.trim().trimEnd('/'),
+                username = s.username,
+                password = s.password,
+                quireServerUrl = s.quireServerUrl.trim().trimEnd('/').takeIf { it.isNotBlank() },
+            )
             _calibre.value = s.copy(saved = true)
             _sync.value = _sync.value.copy(hasCredentials = true)
         }
@@ -242,5 +251,6 @@ data class CalibreUiState(
     val baseUrl: String,
     val username: String,
     val password: String,
+    val quireServerUrl: String,
     val saved: Boolean,
 )
