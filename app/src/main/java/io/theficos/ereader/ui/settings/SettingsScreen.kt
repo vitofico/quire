@@ -119,6 +119,16 @@ fun SettingsScreen(
                     visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth(),
                 )
+                OutlinedTextField(
+                    value = calibre.quireServerUrl,
+                    onValueChange = viewModel::onQuireServerUrlChange,
+                    label = { Text("Quire server URL (optional)") },
+                    placeholder = { Text("Same as calibre-web URL") },
+                    supportingText = {
+                        Text("Only set this if sync / AI run at a different address than your books.")
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 Button(
                     onClick = viewModel::saveCalibre,
                     enabled = calibre.baseUrl.isNotBlank() && calibre.username.isNotBlank() && calibre.password.isNotBlank(),

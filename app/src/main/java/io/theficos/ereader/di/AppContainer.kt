@@ -51,6 +51,15 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import io.theficos.ereader.data.local.db.ProgressDao
 
+/**
+ * URL that sync/library/AI clients should target. For [AccountCredentials.Basic]
+ * with a [AccountCredentials.Basic.quireServerUrl] override, return the
+ * override; otherwise fall back to [AccountCredentials.baseUrl]. Bearer
+ * accounts have no override in tier-1.
+ */
+private fun io.theficos.ereader.auth.AccountCredentials.quireServerOrPrimaryUrl(): String =
+    (this as? io.theficos.ereader.auth.AccountCredentials.Basic)?.quireServerUrl ?: baseUrl
+
 class AppContainer(context: Context) {
     private val appContext = context.applicationContext
 
@@ -80,7 +89,7 @@ class AppContainer(context: Context) {
     val welcomePreferencesStore = WelcomePreferencesStore(appContext)
 
     val syncClient: SyncClient = SyncClient(
-        baseUrlProvider = { credentialStore.getAccount()?.baseUrl },
+        baseUrlProvider = { credentialStore.getAccount()?.quireServerOrPrimaryUrl() },
         okHttp = opdsHttp.okHttp,
     )
     val syncOrchestrator: SyncOrchestrator = SyncOrchestrator(
@@ -92,7 +101,7 @@ class AppContainer(context: Context) {
     )
 
     val aiClient: AiClient = AiClient(
-        baseUrlProvider = { credentialStore.getAccount()?.baseUrl },
+        baseUrlProvider = { credentialStore.getAccount()?.quireServerOrPrimaryUrl() },
         http = opdsHttp.okHttp,
     )
     val insightDao = db.insightDao()
@@ -117,7 +126,7 @@ class AppContainer(context: Context) {
         credentialStore.getAccount()?.subject
 
     val libraryClient: LibraryClient = LibraryClient(
-        baseUrlProvider = { credentialStore.getAccount()?.baseUrl },
+        baseUrlProvider = { credentialStore.getAccount()?.quireServerOrPrimaryUrl() },
         http = opdsHttp.okHttp,
     )
 

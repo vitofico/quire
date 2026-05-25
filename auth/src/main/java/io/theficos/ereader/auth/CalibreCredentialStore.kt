@@ -91,8 +91,18 @@ class CalibreCredentialStore(context: Context) {
      * Save a calibre-web style account (HTTP Basic). Replaces any
      * previously-stored account regardless of scheme. Blank values are
      * rejected at the API boundary.
+     *
+     * [quireServerUrl] is an optional override that routes sync/library/AI
+     * calls to a different host than the OPDS catalog at [baseUrl]. Pass
+     * null (or blank) to use [baseUrl] for everything. Tier-1 scope; see
+     * `docs/superpowers/split-server-urls.md`.
      */
-    fun saveBasicAccount(baseUrl: String, username: String, password: String) {
+    fun saveBasicAccount(
+        baseUrl: String,
+        username: String,
+        password: String,
+        quireServerUrl: String? = null,
+    ) {
         require(baseUrl.isNotBlank()) { "baseUrl must not be blank" }
         require(username.isNotBlank()) { "username must not be blank" }
         require(password.isNotBlank()) { "password must not be blank" }
@@ -100,6 +110,7 @@ class CalibreCredentialStore(context: Context) {
             baseUrl = baseUrl.trim().trimEnd('/'),
             username = username,
             password = password,
+            quireServerUrl = quireServerUrl?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() },
         )
         persistAccount(account)
     }
@@ -151,6 +162,11 @@ class CalibreCredentialStore(context: Context) {
                         .putString(KEY_PASS, account.password)
                         .remove(KEY_EMAIL)
                         .remove(KEY_TOKEN)
+                    if (account.quireServerUrl != null) {
+                        editor.putString(KEY_QUIRE_SERVER_URL, account.quireServerUrl)
+                    } else {
+                        editor.remove(KEY_QUIRE_SERVER_URL)
+                    }
                 }
                 is AccountCredentials.Bearer -> {
                     editor
@@ -158,6 +174,7 @@ class CalibreCredentialStore(context: Context) {
                         .putString(KEY_TOKEN, account.token)
                         .remove(KEY_USER)
                         .remove(KEY_PASS)
+                        .remove(KEY_QUIRE_SERVER_URL)
                 }
             }
             val committed = editor.commit()
@@ -204,7 +221,8 @@ class CalibreCredentialStore(context: Context) {
             AuthScheme.BASIC -> {
                 val user = prefs.getString(KEY_USER, null) ?: return null
                 val pass = prefs.getString(KEY_PASS, null) ?: return null
-                AccountCredentials.Basic(baseUrl, user, pass)
+                val quireServerUrl = prefs.getString(KEY_QUIRE_SERVER_URL, null)
+                AccountCredentials.Basic(baseUrl, user, pass, quireServerUrl)
             }
             AuthScheme.BEARER -> {
                 val email = prefs.getString(KEY_EMAIL, null) ?: return null
@@ -227,5 +245,6 @@ class CalibreCredentialStore(context: Context) {
         const val KEY_PASS = "password"
         const val KEY_EMAIL = "email"
         const val KEY_TOKEN = "token"
+        const val KEY_QUIRE_SERVER_URL = "quire_server_url"
     }
 }
