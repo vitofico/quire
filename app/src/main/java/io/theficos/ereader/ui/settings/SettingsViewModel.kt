@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.theficos.ereader.auth.CalibreCredentialStore
-import io.theficos.ereader.auth.CalibreCredentials
 import io.theficos.ereader.data.ai.AiConfig
 import io.theficos.ereader.data.ai.AiHealthResponse
 import io.theficos.ereader.data.ai.AiPreferences
