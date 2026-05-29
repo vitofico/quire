@@ -6,6 +6,7 @@ import io.theficos.ereader.core.metadata.MetadataBundle
 import io.theficos.ereader.data.library.AffinityRequestBody
 import io.theficos.ereader.data.library.AffinityResponse
 import io.theficos.ereader.data.library.LibraryHttpException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -114,14 +115,23 @@ class ScanViewModelTest {
         }
     }
 
-    @Test fun `affinity 401 invokes onReauth`() = runTest {
+    @Test fun `affinity 401 invokes onReauth and lands on ReauthRequired not Working`() = runTest {
         var reauthCalls = 0
         val vm = ScanViewModel(
             lookup = { bundle },
             runAffinity = { throw LibraryHttpException(401, "unauthorized") },
             onReauth = { reauthCalls++ },
         )
-        vm.onIsbnSubmitted(isbn13)
+        vm.state.test {
+            assertThat(awaitItem()).isEqualTo(ScanUiState.Idle)
+            vm.onIsbnSubmitted(isbn13)
+            var s = awaitItem()
+            while (s is ScanUiState.Working) s = awaitItem()
+            // Must NOT be left wedged on the Working spinner; must be a
+            // recoverable terminal state.
+            assertThat(s).isEqualTo(ScanUiState.ReauthRequired)
+            cancelAndIgnoreRemainingEvents()
+        }
         assertThat(reauthCalls).isEqualTo(1)
     }
 
@@ -155,6 +165,78 @@ class ScanViewModelTest {
             assertThat(s).isInstanceOf(ScanUiState.Failed::class.java)
             cancelAndIgnoreRemainingEvents()
         }
+    }
+
+    /**
+     * Regression: a slow, superseded scan must never clobber a newer scan's
+     * terminal state. Scan A suspends inside runAffinity; scan B is submitted
+     * and succeeds; then A's affinity fails late. With the generation guard +
+     * CancellationException rethrow, A's stale write is dropped and B's Result
+     * stands. Uses UnconfinedTestDispatcher (set in setUp) so each launch runs
+     * eagerly up to its first real suspension; lookup returns synchronously and
+     * the IO hop completes inline, so A reliably parks on gateA before B runs.
+     */
+    @Test fun `stale scan does not clobber a newer scan's result`() = runTest {
+        val gateA = CompletableDeferred<AffinityResponse>()
+        var call = 0
+        val vm = ScanViewModel(
+            lookup = { bundle },
+            runAffinity = {
+                call++
+                if (call == 1) gateA.await() else affinity
+            },
+            onReauth = { error("onReauth should not be called") },
+        )
+
+        vm.state.test {
+            assertThat(awaitItem()).isEqualTo(ScanUiState.Idle)
+
+            vm.onIsbnSubmitted(isbn13) // scan A — will park awaiting gateA
+            // A's lookup IO hop completes, then A parks in runAffinity; the only
+            // emission is the Working flash.
+            var s = awaitItem()
+            while (s is ScanUiState.Idle) s = awaitItem()
+            assertThat(s).isEqualTo(ScanUiState.Working)
+
+            vm.onIsbnSubmitted(isbn13) // scan B — cancels A, resolves immediately
+            // B re-emits Working (dedup may collapse it) then a Result.
+            var b = awaitItem()
+            while (b is ScanUiState.Working) b = awaitItem()
+            assertThat(b).isInstanceOf(ScanUiState.Result::class.java)
+            assertThat((b as ScanUiState.Result).affinity).isEqualTo(affinity)
+
+            // Release scan A with a late failure. A is superseded: its
+            // CancellationException is rethrown and the generation guard drops
+            // any write, so NO stale Failed must reach the screen.
+            gateA.completeExceptionally(LibraryHttpException(500, "stale A"))
+            expectNoEvents()
+        }
+    }
+
+    /**
+     * Regression: lookup() must run off the main thread. The production
+     * OpenLibrary client does a blocking OkHttp call without hopping dispatchers
+     * itself, so the VM must do the hop. We assert lookup observed a
+     * Dispatchers.IO worker thread, not the test/main dispatcher.
+     */
+    @Test fun `lookup runs off the main thread`() = runTest {
+        var lookupThread: String? = null
+        val vm = ScanViewModel(
+            lookup = { lookupThread = Thread.currentThread().name; bundle },
+            runAffinity = { affinity },
+            onReauth = { error("onReauth should not be called") },
+        )
+        vm.state.test {
+            assertThat(awaitItem()).isEqualTo(ScanUiState.Idle)
+            vm.onIsbnSubmitted(isbn13)
+            var s = awaitItem()
+            while (s is ScanUiState.Working) s = awaitItem()
+            assertThat(s).isInstanceOf(ScanUiState.Result::class.java)
+            cancelAndIgnoreRemainingEvents()
+        }
+        // Dispatchers.IO worker threads are named "DefaultDispatcher-worker-*".
+        assertThat(lookupThread).isNotNull()
+        assertThat(lookupThread).contains("DefaultDispatcher-worker")
     }
 
     @Test fun `isbn-10 input is canonicalized to isbn-13`() = runTest {

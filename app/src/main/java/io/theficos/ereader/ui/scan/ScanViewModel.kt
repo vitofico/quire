@@ -8,11 +8,14 @@ import io.theficos.ereader.data.library.AffinityIdentity
 import io.theficos.ereader.data.library.AffinityRequestBody
 import io.theficos.ereader.data.library.AffinityResponse
 import io.theficos.ereader.data.library.LibraryHttpException
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Drives the "Scan a book" screen.
@@ -27,16 +30,23 @@ import kotlinx.coroutines.launch
  *      [ScanUiState.Result] with the affinity attached. A 404 (no affinity
  *      backend / book not scoreable) degrades to a Result with
  *      `affinityUnavailable = true` — the metadata is still useful. A 401
- *      signals stale credentials and triggers [onReauth]. Anything else →
- *      [ScanUiState.Failed].
+ *      signals stale credentials: [onReauth] is fired and the screen returns
+ *      to [ScanUiState.ReauthRequired] so the user has a recoverable, non-
+ *      spinning state to act on. Anything else → [ScanUiState.Failed].
  *
  * Collaborators are injected as suspend lambdas so the state machine is
- * unit-testable without real HTTP clients. Blocking IO is expected to be
- * dispatched by the supplied lambdas (e.g. the OpenLibrary client / library
- * client already hop to Dispatchers.IO internally).
+ * unit-testable without real HTTP clients. [lookup] is invoked on
+ * [Dispatchers.IO] by this VM because the production OpenLibrary client does a
+ * blocking OkHttp call without hopping dispatchers itself; [runAffinity] (the
+ * library client) already hops to Dispatchers.IO internally, so the extra hop
+ * is harmless for it.
  *
- * Cancellation: a fresh [onIsbnSubmitted] cancels any in-flight scan job, so
- * rapid re-scans never race a stale result onto the screen.
+ * Cancellation / staleness: each scan is tagged with a monotonic [generation].
+ * A fresh [onIsbnSubmitted] cancels any in-flight job and bumps the generation;
+ * every state write after a suspension point is guarded by a generation check,
+ * and [CancellationException] is rethrown rather than swallowed. A slow, stale
+ * scan therefore can never clobber a newer scan's result — even if its network
+ * resolves after the newer one's.
  */
 class ScanViewModel(
     private val lookup: suspend (String) -> MetadataBundle?,
@@ -49,6 +59,8 @@ class ScanViewModel(
 
     private var scanJob: Job? = null
 
+    @Volatile private var generation: Long = 0L
+
     fun onIsbnSubmitted(raw: String) {
         val isbn13 = Isbn.toIsbn13(raw)
         if (isbn13 == null) {
@@ -58,37 +70,47 @@ class ScanViewModel(
 
         scanJob?.cancel()
         _state.value = ScanUiState.Working
+        val mine = ++generation
         scanJob = viewModelScope.launch {
-            val bundle = lookup(isbn13)
-            if (bundle == null) {
-                _state.value = ScanUiState.NotFound
-                return@launch
-            }
-
-            val body = AffinityRequestBody(
-                identity = AffinityIdentity(isbn = isbn13, metadataId = "isbn:$isbn13"),
-                bundle = bundle,
-            )
-            _state.value = try {
-                val resp = runAffinity(body)
-                ScanUiState.Result(bundle = bundle, affinity = resp, affinityUnavailable = false)
-            } catch (e: LibraryHttpException) {
-                when (e.code) {
-                    404 -> ScanUiState.Result(
-                        bundle = bundle,
-                        affinity = null,
-                        affinityUnavailable = true,
-                    )
-                    401 -> {
-                        onReauth()
-                        // Leave the user on Working; the re-auth flow drives
-                        // navigation and they can re-scan once re-authenticated.
-                        ScanUiState.Working
-                    }
-                    else -> ScanUiState.Failed(e.localizedMessage ?: "Affinity request failed.")
+            try {
+                val bundle = withContext(Dispatchers.IO) { lookup(isbn13) }
+                if (mine != generation) return@launch
+                if (bundle == null) {
+                    _state.value = ScanUiState.NotFound
+                    return@launch
                 }
+
+                val body = AffinityRequestBody(
+                    identity = AffinityIdentity(isbn = isbn13, metadataId = "isbn:$isbn13"),
+                    bundle = bundle,
+                )
+                val next = try {
+                    val resp = runAffinity(body)
+                    ScanUiState.Result(bundle = bundle, affinity = resp, affinityUnavailable = false)
+                } catch (e: LibraryHttpException) {
+                    when (e.code) {
+                        404 -> ScanUiState.Result(
+                            bundle = bundle,
+                            affinity = null,
+                            affinityUnavailable = true,
+                        )
+                        401 -> {
+                            onReauth()
+                            // Recoverable, non-spinning state: the re-auth flow
+                            // can drive navigation, and if the user stays here
+                            // they have an actionable screen to re-scan from.
+                            ScanUiState.ReauthRequired
+                        }
+                        else -> ScanUiState.Failed(e.localizedMessage ?: "Affinity request failed.")
+                    }
+                }
+                if (mine != generation) return@launch
+                _state.value = next
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Throwable) {
-                ScanUiState.Failed(e.localizedMessage ?: "Something went wrong.")
+                if (mine != generation) return@launch
+                _state.value = ScanUiState.Failed(e.localizedMessage ?: "Something went wrong.")
             }
         }
     }
@@ -100,6 +122,13 @@ sealed interface ScanUiState {
     object Working : ScanUiState
     object InvalidIsbn : ScanUiState
     object NotFound : ScanUiState
+
+    /**
+     * Affinity scoring returned 401 (stale credentials). [onReauth] has been
+     * fired; the screen should prompt the user to re-authenticate and offer a
+     * re-scan rather than spin indefinitely.
+     */
+    object ReauthRequired : ScanUiState
     data class Result(
         val bundle: MetadataBundle,
         val affinity: AffinityResponse?,
