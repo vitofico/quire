@@ -26,6 +26,8 @@ import java.io.File
 
 sealed interface LibraryEvent {
     data object RestartFailed : LibraryEvent
+    data class RestoreFinished(val summary: io.theficos.ereader.domain.restore.RestoreSummary) : LibraryEvent
+    data class RestoreFailed(val message: String) : LibraryEvent
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -37,6 +39,8 @@ class LibraryViewModel(
     private val libraryPreferencesStore: LibraryPreferencesStore,
     private val nowMillis: () -> Long = System::currentTimeMillis,
     private val syncEnqueuer: (Context) -> Unit = { SyncEnqueuer.enqueue(it, expedited = true, replaceExisting = true) },
+    private val credentialStore: io.theficos.ereader.auth.CalibreCredentialStore? = null,
+    private val restoreInProgress: (suspend () -> io.theficos.ereader.domain.restore.RestoreSummary)? = null,
 ) : ViewModel() {
 
     val sort: StateFlow<LibrarySort> = libraryPreferencesStore.flow
@@ -118,6 +122,37 @@ class LibraryViewModel(
 
     private val _events = MutableSharedFlow<LibraryEvent>(extraBufferCapacity = 4)
     val events: SharedFlow<LibraryEvent> = _events.asSharedFlow()
+
+    private val connected: StateFlow<Boolean> =
+        (credentialStore?.accountFlow?.map { it != null } ?: flowOf(false))
+            .stateIn(viewModelScope, SharingStarted.Eagerly, credentialStore?.accountFlow?.value != null)
+
+    /**
+     * True only when the library is empty AND an account is connected — the
+     * one situation where the empty-state "Restore in-progress books" prompt
+     * is worth surfacing (reconnected on a new/wiped device).
+     */
+    val canRestore: StateFlow<Boolean> =
+        combine(rows, connected) { r, conn -> conn && r.isEmpty() }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    private val _restoreRunning = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val restoreRunning: StateFlow<Boolean> = _restoreRunning.asStateFlow()
+
+    fun restoreInProgressBooks() {
+        val restore = restoreInProgress ?: return
+        if (_restoreRunning.value) return
+        _restoreRunning.value = true
+        viewModelScope.launch {
+            try {
+                _events.tryEmit(LibraryEvent.RestoreFinished(restore()))
+            } catch (t: Throwable) {
+                _events.tryEmit(LibraryEvent.RestoreFailed(t.message ?: t.javaClass.simpleName))
+            } finally {
+                _restoreRunning.value = false
+            }
+        }
+    }
 
     fun delete(document: Document) {
         viewModelScope.launch { docs.delete(document) }

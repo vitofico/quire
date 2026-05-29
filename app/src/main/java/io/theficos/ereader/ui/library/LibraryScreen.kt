@@ -7,7 +7,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -64,6 +66,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.theficos.ereader.core.model.Document
@@ -122,13 +125,21 @@ fun LibraryScreen(
     val scope = rememberCoroutineScope()
     var searchActive by rememberSaveable { mutableStateOf(false) }
     val query by viewModel.query.collectAsState()
+    val canRestore by viewModel.canRestore.collectAsState()
+    val restoreRunning by viewModel.restoreRunning.collectAsState()
 
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
-            when (event) {
-                LibraryEvent.RestartFailed ->
-                    snackbarHostState.showSnackbar("Couldn't sync restart — will retry.")
+            val msg = when (event) {
+                LibraryEvent.RestartFailed -> "Couldn't sync restart — will retry."
+                is LibraryEvent.RestoreFinished -> {
+                    val s = event.summary
+                    "Restored ${s.downloaded} of ${s.requested}" +
+                        if (s.failed > 0) " · ${s.failed} failed" else ""
+                }
+                is LibraryEvent.RestoreFailed -> "Restore failed: ${event.message}"
             }
+            snackbarHostState.showSnackbar(msg)
         }
     }
 
@@ -165,7 +176,11 @@ fun LibraryScreen(
         EmptyState(
             modifier = Modifier.padding(contentPadding),
             onImport = launchPicker,
+            canRestore = canRestore,
+            restoreRunning = restoreRunning,
+            onRestore = { viewModel.restoreInProgressBooks() },
         )
+        SnackbarHost(hostState = snackbarHostState)
         return
     }
 
@@ -536,7 +551,13 @@ fun LibraryScreen(
 }
 
 @Composable
-private fun EmptyState(modifier: Modifier = Modifier, onImport: (() -> Unit)? = null) {
+private fun EmptyState(
+    modifier: Modifier = Modifier,
+    onImport: (() -> Unit)? = null,
+    canRestore: Boolean = false,
+    restoreRunning: Boolean = false,
+    onRestore: () -> Unit = {},
+) {
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
@@ -568,6 +589,22 @@ private fun EmptyState(modifier: Modifier = Modifier, onImport: (() -> Unit)? = 
                     Icon(Icons.Filled.Add, contentDescription = null)
                     Text(text = "Import EPUB", modifier = Modifier.padding(start = 8.dp))
                 }
+            }
+            // Task 6: empty-state restore prompt — only when an account is
+            // connected and the library is empty (reconnected on a new device).
+            if (canRestore) {
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    "Reconnected on a new device? Bring back the books you were reading.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    onClick = onRestore,
+                    enabled = !restoreRunning,
+                ) { Text(if (restoreRunning) "Restoring…" else "Restore in-progress books") }
             }
         }
     }

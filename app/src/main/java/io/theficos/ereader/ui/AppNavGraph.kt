@@ -111,6 +111,8 @@ fun AppNavGraph(container: AppContainer) {
                     syncOrchestrator = container.syncOrchestrator,
                     booksDir = container.booksDir,
                     libraryPreferencesStore = container.libraryPreferencesStore,
+                    credentialStore = container.credentialStore,
+                    restoreInProgress = { container.restoreInProgressUseCase().run() },
                 )
             }
             val catVm = remember {
