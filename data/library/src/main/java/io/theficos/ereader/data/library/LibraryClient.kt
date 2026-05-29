@@ -157,19 +157,19 @@ class LibraryClient(
         limit: Int = 200,
         maxPages: Int = 50,
         onTruncated: (collected: Int) -> Unit = {},
-    ): List<LibraryItemResponse> {
+    ): List<LibraryItemResponse> = withContext(Dispatchers.IO) {
         val all = mutableListOf<LibraryItemResponse>()
         var offset = 0
         var page = 0
         while (page < maxPages) {
             val resp = listItems(since = null, limit = limit, offset = offset)
             all += resp.items
-            if (resp.items.size < limit) return all
+            if (resp.items.size < limit) return@withContext all
             offset += limit
             page++
         }
         onTruncated(all.size)
-        return all
+        all
     }
 
     private companion object {

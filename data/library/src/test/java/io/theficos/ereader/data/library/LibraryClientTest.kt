@@ -217,4 +217,20 @@ class LibraryClientTest {
             assertThat(e.code).isEqualTo(401)
         }
     }
+
+    @Test
+    fun `listItems wires the since query param`() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"items":[],"server_time":"1970-01-01T00:00:00+00:00"}"""
+            )
+        )
+        client.listItems(since = "1970-01-01T00:00:00+00:00", limit = 50, offset = 0)
+        val req = server.takeRequest()
+        // MockWebServer URL-encodes `+` as %2B and `:` as %3A, so assert on
+        // substrings rather than an exact path match.
+        assertThat(req.path!!).contains("since=")
+        assertThat(req.path!!).contains("limit=50")
+        assertThat(req.path!!).contains("offset=0")
+    }
 }
