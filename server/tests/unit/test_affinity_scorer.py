@@ -1,4 +1,10 @@
-from quire_server.core.affinity import normalize_author, normalize_series, normalize_subject
+from quire_server.core.affinity import (
+    AFFINITY_VERSION,
+    normalize_author,
+    normalize_series,
+    normalize_subject,
+    score_affinity,
+)
 
 
 def test_normalize_subject_drops_generic_and_aliases():
@@ -16,3 +22,50 @@ def test_normalize_author_handles_last_first_and_diacritics():
 
 def test_normalize_series():
     assert normalize_series("The Expanse ") == "the expanse"
+
+
+def _lib(title, authors, subjects, status, series=None, language="en"):
+    return {"authors": authors, "subjects": subjects, "series_name": series,
+            "language": language, "status": status}
+
+
+def test_cold_start_returns_unknown():
+    res = score_affinity(
+        scanned={
+            "authors": ["Jane Doe"], "subjects": ["mystery"],
+            "series_name": None, "language": "en"},
+        library=[_lib("A", ["Jane Doe"], ["mystery"], "finished")],
+    )
+    assert res.band == "unknown"
+    assert res.score is None
+    assert any(r.kind == "coldstart" for r in res.reasons)
+
+
+def test_strong_author_and_theme_match():
+    lib = [_lib(f"b{i}", ["Jane Doe"], ["mystery"], "finished") for i in range(4)]
+    res = score_affinity(
+        scanned={
+            "authors": ["Jane Doe"], "subjects": ["mystery"],
+            "series_name": None, "language": "en"},
+        library=lib,
+    )
+    assert res.band in ("strong", "moderate")
+    assert res.score is not None and res.score >= 60
+    assert any(r.kind == "author" and r.polarity == "positive" for r in res.reasons)
+
+
+def test_abandoned_theme_is_negative():
+    lib = [_lib(f"b{i}", ["X"], ["horror"], "abandoned") for i in range(3)] + \
+          [_lib(f"f{i}", ["Y"], ["mystery"], "finished") for i in range(3)]
+    res = score_affinity(
+        scanned={"authors": ["Z"], "subjects": ["horror"], "series_name": None, "language": "en"},
+        library=lib,
+    )
+    assert any(r.kind == "theme" and r.polarity == "negative" for r in res.reasons)
+
+
+def test_version_present():
+    res = score_affinity(
+        scanned={"authors": [], "subjects": [], "series_name": None, "language": "en"}, library=[])
+    assert res.version == AFFINITY_VERSION
+    assert res.band == "unknown"
