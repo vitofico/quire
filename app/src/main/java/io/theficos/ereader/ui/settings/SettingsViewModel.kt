@@ -269,8 +269,8 @@ class SettingsViewModel(
     fun restoreInProgressBooks() {
         val restore = restoreInProgress ?: return
         if (_restoreRunning.value) return
+        _restoreRunning.value = true
         viewModelScope.launch {
-            _restoreRunning.value = true
             try {
                 _events.tryEmit(SettingsEvent.RestoreFinished(restore()))
             } catch (t: Throwable) {
