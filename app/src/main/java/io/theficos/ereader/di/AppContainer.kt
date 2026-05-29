@@ -6,7 +6,6 @@ import io.theficos.ereader.core.identity.extractIdentity
 import io.theficos.ereader.core.metadata.readOpfBundle
 import io.theficos.ereader.core.model.Document
 import io.theficos.ereader.core.model.DocumentIdentity
-import io.theficos.ereader.domain.restore.RestoreInProgressUseCase
 import io.theficos.ereader.data.ai.AiClient
 import io.theficos.ereader.data.ai.AiRepository
 import io.theficos.ereader.data.ai.CatalogInsightStash
@@ -19,6 +18,7 @@ import io.theficos.ereader.data.library.sync.LibraryMirrorPushScheduler
 import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.ProgressRepository
 import io.theficos.ereader.data.local.db.EReaderDatabase
+import io.theficos.ereader.data.local.db.ProgressDao
 import io.theficos.ereader.data.opds.BookDownloader
 import io.theficos.ereader.data.opds.OpdsClient
 import io.theficos.ereader.data.opds.OpdsHttpClient
@@ -26,6 +26,7 @@ import io.theficos.ereader.data.sync.SyncClient
 import io.theficos.ereader.data.sync.SyncDependencies
 import io.theficos.ereader.data.sync.SyncEnqueuer
 import io.theficos.ereader.data.sync.SyncOrchestrator
+import io.theficos.ereader.domain.restore.RestoreInProgressUseCase
 import io.theficos.ereader.reader.ReaderPreferencesStore
 import io.theficos.ereader.reader.ReadiumFactory
 import io.theficos.ereader.sideload.SideloadImporter
@@ -52,7 +53,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import io.theficos.ereader.data.local.db.ProgressDao
 
 /**
  * URL that sync/library/AI clients should target. For [AccountCredentials.Basic]
@@ -294,9 +294,9 @@ class AppContainer(context: Context) {
         downloadAndInsert = { c ->
             val fileName = "${java.util.UUID.randomUUID()}.epub"
             val file = bookDownloader.download(c.opdsHref, fileName) { _, _ -> }
-            val coverFile = runCatching {
-                bookDownloader.downloadCover(c.opdsHref, fileName.removeSuffix(".epub") + ".cover")
-            }.getOrNull()
+            // Library mirror carries no cover URL; skip cover download (matches CatalogViewModel's
+            // pub.coverUrl?.let { ... } returning null). Restored books fall back to the default cover.
+            val coverFile: java.io.File? = null
             val identity = extractIdentity(file)
             if (documentRepository.findByIdentity(identity) != null) {
                 file.delete()
