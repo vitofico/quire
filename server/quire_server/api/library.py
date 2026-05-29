@@ -35,6 +35,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import and_, case, func, literal_column, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from quire_server.api.affinity_schemas import (
+    AffinityReason,
+    AffinityRequest,
+    AffinityResponse,
+    OwnedInfo,
+)
 from quire_server.api.library_schemas import (
     LIBRARY_STATS_THEMES_CAVEAT,
     LibraryItemDeleteBody,
@@ -51,7 +57,9 @@ from quire_server.api.library_schemas import (
     TopTheme,
 )
 from quire_server.config import Settings, get_settings
+from quire_server.core.affinity import score_affinity
 from quire_server.core.auth import current_user_id
+from quire_server.core.isbn import to_isbn13
 from quire_server.db.models import (
     BookInsight,
     BookTheme,
@@ -863,4 +871,80 @@ async def get_stats(
         top_authors=top_authors,
         top_themes=top_themes,
         themes_caveat=LIBRARY_STATS_THEMES_CAVEAT,
+    )
+
+
+@router.post("/affinity", response_model=AffinityResponse)
+async def affinity(
+    body: AffinityRequest,
+    user_id: Annotated[str, Depends(current_user_id)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> AffinityResponse:
+    # Alive library + reading state. Progress is keyed by documents.pk (no
+    # content_hash/user_id), so bridge via Document (user_id + content_hash);
+    # BOTH joins OUTER so tracked-but-not-downloaded / unread items count.
+    rows = (
+        await session.execute(
+            select(LibraryItem, Progress)
+            .join(
+                Document,
+                and_(
+                    Document.user_id == LibraryItem.user_id,
+                    Document.content_hash == LibraryItem.content_hash,
+                ),
+                isouter=True,
+            )
+            .join(Progress, Progress.document_pk == Document.pk, isouter=True)
+            .where(LibraryItem.user_id == user_id, LibraryItem.deleted_at.is_(None))
+        )
+    ).all()
+
+    def _status(p) -> str:
+        if p is None:
+            return "unread"
+        if p.finished_at is not None:
+            return "finished"
+        if p.abandoned_at is not None:
+            return "abandoned"
+        if p.percent and p.percent > 0:
+            return "in_progress"
+        return "unread"
+
+    library = [
+        {
+            "authors": list(li.authors or []),
+            "subjects": list(li.subjects or []),
+            "series_name": li.series_name,
+            "language": (li.language or "").lower()[:2] or None,
+            "status": _status(p),
+            "isbn13": to_isbn13(li.isbn),
+        }
+        for (li, p) in rows
+    ]
+
+    scanned_isbn13 = to_isbn13(body.identity.isbn or body.bundle.isbn)
+    owned = None
+    if scanned_isbn13:
+        match = next((b for b in library if b["isbn13"] == scanned_isbn13), None)
+        if match:
+            owned = OwnedInfo(in_library=True, reading_status=match["status"])
+
+    scanned = {
+        "authors": [body.bundle.author] if body.bundle.author else [],
+        "subjects": list(body.bundle.subjects or []),
+        "series_name": body.bundle.series_name,
+        "language": body.bundle.language,
+    }
+    result = score_affinity(scanned=scanned, library=library)
+
+    return AffinityResponse(
+        affinity_version=result.version,
+        owned=owned,
+        score=result.score,
+        band=result.band,
+        reasons=[
+            AffinityReason(kind=r.kind, polarity=r.polarity, message=r.message)
+            for r in result.reasons
+        ],
+        generated_at=datetime.now(UTC).isoformat(),
     )
