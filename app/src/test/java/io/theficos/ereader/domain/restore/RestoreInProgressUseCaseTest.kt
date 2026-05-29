@@ -92,14 +92,17 @@ class RestoreInProgressUseCaseTest {
         assertThat(downloaded).containsExactly("https://s/2.epub")
     }
 
-    @Test fun `applies positions for all in-progress items`() = runTest {
+    @Test fun `applies positions for all in-progress items including those not in the mirror`() = runTest {
         val applied = mutableListOf<ProgressItemDto>()
         useCase(
+            // h1 is in the mirror; h2 is in progress but has NO mirror row,
+            // so it's absent from `candidates` but must still get its position
+            // applied (proves applyPositions receives `inProgress`, not `candidates`).
             mirror = listOf(item("h1", "https://s/1.epub")),
-            prog = listOf(progress("h1")),
+            prog = listOf(progress("h1"), progress("h2")),
             present = setOf("h1"),
             applied = applied,
         ).run()
-        assertThat(applied.map { it.document.contentHash }).containsExactly("h1")
+        assertThat(applied.map { it.document.contentHash }).containsExactly("h1", "h2")
     }
 }
