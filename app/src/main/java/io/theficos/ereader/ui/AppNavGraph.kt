@@ -44,6 +44,10 @@ import io.theficos.ereader.ui.onboarding.WelcomeScreen
 import io.theficos.ereader.ui.onboarding.pickStartDestination
 import io.theficos.ereader.ui.reader.ReaderScreen
 import io.theficos.ereader.ui.reader.ReaderViewModel
+import io.theficos.ereader.ui.scan.ScanResultScreen
+import io.theficos.ereader.ui.scan.ScanResultViewModel
+import io.theficos.ereader.ui.scan.ScanScreen
+import io.theficos.ereader.ui.scan.ScanViewModel
 import io.theficos.ereader.ui.settings.LicensesScreen
 import io.theficos.ereader.ui.settings.SettingsScreen
 import io.theficos.ereader.ui.settings.SettingsViewModel
@@ -165,6 +169,7 @@ fun AppNavGraph(container: AppContainer) {
                             val key = container.catalogDetailRegistry.put(pub)
                             nav.navigate("catalog-detail/$key")
                         },
+                        onScan = { nav.navigate("scan") },
                     )
                     Tab.SETTINGS -> SettingsScreen(
                         viewModel = setVm,
@@ -246,6 +251,38 @@ fun AppNavGraph(container: AppContainer) {
                 CatalogDetailUnavailable(onBack = { nav.popBackStack() })
             } else {
                 CatalogDetailScreen(viewModel = vm, onBack = { nav.popBackStack() })
+            }
+        }
+        composable("scan") {
+            val vm = remember {
+                ScanViewModel(
+                    lookup = { isbn -> container.openLibraryClient.lookupByIsbn(isbn) },
+                    runAffinity = { body -> container.libraryClient.affinity(body) },
+                    onReauth = { container.credentialStore.notifyUnauthorized() },
+                )
+            }
+            ScanScreen(
+                viewModel = vm,
+                onResult = { data ->
+                    val key = container.scanResultRegistry.put(data)
+                    nav.navigate("scan-result/$key") { launchSingleTop = true }
+                },
+                onBack = { nav.popBackStack() },
+            )
+        }
+        composable(
+            "scan-result/{key}",
+            arguments = listOf(navArgument("key") { type = NavType.StringType }),
+        ) { backStack ->
+            val key = backStack.arguments!!.getString("key")!!
+            val data = remember(key) { container.scanResultRegistry.get(key) }
+            if (data == null) {
+                CatalogDetailUnavailable(onBack = { nav.popBackStack() })
+            } else {
+                val vm = remember(key) {
+                    ScanResultViewModel(data = data, ai = container.aiRepository)
+                }
+                ScanResultScreen(viewModel = vm, onBack = { nav.popBackStack() })
             }
         }
         composable("licenses") {
