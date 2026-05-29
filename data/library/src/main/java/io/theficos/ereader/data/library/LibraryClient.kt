@@ -172,6 +172,31 @@ class LibraryClient(
         all
     }
 
+    /**
+     * Request a per-title affinity score against the user's library.
+     *
+     * Drives the Book Scan flow: given a scanned book's identity + metadata
+     * bundle, the server returns a score/band, ownership state, and the
+     * human-readable reasons behind the verdict.
+     *
+     * Failure modes (caller/ViewModel maps codes):
+     * - 401 → `LibraryHttpException(401)` — credentials need attention.
+     * - 404 → `LibraryHttpException(404)` — feature mode-gated off.
+     * - other 4xx/5xx → `LibraryHttpException(code)`.
+     */
+    suspend fun affinity(body: AffinityRequestBody): AffinityResponse = withContext(Dispatchers.IO) {
+        val bodyJson = json.encodeToString(AffinityRequestBody.serializer(), body)
+        val req = Request.Builder()
+            .url(resolveBaseUrl() + LibraryApi.PATH_AFFINITY)
+            .post(bodyJson.toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        http.newCall(req).execute().use { resp ->
+            val respBody = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) throw LibraryHttpException(resp.code, respBody)
+            json.decodeFromString(AffinityResponse.serializer(), respBody)
+        }
+    }
+
     private companion object {
         val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     }
