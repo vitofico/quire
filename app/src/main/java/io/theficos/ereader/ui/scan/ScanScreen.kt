@@ -151,6 +151,7 @@ fun ScanScreen(
             if (hasCameraPermission) {
                 CameraPreview(
                     onIsbnDecoded = { viewModel.onIsbnSubmitted(it) },
+                    state = state,
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(3f / 4f),
@@ -255,11 +256,14 @@ private fun StatusArea(state: ScanUiState) {
  * tears the analysis executor down on dispose. The [onIsbnDecoded] callback is
  * captured via [rememberUpdatedState] so the long-lived analyzer always calls
  * the latest lambda. A successful decode latches [decoded] so we don't fire a
- * burst of submits for the same barcode held in frame.
+ * burst of submits for the same barcode held in frame; the latch is released
+ * again whenever [state] settles into a re-scannable outcome (a miss, error, or
+ * idle) so auto-decoding resumes without forcing the manual-entry fallback.
  */
 @Composable
 private fun CameraPreview(
     onIsbnDecoded: (String) -> Unit,
+    state: ScanUiState,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -270,6 +274,27 @@ private fun CameraPreview(
     // Latch so one held barcode doesn't fire repeatedly. The VM also dedups
     // via its generation guard, but latching avoids submit spam.
     val decoded = remember { AtomicBoolean(false) }
+
+    // Release the latch whenever the scan settles into a state the user can
+    // re-scan from. Without this, the first decode would wedge auto-scanning:
+    // for any outcome that keeps us on this screen (NotFound / Failed /
+    // ReauthRequired / InvalidIsbn / back to Idle) the camera would otherwise
+    // never auto-decode again, silently forcing manual entry. A successful
+    // Result navigates away and disposes this composable, so it deliberately
+    // does not reset; Working keeps the latch held while a scan is in flight.
+    LaunchedEffect(state) {
+        when (state) {
+            ScanUiState.Idle,
+            ScanUiState.InvalidIsbn,
+            ScanUiState.NotFound,
+            ScanUiState.ReauthRequired,
+            is ScanUiState.Failed,
+            -> decoded.set(false)
+            ScanUiState.Working,
+            is ScanUiState.Result,
+            -> Unit
+        }
+    }
     val reader = remember {
         MultiFormatReader().apply {
             setHints(
