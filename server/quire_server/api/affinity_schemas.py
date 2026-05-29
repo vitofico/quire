@@ -15,7 +15,7 @@ class AffinityRequest(BaseModel):
 
 class OwnedInfo(BaseModel):
     in_library: bool
-    reading_status: str   # finished|abandoned|in_progress|unread
+    reading_status: str  # finished|abandoned|in_progress|unread
 
 
 class AffinityReason(BaseModel):

@@ -3,6 +3,7 @@
 Pure functions over in-memory library rows. See
 docs/superpowers/specs/2026-05-29-book-scan-design.md for the rubric.
 """
+
 from __future__ import annotations
 
 import re
@@ -12,8 +13,13 @@ from dataclasses import dataclass, field
 AFFINITY_VERSION = 1
 
 _GENERIC_SUBJECTS = {
-    "fiction", "general", "literature", "novels",
-    "protected daisy", "accessible book", "large type books",
+    "fiction",
+    "general",
+    "literature",
+    "novels",
+    "protected daisy",
+    "accessible book",
+    "large type books",
 }
 _SUBJECT_ALIASES = {
     "detective and mystery stories": "mystery",
@@ -51,7 +57,7 @@ def normalize_author(raw: str | None) -> str | None:
         return None
     s = _base_normalize(raw)
     if "," in raw:
-        last, _, first = (p.strip() for p in raw.partition(","))   # raw, not _base_normalize(raw)
+        last, _, first = (p.strip() for p in raw.partition(","))  # raw, not _base_normalize(raw)
         if first:
             s = f"{_base_normalize(first)} {_base_normalize(last)}".strip()
     return s or None
@@ -86,10 +92,18 @@ def _status_counts(library):
 
 
 def _author_signal(scanned_authors, library):
-    finished_titles = [b for b in library if b["status"] == "finished"
-                       and scanned_authors & {normalize_author(a) for a in b["authors"]}]
-    abandoned_titles = [b for b in library if b["status"] == "abandoned"
-                        and scanned_authors & {normalize_author(a) for a in b["authors"]}]
+    finished_titles = [
+        b
+        for b in library
+        if b["status"] == "finished"
+        and scanned_authors & {normalize_author(a) for a in b["authors"]}
+    ]
+    abandoned_titles = [
+        b
+        for b in library
+        if b["status"] == "abandoned"
+        and scanned_authors & {normalize_author(a) for a in b["authors"]}
+    ]
     fm, am = len(finished_titles), len(abandoned_titles)
     if fm > 0:
         pts = min(25, 8 * fm)
@@ -102,8 +116,12 @@ def _author_signal(scanned_authors, library):
 def _theme_signal(scanned_subjects, library):
     best = []
     for theme in scanned_subjects:
-        terminal = [b for b in library if b["status"] in ("finished", "abandoned")
-                    and theme in {normalize_subject(s) for s in b["subjects"]}]
+        terminal = [
+            b
+            for b in library
+            if b["status"] in ("finished", "abandoned")
+            and theme in {normalize_subject(s) for s in b["subjects"]}
+        ]
         if not terminal:
             continue
         fin = sum(1 for b in terminal if b["status"] == "finished")
@@ -118,15 +136,18 @@ def _theme_signal(scanned_subjects, library):
     avg = sum(t[0] for t in top) / len(top)
     pts = round(avg * 30) if avg >= 0 else round(avg * 25)
     if pts == 0:
-        return None   # a net-neutral theme is not a reason worth surfacing
+        return None  # a net-neutral theme is not a reason worth surfacing
     theme, fin, tot = top[0][1], top[0][2], top[0][3]
     if avg >= 0:
         return Reason(
-            "theme", "positive",
+            "theme",
+            "positive",
             f"Matches your high-finish theme '{theme}' ({fin} finished, {tot - fin} abandoned).",
-            pts)
-    return Reason("theme", "negative",
-                  f"You've abandoned {tot - fin} of {tot} books tagged '{theme}'.", pts)
+            pts,
+        )
+    return Reason(
+        "theme", "negative", f"You've abandoned {tot - fin} of {tot} books tagged '{theme}'.", pts
+    )
 
 
 def _series_signal(scanned_series, library):
@@ -155,7 +176,8 @@ def _language_signal(scanned_lang, library):
     dominant, dom_n = top[0]
     if scanned_lang == dominant and dom_n >= 2:
         return Reason(
-            "language", "positive", f"Language matches most of your reading: {dominant}.", 5)
+            "language", "positive", f"Language matches most of your reading: {dominant}.", 5
+        )
     if scanned_lang != dominant and dom_n >= 3 and scanned_lang not in counts:
         return Reason("language", "negative", f"You mostly read in {dominant}.", -5)
     return None
@@ -171,26 +193,36 @@ def _band(score: int) -> str:
 
 def score_affinity(*, scanned: dict, library: list[dict]) -> AffinityResult:
     scanned_authors = {
-        normalize_author(a) for a in scanned.get("authors", []) if normalize_author(a)}
+        normalize_author(a) for a in scanned.get("authors", []) if normalize_author(a)
+    }
     scanned_subjects = {
-        normalize_subject(s) for s in scanned.get("subjects", []) if normalize_subject(s)}
+        normalize_subject(s) for s in scanned.get("subjects", []) if normalize_subject(s)
+    }
     scanned_series = normalize_series(scanned.get("series_name"))
     scanned_lang = (scanned.get("language") or "").lower()[:2] or None
 
     finished, abandoned = _status_counts(library)
     no_meta = not (scanned_authors or scanned_subjects or scanned_series)
     if (finished < 3 and (finished + abandoned) < 5) or no_meta:
-        msg = (f"Not enough reading history yet (you've finished {finished})."
-               if not no_meta else "Not enough metadata on this book to compare.")
+        msg = (
+            f"Not enough reading history yet (you've finished {finished})."
+            if not no_meta
+            else "Not enough metadata on this book to compare."
+        )
         return AffinityResult(
-            AFFINITY_VERSION, None, "unknown", [Reason("coldstart", "neutral", msg)])
+            AFFINITY_VERSION, None, "unknown", [Reason("coldstart", "neutral", msg)]
+        )
 
-    signals = [s for s in (
-        _author_signal(scanned_authors, library),
-        _theme_signal(scanned_subjects, library),
-        _series_signal(scanned_series, library),
-        _language_signal(scanned_lang, library),
-    ) if s is not None]
+    signals = [
+        s
+        for s in (
+            _author_signal(scanned_authors, library),
+            _theme_signal(scanned_subjects, library),
+            _series_signal(scanned_series, library),
+            _language_signal(scanned_lang, library),
+        )
+        if s is not None
+    ]
 
     raw = 50 + sum(s.points for s in signals)
     score = max(0, min(100, round(raw)))

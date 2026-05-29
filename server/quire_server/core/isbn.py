@@ -3,6 +3,7 @@
 A single source of truth so scanned/typed ISBNs are compared and keyed
 consistently (owned-detection, identity.metadata_id="isbn:<isbn13>").
 """
+
 from __future__ import annotations
 
 
