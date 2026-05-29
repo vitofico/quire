@@ -134,7 +134,7 @@ class LibraryViewModel(
      */
     val canRestore: StateFlow<Boolean> =
         combine(rows, connected) { r, conn -> conn && r.isEmpty() }
-            .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     private val _restoreRunning = kotlinx.coroutines.flow.MutableStateFlow(false)
     val restoreRunning: StateFlow<Boolean> = _restoreRunning.asStateFlow()

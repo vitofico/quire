@@ -173,14 +173,19 @@ fun LibraryScreen(
     }
 
     if (items.isEmpty() && !searchActive && query.isBlank()) {
-        EmptyState(
-            modifier = Modifier.padding(contentPadding),
-            onImport = launchPicker,
-            canRestore = canRestore,
-            restoreRunning = restoreRunning,
-            onRestore = { viewModel.restoreInProgressBooks() },
-        )
-        SnackbarHost(hostState = snackbarHostState)
+        Box(modifier = Modifier.fillMaxSize()) {
+            EmptyState(
+                modifier = Modifier.padding(contentPadding),
+                onImport = launchPicker,
+                canRestore = canRestore,
+                restoreRunning = restoreRunning,
+                onRestore = { viewModel.restoreInProgressBooks() },
+            )
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
         return
     }
 

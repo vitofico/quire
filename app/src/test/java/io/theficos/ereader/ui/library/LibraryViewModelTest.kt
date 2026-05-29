@@ -329,16 +329,27 @@ class LibraryViewModelTest {
         store.saveBasicAccount("http://host", "u", "p")
         seed("h1", "Alpha", null)
         val restoreVm = vmWith(store)
-        // Drive `items` until the seeded row is visible so the shared `rows`
-        // flow has definitely propagated the non-empty library, then assert
-        // canRestore is false even though the account is connected.
-        restoreVm.items.test {
-            var list = awaitItem()
-            while (list.isEmpty()) list = awaitItem()
-            assertThat(list).hasSize(1)
+        // Subscribe to canRestore (keeps the WhileSubscribed `rows` upstream hot).
+        // Transient emission sequence with UnconfinedTestDispatcher + connected account:
+        //   1. stateIn initial → false
+        //   2. rows emits [] before Room delivers the seeded row → combine may emit true
+        //   3. rows emits [Alpha] → combine settles to false
+        // We warm `rows` by also subscribing to `items` and waiting until the seeded
+        // row arrives, then use expectMostRecentItem() to discard transients and assert
+        // the settled emission is false.
+        restoreVm.canRestore.test {
+            restoreVm.items.test {
+                var list = awaitItem()
+                while (list.isEmpty()) list = awaitItem()
+                assertThat(list).hasSize(1)
+                cancelAndIgnoreRemainingEvents()
+            }
+            advanceUntilIdle()
+            // expectMostRecentItem() returns the latest buffered item, discarding any
+            // earlier transient true — after rows has settled to non-empty, this must be false.
+            assertThat(expectMostRecentItem()).isFalse()
             cancelAndIgnoreRemainingEvents()
         }
-        assertThat(restoreVm.canRestore.value).isFalse()
     }
 
     @Test fun `seriesContinuationCandidates re-emits when a candidate is marked finished`() = runTest {
