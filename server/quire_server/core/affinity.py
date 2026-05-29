@@ -117,6 +117,8 @@ def _theme_signal(scanned_subjects, library):
     top = best[:3]
     avg = sum(t[0] for t in top) / len(top)
     pts = round(avg * 30) if avg >= 0 else round(avg * 25)
+    if pts == 0:
+        return None   # a net-neutral theme is not a reason worth surfacing
     theme, fin, tot = top[0][1], top[0][2], top[0][3]
     if avg >= 0:
         return Reason(
@@ -159,9 +161,7 @@ def _language_signal(scanned_lang, library):
     return None
 
 
-def _band(score: int, families: int, has_series_pos: bool) -> str:
-    if families == 1 and not has_series_pos and score >= 75:
-        score = 74
+def _band(score: int) -> str:
     if score >= 75:
         return "strong"
     if score >= 60:
@@ -196,7 +196,11 @@ def score_affinity(*, scanned: dict, library: list[dict]) -> AffinityResult:
     score = max(0, min(100, round(raw)))
     families = len({s.kind for s in signals})
     has_series_pos = any(s.kind == "series" and s.polarity == "positive" for s in signals)
-    band = _band(score, families, has_series_pos)
+    # Confidence guard: cap the SCORE itself (not just the band) so the number
+    # and band never disagree.
+    if families == 1 and not has_series_pos and score >= 75:
+        score = 74
+    band = _band(score)
 
     ranked = sorted(signals, key=lambda s: abs(s.points), reverse=True)
     chosen, lang_used = [], False

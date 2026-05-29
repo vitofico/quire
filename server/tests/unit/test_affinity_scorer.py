@@ -69,3 +69,30 @@ def test_version_present():
         scanned={"authors": [], "subjects": [], "series_name": None, "language": "en"}, library=[])
     assert res.version == AFFINITY_VERSION
     assert res.band == "unknown"
+
+
+def test_confidence_guard_caps_score_and_band_consistently():
+    # Single signal family (author only) would raw to 50+25=75 ("strong");
+    # the guard must cap BOTH score and band so they never disagree.
+    lib = [_lib(f"b{i}", ["Jane Doe"], ["cooking"], "finished") for i in range(4)]
+    res = score_affinity(
+        scanned={"authors": ["Jane Doe"], "subjects": ["astronomy"],
+                 "series_name": None, "language": None},
+        library=lib,
+    )
+    assert res.score is not None and res.score <= 74
+    assert res.band == "moderate"
+
+
+def test_zero_affinity_theme_emits_no_reason():
+    # A theme with an exact 50/50 finish/abandon split contributes 0 points
+    # and must NOT surface as a positive reason.
+    lib = ([_lib(f"m{i}", ["A"], ["mystery"], "finished") for i in range(3)]
+           + [_lib("n1", ["B"], ["noir"], "finished"),
+              _lib("n2", ["C"], ["noir"], "abandoned")])
+    res = score_affinity(
+        scanned={"authors": ["Nobody"], "subjects": ["noir"],
+                 "series_name": None, "language": None},
+        library=lib,
+    )
+    assert not any(r.kind == "theme" for r in res.reasons)

@@ -6,6 +6,8 @@ from quire_server.api.ai_schemas import DocumentIdentity, MetadataBundle
 
 
 class AffinityRequest(BaseModel):
+    # extra="forbid" only guards the top level; the shared nested DocumentIdentity/
+    # MetadataBundle (from ai_schemas.py) don't forbid extras and aren't changed here.
     model_config = ConfigDict(extra="forbid")
     identity: DocumentIdentity
     bundle: MetadataBundle
