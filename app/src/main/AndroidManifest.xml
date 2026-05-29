@@ -4,6 +4,8 @@
          Component android:name attributes must be fully-qualified (io.theficos.ereader.Foo),
          not relative (.Foo) — relative names resolve against the namespace and won't match. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 
     <application
         android:name="io.theficos.ereader.EReaderApp"
