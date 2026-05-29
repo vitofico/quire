@@ -30,13 +30,19 @@ import java.util.Base64
  *   proactive header injection because (a) refresh-token rotation is
  *   deliberately deferred and (b) using an Authenticator for a static
  *   bearer would just retry the same bad token in a loop on 401.
- * - On a 401 from a bearer endpoint, callers should surface the failure to
- *   the user (re-auth) rather than mutate the store from inside an
- *   interceptor — silent token swaps from the network layer have caused
- *   "wrong credentials sent to wrong host" incidents in the past.
+ * - On a 401 to a bearer endpoint we surface the failure to the user (via
+ *   the optional [onBearerUnauthorized] callback) rather than mutate the
+ *   store from inside the interceptor — silent token swaps from the network
+ *   layer have caused "wrong credentials sent to wrong host" incidents in
+ *   the past. The callback is a read-only *signal*: it does NOT retry the
+ *   request, swap the token, or clear the credential. It fires only when we
+ *   ourselves attached a Bearer header to a same-origin request and that
+ *   request came back 401 — never for Basic accounts, third-party hosts, or
+ *   requests that arrived with a caller-supplied Authorization header.
  */
 class AccountAuthInterceptor(
     private val accountProvider: () -> AccountCredentials?,
+    private val onBearerUnauthorized: () -> Unit = {},
 ) : Interceptor {
 
     override fun intercept(chain: Interceptor.Chain): Response {
@@ -52,9 +58,16 @@ class AccountAuthInterceptor(
             is AccountCredentials.Basic -> basicHeader(account)
             is AccountCredentials.Bearer -> "Bearer ${account.token}"
         }
-        return chain.proceed(
+        val response = chain.proceed(
             request.newBuilder().header(HEADER_AUTHORIZATION, headerValue).build()
         )
+        // We only signal re-auth for the case we can attribute with
+        // certainty: a Bearer token we just attached to a same-origin request
+        // was rejected. The response is returned unchanged — no retry.
+        if (account is AccountCredentials.Bearer && response.code == HTTP_UNAUTHORIZED) {
+            onBearerUnauthorized()
+        }
+        return response
     }
 
     /**
@@ -100,5 +113,6 @@ class AccountAuthInterceptor(
 
     private companion object {
         const val HEADER_AUTHORIZATION = "Authorization"
+        const val HTTP_UNAUTHORIZED = 401
     }
 }

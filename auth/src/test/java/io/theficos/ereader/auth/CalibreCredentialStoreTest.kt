@@ -283,4 +283,116 @@ class CalibreCredentialStoreTest {
         val basic = reread.getAccount() as AccountCredentials.Basic
         assertThat(basic.quireServerUrl).isNull()
     }
+
+    // ---------- B2: Bearer session expiry + re-auth signal ----------
+
+    @Test fun `saveBearerAccount persists expiresAtEpochMs and round-trips`() {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.clear()
+        val exp = 1_900_000_000_000L
+        store.saveBearerAccount("https://cloud.quire.app", "a@b", "tok", expiresAtEpochMs = exp)
+        assertThat((store.getAccount() as AccountCredentials.Bearer).expiresAtEpochMs).isEqualTo(exp)
+        // Survives a fresh load through EncryptedSharedPreferences.
+        val reread = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        assertThat((reread.getAccount() as AccountCredentials.Bearer).expiresAtEpochMs).isEqualTo(exp)
+    }
+
+    @Test fun `saveBearerAccount without expiry stores null`() {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.clear()
+        store.saveBearerAccount("https://cloud.quire.app", "a@b", "tok")
+        assertThat((store.getAccount() as AccountCredentials.Bearer).expiresAtEpochMs).isNull()
+        val reread = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        assertThat((reread.getAccount() as AccountCredentials.Bearer).expiresAtEpochMs).isNull()
+    }
+
+    @Test fun `switching away from bearer removes the expiry key`() {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.clear()
+        store.saveBearerAccount("https://cloud.quire.app", "a@b", "tok", expiresAtEpochMs = 123L)
+        store.saveBasicAccount("https://lib.example", "alice", "s3cret")
+        // Switch back to a bearer with no expiry: the stale key must not resurrect.
+        val reread = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        reread.saveBearerAccount("https://cloud.quire.app", "a@b", "tok2")
+        val fresh = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        assertThat((fresh.getAccount() as AccountCredentials.Bearer).expiresAtEpochMs).isNull()
+    }
+
+    @Test fun `notifyUnauthorized raises needsReauth only for bearer`() {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.clear()
+        // No account → no-op.
+        store.notifyUnauthorized()
+        assertThat(store.needsReauth.value).isFalse()
+        // Basic → no-op (a 401 there is a wrong-password condition).
+        store.saveBasicAccount("https://lib.example", "alice", "s3cret")
+        store.notifyUnauthorized()
+        assertThat(store.needsReauth.value).isFalse()
+        // Bearer → raises the signal.
+        store.saveBearerAccount("https://cloud.quire.app", "a@b", "tok")
+        store.notifyUnauthorized()
+        assertThat(store.needsReauth.value).isTrue()
+        // notifyUnauthorized never mutates the stored credential.
+        assertThat(store.getAccount()).isInstanceOf(AccountCredentials.Bearer::class.java)
+    }
+
+    @Test fun `checkSessionExpiry raises needsReauth when the token has lapsed`() {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.clear()
+        store.saveBearerAccount("https://cloud.quire.app", "a@b", "tok", expiresAtEpochMs = 1_000L)
+        // now before expiry → no signal.
+        assertThat(store.checkSessionExpiry(nowEpochMs = 999L)).isFalse()
+        assertThat(store.needsReauth.value).isFalse()
+        // now at/after expiry → signal.
+        assertThat(store.checkSessionExpiry(nowEpochMs = 1_000L)).isTrue()
+        assertThat(store.needsReauth.value).isTrue()
+    }
+
+    @Test fun `checkSessionExpiry is a no-op when expiry is unknown`() {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.clear()
+        store.saveBearerAccount("https://cloud.quire.app", "a@b", "tok") // null expiry
+        assertThat(store.checkSessionExpiry(nowEpochMs = Long.MAX_VALUE)).isFalse()
+        assertThat(store.needsReauth.value).isFalse()
+    }
+
+    @Test fun `saving a new account clears a pending re-auth signal`() {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.clear()
+        store.saveBearerAccount("https://cloud.quire.app", "a@b", "tok")
+        store.notifyUnauthorized()
+        assertThat(store.needsReauth.value).isTrue()
+        // A successful re-login (new save) resolves the signal.
+        store.saveBearerAccount("https://cloud.quire.app", "a@b", "tok-fresh")
+        assertThat(store.needsReauth.value).isFalse()
+    }
+
+    @Test fun `clear resets the re-auth signal`() {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.clear()
+        store.saveBearerAccount("https://cloud.quire.app", "a@b", "tok")
+        store.notifyUnauthorized()
+        store.clear()
+        assertThat(store.needsReauth.value).isFalse()
+    }
+
+    @Test fun `an already-expired stored session starts in the re-auth state on cold launch`() {
+        val seed = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        seed.clear()
+        seed.saveBearerAccount("https://cloud.quire.app", "a@b", "tok", expiresAtEpochMs = 1_000L)
+        // A fresh store (process restart) whose stored expiry is already past.
+        val reread = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        // Sanity: the stored expiry is in the past relative to "now".
+        assertThat((reread.getAccount() as AccountCredentials.Bearer).isExpiredAt(System.currentTimeMillis()))
+            .isTrue()
+        assertThat(reread.needsReauth.value).isTrue()
+    }
+
+    @Test fun `isExpiredAt is fail-open when expiry is unknown`() {
+        val bearer = AccountCredentials.Bearer("https://cloud", "a@b", "tok", expiresAtEpochMs = null)
+        assertThat(bearer.isExpiredAt(Long.MAX_VALUE)).isFalse()
+        val withExp = bearer.copy(expiresAtEpochMs = 10L)
+        assertThat(withExp.isExpiredAt(9L)).isFalse()
+        assertThat(withExp.isExpiredAt(10L)).isTrue()
+    }
 }

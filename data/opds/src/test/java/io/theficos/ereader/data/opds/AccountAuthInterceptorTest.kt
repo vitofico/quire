@@ -53,7 +53,7 @@ class AccountAuthInterceptorTest {
     @Test fun `omits header when no account configured`() {
         server.enqueue(MockResponse().setBody("ok"))
         val client = OkHttpClient.Builder()
-            .addInterceptor(AccountAuthInterceptor { null })
+            .addInterceptor(AccountAuthInterceptor(accountProvider = { null }))
             .build()
         client.newCall(Request.Builder().url(server.url("/feed")).build()).execute().close()
 
@@ -113,14 +113,14 @@ class AccountAuthInterceptorTest {
                 bearerServer.enqueue(MockResponse().setBody("ok"))
             }
             val basicClient = OkHttpClient.Builder()
-                .addInterceptor(AccountAuthInterceptor {
+                .addInterceptor(AccountAuthInterceptor(accountProvider = {
                     AccountCredentials.Basic(basicServer.url("/").toString(), "alice", "s3cret")
-                })
+                }))
                 .build()
             val bearerClient = OkHttpClient.Builder()
-                .addInterceptor(AccountAuthInterceptor {
+                .addInterceptor(AccountAuthInterceptor(accountProvider = {
                     AccountCredentials.Bearer(bearerServer.url("/").toString(), "bob@example.com", "tok_zzz")
-                })
+                }))
                 .build()
 
             val pool = Executors.newFixedThreadPool(8)
@@ -212,6 +212,72 @@ class AccountAuthInterceptorTest {
             assertThat(recorded.getHeader("Authorization")).isEqualTo(expected)
         } finally {
             quire.shutdown()
+        }
+    }
+
+    // ---------- B2: 401 re-auth signal for bearer sessions ----------
+
+    @Test fun `401 on a same-origin bearer request fires the re-auth callback`() {
+        server.enqueue(MockResponse().setResponseCode(401).setBody("unauthorized"))
+        val calls = AtomicInteger(0)
+        val provider = {
+            AccountCredentials.Bearer(server.url("/").toString(), "alice@example.com", "stale_tok")
+        }
+        val client = OkHttpClient.Builder()
+            .addInterceptor(AccountAuthInterceptor(provider, onBearerUnauthorized = { calls.incrementAndGet() }))
+            .build()
+        val resp = client.newCall(Request.Builder().url(server.url("/ai/v1/config")).build()).execute()
+        // Response is returned unchanged (no retry, no mutation).
+        assertThat(resp.code).isEqualTo(401)
+        resp.close()
+        assertThat(calls.get()).isEqualTo(1)
+        // The interceptor still attached our bearer header to the (rejected) request.
+        assertThat(server.takeRequest().getHeader("Authorization")).isEqualTo("Bearer stale_tok")
+    }
+
+    @Test fun `non-401 bearer response does not fire the re-auth callback`() {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("ok"))
+        val calls = AtomicInteger(0)
+        val provider = {
+            AccountCredentials.Bearer(server.url("/").toString(), "alice@example.com", "tok")
+        }
+        val client = OkHttpClient.Builder()
+            .addInterceptor(AccountAuthInterceptor(provider, onBearerUnauthorized = { calls.incrementAndGet() }))
+            .build()
+        client.newCall(Request.Builder().url(server.url("/sync/v1/progress")).build()).execute().close()
+        assertThat(calls.get()).isEqualTo(0)
+    }
+
+    @Test fun `401 on a basic account does not fire the bearer re-auth callback`() {
+        server.enqueue(MockResponse().setResponseCode(401).setBody("unauthorized"))
+        val calls = AtomicInteger(0)
+        val provider = {
+            AccountCredentials.Basic(server.url("/").toString(), "alice", "wrong-pw")
+        }
+        val client = OkHttpClient.Builder()
+            .addInterceptor(AccountAuthInterceptor(provider, onBearerUnauthorized = { calls.incrementAndGet() }))
+            .build()
+        client.newCall(Request.Builder().url(server.url("/opds")).build()).execute().close()
+        assertThat(calls.get()).isEqualTo(0)
+    }
+
+    @Test fun `401 from a foreign host does not fire the re-auth callback`() {
+        // We never attach the bearer to a foreign host, so a 401 there is not
+        // attributable to our session and must not trigger re-auth.
+        val foreign = MockWebServer().apply { start() }
+        try {
+            foreign.enqueue(MockResponse().setResponseCode(401))
+            val calls = AtomicInteger(0)
+            val provider = {
+                AccountCredentials.Bearer(server.url("/").toString(), "alice@example.com", "tok")
+            }
+            val client = OkHttpClient.Builder()
+                .addInterceptor(AccountAuthInterceptor(provider, onBearerUnauthorized = { calls.incrementAndGet() }))
+                .build()
+            client.newCall(Request.Builder().url(foreign.url("/cover.jpg")).build()).execute().close()
+            assertThat(calls.get()).isEqualTo(0)
+        } finally {
+            foreign.shutdown()
         }
     }
 

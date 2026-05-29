@@ -23,10 +23,12 @@ from starlette.requests import Request
 
 from quire_server.api.ai_auth import (
     AiPrincipal,
+    BackendAiAuthenticator,
     BasicAuthAiAuthenticator,
     TokenAiAuthenticator,
 )
 from quire_server.core.auth import CalibreAuthValidator
+from quire_server.core.auth_backend import AuthUser
 from quire_server.core.logging_ctx import request_id_var
 
 # ---------------------------------------------------------------------------
@@ -218,6 +220,73 @@ async def test_basic_auth_request_id_none_when_unset():
     req = _make_request({"authorization": _basic_header_value("alice", "alicepass")})
     p = await auth.authenticate(req)
     assert p.request_id is None
+
+
+# ---------------------------------------------------------------------------
+# BackendAiAuthenticator — delegates to the primary AuthBackend (NativeAuth)
+# ---------------------------------------------------------------------------
+
+
+class _StubBackend:
+    """Minimal AuthBackend: returns a fixed AuthUser, or raises if configured.
+
+    Records the request it was handed so we can assert the authenticator
+    passes the inbound request straight through (Bearer header lives there).
+    """
+
+    def __init__(self, *, user: AuthUser | None = None, error: HTTPException | None = None):
+        self._user = user
+        self._error = error
+        self.seen_request: Request | None = None
+
+    async def current_user(self, request: Request) -> AuthUser:
+        self.seen_request = request
+        if self._error is not None:
+            raise self._error
+        assert self._user is not None
+        return self._user
+
+
+async def test_backend_auth_maps_authuser_to_native_principal():
+    backend = _StubBackend(
+        user=AuthUser(user_id="native:42", backend="native", session_token_hash="abc")
+    )
+    auth = BackendAiAuthenticator(backend)
+    req = _make_request({"authorization": "Bearer sometoken"})
+    p = await auth.authenticate(req)
+    assert p == AiPrincipal(
+        subject="native:42",
+        tenant_id="local",
+        scopes=(),
+        auth_mode="native",
+        request_id=None,
+    )
+    # The inbound request (carrying the Bearer header) is delegated verbatim.
+    assert backend.seen_request is req
+
+
+async def test_backend_auth_propagates_backend_401():
+    backend = _StubBackend(error=HTTPException(status_code=401, detail="invalid credentials"))
+    auth = BackendAiAuthenticator(backend)
+    req = _make_request({"authorization": "Bearer bad"})
+    with pytest.raises(HTTPException) as exc:
+        await auth.authenticate(req)
+    assert exc.value.status_code == 401
+    assert exc.value.detail == "invalid credentials"
+
+
+async def test_backend_auth_carries_request_id_from_contextvar():
+    backend = _StubBackend(
+        user=AuthUser(user_id="native:7", backend="native", session_token_hash="h")
+    )
+    auth = BackendAiAuthenticator(backend)
+    token = request_id_var.set("rid-native-1")
+    try:
+        req = _make_request({"authorization": "Bearer t"})
+        p = await auth.authenticate(req)
+        assert p.request_id == "rid-native-1"
+    finally:
+        request_id_var.reset(token)
 
 
 # ---------------------------------------------------------------------------

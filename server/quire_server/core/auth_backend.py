@@ -26,12 +26,14 @@ that override that dependency continue to work unchanged. Endpoints needing
 the full :class:`AuthUser` (notably ``/auth/v1/logout``, which needs the
 session token to revoke) use ``current_auth_user``.
 
-AI-routes seam (``quire_server.api.ai_auth.AiAuthenticator``) remains
-independent: AI keeps its own auth mechanism so token-mode multi-tenant
-deployments are not entangled with primary-auth selection. The app factory
-guards against the misconfiguration ``auth_backend=native`` +
-``ai_enabled=true`` + ``ai_auth_mode=basic`` (which would silently leave
-AI on CalibreWeb Basic).
+AI-routes seam (``quire_server.api.ai_auth.AiAuthenticator``) is still a
+separate Protocol, but the two seams are no longer disjoint: under
+``auth_backend=native`` the AI seam delegates to *this* backend via
+``BackendAiAuthenticator``, so ``/ai/v1/*`` shares the NativeAuth session
+tokens used by ``/auth/v1`` / ``/sync/v1`` / ``/library/v1``. The legacy
+``ai_auth_mode=token`` HMAC verifier remains for its deprecation window
+(task X-2) but is no longer required to run AI under native auth. See
+``_build_ai_authenticator`` in :mod:`quire_server.main`.
 """
 
 from __future__ import annotations

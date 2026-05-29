@@ -25,6 +25,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
+import java.time.OffsetDateTime
 import java.util.Base64
 import java.util.concurrent.TimeUnit
 
@@ -112,7 +113,12 @@ class ConnectServerViewModel(
             }
             _state.value = when (result) {
                 is VerificationOutcome.OkBearer -> {
-                    credentialStore.saveBearerAccount(canonicalBaseUrl, email, result.token)
+                    credentialStore.saveBearerAccount(
+                        canonicalBaseUrl,
+                        email,
+                        result.token,
+                        result.expiresAtEpochMs,
+                    )
                     UiState.Completed
                 }
                 is VerificationOutcome.OkBasic -> error("unreachable in bearer flow")
@@ -181,13 +187,13 @@ class ConnectServerViewModel(
                 when (resp.code) {
                     200 -> {
                         val body = resp.body?.string().orEmpty()
-                        val token = parseLoginToken(body)
-                        if (token.isNullOrBlank()) {
+                        val parsed = parseLogin(body)
+                        if (parsed == null || parsed.token.isBlank()) {
                             VerificationOutcome.Failure(
                                 "Server returned 200 but the response didn't include a token.",
                             )
                         } else {
-                            VerificationOutcome.OkBearer(token)
+                            VerificationOutcome.OkBearer(parsed.token, parsed.expiresAtEpochMs)
                         }
                     }
                     401 -> VerificationOutcome.Failure("Email or password rejected by the server.")
@@ -204,9 +210,22 @@ class ConnectServerViewModel(
         }
     }
 
-    private fun parseLoginToken(body: String): String? = runCatching {
+    /** Token plus optional absolute expiry, parsed from a login response. */
+    private data class ParsedLogin(val token: String, val expiresAtEpochMs: Long?)
+
+    /**
+     * Parse `{"token": ..., "expires_at": ...}` from the login response.
+     * `expires_at` is an ISO-8601 instant (e.g. `2026-06-28T12:00:00+00:00`
+     * or `...Z`); an absent or unparseable value yields a null expiry, which
+     * the credential store treats as "expiry unknown" rather than failing the
+     * login. Returns null only when the body isn't a JSON object.
+     */
+    private fun parseLogin(body: String): ParsedLogin? = runCatching {
         val parsed = Json.parseToJsonElement(body) as? JsonObject ?: return null
-        (parsed["token"] as? JsonPrimitive)?.content
+        val token = (parsed["token"] as? JsonPrimitive)?.content ?: return null
+        val expiresAt = (parsed["expires_at"] as? JsonPrimitive)?.content
+            ?.let { raw -> runCatching { OffsetDateTime.parse(raw).toInstant().toEpochMilli() }.getOrNull() }
+        ParsedLogin(token, expiresAt)
     }.getOrNull()
 
     /** UI state. Sealed so the screen can `when`-exhaust render branches. */
@@ -221,7 +240,7 @@ class ConnectServerViewModel(
 
     private sealed class VerificationOutcome {
         object OkBasic : VerificationOutcome()
-        data class OkBearer(val token: String) : VerificationOutcome()
+        data class OkBearer(val token: String, val expiresAtEpochMs: Long?) : VerificationOutcome()
         data class Failure(val message: String) : VerificationOutcome()
     }
 

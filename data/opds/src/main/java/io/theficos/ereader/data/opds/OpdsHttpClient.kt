@@ -12,6 +12,14 @@ class OpdsHttpClient(credentialStore: CalibreCredentialStore) {
         // credentials and `Bearer ...` for `quire_server` / Cloud accounts.
         // The interceptor origin-guards against attaching credentials to
         // requests that target hosts other than the configured baseUrl.
-        .addInterceptor(AccountAuthInterceptor { credentialStore.getAccount() })
+        // A 401 to a same-origin Bearer request raises the store's re-auth
+        // signal (NativeAuth tokens can't be refreshed — the user must sign
+        // in again); the interceptor never retries or mutates credentials.
+        .addInterceptor(
+            AccountAuthInterceptor(
+                accountProvider = { credentialStore.getAccount() },
+                onBearerUnauthorized = { credentialStore.notifyUnauthorized() },
+            )
+        )
         .build()
 }

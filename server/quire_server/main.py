@@ -29,35 +29,6 @@ from quire_server.core.logging_ctx import RequestIdLogFilter
 from quire_server.db.session import configure, make_engine, make_session_factory
 
 
-def _validate_auth_backend_settings(settings: Settings) -> None:
-    """Phase 0, task S-1: cross-config guard for the primary AuthBackend.
-
-    The independent AI auth seam (``ai_auth_mode``) means a Cloud-style
-    deployment that flips ``auth_backend`` to ``native`` could
-    accidentally leave ``ai_auth_mode=basic``, which would route AI
-    requests through CalibreWeb Basic — a backend that doesn't exist in
-    a Cloud deployment. Fail loudly at startup.
-
-    Valid combinations:
-      * ``auth_backend=calibreweb`` + any ``ai_auth_mode`` (today's OSS).
-      * ``auth_backend=native``    + ``ai_enabled=false`` OR
-                                     ``ai_auth_mode=token``.
-    """
-    if settings.auth_backend != "native":
-        return
-    if not settings.ai_enabled:
-        return
-    if settings.ai_auth_mode != "basic":
-        return
-    raise RuntimeError(
-        "QUIRE_SERVER_AUTH_BACKEND=native is incompatible with "
-        "QUIRE_SERVER_AI_AUTH_MODE=basic when AI is enabled: AI requests "
-        "would silently route through the CalibreWeb verifier. Either "
-        "disable AI (QUIRE_SERVER_AI_ENABLED=false) or switch AI auth to "
-        "token mode (QUIRE_SERVER_AI_AUTH_MODE=token)."
-    )
-
-
 def _warn_deprecated_ai_metadata_lookup(settings: Settings) -> None:
     """Emit a startup deprecation notice for ``ai_metadata_server_lookup_enabled``.
 
@@ -169,19 +140,35 @@ def _warn_if_ai_auth_mode_deprecated(settings: Settings) -> None:
     warnings.warn(msg, DeprecationWarning, stacklevel=2)
 
 
-def _build_ai_authenticator(settings: Settings, validator: CalibreAuthValidator):
-    """Construct the AiAuthenticator implied by settings.ai_auth_mode.
+def _build_ai_authenticator(settings: Settings, validator: CalibreAuthValidator, auth_backend):
+    """Construct the AiAuthenticator implied by the auth config.
+
+    The concrete authenticator is chosen from BOTH ``settings.auth_backend``
+    and ``settings.ai_auth_mode`` (the env stays a two-value ``basic|token``
+    switch — there is no third ``native`` env mode):
+
+    * ``ai_auth_mode=token`` → :class:`TokenAiAuthenticator` (the deprecated
+      HMAC seam, regardless of primary backend; kept for its removal window).
+    * ``ai_auth_mode=basic`` + ``auth_backend=native`` →
+      :class:`BackendAiAuthenticator`, delegating to the configured
+      ``NativeAuth`` so ``/ai/v1/*`` shares the primary session-token identity
+      layer. This is the long-term replacement for token mode.
+    * ``ai_auth_mode=basic`` + ``auth_backend=calibreweb`` →
+      :class:`BasicAuthAiAuthenticator` (today's OSS default, byte-exact).
 
     Imported here (rather than at module top) to keep the AI auth surface
     lazy alongside the rest of the AI imports — sync-only deploys never pay
     for the HMAC / token code.
     """
     from quire_server.api.ai_auth import (
+        BackendAiAuthenticator,
         BasicAuthAiAuthenticator,
         TokenAiAuthenticator,
     )
 
     if settings.ai_auth_mode == "basic":
+        if settings.auth_backend == "native":
+            return BackendAiAuthenticator(auth_backend)
         return BasicAuthAiAuthenticator(validator=validator)
     # token mode — validation already ran, so secrets/iss/aud are guaranteed.
     assert settings.ai_token_secrets is not None
@@ -239,9 +226,9 @@ def create_app() -> FastAPI:
 
     # Phase 0, task S-1: pick the primary AuthBackend before any router
     # mounts so /readyz and the AI-auth wiring below see a consistent
-    # picture. The cross-config guard runs first; misconfigurations
-    # crashloop here instead of silently 401-ing users.
-    _validate_auth_backend_settings(settings)
+    # picture. Under ``auth_backend=native`` the AI seam delegates to this
+    # same backend (see ``_build_ai_authenticator``), so there is no longer a
+    # forbidden ``native + ai_auth_mode=basic`` combination to guard against.
     if settings.auth_backend == "native":
         app.state.auth_backend = NativeAuth(
             session_factory=session_factory,
@@ -286,7 +273,9 @@ def create_app() -> FastAPI:
         # is known to be valid. Misconfigured token deploys still crashloop
         # via _validate_ai_auth_settings above.
         _warn_if_ai_auth_mode_deprecated(settings)
-        app.state.ai_authenticator = _build_ai_authenticator(settings, app.state.auth_validator)
+        app.state.ai_authenticator = _build_ai_authenticator(
+            settings, app.state.auth_validator, app.state.auth_backend
+        )
 
         if settings.ai_base_url and settings.ai_model:
             # Lazy imports: only pull AI modules when AI mode is on AND configured.
