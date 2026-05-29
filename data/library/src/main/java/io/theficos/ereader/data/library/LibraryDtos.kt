@@ -98,3 +98,14 @@ data class LibraryItemResponse(
     // safely — every hash on the wire today is v1.
     @SerialName("identity_hash_version") val identityHashVersion: Int = 1,
 )
+
+/**
+ * Response body of `GET /library/v1/items` (paginated). `server_time` is the
+ * snapshot instant the server bounded the page to; the restore path ignores it
+ * (best-effort snapshot semantics) but it's decoded for completeness.
+ */
+@Serializable
+data class LibraryItemListResponse(
+    val items: List<LibraryItemResponse>,
+    @SerialName("server_time") val serverTime: String,
+)

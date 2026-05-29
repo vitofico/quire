@@ -161,4 +161,60 @@ class LibraryClientTest {
             assertThat(e.body).contains("metadata_id_conflict")
         }
     }
+
+    // ---- listItems / listAllItems ----
+
+    @Test
+    fun `listItems hits items path with paging query and parses items`() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"items":[{"content_hash":"h1","title":"Book One","authors":["A"],"opds_href":"https://srv/b1.epub","created_at":"1970-01-01T00:00:00+00:00","updated_at":"1970-01-01T00:00:00+00:00"}],"server_time":"1970-01-01T00:00:00+00:00"}"""
+            )
+        )
+        val out = client.listItems(since = null, limit = 200, offset = 0)
+        assertThat(out.items).hasSize(1)
+        assertThat(out.items[0].contentHash).isEqualTo("h1")
+        assertThat(out.items[0].opdsHref).isEqualTo("https://srv/b1.epub")
+        val req = server.takeRequest()
+        assertThat(req.method).isEqualTo("GET")
+        assertThat(req.path).isEqualTo("/library/v1/items?limit=200&offset=0")
+    }
+
+    @Test
+    fun `listAllItems pages until a short page and concatenates`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(200).setBody(
+            """{"items":[{"content_hash":"h1","title":"1","opds_href":"https://s/1.epub","created_at":"1970-01-01T00:00:00+00:00","updated_at":"1970-01-01T00:00:00+00:00"},{"content_hash":"h2","title":"2","opds_href":"https://s/2.epub","created_at":"1970-01-01T00:00:00+00:00","updated_at":"1970-01-01T00:00:00+00:00"}],"server_time":"1970-01-01T00:00:00+00:00"}"""
+        ))
+        server.enqueue(MockResponse().setResponseCode(200).setBody(
+            """{"items":[{"content_hash":"h3","title":"3","opds_href":"https://s/3.epub","created_at":"1970-01-01T00:00:00+00:00","updated_at":"1970-01-01T00:00:00+00:00"}],"server_time":"1970-01-01T00:00:00+00:00"}"""
+        ))
+        val all = client.listAllItems(limit = 2, maxPages = 50)
+        assertThat(all.map { it.contentHash }).containsExactly("h1", "h2", "h3").inOrder()
+        assertThat(server.takeRequest().path).isEqualTo("/library/v1/items?limit=2&offset=0")
+        assertThat(server.takeRequest().path).isEqualTo("/library/v1/items?limit=2&offset=2")
+    }
+
+    @Test
+    fun `listAllItems stops at maxPages and reports truncation`() = runTest {
+        repeat(3) {
+            server.enqueue(MockResponse().setResponseCode(200).setBody(
+                """{"items":[{"content_hash":"h$it","title":"$it","opds_href":"https://s/$it.epub","created_at":"1970-01-01T00:00:00+00:00","updated_at":"1970-01-01T00:00:00+00:00"}],"server_time":"1970-01-01T00:00:00+00:00"}"""
+            ))
+        }
+        var truncatedAt: Int? = null
+        val all = client.listAllItems(limit = 1, maxPages = 2, onTruncated = { truncatedAt = it })
+        assertThat(all).hasSize(2)
+        assertThat(truncatedAt).isEqualTo(2)
+    }
+
+    @Test
+    fun `listItems 401 raises LibraryHttpException`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(401).setBody("nope"))
+        try {
+            client.listItems(since = null, limit = 200, offset = 0)
+            error("expected throw")
+        } catch (e: LibraryHttpException) {
+            assertThat(e.code).isEqualTo(401)
+        }
+    }
 }
