@@ -131,4 +131,37 @@ class SyncOrchestratorTest {
         val result = orchestrator.runOnce()
         assertThat(result).isInstanceOf(SyncResult.Unauthorized::class.java)
     }
+
+    @Test fun `applyProgressItems writes positions for present docs without touching watermark`() = runTest {
+        val docId = seedDoc(metadataId = "m", hash = "h")
+        val items = listOf(
+            ProgressItemDto(
+                document = DocumentIdDto(metadataId = "m", contentHash = "h"),
+                locator = "restored-loc",
+                percent = 0.4,
+                clientUpdatedAt = "1970-01-01T00:00:00.500Z",
+            )
+        )
+
+        orchestrator.applyProgressItems(items)
+
+        val saved = progress.get(docId)
+        assertThat(saved?.locator).isEqualTo("restored-loc")
+        // No network call happened and the pull cursor is untouched.
+        assertThat(db.syncStateDao().lastPulled("progress")).isNull()
+    }
+
+    @Test fun `applyProgressItems skips items with no local document`() = runTest {
+        // No seedDoc: the item has nothing to attach to and must be dropped, not crash.
+        val items = listOf(
+            ProgressItemDto(
+                document = DocumentIdDto(metadataId = "x", contentHash = "y"),
+                locator = "loc",
+                percent = 0.2,
+                clientUpdatedAt = "1970-01-01T00:00:00.500Z",
+            )
+        )
+        orchestrator.applyProgressItems(items) // should not throw
+        assertThat(db.syncStateDao().lastPulled("progress")).isNull()
+    }
 }

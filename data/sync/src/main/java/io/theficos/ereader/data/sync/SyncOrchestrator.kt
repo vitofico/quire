@@ -58,13 +58,25 @@ class SyncOrchestrator(
         val pulled = client.pullProgress(sinceIso)
         return when (pulled) {
             is SyncResult.Success -> {
-                pulled.value.items.forEach { applyPulled(it) }
+                applyProgressItems(pulled.value.items)
                 val serverEpoch = Instant.parse(pulled.value.serverTime).toEpochMilli()
                 syncState.set(SyncStateEntity(SYNC_TABLE, serverEpoch))
                 SyncResult.Success(Unit)
             }
             else -> pulled.asUnit()
         }
+    }
+
+    /**
+     * Apply a caller-supplied batch of pulled progress items to local storage.
+     * Pure local effect: no network, no watermark write. Each item attaches to
+     * its local document via [DocumentRepository.findByIdentity]; items with no
+     * matching document are silently skipped (same as the pull path). The
+     * restore flow calls this directly with items it already pulled, so reading
+     * positions are restored without depending on the sync cursor.
+     */
+    suspend fun applyProgressItems(items: List<ProgressItemDto>) {
+        items.forEach { applyPulled(it) }
     }
 
     private suspend fun applyPulled(item: ProgressItemDto) {
