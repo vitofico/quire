@@ -2,8 +2,11 @@ package io.theficos.ereader.di
 
 import android.content.Context
 import io.theficos.ereader.auth.CalibreCredentialStore
+import io.theficos.ereader.core.identity.extractIdentity
+import io.theficos.ereader.core.metadata.readOpfBundle
 import io.theficos.ereader.core.model.Document
 import io.theficos.ereader.core.model.DocumentIdentity
+import io.theficos.ereader.domain.restore.RestoreInProgressUseCase
 import io.theficos.ereader.data.ai.AiClient
 import io.theficos.ereader.data.ai.AiRepository
 import io.theficos.ereader.data.ai.CatalogInsightStash
@@ -263,6 +266,58 @@ class AppContainer(context: Context) {
                 }
             },
         )
+
+    /**
+     * Restore-after-reinstall use case (Tasks 1–4). Assembles
+     * [RestoreInProgressUseCase] with the real OPDS/sync/library/Room
+     * collaborators. Unlike the catalog download path this deliberately
+     * does NOT re-upload to /library/v1/items: the server mirror already
+     * holds the row we joined on, so a re-upload would be redundant.
+     *
+     * Best-effort throughout: a missing mirror, an offline/401 progress
+     * pull, or a single failed download must not abort the whole run.
+     * Callers (Tasks 5/6) own when this fires.
+     */
+    fun restoreInProgressUseCase(): RestoreInProgressUseCase = RestoreInProgressUseCase(
+        fetchLibraryItems = {
+            libraryClient.listAllItems(
+                onTruncated = { n -> android.util.Log.w("Restore", "library mirror truncated at $n items") },
+            )
+        },
+        fetchInProgress = {
+            when (val res = syncClient.pullProgress(java.time.Instant.EPOCH.toString())) {
+                is io.theficos.ereader.data.sync.SyncResult.Success -> res.value.items
+                else -> emptyList() // best-effort: offline / 401 -> nothing to restore
+            }
+        },
+        isPresent = { identity -> documentRepository.findByIdentity(identity) != null },
+        downloadAndInsert = { c ->
+            val fileName = "${java.util.UUID.randomUUID()}.epub"
+            val file = bookDownloader.download(c.opdsHref, fileName) { _, _ -> }
+            val coverFile = runCatching {
+                bookDownloader.downloadCover(c.opdsHref, fileName.removeSuffix(".epub") + ".cover")
+            }.getOrNull()
+            val identity = extractIdentity(file)
+            if (documentRepository.findByIdentity(identity) != null) {
+                file.delete()
+                coverFile?.delete()
+            } else {
+                val opf = readOpfBundle(file, fallbackTitle = c.title)
+                documentRepository.insert(
+                    identity = identity,
+                    title = c.title,
+                    author = c.authors.firstOrNull(),
+                    downloadUrl = c.opdsHref,
+                    localPath = file.absolutePath,
+                    coverPath = coverFile?.absolutePath,
+                    downloadedAt = System.currentTimeMillis(),
+                    seriesName = opf.seriesName,
+                    seriesIndex = opf.seriesPosition?.toDouble(),
+                )
+            }
+        },
+        applyPositions = { items -> syncOrchestrator.applyProgressItems(items) },
+    )
 
     private suspend fun readOpfBytes(doc: Document): ByteArray? = withContext(Dispatchers.IO) {
         runCatching {
