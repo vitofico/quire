@@ -140,6 +140,7 @@ fun AppNavGraph(container: AppContainer) {
                     aiRepository = container.aiRepository,
                     insightSyncRepository = container.insightSyncRepository,
                     insightDao = container.insightDao,
+                    restoreInProgress = { container.restoreInProgressUseCase().run() },
                 )
             }
             val aiConfig by container.aiRepository.config.collectAsState()

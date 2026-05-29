@@ -13,6 +13,7 @@ import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.db.InsightDao
 import io.theficos.ereader.data.local.db.SyncStateDao
 import io.theficos.ereader.data.sync.SyncEnqueuer
+import io.theficos.ereader.domain.restore.RestoreSummary
 import java.io.File
 import io.theficos.ereader.reader.ReaderFontFamily
 import io.theficos.ereader.reader.ReaderPreferences
@@ -26,6 +27,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -58,6 +60,8 @@ sealed interface InsightSyncStatus {
 sealed interface SettingsEvent {
     data object ProfileDeleted : SettingsEvent
     data class ProfileDeleteFailed(val message: String) : SettingsEvent
+    data class RestoreFinished(val summary: RestoreSummary) : SettingsEvent
+    data class RestoreFailed(val message: String) : SettingsEvent
 }
 
 class SettingsViewModel(
@@ -70,6 +74,7 @@ class SettingsViewModel(
     private val insightSyncRepository: InsightSyncRepository? = null,
     private val insightDao: InsightDao? = null,
     private val syncEnqueuer: (Context) -> Unit = { SyncEnqueuer.enqueue(it, expedited = true, replaceExisting = true) },
+    private val restoreInProgress: (suspend () -> RestoreSummary)? = null,
 ) : ViewModel() {
     private val _calibre = MutableStateFlow(loadInitialCalibre())
     val calibre: StateFlow<CalibreUiState> = _calibre.asStateFlow()
@@ -88,6 +93,15 @@ class SettingsViewModel(
 
     private val _events = MutableSharedFlow<SettingsEvent>(extraBufferCapacity = 4)
     val events: SharedFlow<SettingsEvent> = _events.asSharedFlow()
+
+    /** True whenever an account is configured (any scheme), gating the restore action. */
+    val isConnected: StateFlow<Boolean> =
+        store.accountFlow
+            .map { it != null }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, store.accountFlow.value != null)
+
+    private val _restoreRunning = MutableStateFlow(false)
+    val restoreRunning: StateFlow<Boolean> = _restoreRunning.asStateFlow()
 
     val ai: StateFlow<AiState> = combine(
         combine(aiRepository.config, aiRepository.preferences, _aiHealth) { c, p, h ->
@@ -242,6 +256,28 @@ class SettingsViewModel(
                     InsightSyncStatus.Error(result.error.message ?: "Sync failed")
             }
             _lastInsightSync.value = insightDao?.latestSyncedAt() ?: _lastInsightSync.value
+        }
+    }
+
+    /**
+     * Task 5: user-initiated "Restore in-progress books" trigger from the
+     * Storage & sync section. Runs [RestoreInProgressUseCase] and emits a
+     * one-shot [SettingsEvent.RestoreFinished] (or [SettingsEvent.RestoreFailed])
+     * for the UI to render as a snackbar. Re-entrancy is guarded so a button
+     * mash can't fire two concurrent restores.
+     */
+    fun restoreInProgressBooks() {
+        val restore = restoreInProgress ?: return
+        if (_restoreRunning.value) return
+        viewModelScope.launch {
+            _restoreRunning.value = true
+            try {
+                _events.tryEmit(SettingsEvent.RestoreFinished(restore()))
+            } catch (t: Throwable) {
+                _events.tryEmit(SettingsEvent.RestoreFailed(t.message ?: t.javaClass.simpleName))
+            } finally {
+                _restoreRunning.value = false
+            }
         }
     }
 }

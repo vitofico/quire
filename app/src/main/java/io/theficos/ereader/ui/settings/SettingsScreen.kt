@@ -74,6 +74,8 @@ fun SettingsScreen(
     val reader by viewModel.readerPreferences.collectAsState()
     val aiState by viewModel.ai.collectAsState()
     val deleteInFlight by viewModel.deleteProfileInFlight.collectAsState()
+    val isConnected by viewModel.isConnected.collectAsState()
+    val restoreRunning by viewModel.restoreRunning.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) {
@@ -82,6 +84,12 @@ fun SettingsScreen(
                 SettingsEvent.ProfileDeleted -> "Reader profile deleted."
                 is SettingsEvent.ProfileDeleteFailed ->
                     "Couldn't delete reader profile: ${event.message}"
+                is SettingsEvent.RestoreFinished -> {
+                    val s = event.summary
+                    val failTail = if (s.failed > 0) " · ${s.failed} failed" else ""
+                    "Restored ${s.downloaded} of ${s.requested}$failTail"
+                }
+                is SettingsEvent.RestoreFailed -> "Restore failed: ${event.message}"
             }
             snackbarHostState.showSnackbar(msg)
         }
@@ -245,6 +253,20 @@ fun SettingsScreen(
                         onClick = { pendingRemoveAll = true },
                         colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
                     ) { Text("Remove all downloaded books") }
+                }
+                if (isConnected) {
+                    Column {
+                        Text("Restore in-progress books", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "Re-download the books you'd started reading and restore where you left off. Useful after a reinstall.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        TextButton(
+                            onClick = { viewModel.restoreInProgressBooks() },
+                            enabled = !restoreRunning,
+                        ) { Text(if (restoreRunning) "Restoring…" else "Restore in-progress books") }
+                    }
                 }
             }
 
