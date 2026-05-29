@@ -135,12 +135,12 @@ match the table in [Deploy modes](#deploy-modes).
 | AI only    | `false`                      | `true`                 | `/ai/v1/*` only — drop the `calibre-web` service from the compose for a leaner stack |
 
 Set both flags in `.env`. Sync-only deploys don't need
-`QUIRE_SERVER_AI_*`; AI-only deploys don't need calibre-web auth once
-PR-B's token mode is selected (`QUIRE_SERVER_AI_AUTH_MODE=token`).
-Token mode is **deprecated** as of Phase 0, task X-2 (removal scheduled in
-2 minor releases); new AI-only / Cloud-style deploys should adopt
-`QUIRE_SERVER_AUTH_BACKEND=native` (NativeAuth) instead. See the
-"AI auth mode" section below.
+`QUIRE_SERVER_AI_*`; AI-only / Cloud-style deploys that don't run calibre-web
+should set `QUIRE_SERVER_AUTH_BACKEND=native`, which makes `/ai/v1/*`
+authenticate against the same NativeAuth session tokens as the rest of the
+API (no separate AI token config). The older `QUIRE_SERVER_AI_AUTH_MODE=token`
+HMAC path is **deprecated** as of Phase 0, task X-2 (removal scheduled in 2
+minor releases). See the "AI auth mode" section below.
 
 ##### Mode examples
 
@@ -279,10 +279,18 @@ resolution) is documented in `docs/sync-api.md` under `POST
 #### AI auth mode (PR-B, 2026-05-16)
 
 `/ai/v1/*` routes go through a pluggable `AiAuthenticator` (sync routes are
-unaffected). Two modes:
+unaffected). The concrete authenticator is chosen from **both**
+`QUIRE_SERVER_AI_AUTH_MODE` and the primary `QUIRE_SERVER_AUTH_BACKEND`:
 
-- **`basic`** (default) — wraps the existing calibre-web Basic verifier;
-  `AiPrincipal.tenant_id` is always `"local"`. No additional config required.
+- **`basic`** (default) — follows the primary auth backend:
+  - with `AUTH_BACKEND=calibreweb` (OSS default), wraps the calibre-web Basic
+    verifier; `AiPrincipal.tenant_id` is always `"local"`. No extra config.
+  - with `AUTH_BACKEND=native`, `/ai/v1/*` delegates to the **same**
+    `NativeAuth` session tokens that govern `/auth/v1`, `/sync/v1`, and
+    `/library/v1` — one identity layer, no separate AI token issuer. The
+    principal's `subject` is the `native:<id>` user scope and `tenant_id`
+    stays `"local"`. This is the supported, non-deprecated path for
+    Cloud-style deploys, and the replacement for `token` mode below.
 - **`token`** (**deprecated** as of Phase 0, task X-2 — removal scheduled in 2
   minor releases) — HMAC-SHA256 bearer tokens. Wire format:
   `header.payload.signature` with header `{alg=HS256, kid}` and payload claims

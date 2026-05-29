@@ -84,19 +84,30 @@ def test_native_backend_mounts_auth_router(monkeypatch):
 
 
 # ----------------------------------------------------------------------------
-# Cross-config guard: native + AI-on + basic AI auth must crashloop
+# Native primary auth + AI-on + basic AI auth → AI delegates to NativeAuth
+# (the X-2 replacement for the deprecated token mode; formerly a crashloop).
 # ----------------------------------------------------------------------------
 
 
-def test_native_with_ai_basic_auth_raises(monkeypatch):
-    """Native primary auth + AI on + ``ai_auth_mode=basic`` would silently
-    route AI requests through CalibreWeb. The factory must refuse.
+def test_native_with_ai_basic_delegates_to_backend(monkeypatch):
+    """Native primary auth + AI on + ``ai_auth_mode=basic`` now routes AI
+    requests through the primary ``NativeAuth`` backend via
+    ``BackendAiAuthenticator`` — the same session-token identity layer as
+    ``/auth/v1`` / ``/sync/v1`` / ``/library/v1``. This is the long-term
+    replacement for ``AI_AUTH_MODE=token`` and used to crashloop.
     """
     monkeypatch.setenv("QUIRE_SERVER_AUTH_BACKEND", "native")
     monkeypatch.setenv("QUIRE_SERVER_AI_ENABLED", "true")
     # ai_auth_mode defaults to "basic"; leave unset.
-    with pytest.raises(RuntimeError, match="AI_AUTH_MODE=basic"):
-        _create_app()
+    app = _create_app()
+    from quire_server.api.ai_auth import BackendAiAuthenticator
+    from quire_server.core.auth_backend import NativeAuth
+
+    assert isinstance(app.state.ai_authenticator, BackendAiAuthenticator)
+    # The AI authenticator delegates to the SAME backend instance the primary
+    # routes use — not a second, parallel auth object.
+    assert isinstance(app.state.auth_backend, NativeAuth)
+    assert app.state.ai_authenticator._backend is app.state.auth_backend
 
 
 def test_native_with_ai_token_auth_is_ok(monkeypatch):

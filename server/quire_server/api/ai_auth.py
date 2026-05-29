@@ -12,9 +12,19 @@ This module introduces:
                        `get_ai_principal`).
 * `BasicAuthAiAuthenticator`  – wraps `CalibreAuthValidator`. Today's default.
                                 Emits tenant_id="local", auth_mode="basic".
-* `TokenAiAuthenticator`  – HMAC-SHA256 verifier. Stub for the hosted future;
-                            never wired by default. `kid` rotation supported
-                            from day one via a JSON `{kid: secret}` map.
+* `TokenAiAuthenticator`  – HMAC-SHA256 verifier. The hosted-multitenant
+                            seam, kept for the deprecation window of
+                            `QUIRE_SERVER_AI_AUTH_MODE=token` (task X-2).
+                            `kid` rotation supported from day one via a JSON
+                            `{kid: secret}` map.
+* `BackendAiAuthenticator`  – delegates to the primary `AuthBackend`
+                              (`NativeAuth` in Cloud). This is what lets a
+                              `QUIRE_SERVER_AUTH_BACKEND=native` deployment run
+                              `/ai/v1/*` on the same session-token identity
+                              layer as `/auth/v1`, `/sync/v1`, and `/library/v1`
+                              — no separate HMAC token config, and the
+                              long-term replacement for token mode. Emits
+                              `auth_mode="native"`, `tenant_id="local"`.
 
 Sync routes (`/sync/v1/*`) keep depending on `current_user_id` directly.
 The seam only swings on `/ai/v1/*`.
@@ -54,6 +64,7 @@ from typing import Annotated, Literal, Protocol
 from fastapi import Depends, HTTPException, Request, status
 
 from quire_server.core.auth import CalibreAuthValidator
+from quire_server.core.auth_backend import AuthBackend
 from quire_server.core.logging_ctx import request_id_var
 
 logger = logging.getLogger(__name__)
@@ -94,7 +105,7 @@ class AiPrincipal:
     subject: str
     tenant_id: str
     scopes: tuple[str, ...]
-    auth_mode: Literal["basic", "token"]
+    auth_mode: Literal["basic", "token", "native"]
     request_id: str | None = field(default=None)
 
 
@@ -132,6 +143,47 @@ class BasicAuthAiAuthenticator:
             tenant_id="local",
             scopes=(),
             auth_mode="basic",
+            request_id=_read_request_id(),
+        )
+
+
+class BackendAiAuthenticator:
+    """Delegates AI auth to the primary :class:`AuthBackend`.
+
+    Used when ``QUIRE_SERVER_AUTH_BACKEND=native``: the ``/ai/v1/*`` routes
+    authenticate against the very same ``native_sessions`` Bearer tokens that
+    govern ``/auth/v1``, ``/sync/v1``, and ``/library/v1``. This is the
+    long-term replacement for ``TokenAiAuthenticator`` (the deprecated
+    ``AI_AUTH_MODE=token`` HMAC seam, task X-2) — a Cloud deployment no longer
+    needs to provision a second, parallel token issuer just for AI.
+
+    Mapping ``AuthUser -> AiPrincipal``:
+
+    * ``subject = auth_user.user_id`` (e.g. ``"native:42"``) — the per-user
+      storage scope, exactly as the primary routes use it.
+    * ``tenant_id = "local"`` — identical to basic mode. The OSS server is one
+      logical instance; per-user attribution already lives in ``subject``
+      (and ``ai_generation_log.user_id`` / the ``(tenant_id, subject)``
+      profile singleflight key). Cross-user aggregation is a Cloud-only,
+      separate-process concern and never reaches this code.
+    * ``auth_mode = "native"`` — distinct from ``"basic"`` so audit/log lines
+      and tests can tell session-token auth apart from CalibreWeb Basic.
+
+    The backend raises ``HTTPException(401)`` on any failure (missing,
+    malformed, unknown, revoked, or expired token); we let those propagate
+    verbatim so the wire shape matches the primary routes.
+    """
+
+    def __init__(self, backend: AuthBackend) -> None:
+        self._backend = backend
+
+    async def authenticate(self, request: Request) -> AiPrincipal:
+        auth_user = await self._backend.current_user(request)
+        return AiPrincipal(
+            subject=auth_user.user_id,
+            tenant_id="local",
+            scopes=(),
+            auth_mode="native",
             request_id=_read_request_id(),
         )
 

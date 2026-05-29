@@ -47,12 +47,36 @@ class CalibreCredentialStore(context: Context) {
 
     private val _accountFlow: MutableStateFlow<AccountCredentials?>
     private val _flow: MutableStateFlow<CalibreCredentials?>
+    private val _needsReauth: MutableStateFlow<Boolean>
 
     init {
         val initial = loadAccount()
         _accountFlow = MutableStateFlow(initial)
         _flow = MutableStateFlow(initial.asLegacyBasicOrNull())
+        // A stored Bearer session whose expiry has already passed on cold
+        // launch starts in the re-auth state, so the UI can route the user
+        // straight to sign-in instead of letting the first request 401.
+        _needsReauth = MutableStateFlow(
+            (initial as? AccountCredentials.Bearer)?.isExpiredAt(System.currentTimeMillis()) == true
+        )
     }
+
+    /**
+     * Re-auth signal for the configured Bearer (NativeAuth) account.
+     *
+     * Emits `true` when the current session can no longer authenticate and
+     * the user must sign in again — either because its `expires_at` has
+     * passed ([checkSessionExpiry]) or because a request came back `401`
+     * ([notifyUnauthorized]). NativeAuth has no refresh endpoint, so there is
+     * nothing to silently retry; the only recovery is a fresh interactive
+     * login, which the onboarding flow drives.
+     *
+     * This is a read-only *signal*: it never mutates or clears the stored
+     * credential. Saving a new account (a successful re-login) or clearing
+     * the store resets it to `false`. Basic accounts never set it — a 401
+     * there is a wrong-password condition handled by the onboarding verifier.
+     */
+    val needsReauth: StateFlow<Boolean> = _needsReauth.asStateFlow()
 
     /**
      * Scheme-aware account observable. New callers (sync, library, AI,
@@ -119,8 +143,20 @@ class CalibreCredentialStore(context: Context) {
      * Save a `quire_server` / Quire Cloud bearer-token account. The token is
      * stored as-is; callers must pass the raw token (no leading "Bearer ").
      * Blank values and tokens containing whitespace are rejected.
+     *
+     * [expiresAtEpochMs] is the session expiry from the login response's
+     * `expires_at`, in Unix epoch milliseconds; pass null when unknown (the
+     * session is then treated as non-expiring locally — see
+     * [AccountCredentials.Bearer.expiresAtEpochMs]). A successful save clears
+     * any pending [needsReauth] signal, since persisting a token is exactly
+     * what a re-login does.
      */
-    fun saveBearerAccount(baseUrl: String, email: String, token: String) {
+    fun saveBearerAccount(
+        baseUrl: String,
+        email: String,
+        token: String,
+        expiresAtEpochMs: Long? = null,
+    ) {
         require(baseUrl.isNotBlank()) { "baseUrl must not be blank" }
         require(email.isNotBlank()) { "email must not be blank" }
         require(token.isNotBlank()) { "token must not be blank" }
@@ -131,8 +167,44 @@ class CalibreCredentialStore(context: Context) {
             baseUrl = baseUrl.trim().trimEnd('/'),
             email = email,
             token = token,
+            expiresAtEpochMs = expiresAtEpochMs,
         )
         persistAccount(account)
+    }
+
+    /**
+     * Record that an authenticated request to the configured account's origin
+     * came back `401`. Flips [needsReauth] to `true` **only** when the current
+     * account is Bearer (NativeAuth) — there is no token to refresh, so the
+     * user must sign in again. Never mutates or clears the stored credential
+     * (the network layer must not silently swap or drop credentials); it only
+     * raises the signal the UI observes. No-op for Basic accounts and when no
+     * account is configured.
+     */
+    fun notifyUnauthorized() {
+        synchronized(mutationLock) {
+            if (_accountFlow.value is AccountCredentials.Bearer) {
+                _needsReauth.value = true
+            }
+        }
+    }
+
+    /**
+     * Proactively evaluate the configured Bearer session's expiry against
+     * [nowEpochMs] and raise [needsReauth] if it has lapsed. Callers (e.g. the
+     * UI on resume / cold launch) invoke this so an already-expired session
+     * routes to sign-in without first firing a doomed network request.
+     * Returns the resulting [needsReauth] value. No-op effect for non-Bearer
+     * accounts or sessions with unknown expiry.
+     */
+    fun checkSessionExpiry(nowEpochMs: Long = System.currentTimeMillis()): Boolean {
+        synchronized(mutationLock) {
+            val account = _accountFlow.value
+            if (account is AccountCredentials.Bearer && account.isExpiredAt(nowEpochMs)) {
+                _needsReauth.value = true
+            }
+            return _needsReauth.value
+        }
     }
 
     /** Clear all stored credentials. */
@@ -144,6 +216,7 @@ class CalibreCredentialStore(context: Context) {
             }
             _accountFlow.value = null
             _flow.value = null
+            _needsReauth.value = false
         }
     }
 
@@ -162,6 +235,7 @@ class CalibreCredentialStore(context: Context) {
                         .putString(KEY_PASS, account.password)
                         .remove(KEY_EMAIL)
                         .remove(KEY_TOKEN)
+                        .remove(KEY_EXPIRES_AT)
                     if (account.quireServerUrl != null) {
                         editor.putString(KEY_QUIRE_SERVER_URL, account.quireServerUrl)
                     } else {
@@ -175,6 +249,11 @@ class CalibreCredentialStore(context: Context) {
                         .remove(KEY_USER)
                         .remove(KEY_PASS)
                         .remove(KEY_QUIRE_SERVER_URL)
+                    if (account.expiresAtEpochMs != null) {
+                        editor.putLong(KEY_EXPIRES_AT, account.expiresAtEpochMs)
+                    } else {
+                        editor.remove(KEY_EXPIRES_AT)
+                    }
                 }
             }
             val committed = editor.commit()
@@ -187,6 +266,9 @@ class CalibreCredentialStore(context: Context) {
             }
             _accountFlow.value = account
             _flow.value = account.asLegacyBasicOrNull()
+            // A fresh save is a (re-)authentication: any pending re-auth
+            // signal is now satisfied.
+            _needsReauth.value = false
         }
     }
 
@@ -227,7 +309,14 @@ class CalibreCredentialStore(context: Context) {
             AuthScheme.BEARER -> {
                 val email = prefs.getString(KEY_EMAIL, null) ?: return null
                 val token = prefs.getString(KEY_TOKEN, null) ?: return null
-                AccountCredentials.Bearer(baseUrl, email, token)
+                // Absent key → unknown expiry (legacy record or unparseable
+                // login response). Stored as a plain Long when known.
+                val expiresAt = if (prefs.contains(KEY_EXPIRES_AT)) {
+                    prefs.getLong(KEY_EXPIRES_AT, 0L)
+                } else {
+                    null
+                }
+                AccountCredentials.Bearer(baseUrl, email, token, expiresAt)
             }
         }
     }
@@ -245,6 +334,7 @@ class CalibreCredentialStore(context: Context) {
         const val KEY_PASS = "password"
         const val KEY_EMAIL = "email"
         const val KEY_TOKEN = "token"
+        const val KEY_EXPIRES_AT = "expires_at_epoch_ms"
         const val KEY_QUIRE_SERVER_URL = "quire_server_url"
     }
 }

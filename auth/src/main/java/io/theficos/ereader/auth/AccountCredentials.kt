@@ -53,14 +53,44 @@ sealed class AccountCredentials {
             "AccountCredentials.Basic(baseUrl=$baseUrl, username=$username, password=***, quireServerUrl=$quireServerUrl)"
     }
 
+    /**
+     * NativeAuth (`quire_server` / Quire Cloud) bearer-token credentials.
+     *
+     * [expiresAtEpochMs] is the absolute expiry of the session token, in
+     * Unix epoch milliseconds, as reported by the server's
+     * `POST /auth/v1/login` response (`expires_at`). It is **nullable** to
+     * cover two cases: legacy records persisted before expiry tracking
+     * existed, and login responses whose `expires_at` we could not parse.
+     * `null` means "expiry unknown" — callers must treat that as a
+     * still-usable token (fail-open) rather than as already-expired, since
+     * NativeAuth has no refresh endpoint and a spurious logout would be worse
+     * than letting the next request surface a real 401.
+     *
+     * NativeAuth issues opaque, non-refreshable session tokens, so when this
+     * instant passes the only recovery is a fresh interactive login. See
+     * [isExpiredAt].
+     */
     data class Bearer(
         override val baseUrl: String,
         val email: String,
         val token: String,
+        val expiresAtEpochMs: Long? = null,
     ) : AccountCredentials() {
         override val scheme: AuthScheme = AuthScheme.BEARER
         override val subject: String get() = email.lowercase()
+
+        /**
+         * True when this session's [expiresAtEpochMs] is known and is at or
+         * before [nowEpochMs]. Returns false when expiry is unknown
+         * (fail-open — see the [expiresAtEpochMs] doc).
+         */
+        fun isExpiredAt(nowEpochMs: Long): Boolean {
+            val exp = expiresAtEpochMs ?: return false
+            return nowEpochMs >= exp
+        }
+
         override fun toString(): String =
-            "AccountCredentials.Bearer(baseUrl=$baseUrl, email=$email, token=***)"
+            "AccountCredentials.Bearer(baseUrl=$baseUrl, email=$email, token=***, " +
+                "expiresAtEpochMs=$expiresAtEpochMs)"
     }
 }

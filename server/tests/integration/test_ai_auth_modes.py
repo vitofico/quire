@@ -287,3 +287,108 @@ async def test_token_auth_propagates_request_id_to_generation_log(client_factory
 
     logs = (await session.execute(select(AIGenerationLog))).scalars().all()
     assert any(log.request_id == "rid-test-pr-b" for log in logs), [log.request_id for log in logs]
+
+
+# ---------------------------------------------------------------------------
+# Native backend: /ai/v1/* delegates to the primary NativeAuth session tokens
+# (task X-2 — the long-term replacement for AI_AUTH_MODE=token).
+# ---------------------------------------------------------------------------
+
+
+async def _register_and_login(
+    app,
+    *,
+    email: str = "reader@example.com",
+    password: str = "correct-horse-battery",
+) -> str:
+    """Create a native user and return a freshly-minted session token.
+
+    Signup is intentionally not HTTP-exposed in the OSS server (Cloud's
+    control plane owns it), so we drive ``NativeAuth.register`` / ``login``
+    directly through the configured backend — exactly the building blocks the
+    future control plane will call.
+    """
+    backend = app.state.auth_backend
+    await backend.register(email=email, password=password)
+    token, _expires_at = await backend.login(email=email, password=password)
+    return token
+
+
+async def test_native_backend_ai_accepts_session_token(client_factory, app, session):
+    """``auth_backend=native`` + default ``ai_auth_mode=basic``: ``/ai/v1/*``
+    authenticates against the SAME ``native_sessions`` Bearer tokens as
+    ``/auth/v1`` / ``/sync/v1`` / ``/library/v1`` — no HMAC token config.
+    """
+    async with client_factory(
+        ai_enabled=True,
+        auth_backend="native",
+        skip_auth_overrides=True,
+    ) as client:
+        token = await _register_and_login(app)
+        r = await client.get("/ai/v1/config", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200, r.text
+
+
+async def test_native_backend_ai_rejects_missing_and_bad_credentials(client_factory, app, session):
+    """No header, an unknown bearer, and Basic creds must all 401 under the
+    native AI seam (it is session-token-only)."""
+    async with client_factory(
+        ai_enabled=True,
+        auth_backend="native",
+        skip_auth_overrides=True,
+    ) as client:
+        # Register a user so the table is non-empty, proving rejection is about
+        # the *presented* credential, not an empty DB.
+        await _register_and_login(app)
+
+        r0 = await client.get("/ai/v1/config")
+        assert r0.status_code == 401, r0.text
+
+        r1 = await client.get(
+            "/ai/v1/config",
+            headers={"Authorization": "Bearer not-a-real-session-token"},
+        )
+        assert r1.status_code == 401, r1.text
+
+        r2 = await client.get("/ai/v1/config", headers=_basic_header("alice"))
+        assert r2.status_code == 401, r2.text
+
+
+@pytest.mark.requires_ai
+async def test_native_auth_writes_native_subject_to_generation_log(client_factory, app, session):
+    """End-to-end: a native session's subject (``native:<id>``) flows into
+    ``ai_generation_log.subject`` and the tenant stays ``"local"`` (the OSS
+    server is one logical instance; cross-user aggregation is Cloud-only)."""
+    async with client_factory(
+        ai_enabled=True,
+        auth_backend="native",
+        ai_base_url="http://fake/v1",
+        ai_model="test-model",
+        skip_auth_overrides=True,
+    ) as client:
+        _install_fake_orchestrator(
+            app,
+            {"schema_version": 2, "intro": "From a native reader.", "confidence": "high"},
+        )
+
+        token = await _register_and_login(app)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        r = await client.put("/ai/v1/preferences", headers=headers, json={"ai_enabled": True})
+        assert r.status_code == 200, r.text
+
+        r2 = await client.post(
+            "/ai/v1/insights/lookup",
+            headers=headers,
+            json={
+                "identity": {"content_hash": "ch-native-1"},
+                "bundle": {"title": "Native Book"},
+            },
+        )
+        assert r2.status_code == 200, r2.text
+
+    logs = (await session.execute(select(AIGenerationLog))).scalars().all()
+    assert len(logs) >= 1
+    assert any(log.subject.startswith("native:") for log in logs), [log.subject for log in logs]
+    # tenant_id stays "local" under native auth — no per-user tenant explosion.
+    assert all(log.tenant_id == "local" for log in logs), [log.tenant_id for log in logs]

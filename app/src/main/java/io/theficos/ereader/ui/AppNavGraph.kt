@@ -59,6 +59,19 @@ fun AppNavGraph(container: AppContainer) {
         hasAccount = container.credentialStore.getAccount() != null,
         welcomeCompleted = container.welcomePreferencesStore.isCompleted(),
     )
+    // Re-auth gating for NativeAuth (Bearer) sessions. The store raises this
+    // when the session token expires or a request comes back 401 — there's no
+    // refresh token, so the only recovery is signing in again. We probe expiry
+    // once on entry, then route to the connect screen whenever the signal
+    // flips true mid-session. A successful re-login clears the signal (the
+    // store resets it on save) and the connect screen navigates onward.
+    LaunchedEffect(Unit) { container.credentialStore.checkSessionExpiry() }
+    val needsReauth by container.credentialStore.needsReauth.collectAsState()
+    LaunchedEffect(needsReauth) {
+        if (needsReauth) {
+            nav.navigate("connect-server") { launchSingleTop = true }
+        }
+    }
     NavHost(navController = nav, startDestination = startDestination) {
         composable("welcome") {
             WelcomeScreen(
