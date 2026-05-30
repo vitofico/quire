@@ -92,6 +92,15 @@ class RestoreInProgressUseCaseTest {
         assertThat(downloaded).containsExactly("https://s/2.epub")
     }
 
+    @Test fun `run reports progress from 0 to total over candidates`() = runTest {
+        val events = mutableListOf<Pair<Int, Int>>()
+        useCase(
+            mirror = listOf(item("h1", "https://s/1.epub"), item("h2", "https://s/2.epub")),
+            prog = listOf(progress("h1"), progress("h2")),
+        ).run { done, total -> events += done to total }
+        assertThat(events).containsExactly(0 to 2, 1 to 2, 2 to 2).inOrder()
+    }
+
     @Test fun `applies positions for all in-progress items including those not in the mirror`() = runTest {
         val applied = mutableListOf<ProgressItemDto>()
         useCase(

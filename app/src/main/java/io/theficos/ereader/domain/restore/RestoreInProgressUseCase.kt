@@ -4,6 +4,9 @@ import io.theficos.ereader.core.model.DocumentIdentity
 import io.theficos.ereader.data.library.LibraryItemResponse
 import io.theficos.ereader.data.sync.ProgressItemDto
 
+/** Live progress of a restore run: [done] of [total] candidate books processed. */
+data class RestoreProgress(val done: Int, val total: Int)
+
 /** Outcome counters for one restore run, rendered as a snackbar summary. */
 data class RestoreSummary(
     val requested: Int,
@@ -48,7 +51,7 @@ class RestoreInProgressUseCase(
     private val applyPositions: suspend (List<ProgressItemDto>) -> Unit,
     private val minPercentExclusive: Double = 0.0,
 ) {
-    suspend fun run(): RestoreSummary {
+    suspend fun run(onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }): RestoreSummary {
         val mirrorByHash = fetchLibraryItems().associateBy { it.contentHash }
         val inProgress = fetchInProgress().filter {
             it.finishedAt == null && it.abandonedAt == null && it.percent > minPercentExclusive
@@ -59,11 +62,13 @@ class RestoreInProgressUseCase(
             RestoreCandidate(progress = p, opdsHref = href, title = item.title, authors = item.authors)
         }
 
+        onProgress(0, candidates.size)
+
         var downloaded = 0
         var skippedExisting = 0
         var skippedUnfetchable = 0
         var failed = 0
-        for (c in candidates) {
+        candidates.forEachIndexed { index, c ->
             when {
                 !isHttp(c.opdsHref) -> skippedUnfetchable++
                 isPresent(c.identity) -> skippedExisting++
@@ -74,6 +79,7 @@ class RestoreInProgressUseCase(
                     failed++
                 }
             }
+            onProgress(index + 1, candidates.size)
         }
 
         // Restore positions for every in-progress item; items whose document
