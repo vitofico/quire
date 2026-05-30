@@ -85,6 +85,30 @@ def _parse_openlibrary_works(entries: list[dict], *, default_author: str) -> lis
     return out
 
 
+def _parse_openlibrary_language(payload: dict, bibkey: str) -> str | None:
+    """Pull the first edition language code from a Books-API ``jscmd=details``
+    response.
+
+    Shape: ``{<bibkey>: {"details": {"languages": [{"key":
+    "/languages/fre"}]}}}``. Returns the bare code (``"fre"``) or ``None`` when
+    the record, the details block, or the languages array is missing/empty.
+    """
+    rec = (payload or {}).get(bibkey)
+    if not isinstance(rec, dict):
+        return None
+    details = rec.get("details")
+    if not isinstance(details, dict):
+        return None
+    languages = details.get("languages")
+    if not isinstance(languages, list) or not languages:
+        return None
+    first = languages[0]
+    if not isinstance(first, dict):
+        return None
+    code = (first.get("key") or "").rsplit("/", 1)[-1].strip().lower()
+    return code or None
+
+
 def _serialize_book_ref(b: BookRef) -> dict:
     return {
         "title": b.title,
@@ -370,6 +394,56 @@ class Retriever:
             {"citations": [c.model_dump() for c in citations]},
         )
         return citations
+
+    async def lookup_book_language(self, isbn: str) -> str | None:
+        """Best-effort edition-level language for an ISBN as an OpenLibrary
+        language code (e.g. ``"eng"``, ``"fre"``), or ``None``.
+
+        Uses the Books API ``jscmd=details`` view, whose ``details.languages``
+        is edition-specific. We deliberately do NOT reuse ``/search.json``'s
+        ``language`` field for this: that one is work-level and aggregates
+        every translation a work was ever published in (a French novel comes
+        back tagged ger/eng/ita/…/fre), so it can't identify the scanned
+        edition. Cached positively AND negatively in ``external_source_cache``
+        like the other lookups; never raises.
+        """
+        norm_isbn = _normalize_key(isbn)
+        if not norm_isbn:
+            return None
+        key = f"isbn:{norm_isbn}"
+        cached = await self._read_cache("openlibrary_language", key)
+        if cached is not None:
+            return cached.get("language")
+
+        bibkey = f"ISBN:{norm_isbn}"
+        try:
+            async with self._http() as http:
+                r = await http.get(
+                    f"{_OL_BASE}/api/books",
+                    params={"bibkeys": bibkey, "format": "json", "jscmd": "details"},
+                )
+                # OpenLibrary responded — reachable regardless of status code.
+                await self._record_retrieval(name="openlibrary", success=True)
+                if r.status_code != 200:
+                    # Transient (429 / 5xx) or unexpected status. Do NOT cache:
+                    # pinning a null here would suppress backfill for the full
+                    # TTL after a temporary OL outage or rate-limit. Return None
+                    # and let the next attempt retry.
+                    logger.info(
+                        "ai.retrieval.openlibrary_language.status status=%s", r.status_code
+                    )
+                    return None
+                language = _parse_openlibrary_language(r.json(), bibkey)
+        except httpx.HTTPError as e:
+            logger.info("ai.retrieval.openlibrary_language.fail err=%s", e)
+            await self._record_retrieval(name="openlibrary", success=False)
+            # Don't cache a network failure — let the next attempt retry.
+            return None
+
+        # Only confirmed 200 responses reach here — cache the positive code or
+        # the confirmed "edition has no language" (null) result.
+        await self._write_cache("openlibrary_language", key, {"language": language})
+        return language
 
     async def _fetch_wikipedia(self, term: str) -> list[Citation]:
         try:

@@ -14,10 +14,15 @@ for "unset").
 
 from __future__ import annotations
 
-from quire_server.api.ai_schemas import AiStyle, Citation, MetadataBundle
+from quire_server.api.ai_schemas import ISO_639_1_CODES, AiStyle, Citation, MetadataBundle
 from quire_server.core.ai.themes import CONTROLLED_THEMES
 
-PROMPT_VERSION = "5"
+# v6 (2026-05-30): `auto` language now follows the book's own metadata
+# language instead of emitting no clause, so a French book yields a French
+# insight without the user picking a language. This materially changes the
+# `auto` output (the universal default), so the cache key bumps to force
+# regeneration. See `_resolve_response_language`.
+PROMPT_VERSION = "6"
 
 # pr-β (Bundle 3, coordinator §3.1 / §3.2). Separate cache namespace from
 # ``PROMPT_VERSION`` (which is keyed on the per-book ``book_insights`` PK);
@@ -146,6 +151,60 @@ _TONE_HINT = {
 }
 
 
+# ISO 639-2 (three-letter, bibliographic /B and terminological /T) → ISO 639-1
+# (two-letter) for the languages we're likely to see in EPUB OPF `language`
+# tags and OpenLibrary `/languages/<code>` records. The insight prompt speaks
+# ISO 639-1; three-letter or region-tagged codes get folded down here. Codes
+# we don't recognize resolve to None (no language clause) rather than guess.
+_ISO_639_2_TO_1 = {
+    "eng": "en", "ita": "it", "spa": "es", "fra": "fr", "fre": "fr",
+    "deu": "de", "ger": "de", "por": "pt", "nld": "nl", "dut": "nl",
+    "rus": "ru", "jpn": "ja", "zho": "zh", "chi": "zh", "ara": "ar",
+    "pol": "pl", "swe": "sv", "nor": "no", "nob": "nb", "dan": "da",
+    "fin": "fi", "ell": "el", "gre": "el", "ces": "cs", "cze": "cs",
+    "tur": "tr", "ukr": "uk", "heb": "he", "kor": "ko", "hin": "hi",
+    "ron": "ro", "rum": "ro", "cat": "ca", "hun": "hu", "vie": "vi",
+    "tha": "th", "ind": "id", "slk": "sk", "slo": "sk", "hrv": "hr",
+    "srp": "sr", "bul": "bg", "lit": "lt", "lav": "lv", "est": "et",
+    "isl": "is", "ice": "is", "gle": "ga", "fas": "fa", "per": "fa",
+}
+
+
+def _normalize_book_language(raw: str) -> str | None:
+    """Fold an EPUB/OpenLibrary language tag down to an ISO 639-1 code.
+
+    Handles the shapes these sources actually emit: bare 639-1 (``"it"``),
+    region-tagged (``"en-US"``, ``"pt_BR"``), and three-letter 639-2
+    (``"eng"`` from OpenLibrary's ``/languages/eng``). Returns ``None`` for
+    anything we can't confidently reduce — the caller then emits no language
+    clause rather than feed the model a bogus code.
+    """
+    primary = raw.strip().lower().replace("_", "-").split("-", 1)[0]
+    if len(primary) == 2:
+        # Validate against the canonical set so bogus tags ("zz", "xx") don't
+        # become a prompt instruction. Same set AiStyle validates against.
+        return primary if primary in ISO_639_1_CODES else None
+    if len(primary) == 3:
+        return _ISO_639_2_TO_1.get(primary)
+    return None
+
+
+def _resolve_response_language(style_language: str, book_language: str | None) -> str | None:
+    """The ISO 639-1 code the insight should be written in, or ``None``.
+
+    An explicit user code wins outright (already validated to ISO 639-1 in
+    ``AiStyle._validate_language``). ``auto`` — the universal default —
+    follows the book's own metadata language, so a French book yields a
+    French insight with no user action. ``auto`` with no usable book language
+    yields ``None``, preserving the pre-v6 language-neutral prompt.
+    """
+    if style_language != "auto":
+        return style_language
+    if not book_language:
+        return None
+    return _normalize_book_language(book_language)
+
+
 def compose_user_prompt(
     bundle: MetadataBundle,
     citations: list[Citation],
@@ -197,13 +256,16 @@ def compose_user_prompt(
         if hint:
             lines.append("")
             lines.append(hint)
-        # `auto` is the universal default and emits no language clause —
-        # preserves pre-PR4 prompt body byte-for-byte. Non-auto codes are
-        # validated to ISO 639-1 in AiStyle._validate_language.
-        if style.language != "auto":
+        # Pick the language the insight is written in. Explicit user codes win;
+        # `auto` (the universal default) defers to the book's own metadata
+        # language. When neither yields a code we emit no clause — the model
+        # writes in the book's apparent language as before. See
+        # `_resolve_response_language`.
+        response_language = _resolve_response_language(style.language, bundle.language)
+        if response_language is not None:
             lines.append("")
             lines.append(
-                f'Respond in the language identified by ISO 639-1 code "{style.language}".'
+                f'Respond in the language identified by ISO 639-1 code "{response_language}".'
             )
 
     if feedback:

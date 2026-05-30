@@ -534,9 +534,11 @@ class AiStyle(BaseModel):
     `book_insights.language`), so users with different combinations get
     separately-cached generations rather than one bleeding into the other.
 
-    `language="auto"` is the universal default and emits no language clause in
-    the prompt — preserves pre-PR4 behavior byte-for-byte. Any other value must
-    be a lowercase ISO 639-1 code (e.g. `"en"`, `"it"`, `"zh"`).
+    `language="auto"` is the universal default and stays the cache-key value,
+    but in the prompt it resolves to the book's own metadata language (so a
+    French book gets a French insight); it falls back to no language clause
+    when the book declares none. Any other value must be a lowercase ISO 639-1
+    code (e.g. `"en"`, `"it"`, `"zh"`).
     """
 
     model_config = ConfigDict(extra="forbid")

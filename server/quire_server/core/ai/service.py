@@ -67,6 +67,7 @@ from quire_server.core.ai.prompts import (
     READER_PROFILE_PROMPT,
     READER_PROFILE_PROMPT_VERSION,
     SYSTEM_PROMPT,
+    _normalize_book_language,
     compose_user_prompt,
 )
 from quire_server.core.ai.themes import normalize_theme
@@ -246,6 +247,8 @@ class _RetrieverLike(Protocol):
     async def lookup_openlibrary(
         self, *, author: str | None, title: str, isbn: str | None
     ) -> list[Citation]: ...
+
+    async def lookup_book_language(self, isbn: str) -> str | None: ...
 
 
 class _ProfileRetrieverLike(Protocol):
@@ -595,8 +598,16 @@ class InsightOrchestrator:
         original_hints: dict[str, str] | None = None,
     ) -> BookInsight:
         async with self._sem:
+            bundle = await self._backfill_language(session, bundle)
             citations = await self._retrieve(session, bundle)
-            user_prompt = compose_user_prompt(bundle, citations, style=style, feedback=feedback)
+            # A None style means "defaults", which the cache key already treats
+            # as "auto" (see `_language_of(None)`). Pass a concrete AiStyle so
+            # auto-language resolution stays consistent with that key —
+            # `compose_user_prompt` reads `style=None` as "emit no style
+            # clauses", which would silently diverge from the row's language.
+            user_prompt = compose_user_prompt(
+                bundle, citations, style=style or AiStyle(), feedback=feedback
+            )
             t0 = time.monotonic()
             try:
                 payload = await self.ai.chat_structured(
@@ -777,6 +788,40 @@ class InsightOrchestrator:
         if is_regen:
             usage.regen_count += 1
         await session.commit()
+
+    async def _backfill_language(
+        self, session: AsyncSession, bundle: MetadataBundle
+    ) -> MetadataBundle:
+        """Fill in a missing book language from OpenLibrary so ``auto`` insights
+        match the book.
+
+        Only the scanned-book case is in scope: a bundle that carries an ISBN
+        but no language. Library EPUBs already declare ``<dc:language>`` in the
+        OPF, so this is a no-op for them — and we never override a language the
+        client provided. Best-effort: any failure (network, parse, a retriever
+        stub without the method) leaves the bundle untouched. The resolved
+        value affects only the prompt body, never the cache key (which is keyed
+        on the user's ``style.language``, i.e. ``"auto"``).
+        """
+        if bundle.language or not bundle.isbn:
+            return bundle
+        if "openlibrary" not in self.sources_enabled:
+            return bundle
+        try:
+            if self._session_factory is not None:
+                async with self._session_factory() as s:  # type: ignore[misc]
+                    lookup = getattr(self.retriever_factory(s), "lookup_book_language", None)
+                    raw = await lookup(bundle.isbn) if lookup is not None else None
+            else:
+                lookup = getattr(self.retriever_factory(session), "lookup_book_language", None)
+                raw = await lookup(bundle.isbn) if lookup is not None else None
+        except Exception as e:  # best-effort enrichment, never fails generation
+            logger.info("ai.language_backfill.exception err=%s", e)
+            return bundle
+        normalized = _normalize_book_language(raw) if raw else None
+        if normalized:
+            return bundle.model_copy(update={"language": normalized})
+        return bundle
 
     async def _retrieve(self, session: AsyncSession, bundle: MetadataBundle) -> list[Citation]:
         # Each retrieval task must get its own AsyncSession when a factory is
