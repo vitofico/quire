@@ -299,20 +299,21 @@ private fun CameraPreview(
             -> Unit
         }
     }
-    val reader = remember {
-        MultiFormatReader().apply {
-            setHints(
-                mapOf(
-                    DecodeHintType.POSSIBLE_FORMATS to listOf(
-                        BarcodeFormat.EAN_13,
-                        BarcodeFormat.EAN_8,
-                        BarcodeFormat.UPC_A,
-                    ),
-                    DecodeHintType.TRY_HARDER to true,
-                ),
-            )
-        }
+    // Hints are passed to reader.decode(bitmap, hints) on every frame rather
+    // than stashed once via setHints(): the single-arg MultiFormatReader.decode
+    // calls setHints(null) internally and would silently discard POSSIBLE_FORMATS
+    // and TRY_HARDER. Passing them explicitly keeps them in force every decode.
+    val decodeHints = remember {
+        mapOf<DecodeHintType, Any>(
+            DecodeHintType.POSSIBLE_FORMATS to listOf(
+                BarcodeFormat.EAN_13,
+                BarcodeFormat.EAN_8,
+                BarcodeFormat.UPC_A,
+            ),
+            DecodeHintType.TRY_HARDER to true,
+        )
     }
+    val reader = remember { MultiFormatReader() }
 
     DisposableEffect(Unit) {
         onDispose { analysisExecutor.shutdown() }
@@ -334,7 +335,7 @@ private fun CameraPreview(
                     .also { ia ->
                         ia.setAnalyzer(analysisExecutor) { proxy ->
                             try {
-                                decodeBarcode(proxy, reader)?.let { isbn ->
+                                decodeBarcode(proxy, reader, decodeHints)?.let { isbn ->
                                     if (decoded.compareAndSet(false, true)) {
                                         // Hop to the main thread: onIsbnSubmitted
                                         // touches Compose/VM state and must not be
@@ -342,6 +343,11 @@ private fun CameraPreview(
                                         mainExecutor.execute { currentOnDecoded(isbn) }
                                     }
                                 }
+                            } catch (_: Throwable) {
+                                // Never let a decode-path failure escape into
+                                // CameraX: it would be thrown once per frame on the
+                                // analysis thread (log spam, wasted CPU) and mask
+                                // genuine read failures. A no-read is just a null.
                             } finally {
                                 // Always close so STRATEGY_KEEP_ONLY_LATEST keeps
                                 // delivering frames; an un-closed proxy stalls the
@@ -385,11 +391,18 @@ private fun CameraPreview(
  *    landscape, so [androidx.camera.core.ImageInfo.rotationDegrees] is typically
  *    90/270 and a real-world-horizontal EAN-13 lands rotated in the buffer.
  *    ZXing's EAN-13 reader is a 1D *row* scanner and a single decode() does not
- *    try rotated variants, so a 90°-rotated barcode is a permanent no-read. We
- *    decode the upright source and, on a miss, its 90° CCW variant — covering
- *    both portrait orientations regardless of the actual rotation metadata.
+ *    try rotated variants, so a 90°-rotated barcode is a permanent no-read.
+ *    [PlanarYUVLuminanceSource] does NOT support rotateCounterClockwise() in
+ *    zxing 3.5.x (the base throws UnsupportedOperationException), so we rotate
+ *    the packed Y buffer ourselves: we decode the frame as delivered and, on a
+ *    miss, a 90°-transposed variant — covering an EAN-13 held horizontally in
+ *    either portrait rotation regardless of the rotation metadata.
  */
-private fun decodeBarcode(proxy: ImageProxy, reader: MultiFormatReader): String? {
+private fun decodeBarcode(
+    proxy: ImageProxy,
+    reader: MultiFormatReader,
+    hints: Map<DecodeHintType, Any>,
+): String? {
     val plane = proxy.planes.firstOrNull() ?: return null
     val width = proxy.width
     val height = proxy.height
@@ -399,12 +412,36 @@ private fun decodeBarcode(proxy: ImageProxy, reader: MultiFormatReader): String?
     // dataWidth == width because we repacked the plane tightly above.
     val source = PlanarYUVLuminanceSource(yData, width, height, 0, 0, width, height, false)
 
-    // Try the frame as delivered, then rotated 90° CCW. rotateCounterClockwise()
-    // on PlanarYUVLuminanceSource is supported in zxing 3.5.3 and is cheap
-    // (index remap, no extra decode of the whole image). The two orientations
-    // cover an EAN-13 held horizontally in either portrait rotation.
-    return decodeOrNull(source, reader)
-        ?: decodeOrNull(source.rotateCounterClockwise(), reader)
+    // Try the frame as delivered first.
+    decodeOrNull(source, reader, hints)?.let { return it }
+
+    // On a miss, try the 90°-transposed buffer. We rotate the bytes ourselves
+    // because PlanarYUVLuminanceSource.rotateCounterClockwise() throws in zxing
+    // 3.5.x. A single transpose makes a real-world-horizontal barcode that
+    // landed vertical (or vice-versa) line up with ZXing's 1D row scanner; one
+    // orientation suffices since the row scanner reads a full line either way.
+    val rotated = rotateYPlane90(yData, width, height)
+    val rotatedSource =
+        PlanarYUVLuminanceSource(rotated, height, width, 0, 0, height, width, false)
+    return decodeOrNull(rotatedSource, reader, hints)
+}
+
+/**
+ * Transpose a tightly-packed width×height luma buffer by 90° into a new
+ * height×width buffer. dst[x, y] = src[y, x]; this maps a horizontal feature in
+ * the source to a vertical one in the result, which is exactly what we need to
+ * present a sideways barcode upright to ZXing's 1D row scanner.
+ */
+private fun rotateYPlane90(src: ByteArray, width: Int, height: Int): ByteArray {
+    val dst = ByteArray(width * height)
+    for (y in 0 until height) {
+        val rowBase = y * width
+        for (x in 0 until width) {
+            // Destination is height(=newWidth) wide; row index is x, col is y.
+            dst[x * height + y] = src[rowBase + x]
+        }
+    }
+    return dst
 }
 
 /**
@@ -448,11 +485,20 @@ private fun packYPlane(plane: ImageProxy.PlaneProxy, width: Int, height: Int): B
     return out
 }
 
-/** Decode a single luminance source, swallowing no-reads. */
-private fun decodeOrNull(source: LuminanceSource, reader: MultiFormatReader): String? {
+/**
+ * Decode a single luminance source, swallowing no-reads. Hints are passed
+ * explicitly (not via the reader's stashed state) because the single-arg
+ * MultiFormatReader.decode wipes hints with setHints(null); the two-arg form
+ * re-applies POSSIBLE_FORMATS and TRY_HARDER on every call.
+ */
+private fun decodeOrNull(
+    source: LuminanceSource,
+    reader: MultiFormatReader,
+    hints: Map<DecodeHintType, Any>,
+): String? {
     val bitmap = BinaryBitmap(HybridBinarizer(source))
     return try {
-        reader.decode(bitmap).text
+        reader.decode(bitmap, hints).text
     } catch (_: Exception) {
         null
     } finally {
