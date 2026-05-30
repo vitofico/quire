@@ -5,4 +5,6 @@ object LibraryApi {
     const val PATH_ITEMS = "/library/v1/items"
     // Phase 0 / S-2 (server) + A-4 (Android): bulk library-mirror push.
     const val PATH_SYNC = "/library/v1/sync"
+    // Book Scan: per-title affinity scoring against the user's library.
+    const val PATH_AFFINITY = "/library/v1/affinity"
 }

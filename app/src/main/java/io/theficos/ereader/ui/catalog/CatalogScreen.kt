@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.outlined.Info
@@ -36,6 +37,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -67,6 +69,7 @@ fun CatalogScreen(
     viewModel: CatalogViewModel,
     contentPadding: PaddingValues,
     onShowDetails: (OpdsPublication) -> Unit = {},
+    onScan: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsState()
     val downloadedUrls by viewModel.downloadedUrls.collectAsState()
@@ -106,6 +109,18 @@ fun CatalogScreen(
                     )
                 }
             }
+        }
+
+        // Scan a book: reachable from any catalog state. Overlaid as a FAB so
+        // it survives Loading/Error states (the Loaded grid has no Scaffold
+        // slot of its own).
+        FloatingActionButton(
+            onClick = onScan,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(16.dp),
+        ) {
+            Icon(Icons.Default.QrCodeScanner, contentDescription = "Scan a book")
         }
     }
 }

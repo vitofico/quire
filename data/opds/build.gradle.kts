@@ -22,6 +22,7 @@ android {
 
 dependencies {
     api(project(":core:model"))
+    implementation(project(":core:metadata"))
     implementation(project(":auth"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)

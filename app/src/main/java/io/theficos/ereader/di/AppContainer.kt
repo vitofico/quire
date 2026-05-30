@@ -22,6 +22,7 @@ import io.theficos.ereader.data.local.db.ProgressDao
 import io.theficos.ereader.data.opds.BookDownloader
 import io.theficos.ereader.data.opds.OpdsClient
 import io.theficos.ereader.data.opds.OpdsHttpClient
+import io.theficos.ereader.data.opds.OpenLibraryClient
 import io.theficos.ereader.data.sync.SyncClient
 import io.theficos.ereader.data.sync.SyncDependencies
 import io.theficos.ereader.data.sync.SyncEnqueuer
@@ -43,6 +44,7 @@ import io.theficos.ereader.ui.library.LibraryPreferencesStore
 import io.theficos.ereader.ui.library.LibraryStatsCache
 import io.theficos.ereader.ui.library.LibraryStatsViewModel
 import io.theficos.ereader.ui.onboarding.WelcomePreferencesStore
+import io.theficos.ereader.ui.scan.ScanResultRegistry
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -132,6 +134,21 @@ class AppContainer(context: Context) {
         baseUrlProvider = { credentialStore.getAccount()?.quireServerOrPrimaryUrl() },
         http = opdsHttp.okHttp,
     )
+
+    /**
+     * Book-scan: on-device ISBN -> metadata lookup against OpenLibrary. Plain
+     * OkHttp, NO account auth — it talks to a third-party host, so it must not
+     * reuse the account-authed [opdsHttp] client. Uses the client's own default
+     * timeouts.
+     */
+    val openLibraryClient: OpenLibraryClient = OpenLibraryClient()
+
+    /**
+     * Book-scan: process-local handoff of a scanned book's metadata + affinity
+     * verdict from the scan screen to the result screen. Mirrors
+     * [catalogDetailRegistry]; resets on process death.
+     */
+    val scanResultRegistry: ScanResultRegistry = ScanResultRegistry()
 
     /**
      * Process-lifetime scope for fire-and-forget library upload work. A
