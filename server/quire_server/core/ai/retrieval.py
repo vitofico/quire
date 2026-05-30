@@ -429,9 +429,7 @@ class Retriever:
                     # pinning a null here would suppress backfill for the full
                     # TTL after a temporary OL outage or rate-limit. Return None
                     # and let the next attempt retry.
-                    logger.info(
-                        "ai.retrieval.openlibrary_language.status status=%s", r.status_code
-                    )
+                    logger.info("ai.retrieval.openlibrary_language.status status=%s", r.status_code)
                     return None
                 language = _parse_openlibrary_language(r.json(), bibkey)
         except httpx.HTTPError as e:

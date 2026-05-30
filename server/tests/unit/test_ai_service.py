@@ -924,9 +924,7 @@ async def test_auto_backfills_scanned_book_language_into_prompt(session: AsyncSe
     # must NOT leak into the cache key, or the client (which caches under the
     # style value "auto") would desync from the server.
     row = (
-        await session.execute(
-            select(BookInsight).where(BookInsight.content_hash == "ch-scan-fr")
-        )
+        await session.execute(select(BookInsight).where(BookInsight.content_hash == "ch-scan-fr"))
     ).scalar_one()
     assert row.language == "auto"
 
