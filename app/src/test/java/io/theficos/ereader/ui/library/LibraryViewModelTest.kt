@@ -295,7 +295,7 @@ class LibraryViewModelTest {
         libraryPreferencesStore = LibraryPreferencesStore(ApplicationProvider.getApplicationContext()),
         nowMillis = { 999L },
         credentialStore = store,
-        restoreInProgress = { RestoreSummary(0, 0, 0, 0, 0) },
+        restoreInProgress = { _ -> RestoreSummary(0, 0, 0, 0, 0) },
     )
 
     @Test fun `canRestore is true when connected and library empty`() = runTest {

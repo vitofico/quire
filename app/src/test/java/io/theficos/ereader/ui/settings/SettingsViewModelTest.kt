@@ -65,7 +65,7 @@ class SettingsViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun buildVm(restoreInProgress: (suspend () -> RestoreSummary)?): SettingsViewModel =
+    private fun buildVm(restoreInProgress: (suspend ((Int, Int) -> Unit) -> RestoreSummary)?): SettingsViewModel =
         SettingsViewModel(
             store = store,
             readerStore = ReaderPreferencesStore(context),
@@ -87,7 +87,7 @@ class SettingsViewModelTest {
             skippedUnfetchable = 0,
             failed = 0,
         )
-        val vm = buildVm(restoreInProgress = { summary })
+        val vm = buildVm(restoreInProgress = { _ -> summary })
 
         val events = mutableListOf<SettingsEvent>()
         val job = launch { vm.events.collect { events += it } }
@@ -101,9 +101,39 @@ class SettingsViewModelTest {
         job.cancel()
     }
 
+    @Test fun `restoreInProgressBooks surfaces per-book progress and clears it on completion`() = runTest {
+        store.saveBasicAccount(baseUrl = "https://books.example.com", username = "alice", password = "pw")
+        val summary = RestoreSummary(
+            requested = 2,
+            downloaded = 2,
+            skippedExisting = 0,
+            skippedUnfetchable = 0,
+            failed = 0,
+        )
+        val vm = buildVm(
+            restoreInProgress = { onProgress ->
+                onProgress(1, 2)
+                onProgress(2, 2)
+                summary
+            },
+        )
+
+        val events = mutableListOf<SettingsEvent>()
+        val job = launch { vm.events.collect { events += it } }
+
+        vm.restoreInProgressBooks()
+        advanceUntilIdle()
+
+        assertThat(events).contains(SettingsEvent.RestoreFinished(summary))
+        // finally clears progress after the run completes.
+        assertThat(vm.restoreProgress.value).isNull()
+        assertThat(vm.restoreRunning.value).isFalse()
+        job.cancel()
+    }
+
     @Test fun `restoreInProgressBooks emits RestoreFailed when the use case throws`() = runTest {
         store.saveBasicAccount(baseUrl = "https://books.example.com", username = "alice", password = "pw")
-        val vm = buildVm(restoreInProgress = { throw IllegalStateException("boom") })
+        val vm = buildVm(restoreInProgress = { _ -> throw IllegalStateException("boom") })
 
         val events = mutableListOf<SettingsEvent>()
         val job = launch { vm.events.collect { events += it } }
@@ -117,7 +147,7 @@ class SettingsViewModelTest {
     }
 
     @Test fun `isConnected is false when no account configured`() = runTest {
-        val vm = buildVm(restoreInProgress = { error("should not run") })
+        val vm = buildVm(restoreInProgress = { _ -> error("should not run") })
         advanceUntilIdle()
         assertThat(vm.isConnected.value).isFalse()
     }

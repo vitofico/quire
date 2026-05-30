@@ -292,35 +292,41 @@ class AppContainer(context: Context) {
         },
         isPresent = { identity -> documentRepository.findByIdentity(identity) != null },
         downloadAndInsert = { c ->
-            val fileName = "${java.util.UUID.randomUUID()}.epub"
-            val file = bookDownloader.download(c.opdsHref, fileName) { _, _ -> }
-            val coverFile: java.io.File? = null
-            // If identity extraction / OPF read / insert throws after the bytes
-            // landed, delete the temp file before rethrowing so a re-run (this
-            // feature is explicitly re-runnable) doesn't accumulate orphans.
-            try {
-                val identity = extractIdentity(file)
-                if (documentRepository.findByIdentity(identity) != null) {
+            // Identity hashing (whole-EPUB hash) and OPF zip parsing are plain
+            // CPU/IO with no internal dispatcher; the use case runs on Main
+            // (viewModelScope). Move all per-book work off the main thread to
+            // avoid an ANR while restoring.
+            withContext(Dispatchers.IO) {
+                val fileName = "${java.util.UUID.randomUUID()}.epub"
+                val file = bookDownloader.download(c.opdsHref, fileName) { _, _ -> }
+                val coverFile: java.io.File? = null
+                // If identity extraction / OPF read / insert throws after the bytes
+                // landed, delete the temp file before rethrowing so a re-run (this
+                // feature is explicitly re-runnable) doesn't accumulate orphans.
+                try {
+                    val identity = extractIdentity(file)
+                    if (documentRepository.findByIdentity(identity) != null) {
+                        file.delete()
+                        coverFile?.delete()
+                    } else {
+                        val opf = readOpfBundle(file, fallbackTitle = c.title)
+                        documentRepository.insert(
+                            identity = identity,
+                            title = c.title,
+                            author = c.authors.firstOrNull(),
+                            downloadUrl = c.opdsHref,
+                            localPath = file.absolutePath,
+                            coverPath = coverFile?.absolutePath,
+                            downloadedAt = System.currentTimeMillis(),
+                            seriesName = opf.seriesName,
+                            seriesIndex = opf.seriesPosition?.toDouble(),
+                        )
+                    }
+                } catch (t: Throwable) {
                     file.delete()
                     coverFile?.delete()
-                } else {
-                    val opf = readOpfBundle(file, fallbackTitle = c.title)
-                    documentRepository.insert(
-                        identity = identity,
-                        title = c.title,
-                        author = c.authors.firstOrNull(),
-                        downloadUrl = c.opdsHref,
-                        localPath = file.absolutePath,
-                        coverPath = coverFile?.absolutePath,
-                        downloadedAt = System.currentTimeMillis(),
-                        seriesName = opf.seriesName,
-                        seriesIndex = opf.seriesPosition?.toDouble(),
-                    )
+                    throw t
                 }
-            } catch (t: Throwable) {
-                file.delete()
-                coverFile?.delete()
-                throw t
             }
         },
         applyPositions = { items -> syncOrchestrator.applyProgressItems(items) },

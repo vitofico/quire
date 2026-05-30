@@ -13,6 +13,7 @@ import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.db.InsightDao
 import io.theficos.ereader.data.local.db.SyncStateDao
 import io.theficos.ereader.data.sync.SyncEnqueuer
+import io.theficos.ereader.domain.restore.RestoreProgress
 import io.theficos.ereader.domain.restore.RestoreSummary
 import java.io.File
 import io.theficos.ereader.reader.ReaderFontFamily
@@ -74,7 +75,7 @@ class SettingsViewModel(
     private val insightSyncRepository: InsightSyncRepository? = null,
     private val insightDao: InsightDao? = null,
     private val syncEnqueuer: (Context) -> Unit = { SyncEnqueuer.enqueue(it, expedited = true, replaceExisting = true) },
-    private val restoreInProgress: (suspend () -> RestoreSummary)? = null,
+    private val restoreInProgress: (suspend ((Int, Int) -> Unit) -> RestoreSummary)? = null,
 ) : ViewModel() {
     private val _calibre = MutableStateFlow(loadInitialCalibre())
     val calibre: StateFlow<CalibreUiState> = _calibre.asStateFlow()
@@ -102,6 +103,9 @@ class SettingsViewModel(
 
     private val _restoreRunning = MutableStateFlow(false)
     val restoreRunning: StateFlow<Boolean> = _restoreRunning.asStateFlow()
+
+    private val _restoreProgress = MutableStateFlow<RestoreProgress?>(null)
+    val restoreProgress: StateFlow<RestoreProgress?> = _restoreProgress.asStateFlow()
 
     val ai: StateFlow<AiState> = combine(
         combine(aiRepository.config, aiRepository.preferences, _aiHealth) { c, p, h ->
@@ -272,11 +276,16 @@ class SettingsViewModel(
         _restoreRunning.value = true
         viewModelScope.launch {
             try {
-                _events.tryEmit(SettingsEvent.RestoreFinished(restore()))
+                _events.tryEmit(
+                    SettingsEvent.RestoreFinished(
+                        restore { done, total -> _restoreProgress.value = RestoreProgress(done, total) },
+                    ),
+                )
             } catch (t: Throwable) {
                 _events.tryEmit(SettingsEvent.RestoreFailed(t.message ?: t.javaClass.simpleName))
             } finally {
                 _restoreRunning.value = false
+                _restoreProgress.value = null
             }
         }
     }
