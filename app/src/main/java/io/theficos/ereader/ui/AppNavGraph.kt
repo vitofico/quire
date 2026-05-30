@@ -112,7 +112,7 @@ fun AppNavGraph(container: AppContainer) {
                     booksDir = container.booksDir,
                     libraryPreferencesStore = container.libraryPreferencesStore,
                     credentialStore = container.credentialStore,
-                    restoreInProgress = { container.restoreInProgressUseCase().run() },
+                    restoreInProgress = { onProgress -> container.restoreInProgressUseCase().run(onProgress) },
                 )
             }
             val catVm = remember {
@@ -142,7 +142,7 @@ fun AppNavGraph(container: AppContainer) {
                     aiRepository = container.aiRepository,
                     insightSyncRepository = container.insightSyncRepository,
                     insightDao = container.insightDao,
-                    restoreInProgress = { container.restoreInProgressUseCase().run() },
+                    restoreInProgress = { onProgress -> container.restoreInProgressUseCase().run(onProgress) },
                 )
             }
             val aiConfig by container.aiRepository.config.collectAsState()

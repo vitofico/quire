@@ -76,6 +76,7 @@ fun SettingsScreen(
     val deleteInFlight by viewModel.deleteProfileInFlight.collectAsState()
     val isConnected by viewModel.isConnected.collectAsState()
     val restoreRunning by viewModel.restoreRunning.collectAsState()
+    val restoreProgress by viewModel.restoreProgress.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) {
@@ -262,10 +263,16 @@ fun SettingsScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        val restoreLabel = when {
+                            restoreRunning && restoreProgress != null ->
+                                "Restoring… (${restoreProgress!!.done}/${restoreProgress!!.total})"
+                            restoreRunning -> "Restoring…"
+                            else -> "Restore in-progress books"
+                        }
                         TextButton(
                             onClick = { viewModel.restoreInProgressBooks() },
                             enabled = !restoreRunning,
-                        ) { Text(if (restoreRunning) "Restoring…" else "Restore in-progress books") }
+                        ) { Text(restoreLabel) }
                     }
                 }
             }

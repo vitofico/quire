@@ -127,6 +127,7 @@ fun LibraryScreen(
     val query by viewModel.query.collectAsState()
     val canRestore by viewModel.canRestore.collectAsState()
     val restoreRunning by viewModel.restoreRunning.collectAsState()
+    val restoreProgress by viewModel.restoreProgress.collectAsState()
 
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
@@ -179,6 +180,7 @@ fun LibraryScreen(
                 onImport = launchPicker,
                 canRestore = canRestore,
                 restoreRunning = restoreRunning,
+                restoreProgress = restoreProgress,
                 onRestore = { viewModel.restoreInProgressBooks() },
             )
             SnackbarHost(
@@ -561,6 +563,7 @@ private fun EmptyState(
     onImport: (() -> Unit)? = null,
     canRestore: Boolean = false,
     restoreRunning: Boolean = false,
+    restoreProgress: io.theficos.ereader.domain.restore.RestoreProgress? = null,
     onRestore: () -> Unit = {},
 ) {
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -606,10 +609,16 @@ private fun EmptyState(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(8.dp))
+                val restoreLabel = when {
+                    restoreRunning && restoreProgress != null ->
+                        "Restoring… (${restoreProgress.done}/${restoreProgress.total})"
+                    restoreRunning -> "Restoring…"
+                    else -> "Restore in-progress books"
+                }
                 Button(
                     onClick = onRestore,
                     enabled = !restoreRunning,
-                ) { Text(if (restoreRunning) "Restoring…" else "Restore in-progress books") }
+                ) { Text(restoreLabel) }
             }
         }
     }

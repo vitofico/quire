@@ -40,7 +40,7 @@ class LibraryViewModel(
     private val nowMillis: () -> Long = System::currentTimeMillis,
     private val syncEnqueuer: (Context) -> Unit = { SyncEnqueuer.enqueue(it, expedited = true, replaceExisting = true) },
     private val credentialStore: io.theficos.ereader.auth.CalibreCredentialStore? = null,
-    private val restoreInProgress: (suspend () -> io.theficos.ereader.domain.restore.RestoreSummary)? = null,
+    private val restoreInProgress: (suspend ((Int, Int) -> Unit) -> io.theficos.ereader.domain.restore.RestoreSummary)? = null,
 ) : ViewModel() {
 
     val sort: StateFlow<LibrarySort> = libraryPreferencesStore.flow
@@ -139,17 +139,30 @@ class LibraryViewModel(
     private val _restoreRunning = kotlinx.coroutines.flow.MutableStateFlow(false)
     val restoreRunning: StateFlow<Boolean> = _restoreRunning.asStateFlow()
 
+    private val _restoreProgress =
+        kotlinx.coroutines.flow.MutableStateFlow<io.theficos.ereader.domain.restore.RestoreProgress?>(null)
+    val restoreProgress: StateFlow<io.theficos.ereader.domain.restore.RestoreProgress?> =
+        _restoreProgress.asStateFlow()
+
     fun restoreInProgressBooks() {
         val restore = restoreInProgress ?: return
         if (_restoreRunning.value) return
         _restoreRunning.value = true
         viewModelScope.launch {
             try {
-                _events.tryEmit(LibraryEvent.RestoreFinished(restore()))
+                _events.tryEmit(
+                    LibraryEvent.RestoreFinished(
+                        restore { done, total ->
+                            _restoreProgress.value =
+                                io.theficos.ereader.domain.restore.RestoreProgress(done, total)
+                        },
+                    ),
+                )
             } catch (t: Throwable) {
                 _events.tryEmit(LibraryEvent.RestoreFailed(t.message ?: t.javaClass.simpleName))
             } finally {
                 _restoreRunning.value = false
+                _restoreProgress.value = null
             }
         }
     }
