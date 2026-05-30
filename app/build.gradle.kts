@@ -56,14 +56,7 @@ android {
         }
     }
     buildTypes {
-        debug {
-            isMinifyEnabled = false
-            // Distinct package + label so a debug build installs side-by-side
-            // with a signed release "Quire" instead of failing on signature
-            // mismatch. Debug-only; release is unaffected.
-            applicationIdSuffix = ".debug"
-            versionNameSuffix = "-debug"
-        }
+        debug { isMinifyEnabled = false }
         release {
             isMinifyEnabled = false   // Phase 1 only; revisit before publishing
             // AGP 8.3+ embeds git origin/branch/SHA into the APK by default,
