@@ -294,26 +294,33 @@ class AppContainer(context: Context) {
         downloadAndInsert = { c ->
             val fileName = "${java.util.UUID.randomUUID()}.epub"
             val file = bookDownloader.download(c.opdsHref, fileName) { _, _ -> }
-            // Library mirror carries no cover URL; skip cover download (matches CatalogViewModel's
-            // pub.coverUrl?.let { ... } returning null). Restored books fall back to the default cover.
             val coverFile: java.io.File? = null
-            val identity = extractIdentity(file)
-            if (documentRepository.findByIdentity(identity) != null) {
+            // If identity extraction / OPF read / insert throws after the bytes
+            // landed, delete the temp file before rethrowing so a re-run (this
+            // feature is explicitly re-runnable) doesn't accumulate orphans.
+            try {
+                val identity = extractIdentity(file)
+                if (documentRepository.findByIdentity(identity) != null) {
+                    file.delete()
+                    coverFile?.delete()
+                } else {
+                    val opf = readOpfBundle(file, fallbackTitle = c.title)
+                    documentRepository.insert(
+                        identity = identity,
+                        title = c.title,
+                        author = c.authors.firstOrNull(),
+                        downloadUrl = c.opdsHref,
+                        localPath = file.absolutePath,
+                        coverPath = coverFile?.absolutePath,
+                        downloadedAt = System.currentTimeMillis(),
+                        seriesName = opf.seriesName,
+                        seriesIndex = opf.seriesPosition?.toDouble(),
+                    )
+                }
+            } catch (t: Throwable) {
                 file.delete()
                 coverFile?.delete()
-            } else {
-                val opf = readOpfBundle(file, fallbackTitle = c.title)
-                documentRepository.insert(
-                    identity = identity,
-                    title = c.title,
-                    author = c.authors.firstOrNull(),
-                    downloadUrl = c.opdsHref,
-                    localPath = file.absolutePath,
-                    coverPath = coverFile?.absolutePath,
-                    downloadedAt = System.currentTimeMillis(),
-                    seriesName = opf.seriesName,
-                    seriesIndex = opf.seriesPosition?.toDouble(),
-                )
+                throw t
             }
         },
         applyPositions = { items -> syncOrchestrator.applyProgressItems(items) },
