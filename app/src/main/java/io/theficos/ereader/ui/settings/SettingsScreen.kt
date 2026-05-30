@@ -49,19 +49,37 @@ import java.time.format.DateTimeParseException
 
 /**
  * Curated languages shown in the AI insight language dropdown. The server
- * accepts any ISO 639-1 code; this list is the UI surface. Labels are the
- * native names of each language so users in the target locale recognize
- * them even before the app itself is localized.
+ * accepts ANY ISO 639-1 code, and `auto` now writes each insight in the
+ * book's own language (server `_resolve_response_language`), so this list only
+ * needs to cover users who want to PIN a preferred language that differs from
+ * the book. It is intentionally a curated subset of the most widely-spoken
+ * languages rather than the full ISO 639-1 set — a plain, non-searchable
+ * dropdown stops being usable much past ~20 entries. Every code here is also
+ * one the server's auto-resolver understands, so explicit and auto stay
+ * consistent. Labels are the native names so users in the target locale
+ * recognize them even before the app itself is localized.
  */
 private val LANGUAGE_OPTIONS: List<Pair<String, String>> = listOf(
     "auto" to "Auto",
     "en" to "English",
-    "it" to "Italiano",
+    "zh" to "中文",
+    "hi" to "हिन्दी",
     "es" to "Español",
+    "ar" to "العربية",
     "fr" to "Français",
-    "de" to "Deutsch",
     "pt" to "Português",
+    "ru" to "Русский",
+    "ja" to "日本語",
+    "de" to "Deutsch",
+    "ko" to "한국어",
+    "it" to "Italiano",
+    "tr" to "Türkçe",
+    "pl" to "Polski",
     "nl" to "Nederlands",
+    "uk" to "Українська",
+    "sv" to "Svenska",
+    "vi" to "Tiếng Việt",
+    "id" to "Bahasa Indonesia",
 )
 
 @Composable
@@ -435,7 +453,7 @@ fun SettingsScreen(
                             Text("Insight language", style = MaterialTheme.typography.titleMedium)
                             Text(
                                 "Language the model writes insights in. " +
-                                    "Auto follows the model's default.",
+                                    "Auto follows the book's own language.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
