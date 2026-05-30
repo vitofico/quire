@@ -56,6 +56,7 @@ import androidx.core.content.ContextCompat
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.BinaryBitmap
 import com.google.zxing.DecodeHintType
+import com.google.zxing.LuminanceSource
 import com.google.zxing.MultiFormatReader
 import com.google.zxing.PlanarYUVLuminanceSource
 import com.google.zxing.common.HybridBinarizer
@@ -271,6 +272,9 @@ private fun CameraPreview(
     val currentOnDecoded by rememberUpdatedState(onIsbnDecoded)
 
     val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
+    // Used to marshal a successful decode back onto the main thread, since the
+    // analyzer runs on the dedicated single-thread analysis executor.
+    val mainExecutor = remember(context) { ContextCompat.getMainExecutor(context) }
     // Latch so one held barcode doesn't fire repeatedly. The VM also dedups
     // via its generation guard, but latching avoids submit spam.
     val decoded = remember { AtomicBoolean(false) }
@@ -299,7 +303,12 @@ private fun CameraPreview(
         MultiFormatReader().apply {
             setHints(
                 mapOf(
-                    DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.EAN_13),
+                    DecodeHintType.POSSIBLE_FORMATS to listOf(
+                        BarcodeFormat.EAN_13,
+                        BarcodeFormat.EAN_8,
+                        BarcodeFormat.UPC_A,
+                    ),
+                    DecodeHintType.TRY_HARDER to true,
                 ),
             )
         }
@@ -324,12 +333,21 @@ private fun CameraPreview(
                     .build()
                     .also { ia ->
                         ia.setAnalyzer(analysisExecutor) { proxy ->
-                            decodeBarcode(proxy, reader)?.let { isbn ->
-                                if (decoded.compareAndSet(false, true)) {
-                                    currentOnDecoded(isbn)
+                            try {
+                                decodeBarcode(proxy, reader)?.let { isbn ->
+                                    if (decoded.compareAndSet(false, true)) {
+                                        // Hop to the main thread: onIsbnSubmitted
+                                        // touches Compose/VM state and must not be
+                                        // called from the analysis worker thread.
+                                        mainExecutor.execute { currentOnDecoded(isbn) }
+                                    }
                                 }
+                            } finally {
+                                // Always close so STRATEGY_KEEP_ONLY_LATEST keeps
+                                // delivering frames; an un-closed proxy stalls the
+                                // pipeline after a single frame.
+                                proxy.close()
                             }
-                            proxy.close()
                         }
                     }
                 runCatching {
@@ -348,27 +366,90 @@ private fun CameraPreview(
 }
 
 /**
- * Pull the Y (luminance) plane out of a YUV [ImageProxy] and run ZXing over
- * it. Returns the decoded barcode text, or null on no-read. Caller owns
+ * Pull the Y (luminance) plane out of a YUV_420_888 [ImageProxy] and run ZXing
+ * over it. Returns the decoded barcode text, or null on no-read. Caller owns
  * closing the proxy.
+ *
+ * Two things the naive path got wrong (why preview rendered but auto-decode
+ * never fired):
+ *
+ *  - **Row stride.** A YUV_420_888 Y plane's [ImageProxy.PlaneProxy.rowStride]
+ *    is generally larger than the image width (and its pixelStride can be >1),
+ *    so the backing buffer is *not* a tight width×height array. We build a
+ *    tightly-packed Y buffer by copying `width` luma samples per row honouring
+ *    rowStride/pixelStride, then hand ZXing a dataWidth == width source. (An
+ *    alternative is to pass the raw buffer with dataWidth = rowStride and crop;
+ *    repacking is simpler to reason about and lets us rotate cheaply.)
+ *
+ *  - **Rotation.** On a portrait-held phone the back sensor is mounted
+ *    landscape, so [androidx.camera.core.ImageInfo.rotationDegrees] is typically
+ *    90/270 and a real-world-horizontal EAN-13 lands rotated in the buffer.
+ *    ZXing's EAN-13 reader is a 1D *row* scanner and a single decode() does not
+ *    try rotated variants, so a 90°-rotated barcode is a permanent no-read. We
+ *    decode the upright source and, on a miss, its 90° CCW variant — covering
+ *    both portrait orientations regardless of the actual rotation metadata.
  */
 private fun decodeBarcode(proxy: ImageProxy, reader: MultiFormatReader): String? {
     val plane = proxy.planes.firstOrNull() ?: return null
-    val buffer = plane.buffer
-    val data = ByteArray(buffer.remaining())
-    buffer.get(data)
     val width = proxy.width
     val height = proxy.height
-    val source = PlanarYUVLuminanceSource(
-        data,
-        plane.rowStride,
-        height,
-        0,
-        0,
-        width,
-        height,
-        false,
-    )
+    if (width <= 0 || height <= 0) return null
+
+    val yData = packYPlane(plane, width, height) ?: return null
+    // dataWidth == width because we repacked the plane tightly above.
+    val source = PlanarYUVLuminanceSource(yData, width, height, 0, 0, width, height, false)
+
+    // Try the frame as delivered, then rotated 90° CCW. rotateCounterClockwise()
+    // on PlanarYUVLuminanceSource is supported in zxing 3.5.3 and is cheap
+    // (index remap, no extra decode of the whole image). The two orientations
+    // cover an EAN-13 held horizontally in either portrait rotation.
+    return decodeOrNull(source, reader)
+        ?: decodeOrNull(source.rotateCounterClockwise(), reader)
+}
+
+/**
+ * Copy the Y (luma) plane into a tightly-packed width×height byte array,
+ * honouring the plane's rowStride and pixelStride. Returns null if the buffer
+ * is too short to satisfy the declared geometry.
+ */
+private fun packYPlane(plane: ImageProxy.PlaneProxy, width: Int, height: Int): ByteArray? {
+    val buffer = plane.buffer
+    val rowStride = plane.rowStride
+    val pixelStride = plane.pixelStride
+    val out = ByteArray(width * height)
+
+    if (pixelStride == 1 && rowStride == width) {
+        // Fast path: already tightly packed.
+        if (buffer.remaining() < width * height) return null
+        buffer.get(out, 0, width * height)
+        return out
+    }
+
+    val rowBuf = ByteArray(rowStride)
+    var outPos = 0
+    for (row in 0 until height) {
+        val rowStart = row * rowStride
+        if (rowStart >= buffer.limit()) return null
+        val toRead = minOf(rowStride, buffer.limit() - rowStart)
+        buffer.position(rowStart)
+        buffer.get(rowBuf, 0, toRead)
+        var col = 0
+        var src = 0
+        while (col < width && src < toRead) {
+            out[outPos++] = rowBuf[src]
+            src += pixelStride
+            col++
+        }
+        // If a row was short (last row of an odd buffer), leave the remainder
+        // as zero; ZXing tolerates a few dark pixels far better than misaligned
+        // rows.
+        outPos = (row + 1) * width
+    }
+    return out
+}
+
+/** Decode a single luminance source, swallowing no-reads. */
+private fun decodeOrNull(source: LuminanceSource, reader: MultiFormatReader): String? {
     val bitmap = BinaryBitmap(HybridBinarizer(source))
     return try {
         reader.decode(bitmap).text

@@ -28,7 +28,8 @@ import kotlinx.coroutines.withContext
  *      A miss yields [ScanUiState.NotFound].
  *   4. Ask the Quire server to score the book via [runAffinity]. Success →
  *      [ScanUiState.Result] with the affinity attached. A 404 (no affinity
- *      backend / book not scoreable) degrades to a Result with
+ *      backend / book not scoreable) or a code-0 unreachable/unconfigured
+ *      server (split / metadata-only deployment) degrades to a Result with
  *      `affinityUnavailable = true` — the metadata is still useful. A 401
  *      signals stale credentials: [onReauth] is fired and the screen returns
  *      to [ScanUiState.ReauthRequired] so the user has a recoverable, non-
@@ -89,7 +90,14 @@ class ScanViewModel(
                     ScanUiState.Result(bundle = bundle, affinity = resp, affinityUnavailable = false)
                 } catch (e: LibraryHttpException) {
                     when (e.code) {
-                        404 -> ScanUiState.Result(
+                        // 404: no affinity backend / book not scoreable.
+                        // 0: the affinity client never reached a server
+                        //    (e.g. baseUrl not configured in a metadata-only /
+                        //    split deployment). In both cases the OpenLibrary
+                        //    metadata we already resolved is still useful, so
+                        //    degrade to a Result with affinity unavailable
+                        //    rather than hiding it behind a red Failed error.
+                        0, 404 -> ScanUiState.Result(
                             bundle = bundle,
                             affinity = null,
                             affinityUnavailable = true,

@@ -115,6 +115,26 @@ class ScanViewModelTest {
         }
     }
 
+    @Test fun `affinity code 0 (server unreachable) yields Result with affinity null and unavailable true`() = runTest {
+        val vm = ScanViewModel(
+            lookup = { bundle },
+            runAffinity = { throw LibraryHttpException(0, "baseUrl not configured") },
+            onReauth = { error("onReauth should not be called") },
+        )
+        vm.state.test {
+            assertThat(awaitItem()).isEqualTo(ScanUiState.Idle)
+            vm.onIsbnSubmitted(isbn13)
+            var s = awaitItem()
+            while (s is ScanUiState.Working) s = awaitItem()
+            assertThat(s).isInstanceOf(ScanUiState.Result::class.java)
+            val result = s as ScanUiState.Result
+            assertThat(result.bundle).isEqualTo(bundle)
+            assertThat(result.affinity).isNull()
+            assertThat(result.affinityUnavailable).isTrue()
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
     @Test fun `affinity 401 invokes onReauth and lands on ReauthRequired not Working`() = runTest {
         var reauthCalls = 0
         val vm = ScanViewModel(
