@@ -10,12 +10,16 @@ import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.ProgressRepository
 import io.theficos.ereader.data.local.db.DocumentEntity
 import io.theficos.ereader.data.local.db.EReaderDatabase
+import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.data.sync.SyncClient
 import io.theficos.ereader.data.sync.SyncOrchestrator
+import io.theficos.ereader.domain.restore.RestoreSummary
+import io.theficos.ereader.ui.catalog.FakeAndroidKeyStore
 import io.theficos.ereader.core.model.Progress as DomainProgress
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -42,6 +46,7 @@ class LibraryViewModelTest {
     private lateinit var vm: LibraryViewModel
 
     @Before fun setUp() {
+        FakeAndroidKeyStore.setup()
         Dispatchers.setMain(UnconfinedTestDispatcher())
         server = MockWebServer().also { it.start() }
         db = Room.inMemoryDatabaseBuilder(
@@ -278,6 +283,71 @@ class LibraryViewModelTest {
             var emission = awaitItem()
             while (emission.size != 1) emission = awaitItem()
             assertThat(emission.map { it.id }).containsExactly(candidateId)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    private fun vmWith(store: CalibreCredentialStore): LibraryViewModel = LibraryViewModel(
+        docs = docs,
+        progress = progress,
+        syncOrchestrator = orchestrator,
+        booksDir = File("/dev/null"),
+        libraryPreferencesStore = LibraryPreferencesStore(ApplicationProvider.getApplicationContext()),
+        nowMillis = { 999L },
+        credentialStore = store,
+        restoreInProgress = { RestoreSummary(0, 0, 0, 0, 0) },
+    )
+
+    @Test fun `canRestore is true when connected and library empty`() = runTest {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.saveBasicAccount("http://host", "u", "p")
+        val restoreVm = vmWith(store)
+        // Collecting keeps the WhileSubscribed `rows` flow hot so canRestore reflects the DB.
+        restoreVm.canRestore.test {
+            var v = awaitItem()
+            while (!v) v = awaitItem()
+            assertThat(v).isTrue()
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test fun `canRestore is false when disconnected even if library empty`() = runTest {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.clear()
+        val restoreVm = vmWith(store)
+        restoreVm.canRestore.test {
+            // Disconnected: canRestore can never become true regardless of rows.
+            assertThat(awaitItem()).isFalse()
+            advanceUntilIdle()
+            assertThat(restoreVm.canRestore.value).isFalse()
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test fun `canRestore is false when connected but library non-empty`() = runTest {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.saveBasicAccount("http://host", "u", "p")
+        seed("h1", "Alpha", null)
+        val restoreVm = vmWith(store)
+        // Subscribe to canRestore (keeps the WhileSubscribed `rows` upstream hot).
+        // Transient emission sequence with UnconfinedTestDispatcher + connected account:
+        //   1. stateIn initial → false
+        //   2. rows emits [] before Room delivers the seeded row → combine may emit true
+        //   3. rows emits [Alpha] → combine settles to false
+        // We warm `rows` by also subscribing to `items` and waiting until the seeded
+        // row arrives, then use expectMostRecentItem() to discard transients and assert
+        // the settled emission is false.
+        restoreVm.canRestore.test {
+            restoreVm.items.test {
+                var list = awaitItem()
+                while (list.isEmpty()) list = awaitItem()
+                assertThat(list).hasSize(1)
+                cancelAndIgnoreRemainingEvents()
+            }
+            advanceUntilIdle()
+            // expectMostRecentItem() returns the latest buffered item, discarding any
+            // earlier transient true — after rows has settled to non-empty, this must be false.
+            assertThat(expectMostRecentItem()).isFalse()
             cancelAndIgnoreRemainingEvents()
         }
     }

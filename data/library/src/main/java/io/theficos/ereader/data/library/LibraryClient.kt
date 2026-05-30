@@ -3,6 +3,7 @@ package io.theficos.ereader.data.library
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -122,6 +123,53 @@ class LibraryClient(
             if (!resp.isSuccessful) throw LibraryHttpException(resp.code, body)
             syncJson.decodeFromString(LibrarySyncSummary.serializer(), body)
         }
+    }
+
+    /**
+     * Page through `GET /library/v1/items`. `since=null` returns only live rows
+     * (no tombstones); `limit`/`offset` are server-validated (1..1000, >=0).
+     */
+    suspend fun listItems(
+        since: String?,
+        limit: Int,
+        offset: Int,
+    ): LibraryItemListResponse = withContext(Dispatchers.IO) {
+        val url = (resolveBaseUrl() + LibraryApi.PATH_ITEMS).toHttpUrl().newBuilder()
+            .apply { if (since != null) addQueryParameter("since", since) }
+            .addQueryParameter("limit", limit.toString())
+            .addQueryParameter("offset", offset.toString())
+            .build()
+        val req = Request.Builder().url(url).get().build()
+        http.newCall(req).execute().use { resp ->
+            val body = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) throw LibraryHttpException(resp.code, body)
+            json.decodeFromString(LibraryItemListResponse.serializer(), body)
+        }
+    }
+
+    /**
+     * Pull the entire live library mirror, paging until a short page. Bounded by
+     * [maxPages] so a server that keeps returning full pages can't hang the
+     * caller; on hitting the cap it invokes [onTruncated] with the count
+     * collected so far (no silent truncation) and returns what it has.
+     */
+    suspend fun listAllItems(
+        limit: Int = 200,
+        maxPages: Int = 50,
+        onTruncated: (collected: Int) -> Unit = {},
+    ): List<LibraryItemResponse> = withContext(Dispatchers.IO) {
+        val all = mutableListOf<LibraryItemResponse>()
+        var offset = 0
+        var page = 0
+        while (page < maxPages) {
+            val resp = listItems(since = null, limit = limit, offset = offset)
+            all += resp.items
+            if (resp.items.size < limit) return@withContext all
+            offset += limit
+            page++
+        }
+        onTruncated(all.size)
+        all
     }
 
     private companion object {
