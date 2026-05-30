@@ -6,13 +6,12 @@ from quire_server.core.ai.prompts import (
 )
 
 
-def test_prompt_version_is_v5():
-    """PR-ε (2026-05-19) bumped from v4 to v5 because the prompt body now
-    instructs the model to emit ``theme_analysis``, ``craft_notes``,
-    ``comparative_anchors``, ``distinctive_take`` and ``discussion_prompts``
-    (BookInsightPayload schema v4 fields).
+def test_prompt_version_is_v6():
+    """v6 (2026-05-30) bumped from v5 because ``auto`` language now follows the
+    book's own metadata language instead of emitting no clause. That materially
+    changes the universal-default output, so the cache key must regenerate.
     """
-    assert PROMPT_VERSION == "5"
+    assert PROMPT_VERSION == "6"
 
 
 def test_system_prompt_includes_themes_vocab():
@@ -131,13 +130,62 @@ def test_language_clause_emitted_when_non_auto():
     assert 'ISO 639-1 code "it"' in text
 
 
-def test_language_clause_omitted_when_auto():
-    """`auto` must produce a prompt byte-for-byte identical to the no-style call."""
+def test_language_clause_omitted_when_auto_and_book_language_unknown():
+    """`auto` with no book language must produce a prompt byte-for-byte
+    identical to the no-style call (the language-neutral default)."""
     bundle = MetadataBundle(title="Foundation")
     text_no_style = compose_user_prompt(bundle, citations=[])
     text_auto = compose_user_prompt(bundle, citations=[], style=AiStyle(language="auto"))
     text_default = compose_user_prompt(bundle, citations=[], style=AiStyle())
     assert text_no_style == text_auto == text_default
+
+
+def test_language_clause_follows_book_language_when_auto():
+    """`auto` defers to the book's own language so the insight matches the book."""
+    bundle = MetadataBundle(title="Il nome della rosa", language="it")
+    text = compose_user_prompt(bundle, citations=[], style=AiStyle(language="auto"))
+    assert 'ISO 639-1 code "it"' in text
+
+
+def test_auto_normalizes_region_and_three_letter_book_language():
+    """EPUB/OpenLibrary emit shapes like `en-US` and `eng`; `auto` folds them
+    down to a bare ISO 639-1 code before instructing the model."""
+    region = compose_user_prompt(
+        MetadataBundle(title="A", language="en-US"),
+        citations=[],
+        style=AiStyle(language="auto"),
+    )
+    assert 'ISO 639-1 code "en"' in region
+
+    iso2 = compose_user_prompt(
+        MetadataBundle(title="B", language="eng"),
+        citations=[],
+        style=AiStyle(language="auto"),
+    )
+    assert 'ISO 639-1 code "en"' in iso2
+
+
+def test_auto_skips_unrecognized_book_language():
+    """An unmappable language tag yields no clause rather than a bogus code."""
+    bundle = MetadataBundle(title="C", language="zxx")
+    text = compose_user_prompt(bundle, citations=[], style=AiStyle(language="auto"))
+    assert "ISO 639-1 code" not in text
+
+
+def test_auto_rejects_bogus_two_letter_book_language():
+    """A two-letter tag that isn't a real ISO 639-1 code must not leak into the
+    prompt as an instruction."""
+    bundle = MetadataBundle(title="C2", language="zz")
+    text = compose_user_prompt(bundle, citations=[], style=AiStyle(language="auto"))
+    assert "ISO 639-1 code" not in text
+
+
+def test_explicit_language_overrides_book_language():
+    """An explicit user code wins even when the book declares its own language."""
+    bundle = MetadataBundle(title="D", language="it")
+    text = compose_user_prompt(bundle, citations=[], style=AiStyle(language="en"))
+    assert 'ISO 639-1 code "en"' in text
+    assert 'ISO 639-1 code "it"' not in text
 
 
 def test_language_clause_independent_of_tone():

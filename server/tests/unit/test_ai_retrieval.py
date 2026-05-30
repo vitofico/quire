@@ -9,6 +9,7 @@ from quire_server.core.ai.health_state import AiHealthState
 from quire_server.core.ai.retrieval import (
     Retriever,
     _normalize_key,
+    _parse_openlibrary_language,
 )
 from quire_server.db.models import ExternalSourceCacheEntry
 
@@ -79,6 +80,102 @@ async def test_lookup_wikipedia_refetches_after_30d(session: AsyncSession):
     cites = await r.lookup_wikipedia(author=None, title="Foundation")
     assert fresh_called is True
     assert any("Fresh." in c.snippet for c in cites)
+
+
+def _ol_details_response(bibkey: str, languages: list[str] | None) -> dict:
+    details: dict = {}
+    if languages is not None:
+        details["languages"] = [{"key": f"/languages/{code}"} for code in languages]
+    return {bibkey: {"details": details}}
+
+
+def test_parse_openlibrary_language_extracts_first_code():
+    bibkey = "ISBN:9782070360024"
+    payload = _ol_details_response(bibkey, ["fre", "eng"])
+    assert _parse_openlibrary_language(payload, bibkey) == "fre"
+
+
+def test_parse_openlibrary_language_handles_missing_pieces():
+    bibkey = "ISBN:1"
+    assert _parse_openlibrary_language({}, bibkey) is None
+    assert _parse_openlibrary_language({bibkey: {}}, bibkey) is None
+    assert _parse_openlibrary_language(_ol_details_response(bibkey, []), bibkey) is None
+    assert _parse_openlibrary_language(_ol_details_response(bibkey, None), bibkey) is None
+
+
+@pytest.mark.asyncio
+async def test_lookup_book_language_returns_edition_language(session: AsyncSession):
+    bibkey = "ISBN:9782070360024"
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        # Must hit the edition-level Books API, not /search.json.
+        assert "/api/books" in str(req.url)
+        assert "jscmd=details" in str(req.url)
+        return httpx.Response(200, json=_ol_details_response(bibkey, ["fre"]))
+
+    r = Retriever(session=session, transport=httpx.MockTransport(handler), timeout_s=5.0)
+    assert await r.lookup_book_language("9782070360024") == "fre"
+
+
+@pytest.mark.asyncio
+async def test_lookup_book_language_caches_positive_and_negative(session: AsyncSession):
+    calls: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        calls.append(str(req.url))
+        return httpx.Response(200, json=_ol_details_response("ISBN:9780261103573", ["eng"]))
+
+    r = Retriever(session=session, transport=httpx.MockTransport(handler), timeout_s=5.0)
+    assert await r.lookup_book_language("9780261103573") == "eng"
+    assert await r.lookup_book_language("9780261103573") == "eng"
+    assert len(calls) == 1  # second call hit cache
+
+    rows = (await session.execute(select(ExternalSourceCacheEntry))).scalars().all()
+    assert any(row.source == "openlibrary_language" for row in rows)
+
+
+@pytest.mark.asyncio
+async def test_lookup_book_language_negative_result_is_cached(session: AsyncSession):
+    calls: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        calls.append(str(req.url))
+        return httpx.Response(200, json=_ol_details_response("ISBN:1", None))
+
+    r = Retriever(session=session, transport=httpx.MockTransport(handler), timeout_s=5.0)
+    assert await r.lookup_book_language("1") is None
+    assert await r.lookup_book_language("1") is None
+    assert len(calls) == 1  # negative result cached, no second network call
+
+
+@pytest.mark.asyncio
+async def test_lookup_book_language_network_error_not_cached(session: AsyncSession):
+    def handler(req: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("slow")
+
+    r = Retriever(session=session, transport=httpx.MockTransport(handler), timeout_s=5.0)
+    assert await r.lookup_book_language("9782070360024") is None
+    rows = (await session.execute(select(ExternalSourceCacheEntry))).scalars().all()
+    # A network failure must not be cached — the next attempt should retry.
+    assert not any(row.source == "openlibrary_language" for row in rows)
+
+
+@pytest.mark.asyncio
+async def test_lookup_book_language_transient_status_not_cached(session: AsyncSession):
+    """A 429/5xx (rate-limit or outage) must NOT be cached as a null —
+    otherwise a transient blip suppresses backfill for the whole TTL."""
+    calls: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        calls.append(str(req.url))
+        return httpx.Response(503)
+
+    r = Retriever(session=session, transport=httpx.MockTransport(handler), timeout_s=5.0)
+    assert await r.lookup_book_language("9782070360024") is None
+    assert await r.lookup_book_language("9782070360024") is None
+    assert len(calls) == 2  # no cache write, so the second call retries
+    rows = (await session.execute(select(ExternalSourceCacheEntry))).scalars().all()
+    assert not any(row.source == "openlibrary_language" for row in rows)
 
 
 @pytest.mark.asyncio

@@ -43,6 +43,10 @@ class FakeRetriever:
         self.ol_calls += 1
         return []
 
+    async def lookup_book_language(self, isbn: str):
+        # Default stub: no edition language. Subclasses override.
+        return None
+
 
 @pytest.fixture
 def make_orchestrator(session):
@@ -873,3 +877,93 @@ async def test_retrieve_partial_failure_does_not_kill_sibling(session: AsyncSess
     # stub just raises raw to exercise the gather path).
     assert "openlibrary" in snap.retrieval_sources
     assert snap.retrieval_sources["openlibrary"].reachable is True
+
+
+class FakeRetrieverWithLanguage(FakeRetriever):
+    """FakeRetriever that also answers the edition-level language lookup."""
+
+    def __init__(self, language: str | None = None) -> None:
+        super().__init__()
+        self.language = language
+        self.lang_calls: list[str] = []
+
+    async def lookup_book_language(self, isbn: str):
+        self.lang_calls.append(isbn)
+        return self.language
+
+
+def _orchestrator_with(retriever, *, sources_enabled=("openlibrary",)):
+    orch = InsightOrchestrator(
+        ai=FakeAIClient(),
+        retriever_factory=lambda s: retriever,
+        sources_enabled=tuple(sources_enabled),
+        model_id="test-model",
+        prompt_version="t1",
+        max_concurrency=4,
+        ai_timeout_s=5.0,
+    )
+    orch.retriever = retriever  # type: ignore[attr-defined]
+    return orch
+
+
+@pytest.mark.asyncio
+async def test_auto_backfills_scanned_book_language_into_prompt(session: AsyncSession):
+    """A scanned book (ISBN, no language) under `auto` gets its language
+    resolved from OpenLibrary and injected into the prompt (fre -> fr)."""
+    retriever = FakeRetrieverWithLanguage(language="fre")
+    orch = _orchestrator_with(retriever)
+    ident = DocumentIdentity(metadata_id=None, content_hash="ch-scan-fr")
+    bundle = MetadataBundle(title="L'etranger", isbn="9782070360024")
+    await orch.generate(session, ident, bundle, user_id="u1", style=AiStyle(language="auto"))
+
+    assert retriever.lang_calls == ["9782070360024"]
+    prompt = orch.ai.calls[0]["user"]
+    assert 'ISO 639-1 code "fr"' in prompt
+
+    # Load-bearing invariant: the resolved book language steers the prompt but
+    # must NOT leak into the cache key, or the client (which caches under the
+    # style value "auto") would desync from the server.
+    row = (
+        await session.execute(select(BookInsight).where(BookInsight.content_hash == "ch-scan-fr"))
+    ).scalar_one()
+    assert row.language == "auto"
+
+
+@pytest.mark.asyncio
+async def test_auto_does_not_override_existing_bundle_language(session: AsyncSession):
+    """Library EPUBs already declare a language; backfill must not run or
+    override it."""
+    retriever = FakeRetrieverWithLanguage(language="fre")
+    orch = _orchestrator_with(retriever)
+    ident = DocumentIdentity(metadata_id=None, content_hash="ch-has-lang")
+    bundle = MetadataBundle(title="Foundation", isbn="9780261103573", language="en")
+    await orch.generate(session, ident, bundle, user_id="u1", style=AiStyle(language="auto"))
+
+    assert retriever.lang_calls == []  # never consulted
+    assert 'ISO 639-1 code "en"' in orch.ai.calls[0]["user"]
+
+
+@pytest.mark.asyncio
+async def test_auto_with_no_isbn_skips_backfill(session: AsyncSession):
+    """No ISBN means nothing to look up; the prompt stays language-neutral."""
+    retriever = FakeRetrieverWithLanguage(language="fre")
+    orch = _orchestrator_with(retriever)
+    ident = DocumentIdentity(metadata_id=None, content_hash="ch-no-isbn")
+    bundle = MetadataBundle(title="A Manuscript")  # no isbn, no language
+    await orch.generate(session, ident, bundle, user_id="u1", style=AiStyle(language="auto"))
+
+    assert retriever.lang_calls == []
+    assert "ISO 639-1 code" not in orch.ai.calls[0]["user"]
+
+
+@pytest.mark.asyncio
+async def test_auto_backfill_skipped_when_openlibrary_source_disabled(session: AsyncSession):
+    """Backfill respects source gating — disabled OpenLibrary means no lookup."""
+    retriever = FakeRetrieverWithLanguage(language="fre")
+    orch = _orchestrator_with(retriever, sources_enabled=("wikipedia",))
+    ident = DocumentIdentity(metadata_id=None, content_hash="ch-ol-off")
+    bundle = MetadataBundle(title="Gated", isbn="9782070360024")
+    await orch.generate(session, ident, bundle, user_id="u1", style=AiStyle(language="auto"))
+
+    assert retriever.lang_calls == []
+    assert "ISO 639-1 code" not in orch.ai.calls[0]["user"]

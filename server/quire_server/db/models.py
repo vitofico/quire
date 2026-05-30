@@ -137,8 +137,9 @@ class BookInsight(Base):
         String, nullable=False, server_default=text("'neutral'"), default="neutral"
     )
     # Part of the cache key so users with different AiStyle.language get their
-    # own generations. `'auto'` (the universal default) emits no language clause
-    # in the prompt and preserves the pre-PR4 behavior byte-for-byte.
+    # own generations. `'auto'` (the universal default) stays the cache-key
+    # value, but in the prompt it resolves to the book's own metadata language
+    # (PROMPT_VERSION 6); it is NOT replaced by the resolved code here.
     language: Mapped[str] = mapped_column(
         String, nullable=False, server_default=text("'auto'"), default="auto"
     )
