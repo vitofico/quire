@@ -19,10 +19,13 @@ from quire_server.core.ai.themes import CONTROLLED_THEMES
 
 # v6 (2026-05-30): `auto` language now follows the book's own metadata
 # language instead of emitting no clause, so a French book yields a French
-# insight without the user picking a language. This materially changes the
-# `auto` output (the universal default), so the cache key bumps to force
-# regeneration. See `_resolve_response_language`.
-PROMPT_VERSION = "6"
+# insight without the user picking a language. See `_resolve_response_language`.
+# v7 (2026-05-30): the language directive was a single weak line referencing an
+# ISO *code* buried at the end of an all-English prompt — weak models ignored it
+# and wrote English. v7 names the language (e.g. "Italian"), states it up front,
+# and scopes exactly which fields to write in it vs. keep as controlled values
+# (themes/confidence/proper names). Materially changes output → cache bumps.
+PROMPT_VERSION = "7"
 
 # pr-β (Bundle 3, coordinator §3.1 / §3.2). Separate cache namespace from
 # ``PROMPT_VERSION`` (which is keyed on the per-book ``book_insights`` PK);
@@ -245,6 +248,90 @@ def _resolve_response_language(style_language: str, book_language: str | None) -
     return _normalize_book_language(book_language)
 
 
+# Endonym-free English names for the languages the picker + auto-resolver can
+# produce. Weak models follow a named language far more reliably than an ISO
+# code, so the directive leads with the name. Codes not listed fall back to the
+# bare-code phrasing (still an instruction, just weaker).
+_ISO_639_1_NAMES = {
+    "en": "English",
+    "it": "Italian",
+    "es": "Spanish",
+    "fr": "French",
+    "de": "German",
+    "pt": "Portuguese",
+    "nl": "Dutch",
+    "ru": "Russian",
+    "ja": "Japanese",
+    "zh": "Chinese",
+    "ar": "Arabic",
+    "pl": "Polish",
+    "sv": "Swedish",
+    "no": "Norwegian",
+    "nb": "Norwegian Bokmål",
+    "da": "Danish",
+    "fi": "Finnish",
+    "el": "Greek",
+    "cs": "Czech",
+    "tr": "Turkish",
+    "uk": "Ukrainian",
+    "he": "Hebrew",
+    "ko": "Korean",
+    "hi": "Hindi",
+    "ro": "Romanian",
+    "ca": "Catalan",
+    "hu": "Hungarian",
+    "vi": "Vietnamese",
+    "th": "Thai",
+    "id": "Indonesian",
+    "sk": "Slovak",
+    "hr": "Croatian",
+    "sr": "Serbian",
+    "bg": "Bulgarian",
+    "lt": "Lithuanian",
+    "lv": "Latvian",
+    "et": "Estonian",
+    "is": "Icelandic",
+    "ga": "Irish",
+    "fa": "Persian",
+}
+
+
+def _language_display_name(code: str) -> str:
+    """A human-facing language label for the prompt, leading with the name.
+
+    ``"it"`` -> ``'Italian (ISO 639-1: it)'``. Unknown codes degrade to the
+    code-only phrasing so the instruction is still present, just weaker.
+    """
+    name = _ISO_639_1_NAMES.get(code)
+    if name:
+        return f"{name} (ISO 639-1: {code})"
+    return f'the language with ISO 639-1 code "{code}"'
+
+
+def _language_directive_lines(code: str) -> list[str]:
+    """The prominent, field-scoped output-language block placed at the top of
+    the prompt. Names the prose fields to translate and the controlled fields
+    that must stay as-is, so the model doesn't translate `themes`/`confidence`
+    or proper names.
+    """
+    name = _language_display_name(code)
+    return [
+        "",
+        f"OUTPUT LANGUAGE — write all prose in {name}.",
+        (
+            f"Write these fields in {name}: intro, analysis, the text values in "
+            "theme_analysis, craft_notes, distinctive_take, discussion_prompts, "
+            "content_warnings, and the author bio."
+        ),
+        (
+            "Do NOT translate — keep these exactly as specified: `themes` (the "
+            "controlled English snake_case tags listed below), `confidence` "
+            '("low" / "medium" / "high"), and proper names (book titles, author '
+            "names, series names, comparative-anchor titles)."
+        ),
+    ]
+
+
 def compose_user_prompt(
     bundle: MetadataBundle,
     citations: list[Citation],
@@ -252,8 +339,17 @@ def compose_user_prompt(
     style: AiStyle | None = None,
     feedback: str | None = None,
 ) -> str:
+    # The language the prose must be written in (None = no directive). Computed
+    # up front so the directive can LEAD the prompt — weak models anchor on the
+    # first instruction far more than on a line buried near the end.
+    response_language = (
+        _resolve_response_language(style.language, bundle.language) if style is not None else None
+    )
+
     lines: list[str] = []
     lines.append("Generate a book insight for the following work.")
+    if response_language is not None:
+        lines.extend(_language_directive_lines(response_language))
     lines.append("")
     lines.append("## Metadata (from the EPUB)")
     lines.append(f"- Title: {bundle.title}")
@@ -296,17 +392,15 @@ def compose_user_prompt(
         if hint:
             lines.append("")
             lines.append(hint)
-        # Pick the language the insight is written in. Explicit user codes win;
-        # `auto` (the universal default) defers to the book's own metadata
-        # language. When neither yields a code we emit no clause — the model
-        # writes in the book's apparent language as before. See
-        # `_resolve_response_language`.
-        response_language = _resolve_response_language(style.language, bundle.language)
-        if response_language is not None:
-            lines.append("")
-            lines.append(
-                f'Respond in the language identified by ISO 639-1 code "{response_language}".'
-            )
+
+    # Repeat the language rule at the end (architect guidance: lead AND remind).
+    if response_language is not None:
+        lines.append("")
+        lines.append(
+            "Reminder: write the prose fields in "
+            f"{_language_display_name(response_language)}; keep `themes`, "
+            "`confidence`, and proper names (titles, author/series names) unchanged."
+        )
 
     if feedback:
         lines.append("")
