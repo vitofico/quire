@@ -6,12 +6,12 @@ from quire_server.core.ai.prompts import (
 )
 
 
-def test_prompt_version_is_v6():
-    """v6 (2026-05-30) bumped from v5 because ``auto`` language now follows the
-    book's own metadata language instead of emitting no clause. That materially
-    changes the universal-default output, so the cache key must regenerate.
+def test_prompt_version_is_v7():
+    """v7 strengthened the language directive (named language, prominent, field-
+    scoped) because the v6 single-line ISO-code clause was being ignored by weak
+    models. Materially changes output, so the cache key must regenerate.
     """
-    assert PROMPT_VERSION == "6"
+    assert PROMPT_VERSION == "7"
 
 
 def test_system_prompt_includes_themes_vocab():
@@ -127,7 +127,8 @@ def test_tone_hint_omitted_when_default():
 def test_language_clause_emitted_when_non_auto():
     bundle = MetadataBundle(title="Foundation")
     text = compose_user_prompt(bundle, citations=[], style=AiStyle(language="it"))
-    assert 'ISO 639-1 code "it"' in text
+    assert "OUTPUT LANGUAGE" in text
+    assert "Italian" in text
 
 
 def test_language_clause_omitted_when_auto_and_book_language_unknown():
@@ -144,7 +145,8 @@ def test_language_clause_follows_book_language_when_auto():
     """`auto` defers to the book's own language so the insight matches the book."""
     bundle = MetadataBundle(title="Il nome della rosa", language="it")
     text = compose_user_prompt(bundle, citations=[], style=AiStyle(language="auto"))
-    assert 'ISO 639-1 code "it"' in text
+    assert "OUTPUT LANGUAGE" in text
+    assert "Italian" in text
 
 
 def test_auto_normalizes_region_and_three_letter_book_language():
@@ -155,21 +157,21 @@ def test_auto_normalizes_region_and_three_letter_book_language():
         citations=[],
         style=AiStyle(language="auto"),
     )
-    assert 'ISO 639-1 code "en"' in region
+    assert "English" in region
 
     iso2 = compose_user_prompt(
         MetadataBundle(title="B", language="eng"),
         citations=[],
         style=AiStyle(language="auto"),
     )
-    assert 'ISO 639-1 code "en"' in iso2
+    assert "English" in iso2
 
 
 def test_auto_skips_unrecognized_book_language():
     """An unmappable language tag yields no clause rather than a bogus code."""
     bundle = MetadataBundle(title="C", language="zxx")
     text = compose_user_prompt(bundle, citations=[], style=AiStyle(language="auto"))
-    assert "ISO 639-1 code" not in text
+    assert "OUTPUT LANGUAGE" not in text
 
 
 def test_auto_rejects_bogus_two_letter_book_language():
@@ -177,15 +179,15 @@ def test_auto_rejects_bogus_two_letter_book_language():
     prompt as an instruction."""
     bundle = MetadataBundle(title="C2", language="zz")
     text = compose_user_prompt(bundle, citations=[], style=AiStyle(language="auto"))
-    assert "ISO 639-1 code" not in text
+    assert "OUTPUT LANGUAGE" not in text
 
 
 def test_explicit_language_overrides_book_language():
     """An explicit user code wins even when the book declares its own language."""
     bundle = MetadataBundle(title="D", language="it")
     text = compose_user_prompt(bundle, citations=[], style=AiStyle(language="en"))
-    assert 'ISO 639-1 code "en"' in text
-    assert 'ISO 639-1 code "it"' not in text
+    assert "English" in text
+    assert "Italian" not in text
 
 
 def test_language_clause_independent_of_tone():
@@ -197,7 +199,25 @@ def test_language_clause_independent_of_tone():
         style=AiStyle(tone="scholarly", language="fr"),
     )
     assert "analytical" in text.lower() or "scholarly" in text.lower()
-    assert 'ISO 639-1 code "fr"' in text
+    assert "French" in text
+
+
+def test_language_directive_protects_controlled_fields():
+    """The output-language block must instruct the model NOT to translate the
+    controlled fields — otherwise it corrupts `themes`/`confidence`."""
+    bundle = MetadataBundle(title="Foundation", language="it")
+    text = compose_user_prompt(bundle, citations=[], style=AiStyle(language="auto"))
+    assert "Do NOT translate" in text
+    assert "themes" in text
+    assert "confidence" in text
+
+
+def test_language_directive_leads_the_prompt():
+    """The directive must appear before the metadata block so weak models anchor
+    on it (they over-weight the first instruction)."""
+    bundle = MetadataBundle(title="Foundation", language="it")
+    text = compose_user_prompt(bundle, citations=[], style=AiStyle(language="auto"))
+    assert text.index("OUTPUT LANGUAGE") < text.index("## Metadata")
 
 
 def test_feedback_block_appended_on_regeneration():

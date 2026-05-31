@@ -918,7 +918,7 @@ async def test_auto_backfills_scanned_book_language_into_prompt(session: AsyncSe
 
     assert retriever.lang_calls == ["9782070360024"]
     prompt = orch.ai.calls[0]["user"]
-    assert 'ISO 639-1 code "fr"' in prompt
+    assert "French" in prompt
 
     # Load-bearing invariant: the resolved book language steers the prompt but
     # must NOT leak into the cache key, or the client (which caches under the
@@ -940,7 +940,7 @@ async def test_auto_does_not_override_existing_bundle_language(session: AsyncSes
     await orch.generate(session, ident, bundle, user_id="u1", style=AiStyle(language="auto"))
 
     assert retriever.lang_calls == []  # never consulted
-    assert 'ISO 639-1 code "en"' in orch.ai.calls[0]["user"]
+    assert "English" in orch.ai.calls[0]["user"]
 
 
 @pytest.mark.asyncio
@@ -953,7 +953,7 @@ async def test_auto_with_no_isbn_skips_backfill(session: AsyncSession):
     await orch.generate(session, ident, bundle, user_id="u1", style=AiStyle(language="auto"))
 
     assert retriever.lang_calls == []
-    assert "ISO 639-1 code" not in orch.ai.calls[0]["user"]
+    assert "OUTPUT LANGUAGE" not in orch.ai.calls[0]["user"]
 
 
 @pytest.mark.asyncio
@@ -966,4 +966,4 @@ async def test_auto_backfill_skipped_when_openlibrary_source_disabled(session: A
     await orch.generate(session, ident, bundle, user_id="u1", style=AiStyle(language="auto"))
 
     assert retriever.lang_calls == []
-    assert "ISO 639-1 code" not in orch.ai.calls[0]["user"]
+    assert "OUTPUT LANGUAGE" not in orch.ai.calls[0]["user"]
