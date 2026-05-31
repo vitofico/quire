@@ -17,15 +17,17 @@ from __future__ import annotations
 from quire_server.api.ai_schemas import ISO_639_1_CODES, AiStyle, Citation, MetadataBundle
 from quire_server.core.ai.themes import CONTROLLED_THEMES
 
-# v6 (2026-05-30): `auto` language now follows the book's own metadata
-# language instead of emitting no clause, so a French book yields a French
-# insight without the user picking a language. See `_resolve_response_language`.
-# v7 (2026-05-30): the language directive was a single weak line referencing an
-# ISO *code* buried at the end of an all-English prompt — weak models ignored it
-# and wrote English. v7 names the language (e.g. "Italian"), states it up front,
-# and scopes exactly which fields to write in it vs. keep as controlled values
-# (themes/confidence/proper names). Materially changes output → cache bumps.
-PROMPT_VERSION = "7"
+# v6 (2026-05-30): `auto` language follows the book's own metadata language.
+# v7 (2026-05-30): named the language + scoped fields (the v6 ISO-code clause
+# was being ignored by the model).
+# v8 (2026-05-31): for `auto`, STOP relying on the metadata `<dc:language>` to
+# pick the language — it's frequently missing or wrong (sideloaded EPUBs), and
+# when absent v7 emitted no directive so the model defaulted to English (made
+# worse by English citations). v8 instructs the model to determine the book's
+# original language from the work itself (title/author/knowledge), which fixes
+# absent/incorrect metadata. Verified against gpt-oss:120b across missing,
+# wrong, and correct metadata. Materially changes output → cache bumps.
+PROMPT_VERSION = "8"
 
 # pr-β (Bundle 3, coordinator §3.1 / §3.2). Separate cache namespace from
 # ``PROMPT_VERSION`` (which is keyed on the per-book ``book_insights`` PK);
@@ -232,22 +234,6 @@ def _normalize_book_language(raw: str) -> str | None:
     return None
 
 
-def _resolve_response_language(style_language: str, book_language: str | None) -> str | None:
-    """The ISO 639-1 code the insight should be written in, or ``None``.
-
-    An explicit user code wins outright (already validated to ISO 639-1 in
-    ``AiStyle._validate_language``). ``auto`` — the universal default —
-    follows the book's own metadata language, so a French book yields a
-    French insight with no user action. ``auto`` with no usable book language
-    yields ``None``, preserving the pre-v6 language-neutral prompt.
-    """
-    if style_language != "auto":
-        return style_language
-    if not book_language:
-        return None
-    return _normalize_book_language(book_language)
-
-
 # Endonym-free English names for the languages the picker + auto-resolver can
 # produce. Weak models follow a named language far more reliably than an ISO
 # code, so the directive leads with the name. Codes not listed fall back to the
@@ -308,20 +294,45 @@ def _language_display_name(code: str) -> str:
     return f'the language with ISO 639-1 code "{code}"'
 
 
-def _language_directive_lines(code: str) -> list[str]:
-    """The prominent, field-scoped output-language block placed at the top of
-    the prompt. Names the prose fields to translate and the controlled fields
-    that must stay as-is, so the model doesn't translate `themes`/`confidence`
-    or proper names.
+def _output_language_directive_lines(style: AiStyle, book_language: str | None) -> list[str]:
+    """The prominent, field-scoped output-language block at the top of the
+    prompt, or ``[]`` when no directive applies (``style is None``).
+
+    Two cases:
+
+    * **Explicit user code** → write in exactly that named language (a user
+      override that wins over the book's own language).
+    * **``auto``** (the default) → write in the BOOK's own language. We do NOT
+      rely on the metadata ``<dc:language>`` to NAME it: that tag is frequently
+      missing or wrong (sideloaded EPUBs often omit it or default to ``en``),
+      and when it's absent the old prompt emitted no directive at all so the
+      model defaulted to English. Instead we instruct the model to DETERMINE
+      the language from the work itself — capable models identify a book's
+      language from its title + author reliably, which fixes absent/incorrect
+      metadata. The metadata ``Language`` line (if any) still appears below as
+      a hint.
+
+    The field scoping (prose vs. controlled ``themes``/``confidence``/proper
+    names) is identical in both cases.
     """
-    name = _language_display_name(code)
+    if style.language != "auto":
+        lead = f"write all prose in {_language_display_name(style.language)}."
+    else:
+        lead = (
+            "write all prose in the book's ORIGINAL language — the language the "
+            "work was written in. Determine it from the title, author, and your "
+            "knowledge of the work (for example: an Italian title and author means "
+            "write in Italian; a French work means French). The metadata may omit "
+            "or misstate the language, so rely on the work itself, and do NOT "
+            "default to English unless the book is genuinely in English."
+        )
     return [
         "",
-        f"OUTPUT LANGUAGE — write all prose in {name}.",
+        f"OUTPUT LANGUAGE — {lead}",
         (
-            f"Write these fields in {name}: intro, analysis, the text values in "
-            "theme_analysis, craft_notes, distinctive_take, discussion_prompts, "
-            "content_warnings, and the author bio."
+            "Apply that language to the prose fields: intro, analysis, the text "
+            "values in theme_analysis, craft_notes, distinctive_take, "
+            "discussion_prompts, content_warnings, and the author bio."
         ),
         (
             "Do NOT translate — keep these exactly as specified: `themes` (the "
@@ -339,17 +350,16 @@ def compose_user_prompt(
     style: AiStyle | None = None,
     feedback: str | None = None,
 ) -> str:
-    # The language the prose must be written in (None = no directive). Computed
-    # up front so the directive can LEAD the prompt — weak models anchor on the
-    # first instruction far more than on a line buried near the end.
-    response_language = (
-        _resolve_response_language(style.language, bundle.language) if style is not None else None
+    # The output-language block leads the prompt — models anchor on the first
+    # instruction far more than on a line buried near the end. [] when style is
+    # None (the pure no-style call used by some tests).
+    directive = (
+        _output_language_directive_lines(style, bundle.language) if style is not None else []
     )
 
     lines: list[str] = []
     lines.append("Generate a book insight for the following work.")
-    if response_language is not None:
-        lines.extend(_language_directive_lines(response_language))
+    lines.extend(directive)
     lines.append("")
     lines.append("## Metadata (from the EPUB)")
     lines.append(f"- Title: {bundle.title}")
@@ -393,13 +403,15 @@ def compose_user_prompt(
             lines.append("")
             lines.append(hint)
 
-    # Repeat the language rule at the end (architect guidance: lead AND remind).
-    if response_language is not None:
+    # Repeat the language rule at the end (lead AND remind) — citations and
+    # metadata below are often in English and otherwise drag the output language.
+    if directive:
         lines.append("")
         lines.append(
-            "Reminder: write the prose fields in "
-            f"{_language_display_name(response_language)}; keep `themes`, "
-            "`confidence`, and proper names (titles, author/series names) unchanged."
+            "Reminder: write the prose fields in the output language stated at the "
+            "top (the book's own language); the English sources above are reference "
+            "material only — do NOT let them switch your output to English. Keep "
+            "`themes`, `confidence`, and proper names unchanged."
         )
 
     if feedback:

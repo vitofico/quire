@@ -909,7 +909,8 @@ def _orchestrator_with(retriever, *, sources_enabled=("openlibrary",)):
 @pytest.mark.asyncio
 async def test_auto_backfills_scanned_book_language_into_prompt(session: AsyncSession):
     """A scanned book (ISBN, no language) under `auto` gets its language
-    resolved from OpenLibrary and injected into the prompt (fre -> fr)."""
+    resolved from OpenLibrary and added to the bundle as a metadata hint
+    (fre -> fr); the model still determines the output language itself."""
     retriever = FakeRetrieverWithLanguage(language="fre")
     orch = _orchestrator_with(retriever)
     ident = DocumentIdentity(metadata_id=None, content_hash="ch-scan-fr")
@@ -918,7 +919,7 @@ async def test_auto_backfills_scanned_book_language_into_prompt(session: AsyncSe
 
     assert retriever.lang_calls == ["9782070360024"]
     prompt = orch.ai.calls[0]["user"]
-    assert "French" in prompt
+    assert "Language: fr" in prompt  # backfilled hint line
 
     # Load-bearing invariant: the resolved book language steers the prompt but
     # must NOT leak into the cache key, or the client (which caches under the
@@ -940,7 +941,7 @@ async def test_auto_does_not_override_existing_bundle_language(session: AsyncSes
     await orch.generate(session, ident, bundle, user_id="u1", style=AiStyle(language="auto"))
 
     assert retriever.lang_calls == []  # never consulted
-    assert "English" in orch.ai.calls[0]["user"]
+    assert "Language: en" in orch.ai.calls[0]["user"]  # client-provided hint kept
 
 
 @pytest.mark.asyncio
@@ -953,7 +954,8 @@ async def test_auto_with_no_isbn_skips_backfill(session: AsyncSession):
     await orch.generate(session, ident, bundle, user_id="u1", style=AiStyle(language="auto"))
 
     assert retriever.lang_calls == []
-    assert "OUTPUT LANGUAGE" not in orch.ai.calls[0]["user"]
+    # No backfill, but `auto` still emits the infer directive (model decides).
+    assert "OUTPUT LANGUAGE" in orch.ai.calls[0]["user"]
 
 
 @pytest.mark.asyncio
@@ -966,4 +968,5 @@ async def test_auto_backfill_skipped_when_openlibrary_source_disabled(session: A
     await orch.generate(session, ident, bundle, user_id="u1", style=AiStyle(language="auto"))
 
     assert retriever.lang_calls == []
-    assert "OUTPUT LANGUAGE" not in orch.ai.calls[0]["user"]
+    # Backfill is gated off, but `auto` still emits the infer directive.
+    assert "OUTPUT LANGUAGE" in orch.ai.calls[0]["user"]

@@ -49,7 +49,7 @@ def test_runtime_prompt_version_default_uses_constant(monkeypatch, postgres_url,
     orch = app.state.ai_orchestrator
     assert orch.prompt_version == PROMPT_VERSION
     # Explicit pin catches accidental constant drift.
-    assert orch.prompt_version == "7"
+    assert orch.prompt_version == "8"
 
 
 def test_runtime_prompt_version_legacy_sentinel(monkeypatch, postgres_url, alembic_upgrade):
