@@ -2,16 +2,17 @@ from quire_server.api.ai_schemas import AiStyle, Citation, MetadataBundle
 from quire_server.core.ai.prompts import (
     PROMPT_VERSION,
     SYSTEM_PROMPT,
+    _normalize_book_language,
     compose_user_prompt,
 )
 
 
-def test_prompt_version_is_v7():
-    """v7 strengthened the language directive (named language, prominent, field-
-    scoped) because the v6 single-line ISO-code clause was being ignored by weak
-    models. Materially changes output, so the cache key must regenerate.
+def test_prompt_version_is_v8():
+    """v8: for `auto`, the model determines the book's own language from the work
+    itself rather than the (often missing/wrong) metadata tag. Materially changes
+    output, so the cache key must regenerate.
     """
-    assert PROMPT_VERSION == "7"
+    assert PROMPT_VERSION == "8"
 
 
 def test_system_prompt_includes_themes_vocab():
@@ -117,11 +118,11 @@ def test_tone_hint_emitted_when_non_default():
 
 
 def test_tone_hint_omitted_when_default():
-    """Default tone must not bloat the prompt — quota matters."""
+    """Default (neutral) tone must not add a tone hint — quota matters. (The
+    `auto` language directive IS still emitted; that's a separate knob.)"""
     bundle = MetadataBundle(title="Foundation")
-    text_no_style = compose_user_prompt(bundle, citations=[])
-    text_default_style = compose_user_prompt(bundle, citations=[], style=AiStyle())
-    assert text_no_style == text_default_style
+    text = compose_user_prompt(bundle, citations=[], style=AiStyle())  # neutral tone
+    assert "Tone:" not in text
 
 
 def test_language_clause_emitted_when_non_auto():
@@ -131,55 +132,44 @@ def test_language_clause_emitted_when_non_auto():
     assert "Italian" in text
 
 
-def test_language_clause_omitted_when_auto_and_book_language_unknown():
-    """`auto` with no book language must produce a prompt byte-for-byte
-    identical to the no-style call (the language-neutral default)."""
-    bundle = MetadataBundle(title="Foundation")
-    text_no_style = compose_user_prompt(bundle, citations=[])
-    text_auto = compose_user_prompt(bundle, citations=[], style=AiStyle(language="auto"))
-    text_default = compose_user_prompt(bundle, citations=[], style=AiStyle())
-    assert text_no_style == text_auto == text_default
-
-
-def test_language_clause_follows_book_language_when_auto():
-    """`auto` defers to the book's own language so the insight matches the book."""
-    bundle = MetadataBundle(title="Il nome della rosa", language="it")
+def test_auto_directive_present_and_infers_book_language():
+    """`auto` no longer depends on the metadata tag (often missing/wrong): it
+    instructs the model to determine the book's ORIGINAL language from the work
+    itself. The directive is therefore present even with NO metadata language."""
+    bundle = MetadataBundle(title="Cristo si è fermato a Eboli", author="Carlo Levi")
     text = compose_user_prompt(bundle, citations=[], style=AiStyle(language="auto"))
     assert "OUTPUT LANGUAGE" in text
-    assert "Italian" in text
+    assert "original language" in text.lower()
+    assert "determine it from the title" in text.lower()
 
 
-def test_auto_normalizes_region_and_three_letter_book_language():
-    """EPUB/OpenLibrary emit shapes like `en-US` and `eng`; `auto` folds them
-    down to a bare ISO 639-1 code before instructing the model."""
-    region = compose_user_prompt(
-        MetadataBundle(title="A", language="en-US"),
-        citations=[],
-        style=AiStyle(language="auto"),
-    )
-    assert "English" in region
-
-    iso2 = compose_user_prompt(
-        MetadataBundle(title="B", language="eng"),
-        citations=[],
-        style=AiStyle(language="auto"),
-    )
-    assert "English" in iso2
-
-
-def test_auto_skips_unrecognized_book_language():
-    """An unmappable language tag yields no clause rather than a bogus code."""
-    bundle = MetadataBundle(title="C", language="zxx")
-    text = compose_user_prompt(bundle, citations=[], style=AiStyle(language="auto"))
-    assert "OUTPUT LANGUAGE" not in text
+def test_auto_directive_does_not_hard_name_from_metadata():
+    """The `auto` directive must be identical whether the metadata tag is
+    correct, wrong, or absent — baking a name from a wrong `<dc:language>` is
+    exactly what forced English output before. Metadata only appears later as a
+    hint line; it must never turn the directive into 'write in English'."""
+    base = MetadataBundle(title="Cristo si è fermato a Eboli", author="Carlo Levi")
+    lead = "OUTPUT LANGUAGE — write all prose in the book's ORIGINAL language"
+    for lang in (None, "it", "en"):
+        text = compose_user_prompt(
+            base.model_copy(update={"language": lang}),
+            citations=[],
+            style=AiStyle(language="auto"),
+        )
+        assert lead in text
+        assert "write all prose in English" not in text  # wrong tag must not win
 
 
-def test_auto_rejects_bogus_two_letter_book_language():
-    """A two-letter tag that isn't a real ISO 639-1 code must not leak into the
-    prompt as an instruction."""
-    bundle = MetadataBundle(title="C2", language="zz")
-    text = compose_user_prompt(bundle, citations=[], style=AiStyle(language="auto"))
-    assert "OUTPUT LANGUAGE" not in text
+def test_normalize_book_language():
+    """The OpenLibrary/EPUB language normalizer (used by the ISBN backfill) folds
+    region/3-letter tags to ISO 639-1 and rejects bogus codes."""
+    assert _normalize_book_language("it") == "it"
+    assert _normalize_book_language("en-US") == "en"
+    assert _normalize_book_language("pt_BR") == "pt"
+    assert _normalize_book_language("eng") == "en"
+    assert _normalize_book_language("fre") == "fr"
+    assert _normalize_book_language("zz") is None  # not a real ISO 639-1
+    assert _normalize_book_language("zxx") is None  # 3-letter, unmapped
 
 
 def test_explicit_language_overrides_book_language():
