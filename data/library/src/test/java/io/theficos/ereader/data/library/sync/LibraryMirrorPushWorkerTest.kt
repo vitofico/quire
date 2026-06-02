@@ -83,6 +83,24 @@ class LibraryMirrorPushWorkerTest {
     private fun buildWorker(): LibraryMirrorPushWorker =
         TestListenableWorkerBuilder<LibraryMirrorPushWorker>(context).build()
 
+    // -------------------- expedited foreground (issue #78) --------------------
+
+    /**
+     * Regression for #78: on API < 31 WorkManager runs the app-start
+     * expedited push as a foreground service and calls `getForegroundInfo()`.
+     * The default `CoroutineWorker` implementation throws
+     * `IllegalStateException("Not implemented")` and crashed the app on
+     * Android 9. The override must return a valid [ForegroundInfo].
+     */
+    @Test
+    @Config(sdk = [28])
+    fun `getForegroundInfo returns a notification on Android 9`() = runTest {
+        val info = buildWorker().getForegroundInfo()
+
+        assertThat(info.notificationId).isNotEqualTo(0)
+        assertThat(info.notification).isNotNull()
+    }
+
     // -------------------- success / wire shape --------------------
 
     @Test

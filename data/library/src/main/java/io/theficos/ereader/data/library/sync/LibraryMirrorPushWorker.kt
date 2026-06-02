@@ -1,8 +1,12 @@
 package io.theficos.ereader.data.library.sync
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
 import android.util.Log
+import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
+import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import io.theficos.ereader.data.library.LibraryClient
 import io.theficos.ereader.data.library.LibraryHttpException
@@ -60,6 +64,37 @@ class LibraryMirrorPushWorker(
     appContext: Context,
     params: WorkerParameters,
 ) : CoroutineWorker(appContext, params) {
+
+    /**
+     * Required for expedited work on API < 31. The app-start trigger
+     * ([LibraryMirrorPushScheduler.enqueueOneTime] with `expedited = true`)
+     * runs as a foreground service on Android 9–11, where WorkManager calls
+     * this to get the notification to display. The default `CoroutineWorker`
+     * implementation throws `IllegalStateException("Not implemented")`,
+     * which crashed the app at startup (issue #78). On API 31+ expedited
+     * work uses JobScheduler and this is never called.
+     */
+    override suspend fun getForegroundInfo(): ForegroundInfo =
+        createForegroundInfo(applicationContext)
+
+    private fun createForegroundInfo(context: Context): ForegroundInfo {
+        // minSdk is 26, so the channel API is always available.
+        val manager = context.getSystemService(NotificationManager::class.java)
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            "Library sync",
+            NotificationManager.IMPORTANCE_LOW,
+        ).apply { setShowBadge(false) }
+        manager.createNotificationChannel(channel)
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setContentTitle("Syncing your library")
+            .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+        return ForegroundInfo(NOTIFICATION_ID, notification)
+    }
 
     override suspend fun doWork(): Result {
         val deps = LibraryMirrorPushDependencies.holder ?: run {
@@ -190,6 +225,8 @@ class LibraryMirrorPushWorker(
 
     private companion object {
         const val TAG = "LibraryMirrorPush"
+        const val CHANNEL_ID = "quire-library-sync"
+        const val NOTIFICATION_ID = 4202
         // Mirrors `library_sync_max_items` (default 500) in the server's
         // Settings — we chunk client-side rather than catching a 422 on
         // oversize batches.
