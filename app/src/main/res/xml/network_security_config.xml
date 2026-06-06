@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Trust user-installed CAs in addition to system CAs (issue #80).
+
+  Quire connects to arbitrary, user-configured servers (Calibre-web, OPDS,
+  sync, AI). Self-hosters commonly front those with a private/internal CA that
+  lives in the device's *user* CA store. On API 24+ apps trust system CAs only
+  by default, so without this Quire fails such servers with
+  "Trust anchor for certification path not found" even though the browser
+  (which does trust user CAs) connects fine.
+
+  This is a deliberate, bounded trust expansion appropriate for a self-hosted
+  app: only CAs the device owner installed themselves are honored, and modern
+  Android (11+) requires CA installation to go through Settings. The hosts can't
+  be enumerated at build time, so a global base-config is the only practical
+  option.
+
+  cleartextTrafficPermitted is intentionally left unset: with targetSdk 34 the
+  platform default already disables cleartext, so omitting it keeps current
+  behavior without hardcoding.
+
+  Fixed third-party public endpoints (Open Library metadata + covers) are pinned
+  back to system-only — they're served by public CAs and never need a private
+  CA, so they shouldn't inherit the user-CA trust expansion.
+-->
+<network-security-config>
+    <base-config>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+
+    <domain-config>
+        <domain includeSubdomains="true">openlibrary.org</domain>
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </domain-config>
+</network-security-config>
