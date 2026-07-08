@@ -17,6 +17,8 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.theficos.ereader.reader.ReaderFontFamily
 import io.theficos.ereader.reader.ReaderPreferences
@@ -43,14 +45,75 @@ fun FontSettingsSheet(
                 steps = 14,
                 modifier = Modifier.fillMaxWidth(),
             )
-            Text("Line spacing: ${"%.1f".format(prefs.lineSpacing)}", style = MaterialTheme.typography.bodyMedium)
+            val advancedEnabled = !prefs.usePublisherStyles
+
+            val lineSpacingLabel = "Line spacing: ${"%.1f".format(prefs.lineSpacing)}"
+            Text(lineSpacingLabel, style = MaterialTheme.typography.bodyMedium)
             Slider(
                 value = prefs.lineSpacing.toFloat(),
                 onValueChange = { onChange(prefs.copy(lineSpacing = it.toDouble().coerceIn(1.0, 1.8))) },
                 valueRange = 1.0f..1.8f,
                 steps = 7,
-                modifier = Modifier.fillMaxWidth(),
+                enabled = advancedEnabled,
+                modifier = Modifier.fillMaxWidth().semantics { contentDescription = lineSpacingLabel },
             )
+
+            val marginLabel = "Page margins: ${"%.1f".format(prefs.pageMargins)}"
+            Text(marginLabel, style = MaterialTheme.typography.bodyMedium)
+            Slider(
+                value = prefs.pageMargins.toFloat(),
+                onValueChange = { onChange(prefs.copy(pageMargins = it.toDouble().coerceIn(0.5, 2.0))) },
+                valueRange = 0.5f..2.0f,
+                steps = 14,
+                modifier = Modifier.fillMaxWidth().semantics { contentDescription = marginLabel },
+            )
+
+            val indentLabel = prefs.paragraphIndent
+                ?.let { "Paragraph indent: ${"%.1f".format(it)}" } ?: "Paragraph indent: Default"
+            Text(indentLabel, style = MaterialTheme.typography.bodyMedium)
+            Slider(
+                value = (prefs.paragraphIndent ?: 0.0).toFloat(),
+                onValueChange = { v ->
+                    onChange(prefs.copy(paragraphIndent = v.toDouble().takeIf { it > 0.0 }?.coerceIn(0.0, 3.0)))
+                },
+                valueRange = 0.0f..3.0f,
+                steps = 5,
+                enabled = advancedEnabled,
+                modifier = Modifier.fillMaxWidth().semantics { contentDescription = indentLabel },
+            )
+
+            val spacingLabel = prefs.paragraphSpacing
+                ?.let { "Paragraph spacing: ${"%.1f".format(it)}" } ?: "Paragraph spacing: Default"
+            Text(spacingLabel, style = MaterialTheme.typography.bodyMedium)
+            Slider(
+                value = (prefs.paragraphSpacing ?: 0.0).toFloat(),
+                onValueChange = { v ->
+                    onChange(prefs.copy(paragraphSpacing = v.toDouble().takeIf { it > 0.0 }?.coerceIn(0.0, 2.0)))
+                },
+                valueRange = 0.0f..2.0f,
+                steps = 7,
+                enabled = advancedEnabled,
+                modifier = Modifier.fillMaxWidth().semantics { contentDescription = spacingLabel },
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Use the book's paragraph styling", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "Keeps the book's own line spacing, indent and paragraph spacing — turn off to adjust them",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = prefs.usePublisherStyles,
+                    onCheckedChange = { onChange(prefs.copy(usePublisherStyles = it)) },
+                )
+            }
+
             Text("Theme", style = MaterialTheme.typography.bodyMedium)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 ReaderTheme.values().forEach { t ->
@@ -99,6 +162,25 @@ fun FontSettingsSheet(
                 Switch(
                     checked = prefs.tapNavigationEnabled,
                     onCheckedChange = { onChange(prefs.copy(tapNavigationEnabled = it)) },
+                )
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Full-screen reading", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "Hide the status and navigation bars while reading",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = prefs.immersiveReading,
+                    onCheckedChange = { onChange(prefs.copy(immersiveReading = it)) },
                 )
             }
         }

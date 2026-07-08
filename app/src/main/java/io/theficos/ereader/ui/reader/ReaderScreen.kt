@@ -2,11 +2,15 @@ package io.theficos.ereader.ui.reader
 
 import android.app.Activity
 import android.content.Context
+import android.graphics.Color as AndroidColor
+import android.os.Build
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.Window
 import android.view.WindowManager
+import android.view.accessibility.AccessibilityManager
 import android.widget.FrameLayout
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,7 +28,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.fragment.app.FragmentContainerView
 import androidx.lifecycle.Lifecycle
@@ -82,8 +90,13 @@ fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
 
     LaunchedEffect(Unit) { viewModel.load() }
 
-    LaunchedEffect(chromeVisible, isDragging) {
-        if (chromeVisible && !isDragging) {
+    LaunchedEffect(chromeVisible, isDragging, showFontSheet) {
+        // Don't auto-hide while the settings sheet is open (bars would slide out from under
+        // the modal), nor while a screen reader is exploring (immersive also hides the OS
+        // navigation bar, which a TalkBack user cannot re-summon on a 2.5s timer).
+        val touchExploring = (context.getSystemService(Context.ACCESSIBILITY_SERVICE)
+            as? AccessibilityManager)?.isTouchExplorationEnabled == true
+        if (chromeVisible && !isDragging && !showFontSheet && !touchExploring) {
             delay(2_500)
             viewModel.setChromeVisible(false)
         }
@@ -94,6 +107,18 @@ fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
             ReaderUiState.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
             is ReaderUiState.Error -> Text(s.message, Modifier.align(Alignment.Center))
             is ReaderUiState.Open -> {
+                // Declared before ReaderContent so decor-fits is applied before the navigator
+                // fragment is created (cold start paginates at final edge-to-edge geometry).
+                // Scoped to the Open state so Loading/Error keep normal, themed system bars.
+                ImmersiveWindowEffects(
+                    immersive = preferences.immersiveReading,
+                    lightBarsForTheme = preferences.theme != io.theficos.ereader.reader.ReaderTheme.DARK,
+                    chromeVisible = chromeVisible,
+                    onBeforeResize = viewModel::beginViewportResize,
+                    onResizeSettled = viewModel::completeViewportResize,
+                    onExit = viewModel::clearPendingResize,
+                )
+
                 ReaderContent(
                     publication = s.publication,
                     initialLocator = s.initialLocator,
@@ -112,6 +137,7 @@ fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
                     onBack = onClose,
                     onOverflow = { showFontSheet = true },
                     modifier = Modifier.align(Alignment.TopCenter),
+                    edgeToEdge = preferences.immersiveReading,
                 )
                 val positionsList = positions
                 val locationTotal = positionsList?.size?.takeIf { it > 0 }
@@ -142,6 +168,7 @@ fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
                         dragPreview = null
                     },
                     modifier = Modifier.align(Alignment.BottomCenter),
+                    edgeToEdge = preferences.immersiveReading,
                 )
 
                 if (showFontSheet) {
@@ -247,6 +274,162 @@ private fun ReaderContent(
     LaunchedEffect(preferences) {
         fragment?.submitPreferences(preferences.toEpubPreferences())
     }
+}
+
+/**
+ * Drives immersive full-screen: binds the OS status + navigation bars to the reader
+ * chrome. Every window mutation is snapshotted once and reverted on exit so the rest of
+ * the single-Activity app keeps its normal, themed bars.
+ */
+@Composable
+private fun ImmersiveWindowEffects(
+    immersive: Boolean,
+    lightBarsForTheme: Boolean,
+    chromeVisible: Boolean,
+    onBeforeResize: () -> Unit,
+    onResizeSettled: () -> Unit,
+    onExit: () -> Unit,
+) {
+    val view = LocalView.current
+    val window = (LocalContext.current as Activity).window
+    val controller = remember(window, view) { WindowCompat.getInsetsController(window, view) }
+
+    // Snapshot the pre-reader system-bar state ONCE, so re-runs restore the true originals
+    // rather than a previously-applied transparent/immersive value.
+    val original = remember {
+        OriginalBarState(
+            statusColor = window.statusBarColor,
+            navColor = window.navigationBarColor,
+            lightStatus = controller.isAppearanceLightStatusBars,
+            lightNav = controller.isAppearanceLightNavigationBars,
+            contrastEnforced = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                window.isNavigationBarContrastEnforced
+            } else {
+                true
+            },
+            cutoutMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                window.attributes.layoutInDisplayCutoutMode
+            } else {
+                0
+            },
+        )
+    }
+
+    // Skip arming a viewport resize on the very first application: the fragment is created
+    // edge-to-edge from the start, so there's nothing to re-anchor.
+    val firstRun = remember { booleanArrayOf(true) }
+
+    // Apply the window mode whenever immersive flips. Arm the re-anchor BEFORE the
+    // decor-fits change (which resizes the WebView) so Readium's drifted emissions are
+    // suppressed until onPageChanged (or the fallback below) restores the anchor. Skipped
+    // on first run — the fragment is created at the final geometry, so no resize occurs.
+    DisposableEffect(immersive) {
+        if (!firstRun[0]) onBeforeResize()
+        if (immersive) applyImmersive(window, controller) else restoreBars(window, controller, original)
+        onDispose { }
+    }
+
+    // Exit-only cleanup (keyed on Unit so an immersive toggle never triggers it): revert
+    // every window mutation so the rest of the single-Activity app keeps normal bars, and
+    // clear any resize left armed by a mid-transition teardown.
+    DisposableEffect(Unit) {
+        onDispose {
+            restoreBars(window, controller, original)
+            onExit()
+        }
+    }
+
+    // Re-anchor fallback for a live immersive toggle. onPageChanged normally completes the
+    // resize; this guarantees the anchor is honored (and publishing un-suppressed) even if
+    // the toggle didn't re-paginate. Idempotent — a no-op once already completed.
+    LaunchedEffect(immersive) {
+        if (firstRun[0]) {
+            firstRun[0] = false
+        } else {
+            delay(600)
+            onResizeSettled()
+        }
+    }
+
+    // Bar-icon appearance follows the reader theme, but only while immersive. Kept separate
+    // from the mode effect so a theme change never cycles decor-fits (which would re-paginate).
+    LaunchedEffect(immersive, lightBarsForTheme) {
+        if (immersive) {
+            controller.isAppearanceLightStatusBars = lightBarsForTheme
+            controller.isAppearanceLightNavigationBars = lightBarsForTheme
+        }
+    }
+
+    // Bind system-bar visibility to the reader chrome.
+    LaunchedEffect(immersive, chromeVisible) {
+        if (immersive) {
+            if (chromeVisible) {
+                controller.show(WindowInsetsCompat.Type.systemBars())
+            } else {
+                controller.hide(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+    }
+
+    // Re-assert the hidden state when the window regains focus (notification shade, system
+    // dialog, or app switch can reset it) so bars don't get stuck visible over the page.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, immersive, chromeVisible) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME && immersive && !chromeVisible) {
+                controller.hide(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+}
+
+private data class OriginalBarState(
+    val statusColor: Int,
+    val navColor: Int,
+    val lightStatus: Boolean,
+    val lightNav: Boolean,
+    val contrastEnforced: Boolean,
+    val cutoutMode: Int,
+)
+
+private fun applyImmersive(window: Window, controller: WindowInsetsControllerCompat) {
+    WindowCompat.setDecorFitsSystemWindows(window, false)
+    window.statusBarColor = AndroidColor.TRANSPARENT
+    window.navigationBarColor = AndroidColor.TRANSPARENT
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        window.isNavigationBarContrastEnforced = false
+    }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        window.attributes = window.attributes.apply {
+            layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
+    }
+    controller.systemBarsBehavior =
+        WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+}
+
+private fun restoreBars(
+    window: Window,
+    controller: WindowInsetsControllerCompat,
+    original: OriginalBarState,
+) {
+    WindowCompat.setDecorFitsSystemWindows(window, true)
+    window.statusBarColor = original.statusColor
+    window.navigationBarColor = original.navColor
+    controller.isAppearanceLightStatusBars = original.lightStatus
+    controller.isAppearanceLightNavigationBars = original.lightNav
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        window.isNavigationBarContrastEnforced = original.contrastEnforced
+    }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        window.attributes = window.attributes.apply {
+            layoutInDisplayCutoutMode = original.cutoutMode
+        }
+    }
+    controller.show(WindowInsetsCompat.Type.systemBars())
 }
 
 /**

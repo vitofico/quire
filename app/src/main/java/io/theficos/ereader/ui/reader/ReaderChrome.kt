@@ -10,11 +10,17 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -47,6 +53,7 @@ fun ReaderTopBar(
     onBack: () -> Unit,
     onOverflow: () -> Unit,
     modifier: Modifier = Modifier,
+    edgeToEdge: Boolean = false,
 ) {
     AnimatedVisibility(
         visible = visible,
@@ -58,6 +65,16 @@ fun ReaderTopBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.96f))
+                // In immersive mode the reader draws edge-to-edge, so keep the bar clear
+                // of the status bar and any display cutout. No-op when not edge-to-edge
+                // (decor still fits system windows), avoiding a double inset.
+                .then(
+                    if (edgeToEdge) {
+                        Modifier.windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
+                    } else {
+                        Modifier
+                    },
+                )
                 .padding(horizontal = 4.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -91,6 +108,7 @@ fun ReaderBottomBar(
     onSeekChange: (Double) -> Unit,
     onSeekFinished: () -> Unit,
     modifier: Modifier = Modifier,
+    edgeToEdge: Boolean = false,
 ) {
     val pct = (percent * 100).toInt().coerceIn(0, 100)
     val haptics = LocalHapticFeedback.current
@@ -105,6 +123,13 @@ fun ReaderBottomBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.96f))
+                .then(
+                    if (edgeToEdge) {
+                        Modifier.windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.displayCutout))
+                    } else {
+                        Modifier
+                    },
+                )
                 .padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
             BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
