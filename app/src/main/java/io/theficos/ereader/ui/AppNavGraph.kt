@@ -1,9 +1,13 @@
 package io.theficos.ereader.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -78,34 +82,40 @@ fun AppNavGraph(container: AppContainer) {
     }
     NavHost(navController = nav, startDestination = startDestination) {
         composable("welcome") {
-            WelcomeScreen(
-                onConnectServer = { nav.navigate("connect-server") },
-                onCloudSignIn = { nav.navigate("cloud-coming-soon") },
-                onSkipOffline = {
-                    container.welcomePreferencesStore.markCompleted()
-                    nav.navigate("home") {
-                        popUpTo("welcome") { inclusive = true }
-                    }
-                },
-            )
+            InsetSurface {
+                WelcomeScreen(
+                    onConnectServer = { nav.navigate("connect-server") },
+                    onCloudSignIn = { nav.navigate("cloud-coming-soon") },
+                    onSkipOffline = {
+                        container.welcomePreferencesStore.markCompleted()
+                        nav.navigate("home") {
+                            popUpTo("welcome") { inclusive = true }
+                        }
+                    },
+                )
+            }
         }
         composable("connect-server") {
             val vm = remember {
                 ConnectServerViewModel(credentialStore = container.credentialStore)
             }
-            ConnectServerScreen(
-                viewModel = vm,
-                onBack = { nav.popBackStack() },
-                onCompleted = {
-                    container.welcomePreferencesStore.markCompleted()
-                    nav.navigate("home") {
-                        popUpTo("welcome") { inclusive = true }
-                    }
-                },
-            )
+            InsetSurface {
+                ConnectServerScreen(
+                    viewModel = vm,
+                    onBack = { nav.popBackStack() },
+                    onCompleted = {
+                        container.welcomePreferencesStore.markCompleted()
+                        nav.navigate("home") {
+                            popUpTo("welcome") { inclusive = true }
+                        }
+                    },
+                )
+            }
         }
         composable("cloud-coming-soon") {
-            CloudComingSoonScreen(onBack = { nav.popBackStack() })
+            InsetSurface {
+                CloudComingSoonScreen(onBack = { nav.popBackStack() })
+            }
         }
         composable("home") {
             val libVm = remember {
@@ -247,10 +257,12 @@ fun AppNavGraph(container: AppContainer) {
         ) { backStack ->
             val key = backStack.arguments!!.getString("key")!!
             val vm = remember(key) { container.catalogDetailViewModelFactory.create(key) }
-            if (vm == null) {
-                CatalogDetailUnavailable(onBack = { nav.popBackStack() })
-            } else {
-                CatalogDetailScreen(viewModel = vm, onBack = { nav.popBackStack() })
+            InsetSurface {
+                if (vm == null) {
+                    CatalogDetailUnavailable(onBack = { nav.popBackStack() })
+                } else {
+                    CatalogDetailScreen(viewModel = vm, onBack = { nav.popBackStack() })
+                }
             }
         }
         composable("scan") {
@@ -277,7 +289,7 @@ fun AppNavGraph(container: AppContainer) {
             val key = backStack.arguments!!.getString("key")!!
             val data = remember(key) { container.scanResultRegistry.get(key) }
             if (data == null) {
-                CatalogDetailUnavailable(onBack = { nav.popBackStack() })
+                InsetSurface { CatalogDetailUnavailable(onBack = { nav.popBackStack() }) }
             } else {
                 val vm = remember(key) {
                     ScanResultViewModel(data = data, ai = container.aiRepository)
@@ -321,6 +333,22 @@ fun AppNavGraph(container: AppContainer) {
                 // Settings from the bottom-nav).
                 onOpenSettings = { nav.popBackStack() },
             )
+        }
+    }
+}
+
+/**
+ * Full-bleed surface that insets its content by [WindowInsets.safeDrawing] (system bars +
+ * display cutout + IME). The app is edge-to-edge (see MainActivity), so screens that don't
+ * already manage their own insets via a Material3 Scaffold/TopAppBar are wrapped in this to
+ * keep content clear of the system bars and the keyboard. The outer Surface paints behind
+ * the (opaque) bars so there's no window-background seam.
+ */
+@Composable
+private fun InsetSurface(content: @Composable () -> Unit) {
+    Surface(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+            content()
         }
     }
 }

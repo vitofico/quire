@@ -12,8 +12,12 @@ import android.view.Window
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityManager
 import android.widget.FrameLayout
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -88,6 +92,22 @@ fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
         onDispose { mainActivity.onBeforeReaderConfigChange = null }
     }
 
+    // Reveal the system bars the instant the user leaves the reader (top-bar back button
+    // or system/predictive back), before the pop animation starts. Immersive reading hides
+    // them, which drops WindowInsets.systemBars to zero; if they're only re-shown when the
+    // reader finishes disposing at the END of the pop, the incoming screen's Scaffold
+    // re-pads the moment they reappear — a visible resize/jump. Showing them up-front lets
+    // the insets settle while the destination is still fading in.
+    val readerView = LocalView.current
+    val insetsController = remember(activity.window, readerView) {
+        WindowCompat.getInsetsController(activity.window, readerView)
+    }
+    val leaveReader: () -> Unit = {
+        insetsController.show(WindowInsetsCompat.Type.systemBars())
+        onClose()
+    }
+    BackHandler { leaveReader() }
+
     LaunchedEffect(Unit) { viewModel.load() }
 
     LaunchedEffect(chromeVisible, isDragging, showFontSheet) {
@@ -107,8 +127,6 @@ fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
             ReaderUiState.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
             is ReaderUiState.Error -> Text(s.message, Modifier.align(Alignment.Center))
             is ReaderUiState.Open -> {
-                // Declared before ReaderContent so decor-fits is applied before the navigator
-                // fragment is created (cold start paginates at final edge-to-edge geometry).
                 // Scoped to the Open state so Loading/Error keep normal, themed system bars.
                 ImmersiveWindowEffects(
                     immersive = preferences.immersiveReading,
@@ -119,64 +137,80 @@ fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
                     onExit = viewModel::clearPendingResize,
                 )
 
-                ReaderContent(
-                    publication = s.publication,
-                    initialLocator = s.initialLocator,
-                    preferences = preferences,
-                    onLocator = viewModel::publishLocator,
-                    onNavigatorReady = viewModel::bindNavigator,
-                    onPrev = viewModel::pageBackward,
-                    onNext = viewModel::pageForward,
-                    onToggleChrome = viewModel::toggleChrome,
-                    onPageLoaded = viewModel::completeViewportResize,
-                )
-
-                ReaderTopBar(
-                    visible = chromeVisible,
-                    title = s.document.title,
-                    onBack = onClose,
-                    onOverflow = { showFontSheet = true },
-                    modifier = Modifier.align(Alignment.TopCenter),
-                    edgeToEdge = preferences.immersiveReading,
-                )
-                val positionsList = positions
-                val locationTotal = positionsList?.size?.takeIf { it > 0 }
-                val locationIndex = dragPercent?.let { p ->
-                    locationTotal?.let { total ->
-                        (p.coerceIn(0.0, 1.0) * (total - 1)).toInt().coerceIn(0, total - 1) + 1
-                    }
-                }
-                ReaderBottomBar(
-                    visible = chromeVisible,
-                    chapterTitle = dragPreview?.title
-                        ?: liveLocator?.title
-                        ?: s.initialLocator?.title,
-                    percent = dragPreview?.locations?.let { it.totalProgression ?: it.progression }
-                        ?: liveLocator?.locations?.let { it.totalProgression ?: it.progression }
-                        ?: s.savedProgress?.percent ?: 0.0,
-                    enabled = positionsList?.isNotEmpty() == true,
-                    isDragging = isDragging,
-                    locationIndex = locationIndex,
-                    locationTotal = locationTotal,
-                    onSeekChange = { p ->
-                        dragPercent = p
-                        dragPreview = viewModel.previewLocator(p)
-                    },
-                    onSeekFinished = {
-                        dragPercent?.let { viewModel.seek(it) }
-                        dragPercent = null
-                        dragPreview = null
-                    },
-                    modifier = Modifier.align(Alignment.BottomCenter),
-                    edgeToEdge = preferences.immersiveReading,
-                )
-
-                if (showFontSheet) {
-                    FontSettingsSheet(
-                        prefs = preferences,
-                        onChange = { next -> viewModel.updatePreferences(next) },
-                        onDismiss = { showFontSheet = false },
+                // The app is edge-to-edge (MainActivity). Immersive reading uses that full
+                // bleed: content draws behind the (hidden) bars and the chrome self-insets.
+                // With immersive off, the reader behaves like any normal screen — inset the
+                // whole subtree (content + chrome) clear of the opaque system bars. Toggling
+                // this padding is what resizes the WebView on an immersive flip; the
+                // re-anchor machinery in ImmersiveWindowEffects handles that.
+                val immersive = preferences.immersiveReading
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .then(
+                            if (immersive) Modifier
+                            else Modifier.windowInsetsPadding(WindowInsets.systemBars),
+                        ),
+                ) {
+                    ReaderContent(
+                        publication = s.publication,
+                        initialLocator = s.initialLocator,
+                        preferences = preferences,
+                        onLocator = viewModel::publishLocator,
+                        onNavigatorReady = viewModel::bindNavigator,
+                        onPrev = viewModel::pageBackward,
+                        onNext = viewModel::pageForward,
+                        onToggleChrome = viewModel::toggleChrome,
+                        onPageLoaded = viewModel::completeViewportResize,
                     )
+
+                    ReaderTopBar(
+                        visible = chromeVisible,
+                        title = s.document.title,
+                        onBack = leaveReader,
+                        onOverflow = { showFontSheet = true },
+                        modifier = Modifier.align(Alignment.TopCenter),
+                        edgeToEdge = immersive,
+                    )
+                    val positionsList = positions
+                    val locationTotal = positionsList?.size?.takeIf { it > 0 }
+                    val locationIndex = dragPercent?.let { p ->
+                        locationTotal?.let { total ->
+                            (p.coerceIn(0.0, 1.0) * (total - 1)).toInt().coerceIn(0, total - 1) + 1
+                        }
+                    }
+                    ReaderBottomBar(
+                        visible = chromeVisible,
+                        chapterTitle = dragPreview?.title
+                            ?: liveLocator?.title
+                            ?: s.initialLocator?.title,
+                        percent = dragPreview?.locations?.let { it.totalProgression ?: it.progression }
+                            ?: liveLocator?.locations?.let { it.totalProgression ?: it.progression }
+                            ?: s.savedProgress?.percent ?: 0.0,
+                        enabled = positionsList?.isNotEmpty() == true,
+                        isDragging = isDragging,
+                        locationIndex = locationIndex,
+                        locationTotal = locationTotal,
+                        onSeekChange = { p ->
+                            dragPercent = p
+                            dragPreview = viewModel.previewLocator(p)
+                        },
+                        onSeekFinished = {
+                            dragPercent?.let { viewModel.seek(it) }
+                            dragPercent = null
+                            dragPreview = null
+                        },
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                        edgeToEdge = immersive,
+                    )
+
+                    if (showFontSheet) {
+                        FontSettingsSheet(
+                            prefs = preferences,
+                            onChange = { next -> viewModel.updatePreferences(next) },
+                            onDismiss = { showFontSheet = false },
+                        )
+                    }
                 }
             }
         }
@@ -319,10 +353,11 @@ private fun ImmersiveWindowEffects(
     // edge-to-edge from the start, so there's nothing to re-anchor.
     val firstRun = remember { booleanArrayOf(true) }
 
-    // Apply the window mode whenever immersive flips. Arm the re-anchor BEFORE the
-    // decor-fits change (which resizes the WebView) so Readium's drifted emissions are
-    // suppressed until onPageChanged (or the fallback below) restores the anchor. Skipped
-    // on first run — the fragment is created at the final geometry, so no resize occurs.
+    // Apply the bar cosmetics whenever immersive flips, and arm the re-anchor BEFORE the
+    // recomposition toggles the reader content's systemBars inset (which resizes the
+    // WebView) so Readium's drifted emissions are suppressed until onPageChanged (or the
+    // fallback below) restores the anchor. Skipped on first run — the fragment is created
+    // at the final geometry, so no resize occurs.
     DisposableEffect(immersive) {
         if (!firstRun[0]) onBeforeResize()
         if (immersive) applyImmersive(window, controller) else restoreBars(window, controller, original)
@@ -395,7 +430,9 @@ private data class OriginalBarState(
 )
 
 private fun applyImmersive(window: Window, controller: WindowInsetsControllerCompat) {
-    WindowCompat.setDecorFitsSystemWindows(window, false)
+    // NB: decorFitsSystemWindows is set false once, app-wide, in MainActivity — never
+    // toggled here. Toggling it on the shared single-Activity window resized the window
+    // on reader exit and showed a visible jump. This only tweaks bar cosmetics/behavior.
     window.statusBarColor = AndroidColor.TRANSPARENT
     window.navigationBarColor = AndroidColor.TRANSPARENT
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -416,7 +453,8 @@ private fun restoreBars(
     controller: WindowInsetsControllerCompat,
     original: OriginalBarState,
 ) {
-    WindowCompat.setDecorFitsSystemWindows(window, true)
+    // Colors/appearance/contrast/cutout only — decorFitsSystemWindows stays false
+    // (owned by MainActivity), so restoring bars never resizes the window.
     window.statusBarColor = original.statusColor
     window.navigationBarColor = original.navColor
     controller.isAppearanceLightStatusBars = original.lightStatus
