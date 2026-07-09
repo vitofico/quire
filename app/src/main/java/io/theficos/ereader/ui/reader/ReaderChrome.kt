@@ -61,35 +61,43 @@ fun ReaderTopBar(
         exit = slideOutVertically { -it } + fadeOut(),
         modifier = modifier,
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.96f))
-                // In immersive mode the reader draws edge-to-edge, so keep the bar clear
-                // of the status bar and any display cutout. No-op when not edge-to-edge
-                // (decor still fits system windows), avoiding a double inset.
-                .then(
-                    if (edgeToEdge) {
-                        Modifier.windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
-                    } else {
-                        Modifier
-                    },
-                )
-                .padding(horizontal = 4.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        // Surface (not a bare background) so LocalContentColor is set to onSurface —
+        // otherwise the icons/title fall back to the Compose default (black) and vanish
+        // against the dark bar in dark mode.
+        Surface(
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-            }
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-            )
-            IconButton(onClick = onOverflow) {
-                Icon(Icons.Default.MoreVert, contentDescription = "Menu")
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    // In immersive mode the reader draws edge-to-edge, so keep the bar clear
+                    // of the status bar and any display cutout. No-op when not edge-to-edge
+                    // (decor still fits system windows), avoiding a double inset.
+                    .then(
+                        if (edgeToEdge) {
+                            Modifier.windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                }
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                )
+                IconButton(onClick = onOverflow) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "Menu")
+                }
             }
         }
     }
