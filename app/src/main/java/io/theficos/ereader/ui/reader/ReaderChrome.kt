@@ -10,11 +10,17 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -47,6 +53,7 @@ fun ReaderTopBar(
     onBack: () -> Unit,
     onOverflow: () -> Unit,
     modifier: Modifier = Modifier,
+    edgeToEdge: Boolean = false,
 ) {
     AnimatedVisibility(
         visible = visible,
@@ -54,25 +61,43 @@ fun ReaderTopBar(
         exit = slideOutVertically { -it } + fadeOut(),
         modifier = modifier,
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.96f))
-                .padding(horizontal = 4.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        // Surface (not a bare background) so LocalContentColor is set to onSurface —
+        // otherwise the icons/title fall back to the Compose default (black) and vanish
+        // against the dark bar in dark mode.
+        Surface(
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-            }
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-            )
-            IconButton(onClick = onOverflow) {
-                Icon(Icons.Default.MoreVert, contentDescription = "Menu")
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    // In immersive mode the reader draws edge-to-edge, so keep the bar clear
+                    // of the status bar and any display cutout. No-op when not edge-to-edge
+                    // (decor still fits system windows), avoiding a double inset.
+                    .then(
+                        if (edgeToEdge) {
+                            Modifier.windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                }
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                )
+                IconButton(onClick = onOverflow) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "Menu")
+                }
             }
         }
     }
@@ -91,6 +116,7 @@ fun ReaderBottomBar(
     onSeekChange: (Double) -> Unit,
     onSeekFinished: () -> Unit,
     modifier: Modifier = Modifier,
+    edgeToEdge: Boolean = false,
 ) {
     val pct = (percent * 100).toInt().coerceIn(0, 100)
     val haptics = LocalHapticFeedback.current
@@ -105,6 +131,13 @@ fun ReaderBottomBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.96f))
+                .then(
+                    if (edgeToEdge) {
+                        Modifier.windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.displayCutout))
+                    } else {
+                        Modifier
+                    },
+                )
                 .padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
             BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {

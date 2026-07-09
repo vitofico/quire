@@ -28,6 +28,7 @@ import io.theficos.ereader.data.sync.SyncDependencies
 import io.theficos.ereader.data.sync.SyncEnqueuer
 import io.theficos.ereader.data.sync.SyncOrchestrator
 import io.theficos.ereader.domain.restore.RestoreInProgressUseCase
+import io.theficos.ereader.domain.restore.RestoreSummary
 import io.theficos.ereader.reader.ReaderPreferencesStore
 import io.theficos.ereader.reader.ReadiumFactory
 import io.theficos.ereader.sideload.SideloadImporter
@@ -348,6 +349,16 @@ class AppContainer(context: Context) {
         },
         applyPositions = { items -> syncOrchestrator.applyProgressItems(items) },
     )
+
+    /**
+     * Entry point for the "Restore in-progress books" action. Runs the whole use case
+     * off the main thread: its network pulls (library mirror + progress) and Room reads
+     * otherwise execute on the caller's viewModelScope (Main) and throw
+     * NetworkOnMainThreadException. downloadAndInsert already has its own IO context; the
+     * nested withContext is harmless.
+     */
+    suspend fun runRestoreInProgress(onProgress: (Int, Int) -> Unit): RestoreSummary =
+        withContext(Dispatchers.IO) { restoreInProgressUseCase().run(onProgress) }
 
     private suspend fun readOpfBytes(doc: Document): ByteArray? = withContext(Dispatchers.IO) {
         runCatching {

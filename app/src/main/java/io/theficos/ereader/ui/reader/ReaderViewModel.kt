@@ -158,6 +158,14 @@ class ReaderViewModel(
         }
     }
 
+    // Safety valve for the immersive decor-fits transitions: if a resize was armed
+    // (beginViewportResize) but no re-pagination completed it — e.g. the reader is torn
+    // down mid-transition — clear the anchor so publishing is never left suppressed.
+    fun clearPendingResize() {
+        pendingRotationAnchor = null
+        suppressLocatorPublishing = false
+    }
+
     fun previewLocator(percent: Double): Locator? {
         val list = _positions.value ?: return null
         return locatorAtPercent(list, percent)
