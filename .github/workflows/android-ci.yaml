@@ -160,12 +160,13 @@ jobs:
             echo "::error::Rename guard found un-allowlisted OPDS_SYNC / opds-sync / opds_sync references."
             exit 1
           fi
-      - name: Assemble debug APK
-        run: ./gradlew assembleDebug --stacktrace
-      - name: Unit tests
-        run: ./gradlew test --stacktrace
-      - name: Lint
-        run: ./gradlew lint --stacktrace
+      # One Gradle invocation (shared configuration phase + daemon) scoped to the
+      # debug variant. `test`/`lint` build BOTH debug and release variants; CI
+      # ships the debug APK and the release variant's compilation is validated by
+      # the release job's assembleRelease, so the debug variant is sufficient
+      # here. Cuts the build ~2 min without dropping any debug test or lint check.
+      - name: Build, unit-test & lint (debug)
+        run: ./gradlew assembleDebug testDebugUnitTest lintDebug --stacktrace
       - name: Upload debug APK
         if: github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
