@@ -190,20 +190,31 @@ class ScanViewModelTest {
     /**
      * Regression: a slow, superseded scan must never clobber a newer scan's
      * terminal state. Scan A suspends inside runAffinity; scan B is submitted
-     * and succeeds; then A's affinity fails late. With the generation guard +
-     * CancellationException rethrow, A's stale write is dropped and B's Result
-     * stands. Uses UnconfinedTestDispatcher (set in setUp) so each launch runs
-     * eagerly up to its first real suspension; lookup returns synchronously and
-     * the IO hop completes inline, so A reliably parks on gateA before B runs.
+     * and succeeds; then A's gate is released late. The generation guard +
+     * CancellationException rethrow drop A's stale write and B's Result stands.
+     *
+     * [lookup] hops through the real [Dispatchers.IO] (see [ScanViewModel]), so
+     * we must NOT assume A parks on its gate before B is submitted — that race
+     * used to make this test flaky (if B lands first it cancels A before A ever
+     * calls runAffinity, and then B itself becomes call #1 and parks). Instead A
+     * signals [aReachedAffinity] the moment it enters runAffinity, and the test
+     * awaits that signal before submitting B — deterministic regardless of when
+     * the IO hop lands.
      */
     @Test fun `stale scan does not clobber a newer scan's result`() = runTest {
+        val aReachedAffinity = CompletableDeferred<Unit>()
         val gateA = CompletableDeferred<AffinityResponse>()
         var call = 0
         val vm = ScanViewModel(
             lookup = { bundle },
             runAffinity = {
                 call++
-                if (call == 1) gateA.await() else affinity
+                if (call == 1) {
+                    aReachedAffinity.complete(Unit)
+                    gateA.await()
+                } else {
+                    affinity
+                }
             },
             onReauth = { error("onReauth should not be called") },
         )
@@ -212,8 +223,10 @@ class ScanViewModelTest {
             assertThat(awaitItem()).isEqualTo(ScanUiState.Idle)
 
             vm.onIsbnSubmitted(isbn13) // scan A — will park awaiting gateA
-            // A's lookup IO hop completes, then A parks in runAffinity; the only
-            // emission is the Working flash.
+            // Block until A is provably the in-flight scan parked in runAffinity,
+            // so submitting B can only ever supersede A (never the reverse).
+            aReachedAffinity.await()
+
             var s = awaitItem()
             while (s is ScanUiState.Idle) s = awaitItem()
             assertThat(s).isEqualTo(ScanUiState.Working)

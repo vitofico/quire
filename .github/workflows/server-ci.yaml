@@ -1,7 +1,11 @@
 name: server-ci
 
 on:
+  # Only main pushes here; feature branches are validated by the pull_request trigger
+  # below. Without the branch filter a push to a branch with an open PR runs this
+  # workflow twice (once per event). Mirrors android-ci.yaml / codeql.yaml.
   push:
+    branches: [main]
     paths:
       - "server/**"
       - ".github/workflows/server-ci.yaml"

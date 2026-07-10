@@ -38,6 +38,18 @@ def _create_app():
     return create_app()
 
 
+def _mounted_paths(app) -> set[str]:
+    """Registered route paths, read from the OpenAPI schema.
+
+    Robust across FastAPI/Starlette versions: newer FastAPI no longer flattens
+    ``include_router`` children into ``app.routes`` (it wraps them in an internal
+    ``_IncludedRouter``), so scanning ``app.routes[].path`` misses every mounted
+    router. The OpenAPI schema lists every in-schema route regardless of how the
+    router tree is represented.
+    """
+    return set(app.openapi()["paths"])
+
+
 # ----------------------------------------------------------------------------
 # Default: CalibreWeb Basic
 # ----------------------------------------------------------------------------
@@ -53,8 +65,8 @@ def test_default_backend_is_calibreweb():
 def test_calibreweb_backend_does_not_mount_auth_router():
     """OSS deployments should not surface ``/auth/v1/*`` at all."""
     app = _create_app()
-    routes = [r.path for r in app.routes if hasattr(r, "path")]
-    assert not any(p.startswith("/auth/v1") for p in routes), routes
+    paths = _mounted_paths(app)
+    assert not any(p.startswith("/auth/v1") for p in paths), paths
 
 
 # ----------------------------------------------------------------------------
@@ -76,11 +88,11 @@ def test_native_backend_mounts_auth_router(monkeypatch):
     monkeypatch.setenv("QUIRE_SERVER_AUTH_BACKEND", "native")
     monkeypatch.setenv("QUIRE_SERVER_AI_ENABLED", "false")
     app = _create_app()
-    routes = [r.path for r in app.routes if hasattr(r, "path")]
-    assert any(p == "/auth/v1/login" for p in routes), routes
-    assert any(p == "/auth/v1/logout" for p in routes), routes
-    assert any(p == "/auth/v1/magic-link/request" for p in routes), routes
-    assert any(p == "/auth/v1/magic-link/consume" for p in routes), routes
+    paths = _mounted_paths(app)
+    assert "/auth/v1/login" in paths, paths
+    assert "/auth/v1/logout" in paths, paths
+    assert "/auth/v1/magic-link/request" in paths, paths
+    assert "/auth/v1/magic-link/consume" in paths, paths
 
 
 # ----------------------------------------------------------------------------
