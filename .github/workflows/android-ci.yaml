@@ -160,6 +160,22 @@ jobs:
             echo "::error::Rename guard found un-allowlisted OPDS_SYNC / opds-sync / opds_sync references."
             exit 1
           fi
+      - name: AboutLibraries JSON drift check
+        run: |
+          set -e
+          # app/src/main/res/raw/aboutlibraries.json is checked in and packaged
+          # as-is (registerAndroidTasks=false in app/build.gradle.kts) so F-Droid's
+          # reproducible-build check passes — the plugin's build-time collector is
+          # environment-dependent and produced a non-reproducible res/M7.json.
+          # Fail if the committed file drifts from the current release dep graph.
+          tmpdir="$(mktemp -d)"
+          ./gradlew :app:exportLibraryDefinitions \
+            -PaboutLibraries.exportVariant=release \
+            -PaboutLibraries.exportPath="$tmpdir" --stacktrace
+          if ! diff -u app/src/main/res/raw/aboutlibraries.json "$tmpdir/aboutlibraries.json"; then
+            echo "::error::app/src/main/res/raw/aboutlibraries.json is stale. Regenerate: scripts/dgradle :app:exportLibraryDefinitions -PaboutLibraries.exportVariant=release -PaboutLibraries.exportPath=src/main/res/raw"
+            exit 1
+          fi
       - name: Assemble debug APK
         run: ./gradlew assembleDebug --stacktrace
       - name: Unit tests

@@ -10,12 +10,33 @@ plugins {
 val appVersionName: String = project.property("VERSION_NAME") as String
 val appVersionCode: Int = (project.property("VERSION_CODE") as String).toInt()
 
-// Drop the build timestamp from the AboutLibraries-generated license JSON
-// so the resource is byte-identical across rebuilds (matters for F-Droid's
-// reproducible-build verification). Disabled by default in AboutLibraries
-// 14+; explicit on 11.x.
+// AboutLibraries' build-time collector is not reproducible: it scans whatever
+// dependency configurations happen to be resolvable in a given build, so the
+// generated license JSON (res/raw/aboutlibraries.json, obfuscated to res/M7.json
+// by resource shrinking) varies by environment — debug/test artifacts leak in
+// locally while F-Droid's isolated builder under-collects. That made F-Droid's
+// reproducible-build verification fail on the res/M7.json contents.
+//
+// Fix: don't generate the resource at build time. We check in a pre-generated,
+// release-only JSON and package that fixed file, so every builder (dev, CI,
+// F-Droid) embeds byte-identical bytes. `LibrariesContainer` in LicensesScreen
+// reads R.raw.aboutlibraries, which resolves to the committed file.
+//
+// Regenerate after changing dependencies (CI enforces this — see the
+// "AboutLibraries JSON drift check" step in android-ci.yaml). exportPath is
+// resolved relative to this module, so `src/main/res/raw` lands the file at
+// app/src/main/res/raw/aboutlibraries.json:
+//   scripts/dgradle :app:exportLibraryDefinitions \
+//     -PaboutLibraries.exportVariant=release \
+//     -PaboutLibraries.exportPath=src/main/res/raw
+//
+// `excludeFields=["generated"]` drops the build timestamp (default in
+// AboutLibraries 14+; explicit on 11.x); `filterVariants` keeps the
+// regenerated file release-only.
 aboutLibraries {
     excludeFields = arrayOf("generated")
+    filterVariants = arrayOf("release")
+    registerAndroidTasks = false
 }
 
 android {
