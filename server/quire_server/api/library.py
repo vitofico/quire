@@ -678,6 +678,7 @@ async def sync_library(
 async def get_stats(
     user_id: Annotated[str, Depends(current_user_id)],
     session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> LibraryStatsResponse:
     # 1. total_books: alive library items for this user.
     total_books = (
@@ -801,63 +802,77 @@ async def get_stats(
     # 4. top_themes: pick-one-insight-per-book CTE, then aggregate themes.
     #    See the block comment at the top of this function for the full
     #    rationale.
-    pick_priority = case(
-        (
-            and_(
-                BookInsight.metadata_id.is_not(None),
-                BookInsight.metadata_id == LibraryItem.metadata_id,
-            ),
-            0,
-        ),
-        else_=1,
-    )
-
-    picked = (
-        select(
-            LibraryItem.pk.label("library_item_pk"),
-            BookInsight.id.label("book_insight_id"),
-        )
-        .select_from(LibraryItem)
-        .join(
-            BookInsight,
-            and_(
-                BookInsight.superseded_at.is_(None),  # filter 1
-                (
-                    (
-                        BookInsight.metadata_id.is_not(None)
-                        & (BookInsight.metadata_id == LibraryItem.metadata_id)
-                    )
-                    | (BookInsight.content_hash == LibraryItem.content_hash)
+    #
+    #    Issue #87: both `book_insights` (the pick-one CTE below) and
+    #    `book_themes` live on the `ai` alembic branch, which the deploy
+    #    migrator only applies when QUIRE_SERVER_AI_ENABLED=true. The library
+    #    router, however, mounts on `progress_enabled` (see main.py), so a
+    #    sync-only deployment reaches this endpoint without those tables
+    #    existing — producing `relation "book_themes" does not exist` and a
+    #    blanket 500. Gate the WHOLE block (not just the BookTheme join) on
+    #    `settings.ai_enabled`: skipping only the final join still leaves the
+    #    `picked` CTE referencing the absent `book_insights`. Themes are an
+    #    AI-only feature, so an empty list is the correct sync-only answer.
+    top_themes: list[TopTheme] = []
+    if settings.ai_enabled:
+        pick_priority = case(
+            (
+                and_(
+                    BookInsight.metadata_id.is_not(None),
+                    BookInsight.metadata_id == LibraryItem.metadata_id,
                 ),
+                0,
             ),
+            else_=1,
         )
-        .where(
-            LibraryItem.user_id == user_id,
-            LibraryItem.deleted_at.is_(None),
-        )
-        .order_by(LibraryItem.pk, pick_priority, BookInsight.generated_at.desc())
-        # PostgreSQL DISTINCT ON via SQLAlchemy: keep one row per
-        # library_item_pk, picking the lowest priority (metadata match)
-        # and most recent generated_at via the trailing ORDER BY.
-        .distinct(LibraryItem.pk)
-        .subquery("picked_insight")
-    )
 
-    theme_count = func.count(func.distinct(picked.c.library_item_pk))
-    theme_rows = (
-        await session.execute(
-            select(BookTheme.theme.label("theme"), theme_count.label("c"))
-            .select_from(picked)
-            .join(BookTheme, BookTheme.book_insight_id == picked.c.book_insight_id)
-            .where(BookTheme.confidence >= 1.0)  # filter 2
-            .group_by(BookTheme.theme)
-            .order_by(theme_count.desc(), BookTheme.theme.asc())
-            .limit(5)
+        picked = (
+            select(
+                LibraryItem.pk.label("library_item_pk"),
+                BookInsight.id.label("book_insight_id"),
+            )
+            .select_from(LibraryItem)
+            .join(
+                BookInsight,
+                and_(
+                    BookInsight.superseded_at.is_(None),  # filter 1
+                    (
+                        (
+                            BookInsight.metadata_id.is_not(None)
+                            & (BookInsight.metadata_id == LibraryItem.metadata_id)
+                        )
+                        | (BookInsight.content_hash == LibraryItem.content_hash)
+                    ),
+                ),
+            )
+            .where(
+                LibraryItem.user_id == user_id,
+                LibraryItem.deleted_at.is_(None),
+            )
+            .order_by(LibraryItem.pk, pick_priority, BookInsight.generated_at.desc())
+            # PostgreSQL DISTINCT ON via SQLAlchemy: keep one row per
+            # library_item_pk, picking the lowest priority (metadata match)
+            # and most recent generated_at via the trailing ORDER BY.
+            .distinct(LibraryItem.pk)
+            .subquery("picked_insight")
         )
-    ).all()
-    top_themes = [
-        TopTheme(theme=row.theme, count=int(row.c), note="v3+ insights only") for row in theme_rows
-    ]
+
+        theme_count = func.count(func.distinct(picked.c.library_item_pk))
+        theme_rows = (
+            await session.execute(
+                select(BookTheme.theme.label("theme"), theme_count.label("c"))
+                .select_from(picked)
+                .join(BookTheme, BookTheme.book_insight_id == picked.c.book_insight_id)
+                .where(BookTheme.confidence >= 1.0)  # filter 2
+                .group_by(BookTheme.theme)
+                .order_by(theme_count.desc(), BookTheme.theme.asc())
+                .limit(5)
+            )
+        ).all()
+        top_themes = [
+            TopTheme(theme=row.theme, count=int(row.c), note="v3+ insights only")
+            for row in theme_rows
+        ]
 
     # NOTE (Lock #12): /library/v1/stats does NOT include a fingerprint. The
     # AI profile envelope owns the input_fingerprint contract; stats uses a
