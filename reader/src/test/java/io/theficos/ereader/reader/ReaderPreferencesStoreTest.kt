@@ -88,6 +88,22 @@ class ReaderPreferencesStoreTest {
         assertThat(store2.flow.value.immersiveReading).isFalse()
     }
 
+    @Test fun `theme round-trips through update and reload`() {
+        val store1 = freshStore()
+        store1.update { it.copy(theme = ReaderTheme.DARK_SEPIA) }
+
+        val store2 = ReaderPreferencesStore(context())
+        assertThat(store2.flow.value.theme).isEqualTo(ReaderTheme.DARK_SEPIA)
+    }
+
+    @Test fun `an unknown stored theme falls back to LIGHT`() {
+        // What a downgrade looks like: an older build reads DARK_SEPIA and must not crash.
+        rawPrefs().edit().putString("theme", "NOT_A_THEME").apply()
+
+        val store = ReaderPreferencesStore(context())
+        assertThat(store.flow.value.theme).isEqualTo(ReaderTheme.LIGHT)
+    }
+
     @Test fun `out-of-range stored paragraph values are clamped on load, never throw`() {
         rawPrefs().edit()
             .putFloat("paragraph_indent", 9.0f)
