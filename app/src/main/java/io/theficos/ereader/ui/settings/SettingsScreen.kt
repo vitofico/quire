@@ -44,6 +44,7 @@ import io.theficos.ereader.reader.ReaderFontFamily
 import io.theficos.ereader.reader.ReaderTheme
 import io.theficos.ereader.ui.components.QuireCard
 import io.theficos.ereader.ui.components.SectionLabel
+import io.theficos.ereader.ui.reader.displayLabel
 import java.time.Instant
 import java.time.format.DateTimeParseException
 
@@ -190,14 +191,17 @@ fun SettingsScreen(
                 }
                 Column {
                     Text("Theme", style = MaterialTheme.typography.bodyMedium)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    // A column, not a row: four themes with labels as long as "Dark sepia"
+                    // overflow one line on a narrow screen, and this matches the font-family
+                    // picker just below.
+                    Column {
                         ReaderTheme.values().forEach { t ->
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(end = 16.dp),
+                                modifier = Modifier.padding(vertical = 2.dp),
                             ) {
                                 RadioButton(selected = reader.theme == t, onClick = { viewModel.setTheme(t) })
-                                Text(t.name.lowercase().replaceFirstChar { it.uppercase() })
+                                Text(t.displayLabel())
                             }
                         }
                     }

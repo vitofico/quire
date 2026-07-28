@@ -130,7 +130,7 @@ fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
                 // Scoped to the Open state so Loading/Error keep normal, themed system bars.
                 ImmersiveWindowEffects(
                     immersive = preferences.immersiveReading,
-                    lightBarsForTheme = preferences.theme != io.theficos.ereader.reader.ReaderTheme.DARK,
+                    lightBarsForTheme = !preferences.theme.isDark,
                     chromeVisible = chromeVisible,
                     onBeforeResize = viewModel::beginViewportResize,
                     onResizeSettled = viewModel::completeViewportResize,
