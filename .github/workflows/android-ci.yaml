@@ -41,6 +41,12 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # A healthy run is ~6 minutes. Two runs (2026-07-09, 2026-07-28) hung inside
+    # `./gradlew test` and, with no ceiling of our own, were only killed by
+    # GitHub's 6-hour maximum-execution limit — burning six runner-hours and, on
+    # the second one, stranding a pushed tag with no Release (issue #93). 30
+    # minutes is generous for a cold Gradle cache and still fails fast on a hang.
+    timeout-minutes: 30
     permissions:
       contents: write   # to push the version-bump commit and tag
     outputs:
@@ -61,14 +67,17 @@ jobs:
       - id: version
         name: Compute version
         env:
-          # Use the GitHub-provided token to push the bump commit and tag.
+          # Bakes the GitHub-provided token into the origin URL so the later
+          # "Push version bump + tag" step can publish the commit and tag.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ "$GITHUB_REF" = "refs/heads/main" ]; then
-            # On main: compute the next CalVer from date + run number,
-            # write it into gradle.properties, commit + tag, then push
-            # both before Gradle runs. The build then reads the bumped
-            # values directly from gradle.properties.
+            # On main: compute the next CalVer from date + run number, write it
+            # into gradle.properties and commit + tag it LOCALLY. Nothing is
+            # pushed here — "Push version bump + tag" below does that, but only
+            # once the tests and lint have passed. Everything Gradle builds in
+            # between therefore already carries the bumped version, while a run
+            # that fails or hangs leaves origin untouched.
             BUILD_DATE=$(date -u +%Y-%m-%d)
             NEW_NAME="${BUILD_DATE//-/.}.${GITHUB_RUN_NUMBER}"
             YY=$(date -u +%y)
@@ -79,39 +88,21 @@ jobs:
             sed -i "s/^VERSION_NAME=.*/VERSION_NAME=$NEW_NAME/" gradle.properties
             sed -i "s/^VERSION_CODE=.*/VERSION_CODE=$NEW_CODE/" gradle.properties
 
+            # Committer identity and the tokenised remote live in .git/config,
+            # which — unlike shell state — does survive into later steps, so the
+            # push step inherits both without repeating them.
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
 
-            # If another main push lands between our checkout and our push
-            # (or between two consecutive bump runs), HEAD is non-fast-forward.
-            # The naive `git rebase` strategy conflicts when both bump commits
-            # mutate the same `VERSION_NAME=` line — that's unrecoverable
-            # without manual resolution. Instead, on rejection we reset hard
-            # to the latest main, re-apply the bump on top, and retry. The
-            # bump value is derived from GITHUB_RUN_NUMBER which is stable
-            # across retries, so we always end up with a unique tag.
-            apply_bump() {
-              sed -i "s/^VERSION_NAME=.*/VERSION_NAME=$NEW_NAME/" gradle.properties
-              sed -i "s/^VERSION_CODE=.*/VERSION_CODE=$NEW_CODE/" gradle.properties
-              git add gradle.properties
-              git commit -m ":bookmark: chore: release v$NEW_NAME"
-              git tag -f "v$NEW_NAME"
-            }
-            apply_bump
-            attempts=0
-            until git push origin "HEAD:$GITHUB_REF" "v$NEW_NAME"; do
-              attempts=$((attempts + 1))
-              if [ "$attempts" -ge 5 ]; then
-                echo "release bump push failed after $attempts attempts" >&2
-                exit 1
-              fi
-              echo "release bump push rejected; resetting + re-applying bump ($attempts)…"
-              git fetch origin "$GITHUB_REF"
-              git tag -d "v$NEW_NAME" 2>/dev/null || true
-              git reset --hard "origin/${GITHUB_REF#refs/heads/}"
-              apply_bump
-            done
+            git add gradle.properties
+            git commit -m ":bookmark: chore: release v$NEW_NAME"
+            git tag -f "v$NEW_NAME"
+
+            # Hand the tag name to the push step rather than letting it derive
+            # the name a second time — a run straddling UTC midnight would
+            # otherwise push a tag that disagrees with the commit it points at.
+            echo "RELEASE_VERSION_NAME=$NEW_NAME" >> "$GITHUB_ENV"
 
             VERSION="$NEW_NAME"
           else
@@ -182,6 +173,40 @@ jobs:
         run: ./gradlew test --stacktrace
       - name: Lint
         run: ./gradlew lint --stacktrace
+      # The bump commit and tag were created locally by "Compute version"; this
+      # is where they become public, and deliberately not one step earlier. When
+      # the push happened up front, a build that hung (2026-07-28, killed at
+      # GitHub's 6-hour ceiling) left v2026.07.28.223 on origin with no Release
+      # and no APK behind it, which is a hard stop for F-Droid's reproducible
+      # build check (issue #93). Now the tag only exists publicly if the tree it
+      # points at assembled, tested and linted clean.
+      - name: Push version bump + tag
+        if: github.ref == 'refs/heads/main'
+        run: |
+          # Belt and braces: "Compute version" only exports this on main, and
+          # this step only runs on main, so an empty value means the two guards
+          # have drifted apart and we must not push a "v" tag.
+          if [ -z "$RELEASE_VERSION_NAME" ]; then
+            echo "::error::Version bump value missing — Compute version did not produce a bump."
+            exit 1
+          fi
+
+          # --atomic so the branch and the tag land together or not at all.
+          # Plain git applies each refspec independently: a branch update
+          # rejected as non-fast-forward still lets the brand-new tag through,
+          # leaving a tag that points at a commit which never reached main —
+          # #93 again, by a shorter route.
+          #
+          # There is deliberately no retry here. main can only move under us
+          # via a push that misses this workflow's path filters (a server- or
+          # docs-only change), because android-ci's own main runs are
+          # serialised by the concurrency group above. Rebasing onto that tip
+          # conflicts on the VERSION_NAME line, and resetting onto it would
+          # publish a tag whose tree this run never assembled or tested —
+          # trading a visible failure for a silently unverified release. A
+          # failure here strands nothing, since --atomic means nothing was
+          # pushed: re-run the job and it bumps cleanly from the new tip.
+          git push --atomic origin "HEAD:$GITHUB_REF" "v$RELEASE_VERSION_NAME"
       - name: Upload debug APK
         if: github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
@@ -190,14 +215,20 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
-  # On main only: build the signed release APK and publish a GitHub
-  # Release. The release action creates the tag itself, so we don't push
-  # tags from the workflow (workflow-pushed tags via GITHUB_TOKEN don't
-  # trigger downstream runs anyway, which is why this used to be split).
+  # On main only: check out the tag the build job pushed after its checks went
+  # green, build the signed release APK from it and publish a GitHub Release.
+  # The tag itself is already on origin by now, so the release action only ever
+  # attaches a Release to an existing tag rather than creating one. If a runner
+  # dies in the gap between the push and this job, the tag is public with no
+  # APK — run .github/workflows/release-apk.yaml against that tag to republish
+  # without cutting a new version.
   release:
     needs: build
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # Same reasoning as the build job: cap the run well under GitHub's 6-hour
+    # maximum-execution ceiling so a hung Gradle task fails instead of idling.
+    timeout-minutes: 30
     permissions:
       contents: write
     steps:
@@ -232,3 +263,7 @@ jobs:
           tag_name: v${{ needs.build.outputs.version }}
           files: app/build/outputs/apk/release/*.apk
           generate_release_notes: true
+          # A Release with no APK is the state that blocks F-Droid, so if the
+          # glob ever stops matching (an AGP output-path change, a variant
+          # rename) fail loudly instead of publishing an empty Release green.
+          fail_on_unmatched_files: true

@@ -56,7 +56,7 @@ class InsightSyncRepositoryTest {
             )
         )
         aiRepo.refresh()
-        server.takeRequest(); server.takeRequest()
+        server.awaitRequest(); server.awaitRequest()
     }
 
     private fun syncItem(id: Long, generatedAt: String, identityKey: String = "m$id"): String =
@@ -106,8 +106,8 @@ class InsightSyncRepositoryTest {
         assertThat(synced.items).isEqualTo(3)
         assertThat(dao.count()).isEqualTo(3)
         // The second call carried the cursor from page1.
-        val req1 = server.takeRequest()
-        val req2 = server.takeRequest()
+        val req1 = server.awaitRequest()
+        val req2 = server.awaitRequest()
         assertThat(req1.requestUrl?.queryParameter("since_ts")).isNull()
         assertThat(req2.requestUrl?.queryParameter("since_ts")).isEqualTo("2026-05-02T00:00:00Z")
         assertThat(req2.requestUrl?.queryParameter("since_id")).isEqualTo("2")

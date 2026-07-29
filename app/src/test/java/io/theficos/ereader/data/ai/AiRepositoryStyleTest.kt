@@ -50,10 +50,10 @@ class AiRepositoryStyleTest {
         repo.setStyleTone("scholarly")
 
         // Drain config + prefs GETs.
-        server.takeRequest()
-        server.takeRequest()
+        server.awaitRequest()
+        server.awaitRequest()
         // The PUT body must include the preserved language.
-        val put = server.takeRequest()
+        val put = server.awaitRequest()
         assertThat(put.method).isEqualTo("PUT")
         val body = put.body.readUtf8()
         assertThat(body).contains("\"tone\":\"scholarly\"")
@@ -69,9 +69,9 @@ class AiRepositoryStyleTest {
         server.enqueue(MockResponse().setResponseCode(200).setBody("""{"ai_enabled":true,"style":{"tone":"scholarly","language":"es"}}"""))
         repo.setStyleLanguage("es")
 
-        server.takeRequest()
-        server.takeRequest()
-        val put = server.takeRequest()
+        server.awaitRequest()
+        server.awaitRequest()
+        val put = server.awaitRequest()
         val body = put.body.readUtf8()
         assertThat(body).contains("\"tone\":\"scholarly\"")
         assertThat(body).contains("\"language\":\"es\"")
@@ -83,7 +83,7 @@ class AiRepositoryStyleTest {
         server.enqueue(MockResponse().setResponseCode(200).setBody("""{"ai_enabled":true,"style":{"tone":"neutral","language":"fr"}}"""))
         repo.setStyleLanguage("fr")
 
-        val put = server.takeRequest()
+        val put = server.awaitRequest()
         val body = put.body.readUtf8()
         assertThat(body).contains("\"tone\":\"neutral\"")
         assertThat(body).contains("\"language\":\"fr\"")

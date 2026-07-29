@@ -62,8 +62,8 @@ class AiRepositoryLocalFirstTest {
         )
         repo.refresh()
         // Drain the two requests so subsequent assertions count from zero.
-        server.takeRequest()
-        server.takeRequest()
+        server.awaitRequest()
+        server.awaitRequest()
     }
 
     private fun seedRow(
