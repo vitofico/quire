@@ -1,0 +1,136 @@
+name: release-apk
+
+# Manual recovery lever for a tag that is already on origin but has no GitHub
+# Release, or has one with no APK attached to it.
+#
+# android-ci pushes the version-bump tag only after its checks pass, but the
+# gap between that push and its `release` job is still a window: if the runner
+# dies inside it the tag is public with nothing to download. That is exactly
+# what stranded v2026.07.28.223 (issue #93) back when the push happened before
+# the build — the unit-test step hung, GitHub killed the job at its 6-hour
+# ceiling, and the release job never started. F-Droid verifies its reproducible
+# builds against the upstream signed APK, so a tag with no APK stops them dead.
+#
+# This workflow rebuilds and publishes for an EXISTING tag. It never computes a
+# version, never touches gradle.properties and never creates a tag, so it can
+# repair a release without burning a new version number. It mirrors android-ci's
+# `release` job step for step — same pinned action SHAs, same JDK, same SDK
+# packages, same signing env, same Gradle task — so what it ships is what
+# android-ci would have shipped.
+#
+# Note it has no push/pull_request trigger, and android-ci's path filters name
+# `.github/workflows/android-ci.yaml` explicitly rather than `.github/**`, so
+# merging or editing this file never fires a version bump.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and publish, e.g. v2026.07.28.223"
+        required: true
+        type: string
+
+# Never let two republishes of the same tag race each other over the release
+# assets. Distinct tags may run in parallel.
+concurrency:
+  group: release-apk-${{ github.event.inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    # A release build is a few minutes. Cap it well under GitHub's 6-hour
+    # maximum-execution ceiling so a hung Gradle task fails instead of idling.
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      # Checkout only proves the ref resolves — it accepts a branch name or a
+      # bare SHA just as happily as a tag.
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+          fetch-tags: true
+      # …so check it really is a tag. tag_name is handed straight to the release
+      # action, and GitHub's create-release API creates the ref when it is
+      # missing: dispatching with "main" by mistake would otherwise mint a
+      # refs/tags/main and mark it Latest. This workflow republishes tags, it
+      # never invents them.
+      - name: Verify the input is a tag
+        # Via env rather than inline ${{ }}: the input is free text, and
+        # interpolating it straight into the shell would let it run as script.
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          git rev-parse --verify "refs/tags/$TAG" >/dev/null 2>&1 || {
+            echo "::error::$TAG is not an existing tag — refusing to publish."
+            exit 1
+          }
+      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+        with:
+          packages: "platform-tools platforms;android-34 build-tools;34.0.0"
+      - uses: gradle/actions/setup-gradle@4c125117fe7c5aed11272ec4213f602f012f89f2 # v5
+      - name: Decode keystore
+        if: env.KEYSTORE_B64 != ''
+        run: echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+        env:
+          KEYSTORE_B64: ${{ secrets.QUIRE_RELEASE_KEYSTORE_B64 }}
+      # A blank keystore makes app/build.gradle.kts fall back to the debug
+      # signing config, and :app:assembleRelease then succeeds and produces a
+      # debug-signed app-release.apk. Publishing that is worse than publishing
+      # nothing: F-Droid rejects the signature outright, and anyone who installs
+      # it can never upgrade to a properly signed build, because Android refuses
+      # to install over a changed signature.
+      - name: Require signing secrets
+        run: |
+          test -s "$RUNNER_TEMP/release.keystore" || {
+            echo "::error::Release keystore missing — refusing to publish a debug-signed build."
+            exit 1
+          }
+      # GitHub marks a newly created Release as "Latest" unless told otherwise,
+      # so repairing an older tag would quietly demote the current release and
+      # point everyone at a stale version. Decide it from the tag graph instead
+      # of asking the operator to remember: mark it Latest only when nothing
+      # newer has been tagged. Repairing the newest tag — the ordinary case,
+      # right after a run stranded it — still gets the badge.
+      - name: Decide whether this tag is the newest
+        id: latest
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          newest=$(git tag --sort=-creatordate | head -n 1)
+          if [ "$newest" = "$TAG" ]; then
+            echo "make_latest=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "make_latest=false" >> "$GITHUB_OUTPUT"
+            echo "$newest is newer than $TAG — leaving the Latest badge where it is."
+          fi
+      - name: Assemble release APK
+        env:
+          QUIRE_RELEASE_KEYSTORE: ${{ secrets.QUIRE_RELEASE_KEYSTORE_B64 != '' && format('{0}/release.keystore', runner.temp) || '' }}
+          QUIRE_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.QUIRE_RELEASE_KEYSTORE_PASSWORD }}
+          QUIRE_RELEASE_KEY_ALIAS: ${{ secrets.QUIRE_RELEASE_KEY_ALIAS }}
+          QUIRE_RELEASE_KEY_PASSWORD: ${{ secrets.QUIRE_RELEASE_KEY_PASSWORD }}
+        run: ./gradlew :app:assembleRelease --stacktrace
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3
+        with:
+          tag_name: ${{ inputs.tag }}
+          files: app/build/outputs/apk/release/*.apk
+          generate_release_notes: true
+          # The action looks the Release up by tag first: no Release yet means
+          # it creates one against the tag that already exists, an existing one
+          # means it updates that in place. overwrite_files is the action's own
+          # default but is spelled out because this workflow exists for the
+          # re-run case — without it a second attempt would trip over the
+          # app-release.apk asset the first attempt already uploaded.
+          overwrite_files: true
+          # An empty Release is the very failure we are here to repair, so
+          # refuse to publish one if the glob matched nothing.
+          fail_on_unmatched_files: true
+          make_latest: ${{ steps.latest.outputs.make_latest }}

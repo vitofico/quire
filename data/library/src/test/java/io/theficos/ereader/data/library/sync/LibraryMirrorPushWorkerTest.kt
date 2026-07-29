@@ -115,7 +115,7 @@ class LibraryMirrorPushWorkerTest {
         assertThat(result).isInstanceOf(ListenableWorker.Result.Success::class.java)
         assertThat(server.requestCount).isEqualTo(1)
 
-        val req = server.takeRequest()
+        val req = server.awaitRequest()
         assertThat(req.path).isEqualTo("/library/v1/sync")
         assertThat(req.method).isEqualTo("POST")
         val body = req.body.readUtf8()
@@ -164,7 +164,7 @@ class LibraryMirrorPushWorkerTest {
 
         buildWorker().doWork()
 
-        val body = server.takeRequest().body.readUtf8()
+        val body = server.awaitRequest().body.readUtf8()
         // Defense in depth: the legacy server column name must never
         // appear on this endpoint's wire — Pydantic rejects it.
         assertThat(body).doesNotContain("content_hash")
@@ -188,7 +188,7 @@ class LibraryMirrorPushWorkerTest {
         assertThat(result).isInstanceOf(ListenableWorker.Result.Success::class.java)
         assertThat(server.requestCount).isEqualTo(3)
         val sizes = (1..3).map {
-            val req = server.takeRequest()
+            val req = server.awaitRequest()
             val items = Json.parseToJsonElement(req.body.readUtf8()).jsonObject["items"]!!.jsonArray
             items.size
         }
@@ -204,8 +204,8 @@ class LibraryMirrorPushWorkerTest {
 
         buildWorker().doWork()
 
-        val ts1 = firstLastSeenAt(server.takeRequest())
-        val ts2 = firstLastSeenAt(server.takeRequest())
+        val ts1 = firstLastSeenAt(server.awaitRequest())
+        val ts2 = firstLastSeenAt(server.awaitRequest())
         assertThat(ts1).isNotNull()
         assertThat(ts1).isEqualTo(ts2)
     }
@@ -307,7 +307,7 @@ class LibraryMirrorPushWorkerTest {
 
         buildWorker().doWork()
 
-        val items = Json.parseToJsonElement(server.takeRequest().body.readUtf8())
+        val items = Json.parseToJsonElement(server.awaitRequest().body.readUtf8())
             .jsonObject["items"]!!.jsonArray
         val byHash = items.associateBy { it.jsonObject["identity_hash"]!!.jsonPrimitive.content }
         assertThat(byHash["h1"]!!.jsonObject["identity_hash_version"]!!.jsonPrimitive.int())
@@ -324,7 +324,7 @@ class LibraryMirrorPushWorkerTest {
 
         buildWorker().doWork()
 
-        val items = Json.parseToJsonElement(server.takeRequest().body.readUtf8())
+        val items = Json.parseToJsonElement(server.awaitRequest().body.readUtf8())
             .jsonObject["items"]!!.jsonArray
         val authors = items[0].jsonObject["authors"]!!.jsonArray
         assertThat(authors.map { it.jsonPrimitive.content }).containsExactly("A", "B").inOrder()

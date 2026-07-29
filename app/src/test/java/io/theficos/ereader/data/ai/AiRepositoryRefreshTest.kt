@@ -79,7 +79,7 @@ class AiRepositoryRefreshTest {
         val repo = AiRepository(client = client, insightDao = insightDao)
         server.enqueue(MockResponse().setResponseCode(204))
         repo.deleteProfile()
-        val req = server.takeRequest()
+        val req = server.awaitRequest()
         assertThat(req.method).isEqualTo("DELETE")
         assertThat(req.path).isEqualTo("/ai/v1/profile")
     }
