@@ -87,6 +87,7 @@ class ReaderViewModel(
     }
 
     fun goTo(locator: Locator) {
+        clearPendingResize()
         viewModelScope.launch { navigator?.go(locator, false) }
     }
 
@@ -132,6 +133,35 @@ class ReaderViewModel(
 
     private var pendingRotationAnchor: Locator? = null
     private var suppressLocatorPublishing: Boolean = false
+    private var viewportSize: Pair<Int, Int>? = null
+
+    /**
+     * Reports the reader viewport's measured size, on every layout pass.
+     *
+     * Any change in that size re-paginates Readium's WebView, after which Readium reports
+     * whatever text happened to land on screen. Nothing marks that locator as junk, so left
+     * alone it is published to the HUD and written over the reader's saved position — the
+     * reader comes back to the wrong page and stays there.
+     *
+     * Everything else here arms the re-anchor by naming a cause: [beginViewportResize] is
+     * called from `MainActivity.onConfigurationChanged` for rotation, and from the
+     * full-screen-reading toggle. Issue #95 was a resize nobody had named, so this arms on
+     * the effect instead — the measured size — and covers causes we haven't thought of.
+     * (It only sees resizes of the Compose node; one that happens further down, inside
+     * Readium's own view tree, is invisible here. See `shouldApplyInsetsPadding` in
+     * ReaderScreen for the one that bit us.)
+     *
+     * The first report just establishes the baseline; the WebView is created at that size, so
+     * there is nothing to re-anchor. Zero sizes (pre-layout, or a detached view) are ignored
+     * so they never read as a resize in either direction.
+     */
+    fun onViewportChanged(width: Int, height: Int) {
+        if (width <= 0 || height <= 0) return
+        val previous = viewportSize
+        viewportSize = width to height
+        if (previous == null || previous == viewportSize) return
+        beginViewportResize()
+    }
 
     // Called from MainActivity.onBeforeReaderConfigChange — runs BEFORE the
     // Activity dispatches the configuration change down to fragments. Snapshots
@@ -174,6 +204,9 @@ class ReaderViewModel(
     fun seek(percent: Double) {
         val target = previewLocator(percent) ?: return
         val nav = navigator ?: return
+        // An explicit jump supersedes any armed re-anchor: the anchor predates the seek, so
+        // honouring it afterwards would yank the reader back out of the page they just chose.
+        clearPendingResize()
         // Surface the target on the HUD synchronously, before the suspending nav.go()
         // call dispatches. This avoids a one-frame window where the slider thumb
         // would snap back to the pre-seek liveLocator after the UI clears its drag

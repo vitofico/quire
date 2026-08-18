@@ -31,8 +31,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -137,6 +139,20 @@ fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
                     onExit = viewModel::clearPendingResize,
                 )
 
+                // Last measured size of the reader content. Every change is reported to the
+                // view model, which re-anchors the reading position across it whatever caused
+                // it — see ReaderViewModel.onViewportChanged. The settle valve is keyed on the
+                // size so a resize that arrives in several steps (an inset animation, say)
+                // restarts the wait instead of completing mid-flight; Readium's onPageChanged
+                // normally beats it to the re-anchor and makes it a no-op.
+                var viewport by remember { mutableStateOf(IntSize.Zero) }
+                LaunchedEffect(viewport) {
+                    if (viewport != IntSize.Zero) {
+                        delay(RESIZE_SETTLE_MS)
+                        viewModel.completeViewportResize()
+                    }
+                }
+
                 // The app is edge-to-edge (MainActivity). Immersive reading uses that full
                 // bleed: content draws behind the (hidden) bars and the chrome self-insets.
                 // With immersive off, the reader behaves like any normal screen — inset the
@@ -162,6 +178,10 @@ fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
                         onNext = viewModel::pageForward,
                         onToggleChrome = viewModel::toggleChrome,
                         onPageLoaded = viewModel::completeViewportResize,
+                        onViewportChanged = { size ->
+                            viewport = size
+                            viewModel.onViewportChanged(size.width, size.height)
+                        },
                     )
 
                     ReaderTopBar(
@@ -228,6 +248,7 @@ private fun ReaderContent(
     onNext: () -> Unit,
     onToggleChrome: () -> Unit,
     onPageLoaded: () -> Unit,
+    onViewportChanged: (IntSize) -> Unit,
 ) {
     val activity = LocalContext.current as FragmentActivity
     val containerId = rememberSaveable { View.generateViewId() }
@@ -235,7 +256,11 @@ private fun ReaderContent(
     var fragment by remember { mutableStateOf<EpubNavigatorFragment?>(null) }
 
     AndroidView(
-        modifier = Modifier.fillMaxSize(),
+        // This is the node whose height decides how much text fits in a Readium column, so
+        // it — not the window, and not the insets — is the authoritative viewport.
+        modifier = Modifier
+            .fillMaxSize()
+            .onSizeChanged(onViewportChanged),
         factory = { ctx ->
             ReaderTapDispatcher(ctx).apply {
                 layoutParams = ViewGroup.LayoutParams(
@@ -280,6 +305,24 @@ private fun ReaderContent(
             initialLocator = initialLocator,
             initialPreferences = preferences.toEpubPreferences(),
             paginationListener = paginationListener,
+            configuration = EpubNavigatorFragment.Configuration(
+                // Quire owns the reader's insets, so Readium must not also apply them.
+                //
+                // Left at its default (on), Readium pads its own page container by the
+                // system-bar insets whenever they are dispatched to its view. In full-screen
+                // reading the bars are hidden and the reader is deliberately full-bleed, so
+                // that padding is for bars that aren't there — and it arrived late: the page
+                // rendered edge to edge, then the first time the window regained focus the
+                // WebView finally re-measured against it and lost ~350px of height. That
+                // re-paginated the chapter under the reader, and because the resize happened
+                // inside Readium's own view tree, nothing here saw it coming: the post-
+                // re-pagination locator was published and written over the saved position, so
+                // the reader came back to the wrong page and stayed there (issue #95).
+                //
+                // With full-screen reading off it was simply double-inset: the whole reader
+                // subtree is already padded by WindowInsets.systemBars in ReaderScreen.
+                shouldApplyInsetsPadding = false,
+            ),
         )
         val nav = (fm.fragmentFactory.instantiate(
             activity.classLoader,
@@ -309,6 +352,13 @@ private fun ReaderContent(
         fragment?.submitPreferences(preferences.toEpubPreferences())
     }
 }
+
+/**
+ * How long to wait for Readium to re-paginate after the viewport changed before honouring the
+ * anchor anyway. onPageChanged normally gets there first; this only has to cover a resize that
+ * didn't re-paginate at all, so that locator publishing is never left suppressed.
+ */
+private const val RESIZE_SETTLE_MS = 600L
 
 /**
  * Drives immersive full-screen: binds the OS status + navigation bars to the reader
