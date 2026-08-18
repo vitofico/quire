@@ -10,8 +10,11 @@ import io.theficos.ereader.reader.EpubAsset
 import io.theficos.ereader.reader.ProgressTracker
 import io.theficos.ereader.reader.ReaderPreferences
 import io.theficos.ereader.reader.ReaderPreferencesStore
+import io.theficos.ereader.reader.PAGE_START_ANCHOR_JS
 import io.theficos.ereader.reader.ReadiumFactory
 import io.theficos.ereader.reader.locatorAtPercent
+import io.theficos.ereader.reader.parsePageStartAnchor
+import io.theficos.ereader.reader.resizeAnchor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -34,6 +37,11 @@ class ReaderViewModel(
     private val progress: ProgressRepository,
     private val readium: ReadiumFactory,
     private val preferencesStore: ReaderPreferencesStore,
+    // How the reader asks Readium whereabouts in the DOM the current page starts. A seam so
+    // the re-anchor can be tested without a live WebView; see ReaderViewportResizeTest.
+    private val readDomAnchor: suspend (EpubNavigatorFragment?) -> Locator? =
+        ::readPageStartAnchor,
+    private val nowMs: () -> Long = System::currentTimeMillis,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<ReaderUiState>(ReaderUiState.Loading)
@@ -88,6 +96,7 @@ class ReaderViewModel(
 
     fun goTo(locator: Locator) {
         clearPendingResize()
+        invalidateDomAnchor()
         viewModelScope.launch { navigator?.go(locator, false) }
     }
 
@@ -129,11 +138,40 @@ class ReaderViewModel(
         if (suppressLocatorPublishing) return
         _currentLocator.value = locator
         _locatorUpdates.tryEmit(locator)
+        refreshDomAnchor()
+    }
+
+    /**
+     * Keeps [domAnchor] tracking the page on screen.
+     *
+     * Asking Readium costs a round trip into the WebView's JavaScript, which is far too slow to
+     * do at the moment a rotation starts — the answer would come back describing the page after
+     * re-pagination, which is the one thing it must not be. So it is kept warm instead, refreshed
+     * whenever Readium reports a settled position, and read synchronously when the resize arms.
+     *
+     * Both guards here exist to keep a rotation from rewriting the anchor, which is the failure
+     * that made rotation drift compound. Which element anchors a page depends on the page's
+     * shape: a tall portrait column starts several paragraphs where a short landscape one starts
+     * a single paragraph, so reading the anchor in the orientation the reader is only passing
+     * through replaces it with an earlier one, and the return leg dutifully honours that. Turning
+     * a page moves the reader; rotating the device does not.
+     */
+    private fun refreshDomAnchor() {
+        if (nowMs() < anchorPinnedUntil) return
+        viewModelScope.launch {
+            val nav = navigator
+            val dom = runCatching { readDomAnchor(nav) }.getOrNull()
+            // A resize may have armed while that round trip was in flight, in which case the
+            // answer describes the re-paginated page. Drop it and keep the pre-resize anchor.
+            if (!suppressLocatorPublishing && nowMs() >= anchorPinnedUntil) domAnchor = dom
+        }
     }
 
     private var pendingRotationAnchor: Locator? = null
     private var suppressLocatorPublishing: Boolean = false
     private var viewportSize: Pair<Int, Int>? = null
+    private var domAnchor: Locator? = null
+    private var anchorPinnedUntil: Long = 0L
 
     /**
      * Reports the reader viewport's measured size, on every layout pass.
@@ -163,23 +201,66 @@ class ReaderViewModel(
         beginViewportResize()
     }
 
-    // Called from MainActivity.onBeforeReaderConfigChange — runs BEFORE the
-    // Activity dispatches the configuration change down to fragments. Snapshots
-    // the current locator into pendingRotationAnchor and gates publishLocator so
-    // Readium's post-resize drifted emissions cannot overwrite the anchor.
+    /**
+     * Forgets where the page on screen begins, because the reader is being sent elsewhere.
+     *
+     * [domAnchor] describes the page being left. Until Readium reports the one being arrived at,
+     * a resize landing in between would otherwise fold that stale element into the new locator
+     * and send the reader straight back to the page they just jumped away from.
+     */
+    private fun invalidateDomAnchor() {
+        domAnchor = null
+    }
+
+    // Called from MainActivity.onBeforeReaderConfigChange — runs BEFORE the Activity dispatches
+    // the configuration change down to fragments. Snapshots where the reader is into
+    // pendingRotationAnchor and gates publishLocator so Readium's post-resize drifted emissions
+    // cannot overwrite it.
     fun beginViewportResize() {
-        val anchor = _currentLocator.value ?: return
-        pendingRotationAnchor = anchor
+        // A single rotation arms this several times over — MainActivity as the configuration
+        // change is dispatched, then onViewportChanged as the measured size follows. Only the
+        // first of those still sees the page the reader is leaving, so it wins.
+        if (pendingRotationAnchor != null) return
+        val live = _currentLocator.value ?: return
+        pendingRotationAnchor = resizeAnchor(live, domAnchor)
         suppressLocatorPublishing = true
     }
 
-    // Called from the Readium PaginationListener when re-pagination completes
-    // after a viewport resize. No-op if no resize is pending (so it's safe to
-    // call on every onPageLoaded). Re-anchors via navigator.go(anchor, false),
-    // re-seeds the current-locator flow, and re-enables publishing.
+    /**
+     * Puts the reader back on the anchored page, and stays armed. Called from the Readium
+     * pagination listener on every re-pagination while a resize is in flight; a no-op when no
+     * resize is pending, so it is safe on every page turn.
+     *
+     * Re-pagination arrives in steps, and anchoring on the first one is not enough: wired that
+     * way, and with everything else here unchanged, rotation still landed on the wrong page and
+     * did so inconsistently, the same start position coming back two different ways. Readium
+     * scrolls to an anchor by snapping the element's offset to a page boundary, using a page
+     * width it caches in JavaScript and only recomputes when it is told the viewport moved, so
+     * an early re-anchor is measuring against a grid that is still the old one. Re-anchoring on
+     * every step and once more when the size stops changing ([completeViewportResize]) gives the
+     * settled layout the last word.
+     *
+     * Repeating this is only safe because the anchor is a DOM element: it lands in the same place
+     * however many times it is used. The progression fraction this used to carry was consumed a
+     * little by every application, which is why it could only ever be applied once.
+     */
+    fun reanchorViewport() {
+        val anchor = pendingRotationAnchor ?: return
+        viewModelScope.launch { navigator?.go(anchor, false) }
+    }
+
+    // Called when the viewport has stopped changing (and from the immersive transition's own
+    // settle timer). No-op if no resize is pending. Re-anchors one last time, now that the
+    // layout is final, re-seeds the current-locator flow and re-enables publishing.
     fun completeViewportResize() {
         val anchor = pendingRotationAnchor ?: return
         pendingRotationAnchor = null
+        // Readium reports the restored position of its own accord a moment after the jump —
+        // measured at around half a second. That report is the resize finishing, not the reader
+        // moving, so it must not be allowed to re-read the anchor from the page it just landed
+        // on. Hold the anchor over that window; the next page the reader actually turns to
+        // refreshes it normally.
+        anchorPinnedUntil = nowMs() + ANCHOR_PIN_MS
         viewModelScope.launch {
             navigator?.go(anchor, false)
             _currentLocator.value = anchor
@@ -207,6 +288,7 @@ class ReaderViewModel(
         // An explicit jump supersedes any armed re-anchor: the anchor predates the seek, so
         // honouring it afterwards would yank the reader back out of the page they just chose.
         clearPendingResize()
+        invalidateDomAnchor()
         // Surface the target on the HUD synchronously, before the suspending nav.go()
         // call dispatches. This avoids a one-frame window where the slider thumb
         // would snap back to the pre-seek liveLocator after the UI clears its drag
@@ -229,6 +311,13 @@ class ReaderViewModel(
     }
 }
 
+/**
+ * How long the reading anchor is held after a viewport resize completes, covering Readium's own
+ * delayed report of where it landed. Long enough for that report (about half a second in
+ * practice), short enough that a page the reader turns to just after a rotation still registers.
+ */
+private const val ANCHOR_PIN_MS = 1_500L
+
 sealed interface ReaderUiState {
     data object Loading : ReaderUiState
     data class Error(val message: String) : ReaderUiState
@@ -238,4 +327,28 @@ sealed interface ReaderUiState {
         val initialLocator: Locator?,
         val savedProgress: Progress?,
     ) : ReaderUiState
+}
+
+/**
+ * Asks the navigator where the page on screen begins in the DOM.
+ *
+ * Runs [PAGE_START_ANCHOR_JS] in the current resource's web view and stamps the answer with that
+ * resource's href, so a stale anchor can be rejected later if the reader has moved on to another
+ * chapter. Falls back to Readium's own `firstVisibleElementLocator()` whenever the script
+ * declines to answer: a page with nothing starting on it, or a layout the script bows out of.
+ * That fallback anchors slightly earlier than the reader actually is — the very thing the script
+ * exists to improve on — but it is still an exact DOM anchor, so it costs at most a one-off
+ * shift rather than the compounding walk the progression fraction caused.
+ */
+private suspend fun readPageStartAnchor(navigator: EpubNavigatorFragment?): Locator? {
+    val nav = navigator ?: return null
+    val current = nav.currentLocator.value
+    val fromScript = runCatching {
+        parsePageStartAnchor(
+            json = nav.evaluateJavascript(PAGE_START_ANCHOR_JS),
+            href = current.href,
+            mediaType = current.mediaType,
+        )
+    }.getOrNull()
+    return fromScript ?: runCatching { nav.firstVisibleElementLocator() }.getOrNull()
 }

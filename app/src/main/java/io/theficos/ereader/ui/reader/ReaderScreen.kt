@@ -141,10 +141,11 @@ fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
 
                 // Last measured size of the reader content. Every change is reported to the
                 // view model, which re-anchors the reading position across it whatever caused
-                // it — see ReaderViewModel.onViewportChanged. The settle valve is keyed on the
-                // size so a resize that arrives in several steps (an inset animation, say)
-                // restarts the wait instead of completing mid-flight; Readium's onPageChanged
-                // normally beats it to the re-anchor and makes it a no-op.
+                // it — see ReaderViewModel.onViewportChanged. This is keyed on the size so a
+                // resize arriving in several steps (an inset animation, say) restarts the wait
+                // instead of completing mid-flight. Readium's onPageChanged re-anchors as it
+                // re-paginates; this has the last word, once the size has stopped moving and
+                // the WebView's page grid is final.
                 var viewport by remember { mutableStateOf(IntSize.Zero) }
                 LaunchedEffect(viewport) {
                     if (viewport != IntSize.Zero) {
@@ -177,7 +178,7 @@ fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
                         onPrev = viewModel::pageBackward,
                         onNext = viewModel::pageForward,
                         onToggleChrome = viewModel::toggleChrome,
-                        onPageLoaded = viewModel::completeViewportResize,
+                        onPageLoaded = viewModel::reanchorViewport,
                         onViewportChanged = { size ->
                             viewport = size
                             viewModel.onViewportChanged(size.width, size.height)

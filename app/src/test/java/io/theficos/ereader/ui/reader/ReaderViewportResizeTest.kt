@@ -8,6 +8,7 @@ import io.theficos.ereader.data.local.ProgressRepository
 import io.theficos.ereader.data.local.db.EReaderDatabase
 import io.theficos.ereader.reader.ReaderPreferencesStore
 import io.theficos.ereader.reader.ReadiumFactory
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -18,6 +19,7 @@ import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.readium.r2.navigator.epub.EpubNavigatorFragment
 import org.readium.r2.shared.publication.Locator
 import org.readium.r2.shared.util.Url
 import org.readium.r2.shared.util.mediatype.MediaType
@@ -136,6 +138,180 @@ class ReaderViewportResizeTest {
 
         vm.publishLocator(locatorAt(0.6))
         assertThat(vm.currentLocator.value?.locations?.progression).isEqualTo(0.6)
+    }
+
+    /**
+     * A [ReaderViewModel] whose DOM anchors come from [anchors] in order, the last one repeating.
+     * Standing in for a JavaScript round trip into Readium's WebView, which a unit test has no
+     * WebView for.
+     */
+    /** Test clock, in milliseconds; advance it to step past the post-resize anchor hold. */
+    private var clock = 0L
+
+    private fun vmServing(
+        vararg anchors: Locator,
+        /** Held open from the second read onwards, to park one in flight across a rotation. */
+        gate: CompletableDeferred<Unit>? = null,
+    ): ReaderViewModel {
+        val context = ApplicationProvider.getApplicationContext<android.app.Application>()
+        var call = 0
+        return ReaderViewModel(
+            documentId = 1L,
+            docs = DocumentRepository(db.documentDao()),
+            progress = ProgressRepository(db.progressDao()),
+            readium = ReadiumFactory(context),
+            preferencesStore = ReaderPreferencesStore(context),
+            readDomAnchor = { _: EpubNavigatorFragment? ->
+                if (call > 0) gate?.await()
+                anchors[minOf(call++, anchors.size - 1)]
+            },
+            nowMs = { clock },
+        )
+    }
+
+    private fun domAnchor(nth: Int) = Locator(
+        href = Url("ch1.xhtml")!!,
+        mediaType = MediaType.XHTML,
+        locations = Locator.Locations(
+            otherLocations = mapOf("cssSelector" to ":root > :nth-child(2) > :nth-child($nth)"),
+        ),
+        text = Locator.Text(highlight = "Paragraph $nth."),
+    )
+
+    private val Locator?.selector: String?
+        get() = this?.locations?.otherLocations?.get("cssSelector") as? String
+
+    @Test fun `the anchor carries a DOM location, not just a progression`() = runTest {
+        val vm = vmServing(domAnchor(23))
+        vm.publishLocator(locatorAt(0.5))
+        vm.onViewportChanged(1080, 2424)
+        vm.onViewportChanged(2424, 1080)
+        vm.completeViewportResize()
+
+        // Readium restores a locator precisely only when it carries text to match; without it,
+        // it maps the progression onto the new page grid and lands wherever that arithmetic
+        // happens to point. This is the whole fix: rotation must hand it a DOM location.
+        assertThat(vm.currentLocator.value?.text?.highlight).isEqualTo("Paragraph 23.")
+        assertThat(vm.currentLocator.value.selector)
+            .isEqualTo(":root > :nth-child(2) > :nth-child(23)")
+        // ...while still carrying the position it left, for Readium's own fallback and for the
+        // percentage the HUD and the progress row read.
+        assertThat(vm.currentLocator.value?.locations?.progression).isEqualTo(0.5)
+    }
+
+    @Test fun `a rotation does not move the anchor, so returning is exact`() = runTest {
+        // Which element "starts the page" depends on the shape of the page: a tall portrait
+        // column starts several paragraphs where a short landscape one starts a single
+        // paragraph. Re-reading the anchor while the reader is rotated therefore replaces it
+        // with an earlier one, and honouring that on the way back walks the reader backwards a
+        // page at a time. A rotation is not a change of reading position: the anchor must be
+        // whatever the reader was last actually on.
+        val vm = vmServing(domAnchor(23), domAnchor(22), domAnchor(18))
+        vm.publishLocator(locatorAt(0.5))
+        vm.onViewportChanged(1080, 2424)
+
+        repeat(3) {
+            vm.onViewportChanged(2424, 1080)
+            vm.completeViewportResize()
+            vm.onViewportChanged(1080, 2424)
+            vm.completeViewportResize()
+            assertThat(vm.currentLocator.value.selector)
+                .isEqualTo(":root > :nth-child(2) > :nth-child(23)")
+        }
+    }
+
+    @Test fun `Readium's own report of the restored page does not move the anchor`() = runTest {
+        // Readium reports where it landed of its own accord, about half a second after the
+        // jump. That arrives as an ordinary publish, so without a hold it re-reads the anchor
+        // from the page the reader is only rotating through — which is how the drift crept back
+        // in intermittently even once the anchor was no longer refreshed explicitly.
+        val vm = vmServing(domAnchor(23), domAnchor(31))
+        vm.publishLocator(locatorAt(0.5))
+        vm.onViewportChanged(1080, 2424)
+
+        vm.onViewportChanged(2424, 1080)
+        vm.completeViewportResize()
+        clock += 500
+        vm.publishLocator(locatorAt(0.39))
+
+        vm.onViewportChanged(1080, 2424)
+        vm.completeViewportResize()
+        assertThat(vm.currentLocator.value.selector)
+            .isEqualTo(":root > :nth-child(2) > :nth-child(23)")
+    }
+
+    @Test fun `moving the reader does move the anchor`() = runTest {
+        // The other half of the same rule: the anchor has to follow the reader when the reader
+        // is the one moving, page turns and swipes alike, both of which arrive as a publish.
+        val vm = vmServing(domAnchor(23), domAnchor(31))
+        vm.publishLocator(locatorAt(0.5))
+        vm.onViewportChanged(1080, 2424)
+        // A rotation, and then — once its dust has settled — a page turn.
+        vm.onViewportChanged(2424, 1080)
+        vm.completeViewportResize()
+        clock += 5_000
+        vm.publishLocator(locatorAt(0.6))
+
+        vm.onViewportChanged(1080, 2424)
+        vm.completeViewportResize()
+        assertThat(vm.currentLocator.value.selector)
+            .isEqualTo(":root > :nth-child(2) > :nth-child(31)")
+    }
+
+    @Test fun `an anchor read while the reader is resizing is discarded`() = runTest {
+        // The read is a round trip into the WebView's JavaScript. If a rotation starts while one
+        // is in flight, the answer that comes back describes the re-paginated page — exactly the
+        // page the anchor exists to avoid. Keeping the older, pre-rotation one is right even
+        // though it is a page turn behind.
+        val gate = CompletableDeferred<Unit>()
+        val vm = vmServing(domAnchor(23), domAnchor(31), gate = gate)
+        vm.publishLocator(locatorAt(0.5))
+        vm.onViewportChanged(1080, 2424)
+
+        // A page turn, whose read parks on the gate, and then a rotation on top of it.
+        vm.publishLocator(locatorAt(0.6))
+        vm.onViewportChanged(2424, 1080)
+        gate.complete(Unit)
+        vm.completeViewportResize()
+
+        // The next rotation is where a swallowed answer would show up.
+        vm.onViewportChanged(1080, 2424)
+        vm.completeViewportResize()
+        assertThat(vm.currentLocator.value.selector)
+            .isEqualTo(":root > :nth-child(2) > :nth-child(23)")
+    }
+
+    @Test fun `re-anchoring mid-resize does not end the resize`() = runTest {
+        // Readium re-paginates in steps and the reader is put back on the anchor at each one,
+        // because an early step measures against a page grid that is still the old one. Those
+        // steps must not be mistaken for the end of the resize.
+        val vm = vmServing(domAnchor(23))
+        vm.publishLocator(locatorAt(0.5))
+        vm.onViewportChanged(1080, 2424)
+        vm.onViewportChanged(2424, 1080)
+
+        vm.reanchorViewport()
+        vm.publishLocator(locatorAt(0.31))
+        assertThat(vm.currentLocator.value?.locations?.progression).isEqualTo(0.5)
+
+        vm.completeViewportResize()
+        vm.publishLocator(locatorAt(0.55))
+        assertThat(vm.currentLocator.value?.locations?.progression).isEqualTo(0.55)
+    }
+
+    @Test fun `a jump forgets the anchor rather than dragging the reader back`() = runTest {
+        // The cached anchor describes the page being left. A rotation landing between the jump
+        // and Readium's report of where it arrived would otherwise fold that element into the
+        // new locator, and Readium would honour the element over the progression.
+        val vm = vmServing(domAnchor(23))
+        vm.publishLocator(locatorAt(0.5))
+        vm.onViewportChanged(1080, 2424)
+
+        vm.goTo(locatorAt(0.9))
+        vm.onViewportChanged(2424, 1080)
+        vm.completeViewportResize()
+
+        assertThat(vm.currentLocator.value.selector).isNull()
     }
 
     @Test fun `seeking supersedes an armed re-anchor`() = runTest {
