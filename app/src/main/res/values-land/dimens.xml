@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Landscape has far less height to spend on margins, so the page keeps half of it. -->
+    <dimen name="reader_vertical_margin">20dp</dimen>
+</resources>

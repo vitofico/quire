@@ -5,6 +5,9 @@ import org.readium.r2.navigator.preferences.Color as ReadiumColor
 import org.readium.r2.navigator.preferences.FontFamily as ReadiumFontFamily
 import org.readium.r2.navigator.preferences.Theme
 
+/** Calibre's "sepia dark" background, and the page colour that goes with it. */
+private const val DARK_SEPIA_BACKGROUND = 0xFF39322B.toInt()
+
 /**
  * A reader colour scheme.
  *
@@ -14,17 +17,25 @@ import org.readium.r2.navigator.preferences.Theme
  * unconditionally (unlike line height or paragraph indent, which are gated behind
  * `readium-advanced-on`), so they hold whether or not publisher styles are on.
  *
+ * [pageBackground] is the colour the page ends up being painted, whoever decides it — Readium's
+ * own appearance for the three native schemes, the override above for one that sets it. Quire
+ * pads the page area itself (issue #97) and so has to paint the strip that padding exposes;
+ * anything but the page's own colour reads as a band around the page instead of part of it.
+ * A native scheme's value has to be kept in step with Readium by hand — ReaderThemeTest asserts
+ * the pair still agree, so an upgrade that repaints a theme fails there rather than on screen.
+ *
  * [isDark] drives the system bars, not the page: it must be true whenever the background is dark,
  * which is not the same question as "is the Readium theme DARK".
  */
 enum class ReaderTheme(
     val isDark: Boolean,
+    val pageBackground: Int,
     internal val textColor: Int? = null,
     internal val backgroundColor: Int? = null,
 ) {
-    LIGHT(isDark = false),
-    DARK(isDark = true),
-    SEPIA(isDark = false),
+    LIGHT(isDark = false, pageBackground = 0xFFFFFFFF.toInt()),
+    DARK(isDark = true, pageBackground = 0xFF000000.toInt()),
+    SEPIA(isDark = false, pageBackground = 0xFFFAF4E8.toInt()),
 
     /**
      * Warm text on a warm-dark background, for reading in the dark without the glare of SEPIA or
@@ -33,8 +44,9 @@ enum class ReaderTheme(
      */
     DARK_SEPIA(
         isDark = true,
+        pageBackground = DARK_SEPIA_BACKGROUND,
         textColor = 0xFFF6F3E9.toInt(),
-        backgroundColor = 0xFF39322B.toInt(),
+        backgroundColor = DARK_SEPIA_BACKGROUND,
     ),
     ;
     // Deliberately no Readium type in this enum: Readium's Theme initialises itself through

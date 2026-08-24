@@ -13,9 +13,12 @@ import android.view.WindowManager
 import android.view.accessibility.AccessibilityManager
 import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.CircularProgressIndicator
@@ -31,9 +34,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.dimensionResource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
@@ -49,6 +55,7 @@ import io.theficos.ereader.MainActivity
 import io.theficos.ereader.data.sync.SyncEnqueuer
 import io.theficos.ereader.reader.ReaderPreferences
 import io.theficos.ereader.reader.toEpubPreferences
+import io.theficos.quire.R
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.readium.r2.navigator.epub.EpubNavigatorFactory
@@ -169,21 +176,32 @@ fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
                             else Modifier.windowInsetsPadding(WindowInsets.systemBars),
                         ),
                 ) {
-                    ReaderContent(
-                        publication = s.publication,
-                        initialLocator = s.initialLocator,
-                        preferences = preferences,
-                        onLocator = viewModel::publishLocator,
-                        onNavigatorReady = viewModel::bindNavigator,
-                        onPrev = viewModel::pageBackward,
-                        onNext = viewModel::pageForward,
-                        onToggleChrome = viewModel::toggleChrome,
-                        onPageLoaded = viewModel::reanchorViewport,
+                    ReaderPageArea(
+                        // Immersive draws the page into the display cutout, so the text has to be
+                        // held clear of the camera itself. With immersive off the subtree above
+                        // has already been padded by the system bars, which in portrait cover the
+                        // cutout — windowInsetsPadding subtracts what an ancestor consumed, so
+                        // this resolves to nothing there rather than insetting the page twice.
+                        insets = WindowInsets.displayCutout,
+                        verticalMargin = dimensionResource(R.dimen.reader_vertical_margin),
+                        background = Color(preferences.theme.pageBackground),
                         onViewportChanged = { size ->
                             viewport = size
                             viewModel.onViewportChanged(size.width, size.height)
                         },
-                    )
+                    ) {
+                        ReaderContent(
+                            publication = s.publication,
+                            initialLocator = s.initialLocator,
+                            preferences = preferences,
+                            onLocator = viewModel::publishLocator,
+                            onNavigatorReady = viewModel::bindNavigator,
+                            onPrev = viewModel::pageBackward,
+                            onNext = viewModel::pageForward,
+                            onToggleChrome = viewModel::toggleChrome,
+                            onPageLoaded = viewModel::reanchorViewport,
+                        )
+                    }
 
                     ReaderTopBar(
                         visible = chromeVisible,
@@ -238,6 +256,46 @@ fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
     }
 }
 
+/**
+ * The page: the area a Readium column is laid out in, and the strip of margin around it.
+ *
+ * Quire owns the reader's insets (see `shouldApplyInsetsPadding` below), which means it owns the
+ * page's margins too. Turning Readium's inset padding off to stop it re-paginating the chapter
+ * under the reader (issue #95) also took away the only path that ever applied any vertical
+ * padding, so the text ran the full height of the screen and, on a phone with a punch-hole
+ * camera, straight under it (issue #97).
+ *
+ * [insets] is what the page must be held clear of; [verticalMargin] is the breathing room it
+ * gets on top of that. [background] paints the whole area, margin included, because the WebView
+ * only paints the part it occupies and a strip in some other colour reads as a band around the
+ * page rather than as part of it.
+ *
+ * [onViewportChanged] reports the size of what is left after all of that — the height that
+ * decides how much text fits in a column, so it, not the window and not the insets, is the
+ * authoritative viewport. Every change is re-anchored across by the view model, whatever caused
+ * it (see `ReaderViewModel.onViewportChanged`), which is what lets the page keep its margins
+ * without also losing the reader's place when the insets arrive a frame late.
+ */
+@Composable
+internal fun ReaderPageArea(
+    insets: WindowInsets,
+    verticalMargin: Dp,
+    background: Color,
+    onViewportChanged: (IntSize) -> Unit,
+    content: @Composable () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(background)
+            .windowInsetsPadding(insets)
+            .padding(vertical = verticalMargin)
+            .onSizeChanged(onViewportChanged),
+    ) {
+        content()
+    }
+}
+
 @Composable
 private fun ReaderContent(
     publication: Publication,
@@ -249,7 +307,6 @@ private fun ReaderContent(
     onNext: () -> Unit,
     onToggleChrome: () -> Unit,
     onPageLoaded: () -> Unit,
-    onViewportChanged: (IntSize) -> Unit,
 ) {
     val activity = LocalContext.current as FragmentActivity
     val containerId = rememberSaveable { View.generateViewId() }
@@ -257,11 +314,8 @@ private fun ReaderContent(
     var fragment by remember { mutableStateOf<EpubNavigatorFragment?>(null) }
 
     AndroidView(
-        // This is the node whose height decides how much text fits in a Readium column, so
-        // it — not the window, and not the insets — is the authoritative viewport.
-        modifier = Modifier
-            .fillMaxSize()
-            .onSizeChanged(onViewportChanged),
+        // Fills the page area, which is what ReaderPageArea measures as the viewport.
+        modifier = Modifier.fillMaxSize(),
         factory = { ctx ->
             ReaderTapDispatcher(ctx).apply {
                 layoutParams = ViewGroup.LayoutParams(
@@ -322,6 +376,12 @@ private fun ReaderContent(
                 //
                 // With full-screen reading off it was simply double-inset: the whole reader
                 // subtree is already padded by WindowInsets.systemBars in ReaderScreen.
+                //
+                // That listener was also, in practice, the only thing that ever applied the
+                // page's vertical margins — Readium bundles them into the same padding pass —
+                // so switching it off left the text running edge to edge (issue #97).
+                // ReaderPageArea applies both now; don't turn this back on or the page is
+                // padded twice, late, and by someone this file can't see.
                 shouldApplyInsetsPadding = false,
             ),
         )
