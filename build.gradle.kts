@@ -38,5 +38,25 @@ plugins {
 subprojects {
     tasks.withType<Test>().configureEach {
         timeout.set(Duration.ofMinutes(10))
+
+        // Which test wedged, though?
+        //
+        // The budget above bounds the damage but says nothing about the cause, and a
+        // wedged test task is silent by default: Gradle prints the task name when it
+        // starts, nothing while it runs, and "Timeout has been exceeded" when the net
+        // catches it. That was the whole of the record on 2026-07-28, and again on
+        // 2026-08-24 when `:app:testDebugUnitTest` timed out twice on main against a
+        // tree that had passed the same tests on the PR minutes earlier. Two incidents,
+        // no idea which test either of them was in.
+        //
+        // Logging the start of every test costs a line each and turns that into an
+        // answer: the last test to report `started` with no result after it is the one
+        // that stopped. Failures are logged with their exceptions for the ordinary case
+        // where a test fails rather than hangs; passes stay quiet, since a task that
+        // finishes has already said everything by finishing.
+        testLogging {
+            events("started", "failed")
+            exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        }
     }
 }
