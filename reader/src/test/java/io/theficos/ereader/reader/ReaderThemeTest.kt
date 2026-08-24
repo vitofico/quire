@@ -40,6 +40,21 @@ class ReaderThemeTest {
         }
     }
 
+    @Test fun `every theme knows the colour its page is painted`() {
+        // Quire paints the reader's margins itself (issue #97), in this colour, so it has to be
+        // the one the page ends up being. For the three native schemes that is Readium's own
+        // value, copied by hand — this is where a Readium upgrade that repaints a theme surfaces,
+        // instead of as a mismatched band above and below the text.
+        assertThat(ReaderTheme.LIGHT.pageBackground).isEqualTo(Theme.LIGHT.backgroundColor)
+        assertThat(ReaderTheme.DARK.pageBackground).isEqualTo(Theme.DARK.backgroundColor)
+        assertThat(ReaderTheme.SEPIA.pageBackground).isEqualTo(Theme.SEPIA.backgroundColor)
+        // DARK_SEPIA overrides the background rather than inheriting one, so its own override is
+        // what the page is painted.
+        assertThat(ReaderTheme.DARK_SEPIA.pageBackground).isEqualTo(
+            ReaderPreferences(theme = ReaderTheme.DARK_SEPIA).toEpubPreferences().backgroundColor?.int
+        )
+    }
+
     @Test fun `dark sepia emits Calibre's sepia-dark colours`() {
         val prefs = ReaderPreferences(theme = ReaderTheme.DARK_SEPIA).toEpubPreferences()
         assertThat(prefs.textColor?.int).isEqualTo(0xFFF6F3E9.toInt())

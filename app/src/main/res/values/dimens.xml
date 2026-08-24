@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Breathing room above and below the text of a page. Readium used to add this itself, but
+      only ever through the window-insets listener that ReaderScreen turns off (issue #95), so
+      turning that off took the margins with it and left the text running edge to edge (#97).
+      Quire applies it now; the value is Readium's own, so the page reads as it always did.
+    -->
+    <dimen name="reader_vertical_margin">40dp</dimen>
+</resources>
