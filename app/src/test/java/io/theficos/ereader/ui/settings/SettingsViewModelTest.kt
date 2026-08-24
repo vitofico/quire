@@ -90,7 +90,7 @@ class SettingsViewModelTest {
         val vm = buildVm(restoreInProgress = { _ -> summary })
 
         val events = mutableListOf<SettingsEvent>()
-        val job = launch { vm.events.collect { events += it } }
+        backgroundScope.launch { vm.events.collect { events += it } }
 
         vm.restoreInProgressBooks()
         advanceUntilIdle()
@@ -98,7 +98,6 @@ class SettingsViewModelTest {
         assertThat(events).contains(SettingsEvent.RestoreFinished(summary))
         assertThat(vm.restoreRunning.value).isFalse()
         assertThat(vm.isConnected.value).isTrue()
-        job.cancel()
     }
 
     @Test fun `restoreInProgressBooks surfaces per-book progress and clears it on completion`() = runTest {
@@ -119,7 +118,7 @@ class SettingsViewModelTest {
         )
 
         val events = mutableListOf<SettingsEvent>()
-        val job = launch { vm.events.collect { events += it } }
+        backgroundScope.launch { vm.events.collect { events += it } }
 
         vm.restoreInProgressBooks()
         advanceUntilIdle()
@@ -128,7 +127,6 @@ class SettingsViewModelTest {
         // finally clears progress after the run completes.
         assertThat(vm.restoreProgress.value).isNull()
         assertThat(vm.restoreRunning.value).isFalse()
-        job.cancel()
     }
 
     @Test fun `restoreInProgressBooks emits RestoreFailed when the use case throws`() = runTest {
@@ -136,14 +134,13 @@ class SettingsViewModelTest {
         val vm = buildVm(restoreInProgress = { _ -> throw IllegalStateException("boom") })
 
         val events = mutableListOf<SettingsEvent>()
-        val job = launch { vm.events.collect { events += it } }
+        backgroundScope.launch { vm.events.collect { events += it } }
 
         vm.restoreInProgressBooks()
         advanceUntilIdle()
 
         assertThat(events).contains(SettingsEvent.RestoreFailed("boom"))
         assertThat(vm.restoreRunning.value).isFalse()
-        job.cancel()
     }
 
     @Test fun `isConnected is false when no account configured`() = runTest {
