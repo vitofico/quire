@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <updated>2026-09-09T17:18:44</updated>
+  <id>series-70</id>
+  <title>Grimms' Fairy Tales - Storyline</title>
+  <link rel="self" type="application/atom+xml;profile=opds-catalog;kind=acquisition" href="/api/opds/TEST-KEY/series/70" />
+  <entry>
+    <updated>2026-09-09T17:18:44</updated>
+    <id>93</id>
+    <title>Grimms' Fairy Tales</title>
+    <summary>Format: Epub</summary>
+    <author><name>Jacob Grimm</name></author>
+    <link rel="http://opds-spec.org/image" type="image/jpeg" href="/api/image/chapter-cover?chapterId=93&amp;apiKey=TEST-KEY" />
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=93&amp;apiKey=TEST-KEY" />
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/TEST-KEY/series/70/volume/92/chapter/93/download/Grimms.epub" title="Grimms.epub" />
+  </entry>
+</feed>

@@ -173,6 +173,39 @@ class CalibreCredentialStore(context: Context) {
     }
 
     /**
+     * Save a plain OPDS catalog account (issue #101).
+     *
+     * [catalogUrl] is the COMPLETE catalog URL and is stored verbatim: no
+     * trailing-slash trimming and no query stripping, because unlike a server
+     * root every character of it is load-bearing. Callers should pass the
+     * already-normalized form from `normalizeCatalogUrl`.
+     *
+     * [username] and [password] are both null for an anonymous or URL-authed
+     * catalog, and both non-null for one behind HTTP Basic. Supplying exactly
+     * one is rejected: it would silently produce an account that sends no
+     * `Authorization` header and then fails with an unexplained 401.
+     */
+    fun saveOpdsAccount(
+        catalogUrl: String,
+        username: String? = null,
+        password: String? = null,
+    ) {
+        require(catalogUrl.isNotBlank()) { "catalogUrl must not be blank" }
+        val user = username?.takeIf { it.isNotBlank() }
+        val pass = password?.takeIf { it.isNotBlank() }
+        require((user == null) == (pass == null)) {
+            "username and password must both be set or both be absent"
+        }
+        persistAccount(
+            AccountCredentials.OpdsOnly(
+                baseUrl = catalogUrl.trim(),
+                username = user,
+                password = pass,
+            )
+        )
+    }
+
+    /**
      * Record that an authenticated request to the configured account's origin
      * came back `401`. Flips [needsReauth] to `true` **only** when the current
      * account is Bearer (NativeAuth) — there is no token to refresh, so the
@@ -255,6 +288,20 @@ class CalibreCredentialStore(context: Context) {
                         editor.remove(KEY_EXPIRES_AT)
                     }
                 }
+                is AccountCredentials.OpdsOnly -> {
+                    editor
+                        .remove(KEY_EMAIL)
+                        .remove(KEY_TOKEN)
+                        .remove(KEY_EXPIRES_AT)
+                        .remove(KEY_QUIRE_SERVER_URL)
+                    if (account.username != null && account.password != null) {
+                        editor
+                            .putString(KEY_USER, account.username)
+                            .putString(KEY_PASS, account.password)
+                    } else {
+                        editor.remove(KEY_USER).remove(KEY_PASS)
+                    }
+                }
             }
             val committed = editor.commit()
             if (!committed) {
@@ -317,6 +364,18 @@ class CalibreCredentialStore(context: Context) {
                     null
                 }
                 AccountCredentials.Bearer(baseUrl, email, token, expiresAt)
+            }
+            AuthScheme.OPDS -> {
+                // Credentials are optional here, so a missing username is a
+                // valid anonymous account rather than a corrupt record. Only
+                // accept the pair when both halves are present.
+                val user = prefs.getString(KEY_USER, null)
+                val pass = prefs.getString(KEY_PASS, null)
+                if (user != null && pass != null) {
+                    AccountCredentials.OpdsOnly(baseUrl, user, pass)
+                } else {
+                    AccountCredentials.OpdsOnly(baseUrl)
+                }
             }
         }
     }

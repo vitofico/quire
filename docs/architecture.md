@@ -330,6 +330,22 @@ calibre-web username and password; everything else flows from that.
 - On `401` the app prompts re-auth (no refresh token to rotate).
 - Logout clears the Keystore entry.
 
+### Account schemes
+
+Three shapes, tagged by `AuthScheme` and modelled as `AccountCredentials`:
+
+| Scheme | `baseUrl` means | Auth | Server features |
+|---|---|---|---|
+| `BASIC` | calibre-web root | HTTP Basic | full |
+| `BEARER` | quire-server root | bearer token | full |
+| `OPDS` | a complete catalog URL | optional HTTP Basic, or none | none |
+
+`OPDS` is the odd one: its `baseUrl` is a whole resource URL rather than a
+prefix, so nothing may append a path to it, and it may embed a secret, so
+nothing may log it unredacted. `quireServerUrlOrNull()` returns null for it,
+which is the single gate that keeps sync, the library mirror, and AI switched
+off. See issue #101 for the design discussion.
+
 ## AuthBackend abstraction (Phase 0, 2026-05-22)
 
 The OSS server's primary authentication is now selected through a thin

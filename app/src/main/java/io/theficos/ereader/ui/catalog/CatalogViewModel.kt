@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import io.theficos.ereader.auth.AccountCredentials
 import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.core.identity.extractIdentity
 import io.theficos.ereader.core.metadata.readOpfBundle
@@ -18,6 +19,7 @@ import io.theficos.ereader.data.opds.BookDownloader
 import io.theficos.ereader.data.opds.OpdsClient
 import io.theficos.ereader.data.opds.OpdsFeed
 import io.theficos.ereader.data.opds.OpdsPublication
+import io.theficos.ereader.data.opds.redactUrl
 import io.theficos.ereader.data.sync.SyncEnqueuer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -77,13 +79,27 @@ class CatalogViewModel(
     }
 
     fun loadRoot() {
-        val baseUrl = credentialStore.getAccount()?.baseUrl
-        if (baseUrl.isNullOrBlank()) {
-            _state.value = CatalogUiState.Error("Configure calibre-web in Settings first.")
+        val account = credentialStore.getAccount()
+        if (account == null || account.baseUrl.isBlank()) {
+            _state.value = CatalogUiState.Error("Configure a server in Settings first.")
             return
         }
         backStack.clear()
-        load("${baseUrl.trimEnd('/')}/opds")
+        load(rootUrlFor(account))
+    }
+
+    /**
+     * The feed URL to open for [account].
+     *
+     * calibre-web and quire-server accounts store a server ROOT, so the catalog
+     * lives at the well-known `/opds` beneath it. An OPDS-only account stores a
+     * COMPLETE catalog URL whose layout we cannot predict (Kavita's is
+     * `/api/opds/{api-key}`), so it is used exactly as entered. Appending
+     * anything to it is what issue #101 was filed about.
+     */
+    private fun rootUrlFor(account: AccountCredentials): String = when (account) {
+        is AccountCredentials.OpdsOnly -> account.baseUrl
+        else -> "${account.baseUrl.trimEnd('/')}/opds"
     }
 
     fun refresh() {
@@ -174,13 +190,22 @@ class CatalogViewModel(
         } else {
             Log.d(
                 "CatalogViewModel",
-                "promoteInsight returned false for href=${pub.epubDownloadHref}; stash kept for retry",
+                // The acquisition href can itself be a credential: a Kavita catalog
+                // embeds a full-account API key in the download path (issue #101).
+                "promoteInsight returned false for href=${redactUrl(pub.epubDownloadHref)}; stash kept for retry",
             )
         }
     }
 
     fun download(pub: OpdsPublication, context: Context) {
         val current = _state.value as? CatalogUiState.Loaded ?: return
+        // Reader-only accounts (issue #101) have no quire-server: enqueueing a
+        // sync or a mirror push would just log a failure per book. The clients
+        // would refuse anyway; this keeps the work from being scheduled at all.
+        // Only the OPDS-only variant is gated off. An absent account keeps the
+        // old behaviour, so a credential cleared mid-download does not quietly
+        // change what the post-download hook does.
+        val hasQuireServer = credentialStore.getAccount() !is AccountCredentials.OpdsOnly
         viewModelScope.launch {
             _state.value = current.copy(downloading = pub.epubDownloadHref, progress = 0f)
             runCatching {
@@ -218,7 +243,8 @@ class CatalogViewModel(
                     // promote's ownership gate (`_assert_owns`) runs.
                     // Failures are logged inside the uploader; the row stays
                     // unsynced and the next app-start pass retries.
-                    val uploadJob = libraryUploader?.enqueueOne(insertedId)
+                    val uploadJob =
+                        if (hasQuireServer) libraryUploader?.enqueueOne(insertedId) else null
                     uploadJob?.join()
                     maybePromoteInsight(pub, identity)
                 } else {
@@ -232,13 +258,17 @@ class CatalogViewModel(
                 // epoch 0; the now-present local doc lets it attach. Best-effort —
                 // a failure here doesn't roll back the already-successful download,
                 // but is logged so the silent re-attach gap is visible in logcat.
-                runCatching { syncStateDao.clearAll() }
-                    .onFailure { Log.w("CatalogViewModel", "clearAll failed; progress re-attach deferred", it) }
-                runCatching { syncEnqueuer(context) }
-                    .onFailure { Log.w("CatalogViewModel", "syncEnqueuer failed; will retry on next manual sync", it) }
+                if (hasQuireServer) {
+                    runCatching { syncStateDao.clearAll() }
+                        .onFailure { Log.w("CatalogViewModel", "clearAll failed; progress re-attach deferred", it) }
+                    runCatching { syncEnqueuer(context) }
+                        .onFailure { Log.w("CatalogViewModel", "syncEnqueuer failed; will retry on next manual sync", it) }
+                }
                 _state.value = current.copy(downloading = null, progress = 0f, lastDownloaded = pub.title)
             }.onFailure {
-                Log.e("CatalogViewModel", "download failed for ${pub.epubDownloadHref}", it)
+                // Redacted for the same reason as the promote log above: on a
+                // generic OPDS account this href carries the user's API key.
+                Log.e("CatalogViewModel", "download failed for ${redactUrl(pub.epubDownloadHref)}", it)
                 _state.value = current.copy(
                     downloading = null,
                     progress = 0f,

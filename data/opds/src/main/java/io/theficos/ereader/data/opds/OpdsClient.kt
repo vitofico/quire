@@ -17,10 +17,10 @@ class OpdsClient(
     suspend fun fetch(absoluteUrl: String): OpdsFeed = withContext(Dispatchers.IO) {
         val response = okHttp.newCall(Request.Builder().url(absoluteUrl).get().build()).execute()
         response.use {
-            require(it.isSuccessful) { "OPDS fetch ${it.code} for $absoluteUrl" }
+            require(it.isSuccessful) { "OPDS fetch ${it.code} for ${redactUrl(absoluteUrl)}" }
             val bytes = it.body!!.bytes()
             val baseUrl = AbsoluteUrl(absoluteUrl)
-                ?: error("Not an absolute URL: $absoluteUrl")
+                ?: error("Not an absolute URL: ${redactUrl(absoluteUrl)}")
             val parsed = OPDS1Parser.parse(bytes, baseUrl)
             val feed = parsed.feed ?: error("Parsed OPDS payload had no feed")
             // Readium silently drops links whose href contains template chars like `{searchTerms}`,
@@ -46,8 +46,8 @@ class OpdsClient(
                 },
                 publications = feed.publications.mapNotNull { pub ->
                     val epubLink = pub.links.firstOrNull { link ->
-                        link.rels.contains("http://opds-spec.org/acquisition") &&
-                            link.mediaType.toString() == "application/epub+zip"
+                        link.rels.any { isAcquisitionRel(it) } &&
+                            isEpubMediaType(link.mediaType.toString())
                     } ?: return@mapNotNull null
                     val absoluteEpubHref = absolutize(absoluteUrl, epubLink.href.toString())
                     OpdsPublication(
@@ -92,12 +92,13 @@ class OpdsClient(
                 val el = links.item(j) as org.w3c.dom.Element
                 val rel = el.getAttribute("rel")
                 val href = el.getAttribute("href").takeIf { it.isNotBlank() } ?: continue
-                when (rel) {
-                    "http://opds-spec.org/acquisition" -> {
-                        if (el.getAttribute("type") == "application/epub+zip") epubHref = href
-                    }
-                    "http://opds-spec.org/image/thumbnail" -> thumbnailHref = href
-                    "http://opds-spec.org/image" -> imageHref = href
+                val type = el.getAttribute("type")
+                if (isAcquisitionRel(rel) && isEpubMediaType(type)) {
+                    epubHref = href
+                } else if (rel == THUMBNAIL_REL || rel == SHORT_THUMBNAIL_REL) {
+                    if (isFetchableCoverHref(href)) thumbnailHref = href
+                } else if (rel == IMAGE_REL) {
+                    if (isFetchableCoverHref(href)) imageHref = href
                 }
             }
             val cover = thumbnailHref ?: imageHref
@@ -128,7 +129,7 @@ class OpdsClient(
                 val href = el.getAttribute("href").takeIf { it.isNotBlank() } ?: continue
                 val type = el.getAttribute("type")
                 when {
-                    rel == "http://opds-spec.org/acquisition" && type == "application/epub+zip" -> epubHref = href
+                    isAcquisitionRel(rel) && isEpubMediaType(type) -> epubHref = href
                     rel == "alternate" && type == "text/html" -> webHref = href
                 }
             }
@@ -184,8 +185,8 @@ class OpdsClient(
             var epubHref: String? = null
             for (j in 0 until links.length) {
                 val el = links.item(j) as org.w3c.dom.Element
-                if (el.getAttribute("rel") == "http://opds-spec.org/acquisition" &&
-                    el.getAttribute("type") == "application/epub+zip"
+                if (isAcquisitionRel(el.getAttribute("rel")) &&
+                    isEpubMediaType(el.getAttribute("type"))
                 ) {
                     epubHref = el.getAttribute("href").takeIf { it.isNotBlank() }
                     break
@@ -242,7 +243,9 @@ class OpdsClient(
     private suspend fun fetchSearchTemplate(descriptionUrl: String): String = withContext(Dispatchers.IO) {
         val response = okHttp.newCall(Request.Builder().url(descriptionUrl).get().build()).execute()
         response.use {
-            require(it.isSuccessful) { "OpenSearch description fetch ${it.code} for $descriptionUrl" }
+            require(it.isSuccessful) {
+                "OpenSearch description fetch ${it.code} for ${redactUrl(descriptionUrl)}"
+            }
             val bytes = it.body!!.bytes()
             val doc = DocumentBuilderFactory.newInstance()
                 .apply { isNamespaceAware = true }
@@ -285,5 +288,20 @@ class OpdsClient(
         private val CALIBRE_DOWNLOAD_REGEX = Regex("""/opds/download/(\d+)/[^/?]+/?(?:\?.*)?$""")
         private const val DC_TERMS_NS = "http://purl.org/dc/terms/"
         private const val DC_ELEMENTS_NS = "http://purl.org/dc/elements/1.1/"
+
+        private const val THUMBNAIL_REL = "http://opds-spec.org/image/thumbnail"
+
+        /** Non-standard short form, emitted by Flibusta among others. */
+        private const val SHORT_THUMBNAIL_REL = "http://opds-spec.org/thumbnail"
+        private const val IMAGE_REL = "http://opds-spec.org/image"
+
+        /**
+         * A `data:` cover is unusable here: OkHttp cannot resolve or request a
+         * non-HTTP scheme, Coil has no `data:` fetcher, and Gutenberg inlines
+         * several kilobytes of base64 per navigation entry. Drop them rather
+         * than carrying them through the model to a guaranteed fallback tile.
+         */
+        fun isFetchableCoverHref(href: String): Boolean =
+            !href.startsWith("data:", ignoreCase = true)
     }
 }

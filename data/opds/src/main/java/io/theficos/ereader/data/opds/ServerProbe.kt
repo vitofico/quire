@@ -23,11 +23,11 @@ import javax.net.ssl.SSLException
  * `quire_server` with NativeAuth needs email/password, calibre-web needs
  * HTTP Basic.
  *
- * The probe runs BOTH endpoint checks concurrently and waits for both to
+ * The probe runs ALL THREE endpoint checks concurrently and waits for all to
  * complete before classifying — first-definitive-wins would misclassify a
  * reverse proxy or any deployment that fronts both shapes. Each individual
- * call has a tight per-request timeout; the overall budget is the slower
- * of the two probes.
+ * call has a tight per-request timeout; the overall budget is the slowest
+ * of the three probes.
  *
  * Critically: this class does NOT carry credentials, does NOT see the
  * application's `AccountAuthInterceptor`, and does NOT share cookies with
@@ -59,12 +59,16 @@ class ServerProbe(
                 "Enter a full URL starting with http:// or https://",
             )
 
+        // Same reject rules, so this cannot be null when `canonical` is not.
+        val canonicalCatalog = normalizeCatalogUrl(rawUrl) ?: canonical
+
         return coroutineScope {
             val calibreDeferred = async { probeCalibre(canonical) }
             val nativeDeferred = async { probeNativeAuth(canonical) }
-            val (calibreOutcome, nativeOutcome) = listOf(calibreDeferred, nativeDeferred).awaitAll()
-
-            classify(canonical, calibreOutcome, nativeOutcome)
+            val genericDeferred = async { probeGenericOpds(canonicalCatalog) }
+            val outcomes =
+                listOf(calibreDeferred, nativeDeferred, genericDeferred).awaitAll()
+            classify(canonical, canonicalCatalog, outcomes[0], outcomes[1], outcomes[2])
         }
     }
 
@@ -148,6 +152,67 @@ class ServerProbe(
         }
     }
 
+    /**
+     * GET the user's URL exactly as typed, with no path synthesis.
+     *
+     * Positive on (a) 200 whose body's root element is an Atom `feed`, or
+     * (b) 401 carrying a Basic challenge, which is positive-but-needs-auth.
+     *
+     * Content type is deliberately NOT part of the test: Kavita serves OPDS as
+     * `application/xml`, which is precisely the case this exists for. The XML
+     * root element is the real signal.
+     *
+     * A bare 401 (Kavita's answer to a wrong API key) stays negative, because
+     * it cannot be told apart from "this is not an OPDS server".
+     */
+    private fun probeGenericOpds(canonicalCatalogUrl: String): ProbeOutcome {
+        val url = canonicalCatalogUrl.toHttpUrlOrNull()
+            ?: return ProbeOutcome.NegativeWith(ProbeError.MalformedUrl, "catalog URL build failed")
+        return runProbeRequest(canonicalCatalogUrl, url, method = "GET") { resp ->
+            when (resp.code) {
+                200 -> {
+                    // Cap the sniff so a huge or non-XML body can't be read
+                    // into memory just to classify it.
+                    val body = resp.peekBody(SNIFF_BYTES).string()
+                    if (looksLikeAtomFeed(body)) {
+                        ProbeOutcome.Positive
+                    } else {
+                        ProbeOutcome.NegativeWith(
+                            ProbeError.Unexpected,
+                            "URL returned 200 but the body is not an Atom feed",
+                        )
+                    }
+                }
+                401 -> {
+                    val wwwAuth = resp.header("WWW-Authenticate").orEmpty()
+                    if (wwwAuth.trim().startsWith("Basic", ignoreCase = true)) {
+                        ProbeOutcome.PositiveNeedsAuth
+                    } else {
+                        ProbeOutcome.NegativeWith(
+                            ProbeError.Unexpected,
+                            "URL returned 401 without a Basic challenge",
+                        )
+                    }
+                }
+                else -> ProbeOutcome.NegativeWith(
+                    ProbeError.Unexpected,
+                    "URL returned HTTP ${resp.code}",
+                )
+            }
+        }
+    }
+
+    /**
+     * True when [body] is an Atom feed.
+     *
+     * Delegates to the shared hardened parser. Do NOT inline a
+     * DocumentBuilderFactory here with Apache feature names: Android refuses
+     * them and the parse silently yields false for every real feed, which is
+     * exactly the device-only failure issue #101 hit.
+     */
+    private fun looksLikeAtomFeed(body: String): Boolean =
+        looksLikeAtomFeed(body.toByteArray())
+
     private fun runProbeRequest(
         canonicalBase: String,
         url: HttpUrl,
@@ -197,8 +262,10 @@ class ServerProbe(
 
     private fun classify(
         canonicalBase: String,
+        canonicalCatalog: String,
         calibre: ProbeOutcome,
         native: ProbeOutcome,
+        generic: ProbeOutcome,
     ): ServerProbeResult {
         val calibrePositive = calibre is ProbeOutcome.Positive
         val nativePositive = native is ProbeOutcome.Positive
@@ -208,37 +275,55 @@ class ServerProbe(
         if (calibrePositive) return ServerProbeResult.Calibre(canonicalBase)
         if (nativePositive) return ServerProbeResult.NativeAuth(canonicalBase)
 
-        // Neither was definitive. If both calls failed with a hard
-        // transport-level error (TLS / DNS / refused / timeout / redirect
-        // rejected), surface that — the user almost certainly has a typo
-        // or wrong scheme and we have nothing useful to show them otherwise.
-        val errors = listOf(calibre, native)
+        // Lowest precedence: calibre-web and quire-server both offer strictly
+        // more than a reader-only catalog, so neither may be downgraded to one.
+        val genericPositive = generic is ProbeOutcome.Positive ||
+            generic is ProbeOutcome.PositiveNeedsAuth
+        if (genericPositive) {
+            return ServerProbeResult.GenericOpds(
+                canonicalCatalogUrl = canonicalCatalog,
+                requiresAuth = generic is ProbeOutcome.PositiveNeedsAuth,
+            )
+        }
+
+        // Neither was definitive. If a call failed with a hard transport-level
+        // error (TLS / DNS / refused / timeout / redirect rejected), surface
+        // that: the user almost certainly has a typo or the wrong scheme.
+        val errors = listOf(calibre, native, generic)
             .filterIsInstance<ProbeOutcome.NegativeWith>()
         val transportError = errors.firstOrNull { it.reason != ProbeError.Unexpected }
         if (transportError != null) {
             return ServerProbeResult.Error(transportError.reason, transportError.message)
         }
         val diagnostics = buildString {
-            appendLine("Server didn't match either expected shape:")
+            appendLine("Server didn't match any expected shape:")
             appendLine("  /opds: ${describeNegative(calibre)}")
-            append("  /auth/v1/login: ${describeNegative(native)}")
+            appendLine("  /auth/v1/login: ${describeNegative(native)}")
+            append("  URL as entered: ${describeNegative(generic)}")
         }
         return ServerProbeResult.Unknown(canonicalBase, diagnostics)
     }
 
     private fun describeNegative(outcome: ProbeOutcome): String = when (outcome) {
         ProbeOutcome.Positive -> "ok"
+        ProbeOutcome.PositiveNeedsAuth -> "ok (needs credentials)"
         is ProbeOutcome.NegativeWith -> "${outcome.reason} — ${outcome.message}"
     }
 
     private sealed class ProbeOutcome {
         object Positive : ProbeOutcome()
+
+        /** Positive, but the server demanded Basic credentials first. */
+        object PositiveNeedsAuth : ProbeOutcome()
+
         data class NegativeWith(val reason: ProbeError, val message: String) : ProbeOutcome()
     }
 
     companion object {
         const val DEFAULT_PER_REQUEST_TIMEOUT_MS = 5_000L
         const val USER_AGENT = "QuireAndroid/probe"
+        const val SNIFF_BYTES = 256L * 1024
+        const val ATOM_NS = "http://www.w3.org/2005/Atom"
 
         /**
          * Probe client: NO auth interceptor, NO cookies, redirects gated
@@ -275,6 +360,23 @@ sealed class ServerProbeResult {
 
     /** Both endpoints answered positively. Caller asks the user to choose. */
     data class Both(val canonicalBaseUrl: String) : ServerProbeResult()
+
+    /**
+     * The URL as typed answered with an OPDS 1.x Atom feed, and neither the
+     * calibre-web nor the quire-server shape matched (issue #101).
+     *
+     * [canonicalCatalogUrl] is the full catalog URL, query and trailing slash
+     * intact, to be used verbatim. It may embed an API key: never log it
+     * unredacted.
+     *
+     * [requiresAuth] is true when the probe saw `401` with a Basic challenge
+     * rather than a feed, so the caller must collect a username and password
+     * before it can confirm the catalog parses.
+     */
+    data class GenericOpds(
+        val canonicalCatalogUrl: String,
+        val requiresAuth: Boolean,
+    ) : ServerProbeResult()
 
     /** Neither endpoint was definitive. Caller shows diagnostics + retry. */
     data class Unknown(val canonicalBaseUrl: String, val diagnostics: String) : ServerProbeResult()
@@ -357,6 +459,53 @@ internal fun normalizeBaseUrl(raw: String): String? {
         append(hostForUrl)
         append(portPart)
         append(rebuiltPath)
+    }
+}
+
+/**
+ * Normalize a user-typed OPDS catalog URL (issue #101).
+ *
+ * Differs from [normalizeBaseUrl] in exactly two ways, both because the result
+ * is used verbatim as a resource URL rather than as a prefix that endpoint
+ * paths get appended to:
+ *   - the **query is preserved** (some catalogs take their key as `?apiKey=...`);
+ *   - a **trailing slash is preserved** (some servers distinguish the two).
+ *
+ * Everything else matches: an explicit scheme is required, userinfo and
+ * fragments are rejected, IDN hosts are punycoded, and default ports are
+ * dropped. Userinfo stays rejected on purpose, so `https://user:pass@host/feed`
+ * is not a supported way to pass credentials; the Basic fields are.
+ *
+ * Returns null on any unrecoverable parse failure.
+ */
+fun normalizeCatalogUrl(raw: String): String? {
+    val trimmed = raw.trim()
+    if (trimmed.isEmpty()) return null
+    val lower = trimmed.lowercase()
+    if (!lower.startsWith("http://") && !lower.startsWith("https://")) return null
+
+    val parsed = trimmed.toHttpUrlOrNull() ?: return null
+    if (parsed.username.isNotEmpty() || parsed.password.isNotEmpty()) return null
+    if (parsed.fragment != null) return null
+
+    val portPart = if (
+        (parsed.scheme == "http" && parsed.port == 80) ||
+        (parsed.scheme == "https" && parsed.port == 443)
+    ) {
+        ""
+    } else {
+        ":${parsed.port}"
+    }
+    val hostForUrl = if (parsed.host.contains(':')) "[${parsed.host}]" else parsed.host
+    val queryPart = parsed.encodedQuery?.let { "?$it" }.orEmpty()
+    return buildString {
+        append(parsed.scheme)
+        append("://")
+        append(hostForUrl)
+        append(portPart)
+        // encodedPath keeps the leading slash and any trailing one.
+        append(parsed.encodedPath)
+        append(queryPart)
     }
 }
 

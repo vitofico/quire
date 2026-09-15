@@ -48,6 +48,14 @@ class OpdsClientTest {
                         .setBody(resource("/opds/catalog-feed-thumbnail-only.xml"))
                     "/opds/calibre-style" -> MockResponse().setHeader("Content-Type", "application/atom+xml")
                         .setBody(resource("/opds/catalog-feed-calibre-no-dc.xml"))
+                    "/api/opds/TEST-KEY" -> MockResponse().setHeader("Content-Type", "application/xml")
+                        .setBody(resource("/opds/kavita-root.xml"))
+                    "/api/opds/TEST-KEY/series/70" -> MockResponse().setHeader("Content-Type", "application/xml")
+                        .setBody(resource("/opds/kavita-series.xml"))
+                    "/flibusta-style" -> MockResponse().setHeader("Content-Type", "application/atom+xml")
+                        .setBody(resource("/opds/flibusta-style.xml"))
+                    "/gutenberg-style" -> MockResponse().setHeader("Content-Type", "application/atom+xml")
+                        .setBody(resource("/opds/gutenberg-style-nav.xml"))
                     else -> MockResponse().setResponseCode(404)
                 }
             }
@@ -180,5 +188,64 @@ class OpdsClientTest {
         val unmatched = feed.publications.first { it.title == "Non-calibre href book" }
         assertThat(matched.calibreBookId).isEqualTo("77")
         assertThat(unmatched.calibreBookId).isNull()
+    }
+
+    // ---------- issue #101: non-calibre-web feeds ----------
+
+    @Test fun `open-access acquisition links yield publications`() = runTest {
+        val feed = client.fetch(server.url("/api/opds/TEST-KEY/series/70").toString())
+        assertThat(feed.publications).hasSize(1)
+        val pub = feed.publications[0]
+        assertThat(pub.title).isEqualTo("Grimms' Fairy Tales")
+        assertThat(pub.author).isEqualTo("Jacob Grimm")
+        assertThat(pub.epubDownloadHref).endsWith("/download/Grimms.epub")
+    }
+
+    @Test fun `open-access entries still resolve their cover`() = runTest {
+        val feed = client.fetch(server.url("/api/opds/TEST-KEY/series/70").toString())
+        assertThat(feed.publications[0].coverUrl).contains("/api/image/chapter-cover")
+    }
+
+    @Test fun `a navigation-only feed parses with no publications`() = runTest {
+        val feed = client.fetch(server.url("/api/opds/TEST-KEY").toString())
+        assertThat(feed.title).isEqualTo("Kavita")
+        assertThat(feed.publications).isEmpty()
+        assertThat(feed.navigation).hasSize(2)
+        assertThat(feed.navigation[0].title).isEqualTo("Recently Added")
+    }
+
+    @Test fun `a non-calibre feed has no derived calibre web url or book id`() = runTest {
+        val feed = client.fetch(server.url("/api/opds/TEST-KEY/series/70").toString())
+        val pub = feed.publications[0]
+        assertThat(pub.webUrl).isNull()
+        assertThat(pub.calibreBookId).isNull()
+    }
+
+    @Test fun `the bare application-epub media type is accepted`() = runTest {
+        val feed = client.fetch(server.url("/flibusta-style").toString())
+        assertThat(feed.publications).hasSize(1)
+        assertThat(feed.publications[0].epubDownloadHref).endsWith("/b/889227/epub")
+    }
+
+    @Test fun `the epub is chosen over other formats regardless of order`() = runTest {
+        // fb2 and mobi come first in the document; neither may win.
+        val feed = client.fetch(server.url("/flibusta-style").toString())
+        val href = feed.publications[0].epubDownloadHref
+        assertThat(href).doesNotContain("fb2")
+        assertThat(href).doesNotContain("mobi")
+    }
+
+    @Test fun `the short opds thumbnail rel resolves a cover`() = runTest {
+        val feed = client.fetch(server.url("/flibusta-style").toString())
+        assertThat(feed.publications[0].coverUrl).endsWith("/i/89/889227/cover.jpg")
+    }
+
+    @Test fun `a data uri is never surfaced as a cover`() = runTest {
+        val feed = client.fetch(server.url("/gutenberg-style").toString())
+        // Navigation-only, so no publications, and nothing may carry a data: URI.
+        assertThat(feed.publications).isEmpty()
+        assertThat(feed.navigation).hasSize(1)
+        assertThat(feed.publications.mapNotNull { it.coverUrl })
+            .doesNotContain("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABYAAAAWCAYAAADEtGw7AAAABGdBTUEAAK/INwWK6QAA")
     }
 }

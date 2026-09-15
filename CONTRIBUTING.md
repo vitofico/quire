@@ -11,8 +11,11 @@ project; please read this before opening a PR.
 - **No telemetry, ever.** Crash reporting, usage analytics, performance
   pingbacks — all out of scope.
 - **One credential.** The architecture relies on calibre-web Basic auth
-  end-to-end. PRs that add a second IdP for the sync server should open
-  a discussion first.
+  end-to-end for anything that touches quire-server. PRs that add a second
+  IdP for the sync server should open a discussion first. Generic OPDS
+  catalogs (issue #101) are the deliberate exception: they authenticate
+  however their server does, and in exchange they get no server-backed
+  features at all.
 
 ## Development setup
 

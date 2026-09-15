@@ -1,6 +1,7 @@
 package io.theficos.ereader.di
 
 import android.content.Context
+import io.theficos.ereader.auth.AccountCredentials
 import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.core.identity.extractIdentity
 import io.theficos.ereader.core.metadata.readOpfBundle
@@ -58,13 +59,22 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * URL that sync/library/AI clients should target. For [AccountCredentials.Basic]
- * with a [AccountCredentials.Basic.quireServerUrl] override, return the
- * override; otherwise fall back to [AccountCredentials.baseUrl]. Bearer
- * accounts have no override in tier-1.
+ * URL that the sync, library and AI clients should target, or null when this
+ * account has no quire-server behind it at all.
+ *
+ * A null here is the single hard gate that makes an OPDS-only account
+ * reader-only (issue #101). Every client already treats null as "not
+ * configured": [SyncClient] returns `Unauthorized`, [AiClient] and
+ * [LibraryClient] throw an exception their callers already catch. Expressing
+ * the gate as an exhaustive `when` rather than a feature flag means a future
+ * account variant cannot silently inherit server access: this stops compiling
+ * until someone decides what it should do.
  */
-private fun io.theficos.ereader.auth.AccountCredentials.quireServerOrPrimaryUrl(): String =
-    (this as? io.theficos.ereader.auth.AccountCredentials.Basic)?.quireServerUrl ?: baseUrl
+internal fun AccountCredentials.quireServerUrlOrNull(): String? = when (this) {
+    is AccountCredentials.Basic -> quireServerUrl ?: baseUrl
+    is AccountCredentials.Bearer -> baseUrl
+    is AccountCredentials.OpdsOnly -> null
+}
 
 class AppContainer(context: Context) {
     private val appContext = context.applicationContext
@@ -95,7 +105,7 @@ class AppContainer(context: Context) {
     val welcomePreferencesStore = WelcomePreferencesStore(appContext)
 
     val syncClient: SyncClient = SyncClient(
-        baseUrlProvider = { credentialStore.getAccount()?.quireServerOrPrimaryUrl() },
+        baseUrlProvider = { credentialStore.getAccount()?.quireServerUrlOrNull() },
         okHttp = opdsHttp.okHttp,
     )
     val syncOrchestrator: SyncOrchestrator = SyncOrchestrator(
@@ -107,7 +117,7 @@ class AppContainer(context: Context) {
     )
 
     val aiClient: AiClient = AiClient(
-        baseUrlProvider = { credentialStore.getAccount()?.quireServerOrPrimaryUrl() },
+        baseUrlProvider = { credentialStore.getAccount()?.quireServerUrlOrNull() },
         http = opdsHttp.okHttp,
     )
     val insightDao = db.insightDao()
@@ -132,7 +142,7 @@ class AppContainer(context: Context) {
         credentialStore.getAccount()?.subject
 
     val libraryClient: LibraryClient = LibraryClient(
-        baseUrlProvider = { credentialStore.getAccount()?.quireServerOrPrimaryUrl() },
+        baseUrlProvider = { credentialStore.getAccount()?.quireServerUrlOrNull() },
         http = opdsHttp.okHttp,
     )
 

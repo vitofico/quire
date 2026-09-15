@@ -6,6 +6,10 @@ import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.data.opds.ProbeError
 import io.theficos.ereader.data.opds.ServerProbe
 import io.theficos.ereader.data.opds.ServerProbeResult
+import io.theficos.ereader.data.opds.isAcquisitionRel
+import io.theficos.ereader.data.opds.isEpubMediaType
+import io.theficos.ereader.data.opds.parseXmlOrNull
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -51,6 +55,13 @@ class ConnectServerViewModel(
     private val credentialStore: CalibreCredentialStore,
     private val probe: ServerProbe = ServerProbe(),
     private val onboardingClient: OkHttpClient = defaultOnboardingClient(),
+    /**
+     * Where the blocking probe and verification calls run. Defaults to
+     * [Dispatchers.IO] in production; tests hand in the same test dispatcher
+     * that backs `Dispatchers.Main`, so a virtual-time advance drives a whole
+     * verification to its terminal state instead of racing a real thread pool.
+     */
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<UiState>(UiState.Idle)
@@ -71,7 +82,7 @@ class ConnectServerViewModel(
         probeJob?.cancel()
         _state.value = UiState.Probing(rawUrl)
         probeJob = viewModelScope.launch {
-            val outcome = withContext(Dispatchers.IO) { probe.probe(rawUrl) }
+            val outcome = withContext(ioDispatcher) { probe.probe(rawUrl) }
             _state.value = UiState.Result(outcome)
         }
     }
@@ -84,7 +95,7 @@ class ConnectServerViewModel(
         verifyJob?.cancel()
         _state.value = UiState.Verifying
         verifyJob = viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) {
+            val result = withContext(ioDispatcher) {
                 runBasicVerification(canonicalBaseUrl, username, password)
             }
             _state.value = when (result) {
@@ -93,6 +104,7 @@ class ConnectServerViewModel(
                     UiState.Completed
                 }
                 is VerificationOutcome.OkBearer -> error("unreachable in basic flow")
+                is VerificationOutcome.OkOpds -> error("unreachable in basic flow")
                 is VerificationOutcome.Failure -> UiState.VerificationFailed(result.message)
             }
         }
@@ -108,7 +120,7 @@ class ConnectServerViewModel(
         verifyJob?.cancel()
         _state.value = UiState.Verifying
         verifyJob = viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) {
+            val result = withContext(ioDispatcher) {
                 runBearerVerification(canonicalBaseUrl, email, password)
             }
             _state.value = when (result) {
@@ -122,10 +134,115 @@ class ConnectServerViewModel(
                     UiState.Completed
                 }
                 is VerificationOutcome.OkBasic -> error("unreachable in bearer flow")
+                is VerificationOutcome.OkOpds -> error("unreachable in bearer flow")
                 is VerificationOutcome.Failure -> UiState.VerificationFailed(result.message)
             }
         }
     }
+
+    /**
+     * Verify a generic OPDS catalog (issue #101) and persist it on success.
+     *
+     * Accepts the feed when it parses as Atom AND carries at least one
+     * navigation link or one EPUB acquisition link. The navigation half of that
+     * test is load-bearing: Kavita's root feed is pure navigation, so requiring
+     * a book at the root would reject the very server this was built for.
+     *
+     * The URL may embed an API key, so no failure message may quote it.
+     */
+    fun verifyAndSaveOpds(catalogUrl: String, username: String?, password: String?) {
+        verifyJob?.cancel()
+        _state.value = UiState.Verifying
+        verifyJob = viewModelScope.launch {
+            val result = withContext(ioDispatcher) {
+                runOpdsVerification(catalogUrl, username, password)
+            }
+            _state.value = when (result) {
+                is VerificationOutcome.OkOpds -> {
+                    credentialStore.saveOpdsAccount(catalogUrl, username, password)
+                    UiState.Completed
+                }
+                is VerificationOutcome.Failure -> UiState.VerificationFailed(result.message)
+                else -> UiState.VerificationFailed("Unexpected verification result.")
+            }
+        }
+    }
+
+    private fun runOpdsVerification(
+        catalogUrl: String,
+        username: String?,
+        password: String?,
+    ): VerificationOutcome {
+        val builder = Request.Builder()
+            .url(catalogUrl)
+            .header("Accept", "application/atom+xml, application/xml;q=0.9, */*;q=0.8")
+            .header("User-Agent", ServerProbe.USER_AGENT)
+            .get()
+        if (username != null && password != null) {
+            val token = Base64.getEncoder()
+                .encodeToString("$username:$password".toByteArray())
+            builder.header("Authorization", "Basic $token")
+        }
+        return try {
+            onboardingClient.newCall(builder.build()).execute().use { resp ->
+                when (resp.code) {
+                    200 -> {
+                        val body = resp.body?.string().orEmpty()
+                        if (isUsableOpdsFeed(body)) {
+                            VerificationOutcome.OkOpds
+                        } else {
+                            VerificationOutcome.Failure(
+                                "That URL answered, but it isn't an OPDS catalog with " +
+                                    "anything Quire can show.",
+                            )
+                        }
+                    }
+                    401 -> VerificationOutcome.Failure(
+                        "The catalog rejected those credentials.",
+                    )
+                    in 500..599 -> VerificationOutcome.Failure(
+                        "Server error ${resp.code}. Try again later.",
+                    )
+                    else -> VerificationOutcome.Failure(
+                        "Unexpected response ${resp.code} from the catalog.",
+                    )
+                }
+            }
+        } catch (e: IOException) {
+            VerificationOutcome.Failure(e.localizedMessage ?: "Network error.")
+        }
+    }
+
+    /**
+     * True when [body] is an Atom feed carrying at least one navigation link or
+     * one EPUB acquisition link. Either alone is a usable catalog: a navigation
+     * root leads to books, and an acquisition feed is books.
+     */
+    private fun isUsableOpdsFeed(body: String): Boolean = runCatching {
+        // Shared hardened parser. An inline DocumentBuilderFactory with Apache
+        // feature names throws on Android and would make every catalog look
+        // invalid on device while the JVM tests stayed green (issue #101).
+        val doc = parseXmlOrNull(body.toByteArray()) ?: return false
+        val root = doc.documentElement ?: return false
+        if (root.localName != "feed" || root.namespaceURI != ATOM_NS) return false
+
+        val links = doc.getElementsByTagNameNS(ATOM_NS, "link")
+        for (i in 0 until links.length) {
+            val el = links.item(i) as org.w3c.dom.Element
+            val rel = el.getAttribute("rel")
+            val type = el.getAttribute("type")
+            // Share the browser's own rules rather than restating them: a
+            // stricter test here would reject at onboarding a feed the catalog
+            // screen then renders fine. Flibusta emits bare `application/epub`
+            // on a minority of entries (issue #101).
+            val isAcquisition =
+                isAcquisitionRel(rel) && isEpubMediaType(type)
+            val isNavigation = rel == "subsection" ||
+                type.startsWith("application/atom+xml;profile=opds-catalog")
+            if (isAcquisition || isNavigation) return true
+        }
+        false
+    }.getOrDefault(false)
 
     private fun runBasicVerification(
         canonicalBaseUrl: String,
@@ -147,6 +264,16 @@ class ConnectServerViewModel(
                     401 -> VerificationOutcome.Failure("Username or password rejected by the server.")
                     in 500..599 -> VerificationOutcome.Failure(
                         "Server error ${resp.code}. Try again later.",
+                    )
+                    // A server that demands Basic auth everywhere (Komga does)
+                    // satisfies the calibre probe's 401-with-challenge test, then
+                    // 404s here because its catalog lives elsewhere. Say so,
+                    // rather than leaving the user at "unexpected response".
+                    404 -> VerificationOutcome.Failure(
+                        "This server asked for a username and password, but it has " +
+                            "no catalog at /opds, so it probably isn't calibre-web. " +
+                            "If it's Komga or another OPDS server, go back and enter " +
+                            "its full catalog URL instead.",
                     )
                     else -> VerificationOutcome.Failure(
                         "Unexpected response ${resp.code} from /opds.",
@@ -240,11 +367,15 @@ class ConnectServerViewModel(
 
     private sealed class VerificationOutcome {
         object OkBasic : VerificationOutcome()
+        object OkOpds : VerificationOutcome()
         data class OkBearer(val token: String, val expiresAtEpochMs: Long?) : VerificationOutcome()
         data class Failure(val message: String) : VerificationOutcome()
     }
 
     companion object {
+        /** Atom namespace, the only one an OPDS 1.x feed root may carry. */
+        const val ATOM_NS = "http://www.w3.org/2005/Atom"
+
         /**
          * The onboarding HTTP client deliberately does NOT use
          * `OpdsHttpClient` — that one carries the account interceptor and

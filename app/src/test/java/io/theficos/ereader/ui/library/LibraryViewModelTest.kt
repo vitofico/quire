@@ -311,6 +311,20 @@ class LibraryViewModelTest {
         }
     }
 
+    @Test fun `canRestore is false for an opds-only account even if library empty`() = runTest {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.saveOpdsAccount("https://feed.example/opds")
+        val restoreVm = vmWith(store)
+        restoreVm.canRestore.test {
+            // An OPDS catalog has no quire-server behind it, so the restore
+            // prompt it would gate could only ever fail. See issue #101.
+            assertThat(awaitItem()).isFalse()
+            advanceUntilIdle()
+            assertThat(restoreVm.canRestore.value).isFalse()
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
     @Test fun `canRestore is false when disconnected even if library empty`() = runTest {
         val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
         store.clear()

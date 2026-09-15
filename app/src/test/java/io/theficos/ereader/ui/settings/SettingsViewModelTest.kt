@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
+import io.theficos.ereader.auth.AccountCredentials
 import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.data.ai.AiClient
 import io.theficos.ereader.data.ai.AiRepository
@@ -78,6 +79,9 @@ class SettingsViewModelTest {
             restoreInProgress = restoreInProgress,
         )
 
+    /** A view model with no restore hook, for tests that don't exercise restore. */
+    private fun newViewModel(): SettingsViewModel = buildVm(restoreInProgress = null)
+
     @Test fun `restoreInProgressBooks emits RestoreFinished with summary`() = runTest {
         store.saveBasicAccount(baseUrl = "https://books.example.com", username = "alice", password = "pw")
         val summary = RestoreSummary(
@@ -150,5 +154,90 @@ class SettingsViewModelTest {
         val vm = buildVm(restoreInProgress = { _ -> error("should not run") })
         advanceUntilIdle()
         assertThat(vm.isConnected.value).isFalse()
+    }
+
+    // ---------- issue #101 ----------
+
+    @Test fun `an opds account is surfaced as the active account`() {
+        store.saveOpdsAccount("https://kavita.example/api/opds/KEY")
+        val vm = newViewModel()
+        assertThat(vm.opds.value.isActive).isTrue()
+        assertThat(vm.opds.value.catalogUrl).isEqualTo("https://kavita.example/api/opds/KEY")
+    }
+
+    @Test fun `an opds account reports no sync credentials`() {
+        store.saveOpdsAccount("https://kavita.example/api/opds/KEY")
+        val vm = newViewModel()
+        assertThat(vm.sync.value.hasCredentials).isFalse()
+    }
+
+    @Test fun `a calibre account is not surfaced as an opds account`() {
+        store.saveBasicAccount("https://calibre.example", "u", "p")
+        val vm = newViewModel()
+        assertThat(vm.opds.value.isActive).isFalse()
+        assertThat(vm.calibre.value.baseUrl).isEqualTo("https://calibre.example")
+    }
+
+    @Test fun `saving an opds account replaces the stored record`() = runTest {
+        val vm = newViewModel()
+        vm.onOpdsCatalogUrlChange("https://feed.example/opds")
+        vm.saveOpds()
+        advanceUntilIdle()
+
+        val saved = store.getAccount() as AccountCredentials.OpdsOnly
+        assertThat(saved.baseUrl).isEqualTo("https://feed.example/opds")
+    }
+
+    @Test fun `saving a scheme-less catalog url leaves the stored account untouched`() = runTest {
+        store.saveBasicAccount("https://calibre.example", "alice", "pw")
+        val vm = newViewModel()
+        vm.onOpdsCatalogUrlChange("feed.example/opds")
+        vm.saveOpds()
+        advanceUntilIdle()
+
+        // The calibre password survives: saveOpds bailed before persistAccount,
+        // which would otherwise have dropped it in the same transaction.
+        val saved = store.getAccount() as AccountCredentials.Basic
+        assertThat(saved.username).isEqualTo("alice")
+        assertThat(vm.opds.value.error).isNotNull()
+        assertThat(vm.opds.value.saved).isFalse()
+    }
+
+    @Test fun `editing the catalog url clears a previous validation error`() = runTest {
+        val vm = newViewModel()
+        vm.onOpdsCatalogUrlChange("not a url")
+        vm.saveOpds()
+        advanceUntilIdle()
+        assertThat(vm.opds.value.error).isNotNull()
+
+        vm.onOpdsCatalogUrlChange("https://feed.example/opds")
+        assertThat(vm.opds.value.error).isNull()
+    }
+
+    @Test fun `saving an opds account canonicalises the url before persisting it`() = runTest {
+        val vm = newViewModel()
+        vm.onOpdsCatalogUrlChange("  https://feed.example/opds  ")
+        vm.saveOpds()
+        advanceUntilIdle()
+
+        val saved = store.getAccount() as AccountCredentials.OpdsOnly
+        assertThat(saved.baseUrl).isEqualTo("https://feed.example/opds")
+        assertThat(vm.opds.value.catalogUrl).isEqualTo("https://feed.example/opds")
+    }
+
+    @Test fun `isConnected is false for an opds-only account`() = runTest {
+        store.saveOpdsAccount("https://feed.example/opds")
+        val vm = newViewModel()
+        advanceUntilIdle()
+        // Restore reads the quire-server library mirror, which an OPDS-only
+        // account has no way to reach.
+        assertThat(vm.isConnected.value).isFalse()
+    }
+
+    @Test fun `isConnected is true for a server-backed account`() = runTest {
+        store.saveBasicAccount("https://books.example.com", "alice", "pw")
+        val vm = newViewModel()
+        advanceUntilIdle()
+        assertThat(vm.isConnected.value).isTrue()
     }
 }

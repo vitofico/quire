@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <id>http://www.gutenberg.org/ebooks.opds/</id>
+  <title>Project Gutenberg</title>
+  <entry>
+    <title>Popular</title>
+    <id>tag:nav:popular</id>
+    <content type="text">Our most popular books.</content>
+    <link type="application/atom+xml;profile=opds-catalog" rel="subsection" href="/ebooks/search.opds/?sort_order=downloads"/>
+    <link type="image/png" rel="http://opds-spec.org/image/thumbnail" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABYAAAAWCAYAAADEtGw7AAAABGdBTUEAAK/INwWK6QAA"/>
+  </entry>
+</feed>

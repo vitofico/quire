@@ -307,4 +307,80 @@ class AccountAuthInterceptorTest {
             foreign.shutdown()
         }
     }
+
+    // ---------- issue #101: OPDS-only accounts ----------
+
+    @Test fun `opds account with credentials sends basic auth`() {
+        val account = AccountCredentials.OpdsOnly(
+            baseUrl = server.url("/api/opds/secret-key").toString(),
+            username = "alice",
+            password = "hunter2",
+        )
+        server.enqueue(MockResponse().setResponseCode(200))
+        val client = OkHttpClient.Builder()
+            .addInterceptor(AccountAuthInterceptor(accountProvider = { account }))
+            .build()
+        client.newCall(
+            Request.Builder().url(server.url("/api/opds/secret-key")).build()
+        ).execute().close()
+
+        val sent = server.takeRequest().getHeader("Authorization")
+        val expected = "Basic " + Base64.getEncoder()
+            .encodeToString("alice:hunter2".toByteArray())
+        assertThat(sent).isEqualTo(expected)
+    }
+
+    @Test fun `opds account without credentials sends no authorization header`() {
+        val account = AccountCredentials.OpdsOnly(
+            baseUrl = server.url("/api/opds/secret-key").toString(),
+        )
+        server.enqueue(MockResponse().setResponseCode(200))
+        val client = OkHttpClient.Builder()
+            .addInterceptor(AccountAuthInterceptor(accountProvider = { account }))
+            .build()
+        client.newCall(
+            Request.Builder().url(server.url("/api/opds/secret-key")).build()
+        ).execute().close()
+
+        assertThat(server.takeRequest().getHeader("Authorization")).isNull()
+    }
+
+    @Test fun `opds credentials are not sent to a third-party host`() {
+        val account = AccountCredentials.OpdsOnly(
+            baseUrl = "https://kavita.example/api/opds/secret-key",
+            username = "alice",
+            password = "hunter2",
+        )
+        server.enqueue(MockResponse().setResponseCode(200))
+        val client = OkHttpClient.Builder()
+            .addInterceptor(AccountAuthInterceptor(accountProvider = { account }))
+            .build()
+        client.newCall(Request.Builder().url(server.url("/cover.jpg")).build())
+            .execute().close()
+
+        assertThat(server.takeRequest().getHeader("Authorization")).isNull()
+    }
+
+    @Test fun `a 401 to an opds account never raises the bearer re-auth signal`() {
+        val account = AccountCredentials.OpdsOnly(
+            baseUrl = server.url("/api/opds/secret-key").toString(),
+            username = "alice",
+            password = "hunter2",
+        )
+        var signalled = false
+        server.enqueue(MockResponse().setResponseCode(401))
+        val client = OkHttpClient.Builder()
+            .addInterceptor(
+                AccountAuthInterceptor(
+                    accountProvider = { account },
+                    onBearerUnauthorized = { signalled = true },
+                )
+            )
+            .build()
+        client.newCall(
+            Request.Builder().url(server.url("/api/opds/secret-key")).build()
+        ).execute().close()
+
+        assertThat(signalled).isFalse()
+    }
 }

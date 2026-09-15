@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <id>tag:flibusta-style:new</id>
+  <title>New arrivals</title>
+  <entry>
+    <title>A Book In Many Formats</title>
+    <id>tag:book:889227</id>
+    <author><name>Some Author</name></author>
+    <link href="/b/889227/fb2" rel="http://opds-spec.org/acquisition/open-access" type="application/fb2+zip"/>
+    <link href="/b/889227/mobi" rel="http://opds-spec.org/acquisition/open-access" type="application/x-mobipocket-ebook"/>
+    <link href="/b/889227/epub" rel="http://opds-spec.org/acquisition/open-access" type="application/epub"/>
+    <link href="/i/89/889227/cover.jpg" rel="http://opds-spec.org/thumbnail" type="image/jpeg"/>
+  </entry>
+</feed>

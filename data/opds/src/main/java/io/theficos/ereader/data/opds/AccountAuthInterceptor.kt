@@ -13,6 +13,10 @@ import java.util.Base64
  * Dispatches per [AccountCredentials.scheme]:
  * - [AccountCredentials.Basic]: `Authorization: Basic <base64(user:pass)>`.
  * - [AccountCredentials.Bearer]: `Authorization: Bearer <token>`.
+ * - [AccountCredentials.OpdsOnly]: `Authorization: Basic <base64(user:pass)>`
+ *   when both credentials are set, and no header at all otherwise. A catalog
+ *   that authenticates through its URL (Kavita's embedded API key) or serves
+ *   anonymously needs no header, and sending an empty one would break it.
  *
  * Safety rails:
  * - **Origin guard**: the header is attached only when the outgoing request
@@ -55,9 +59,17 @@ class AccountAuthInterceptor(
             return chain.proceed(request)
         }
         val headerValue = when (account) {
-            is AccountCredentials.Basic -> basicHeader(account)
+            is AccountCredentials.Basic -> basicHeader(account.username, account.password)
             is AccountCredentials.Bearer -> "Bearer ${account.token}"
-        }
+            // An OPDS catalog may authenticate by URL alone (Kavita embeds an
+            // API key in the path) or be fully anonymous. Both are legitimate
+            // and get no header at all.
+            is AccountCredentials.OpdsOnly -> {
+                val user = account.username
+                val pass = account.password
+                if (user != null && pass != null) basicHeader(user, pass) else null
+            }
+        } ?: return chain.proceed(request)
         val response = chain.proceed(
             request.newBuilder().header(HEADER_AUTHORIZATION, headerValue).build()
         )
@@ -85,8 +97,8 @@ class AccountAuthInterceptor(
         return override != null && sameOrigin(override, requestUrl)
     }
 
-    private fun basicHeader(account: AccountCredentials.Basic): String {
-        val raw = "${account.username}:${account.password}"
+    private fun basicHeader(username: String, password: String): String {
+        val raw = "$username:$password"
         val encoded = Base64.getEncoder().encodeToString(raw.toByteArray())
         return "Basic $encoded"
     }
