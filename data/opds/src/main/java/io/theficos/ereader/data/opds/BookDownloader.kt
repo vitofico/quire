@@ -19,7 +19,7 @@ class BookDownloader(
     ): File = withContext(Dispatchers.IO) {
         val response = okHttp.newCall(Request.Builder().url(url).get().build()).execute()
         response.use {
-            check(it.isSuccessful) { "Download failed ${it.code} for $url" }
+            check(it.isSuccessful) { "Download failed ${it.code} for ${redactUrl(url)}" }
             val total = it.body!!.contentLength()
             val out = File(booksDir, destFileName)
             val tmp = File(booksDir, "$destFileName.part")

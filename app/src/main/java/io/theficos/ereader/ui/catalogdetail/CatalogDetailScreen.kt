@@ -32,12 +32,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.theficos.ereader.ui.bookdetail.InsightSection
+import io.theficos.ereader.ui.bookdetail.InsightUiState
 import io.theficos.ereader.ui.components.CoverImage
 
 /**
- * Pre-download book detail. Shows cover + title + author, the same
- * `InsightSection` the book-detail screen uses, and an "Open in
- * calibre-web" footer when the OPDS entry exposed a web URL.
+ * Pre-download book detail. Shows cover + title + author, the catalog entry's
+ * own description, the same `InsightSection` the book-detail screen uses, and
+ * an "Open in calibre-web" footer when the OPDS entry exposed a web URL.
  *
  * The screen does NOT trigger downloads — that stays a catalog-tile tap.
  * The catalog screen handles download progress + state.
@@ -107,8 +108,30 @@ fun CatalogDetailScreen(
             HorizontalDivider()
             Spacer(Modifier.height(16.dp))
 
+            // The catalog's own blurb. On a reader-only account this is the
+            // whole page below the divider — the insight section stays hidden
+            // without a quire-server behind it, and issue #101's tester was
+            // shown nothing at all (issue #101).
+            pub.description?.let { description ->
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(16.dp))
+            }
+
             // AI insight section — same composable as BookDetailScreen.
             InsightSection(state = state.insight, onRetry = viewModel::retry)
+
+            // Say why the page is bare rather than leaving the reader to guess
+            // whether something failed to load.
+            if (pub.description == null && state.insight is InsightUiState.Hidden) {
+                Text(
+                    text = "This catalog didn't include a description for this book.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
 
             Spacer(Modifier.height(16.dp))
 

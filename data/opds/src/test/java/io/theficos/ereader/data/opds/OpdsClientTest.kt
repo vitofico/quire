@@ -48,6 +48,16 @@ class OpdsClientTest {
                         .setBody(resource("/opds/catalog-feed-thumbnail-only.xml"))
                     "/opds/calibre-style" -> MockResponse().setHeader("Content-Type", "application/atom+xml")
                         .setBody(resource("/opds/catalog-feed-calibre-no-dc.xml"))
+                    "/api/opds/TEST-KEY" -> MockResponse().setHeader("Content-Type", "application/xml")
+                        .setBody(resource("/opds/kavita-root.xml"))
+                    "/api/opds/TEST-KEY/series/70" -> MockResponse().setHeader("Content-Type", "application/xml")
+                        .setBody(resource("/opds/kavita-series.xml"))
+                    "/api/opds/TEST-KEY/series/71" -> MockResponse().setHeader("Content-Type", "application/xml")
+                        .setBody(resource("/opds/kavita-series-progress.xml"))
+                    "/flibusta-style" -> MockResponse().setHeader("Content-Type", "application/atom+xml")
+                        .setBody(resource("/opds/flibusta-style.xml"))
+                    "/gutenberg-style" -> MockResponse().setHeader("Content-Type", "application/atom+xml")
+                        .setBody(resource("/opds/gutenberg-style-nav.xml"))
                     else -> MockResponse().setResponseCode(404)
                 }
             }
@@ -180,5 +190,108 @@ class OpdsClientTest {
         val unmatched = feed.publications.first { it.title == "Non-calibre href book" }
         assertThat(matched.calibreBookId).isEqualTo("77")
         assertThat(unmatched.calibreBookId).isNull()
+    }
+
+    // ---------- issue #101: non-calibre-web feeds ----------
+
+    @Test fun `open-access acquisition links yield publications`() = runTest {
+        val feed = client.fetch(server.url("/api/opds/TEST-KEY/series/70").toString())
+        assertThat(feed.publications).hasSize(1)
+        val pub = feed.publications[0]
+        assertThat(pub.title).isEqualTo("Grimms' Fairy Tales")
+        assertThat(pub.author).isEqualTo("Jacob Grimm")
+        assertThat(pub.epubDownloadHref).endsWith("/download/Grimms.epub")
+    }
+
+    @Test fun `open-access entries still resolve their cover`() = runTest {
+        val feed = client.fetch(server.url("/api/opds/TEST-KEY/series/70").toString())
+        assertThat(feed.publications[0].coverUrl).contains("/api/image/chapter-cover")
+    }
+
+    @Test fun `a navigation-only feed parses with no publications`() = runTest {
+        val feed = client.fetch(server.url("/api/opds/TEST-KEY").toString())
+        assertThat(feed.title).isEqualTo("Kavita")
+        assertThat(feed.publications).isEmpty()
+        assertThat(feed.navigation).hasSize(2)
+        assertThat(feed.navigation[0].title).isEqualTo("Recently Added")
+    }
+
+    @Test fun `a non-calibre feed has no derived calibre web url or book id`() = runTest {
+        val feed = client.fetch(server.url("/api/opds/TEST-KEY/series/70").toString())
+        val pub = feed.publications[0]
+        assertThat(pub.webUrl).isNull()
+        assertThat(pub.calibreBookId).isNull()
+    }
+
+    @Test fun `the bare application-epub media type is accepted`() = runTest {
+        val feed = client.fetch(server.url("/flibusta-style").toString())
+        assertThat(feed.publications).hasSize(1)
+        assertThat(feed.publications[0].epubDownloadHref).endsWith("/b/889227/epub")
+    }
+
+    @Test fun `the epub is chosen over other formats regardless of order`() = runTest {
+        // fb2 and mobi come first in the document; neither may win.
+        val feed = client.fetch(server.url("/flibusta-style").toString())
+        val href = feed.publications[0].epubDownloadHref
+        assertThat(href).doesNotContain("fb2")
+        assertThat(href).doesNotContain("mobi")
+    }
+
+    @Test fun `the short opds thumbnail rel resolves a cover`() = runTest {
+        val feed = client.fetch(server.url("/flibusta-style").toString())
+        assertThat(feed.publications[0].coverUrl).endsWith("/i/89/889227/cover.jpg")
+    }
+
+    // ---------- issue #101 follow-up: what Kavita puts in an entry ----------
+
+    @Test fun `a reading-progress glyph is not part of the book title`() = runTest {
+        val feed = client.fetch(server.url("/api/opds/TEST-KEY/series/71").toString())
+        assertThat(feed.publications.map { it.title })
+            .containsExactly(
+                "EXP Is Golden - EXP Is Golden: Volume 1",
+                "EXP Is Golden - EXP Is Golden: Volume 2",
+            )
+            .inOrder()
+    }
+
+    @Test fun `the injected continue-reading copy of an entry is dropped`() = runTest {
+        val feed = client.fetch(server.url("/api/opds/TEST-KEY/series/71").toString())
+        // Both entries point at Volume1.epub; only one tile may survive, and the
+        // catalog grid keys its items by this href.
+        assertThat(feed.publications.map { it.epubDownloadHref }.toSet())
+            .hasSize(feed.publications.size)
+        assertThat(feed.publications.map { it.title })
+            .doesNotContain("Continue Reading from: \u25D4 EXP Is Golden - EXP Is Golden: Volume 1")
+    }
+
+    @Test fun `the surviving copy keeps the metadata of the natural entry`() = runTest {
+        val feed = client.fetch(server.url("/api/opds/TEST-KEY/series/71").toString())
+        // The injected copy carries no author; the entry in its own place does.
+        assertThat(feed.publications.first().author).isEqualTo("Harajun")
+    }
+
+    @Test fun `an entry summary becomes the publication description`() = runTest {
+        val feed = client.fetch(server.url("/api/opds/TEST-KEY/series/71").toString())
+        assertThat(feed.publications[0].description).isEqualTo("File Type: epub+zip - 356 KB")
+    }
+
+    @Test fun `html markup in a summary is stripped`() = runTest {
+        val feed = client.fetch(server.url("/api/opds/TEST-KEY/series/71").toString())
+        assertThat(feed.publications[1].description)
+            .isEqualTo("The Queen of Destruction plays on.")
+    }
+
+    @Test fun `a description is null when the entry carries none`() = runTest {
+        val feed = client.fetch(server.url("/opds/new").toString())
+        assertThat(feed.publications.single().description).isNull()
+    }
+
+    @Test fun `a data uri is never surfaced as a cover`() = runTest {
+        val feed = client.fetch(server.url("/gutenberg-style").toString())
+        // Navigation-only, so no publications, and nothing may carry a data: URI.
+        assertThat(feed.publications).isEmpty()
+        assertThat(feed.navigation).hasSize(1)
+        assertThat(feed.publications.mapNotNull { it.coverUrl })
+            .doesNotContain("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABYAAAAWCAYAAADEtGw7AAAABGdBTUEAAK/INwWK6QAA")
     }
 }

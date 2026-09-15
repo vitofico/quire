@@ -75,4 +75,43 @@ class UrlNormalizerTest {
         assertThat(normalizeBaseUrl("  http://example.com  "))
             .isEqualTo("http://example.com")
     }
+
+    // ---------- issue #101: catalog URLs ----------
+
+    @Test fun `catalog url preserves the query string`() {
+        assertThat(normalizeCatalogUrl("https://feed.example/opds?apiKey=abc"))
+            .isEqualTo("https://feed.example/opds?apiKey=abc")
+    }
+
+    @Test fun `catalog url preserves a trailing slash`() {
+        assertThat(normalizeCatalogUrl("https://feed.example/api/opds/KEY/"))
+            .isEqualTo("https://feed.example/api/opds/KEY/")
+    }
+
+    @Test fun `catalog url preserves a deep path`() {
+        assertThat(normalizeCatalogUrl("https://kavita.example/api/opds/KEY"))
+            .isEqualTo("https://kavita.example/api/opds/KEY")
+    }
+
+    @Test fun `catalog url drops a default port`() {
+        assertThat(normalizeCatalogUrl("https://feed.example:443/opds"))
+            .isEqualTo("https://feed.example/opds")
+    }
+
+    @Test fun `catalog url keeps a non-default port`() {
+        assertThat(normalizeCatalogUrl("http://192.168.1.10:5000/api/opds/KEY"))
+            .isEqualTo("http://192.168.1.10:5000/api/opds/KEY")
+    }
+
+    @Test fun `catalog url still requires a scheme`() {
+        assertThat(normalizeCatalogUrl("feed.example/opds")).isNull()
+    }
+
+    @Test fun `catalog url still rejects userinfo`() {
+        assertThat(normalizeCatalogUrl("https://alice:pw@feed.example/opds")).isNull()
+    }
+
+    @Test fun `catalog url still rejects a fragment`() {
+        assertThat(normalizeCatalogUrl("https://feed.example/opds#top")).isNull()
+    }
 }

@@ -14,6 +14,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.net.UnknownServiceException
 import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
@@ -40,6 +41,28 @@ class ServerProbeTest {
             .build(),
         perRequestTimeoutMs = timeoutMs,
     )
+
+    /**
+     * A probe client that fails the way Android's network security policy does
+     * when an app asks it to send a request in the clear.
+     */
+    private fun cleartextBlockedProbe(): ServerProbe = ServerProbe(
+        client = OkHttpClient.Builder()
+            .addInterceptor {
+                throw UnknownServiceException(
+                    "CLEARTEXT communication to books.example.com not permitted by " +
+                        "network security policy",
+                )
+            }
+            .build(),
+        perRequestTimeoutMs = 5_000L,
+    )
+
+    @Test fun `a blocked cleartext request is reported as such, not as unexpected`() = runTest {
+        val result = cleartextBlockedProbe().probe("http://books.example.com")
+        assertThat(result).isInstanceOf(ServerProbeResult.Error::class.java)
+        assertThat((result as ServerProbeResult.Error).reason).isEqualTo(ProbeError.Cleartext)
+    }
 
     @Test fun `calibre-web detected via 200 atom-xml`() = runTest {
         server.dispatcher = object : Dispatcher() {
@@ -235,5 +258,102 @@ class ServerProbeTest {
         assertThat(canonical).endsWith("/calibre")
         assertThat(canonical).doesNotContain("/calibre/")
         assertThat(seenPaths).contains("/calibre/opds")
+    }
+
+    // ---------- issue #101: generic OPDS catalogs ----------
+
+    private val atomFeed =
+        """<?xml version="1.0" encoding="utf-8"?>
+           <feed xmlns="http://www.w3.org/2005/Atom"><title>Kavita</title></feed>"""
+
+    @Test fun `generic opds detected on 200 atom regardless of content type`() = runTest {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(req: RecordedRequest): MockResponse = when (req.path) {
+                "/api/opds/KEY" -> MockResponse()
+                    .setResponseCode(200)
+                    // Kavita serves application/xml, not atom+xml.
+                    .setHeader("Content-Type", "application/xml")
+                    .setBody(atomFeed)
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        val result = probe().probe("${baseUrl()}/api/opds/KEY")
+        assertThat(result).isInstanceOf(ServerProbeResult.GenericOpds::class.java)
+        result as ServerProbeResult.GenericOpds
+        assertThat(result.canonicalCatalogUrl).isEqualTo("${baseUrl()}/api/opds/KEY")
+        assertThat(result.requiresAuth).isFalse()
+    }
+
+    @Test fun `generic opds detected on 401 with a basic challenge`() = runTest {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(req: RecordedRequest): MockResponse = when (req.path) {
+                "/feed" -> MockResponse()
+                    .setResponseCode(401)
+                    .setHeader("WWW-Authenticate", "Basic realm=\"opds\"")
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        val result = probe().probe("${baseUrl()}/feed")
+        assertThat(result).isInstanceOf(ServerProbeResult.GenericOpds::class.java)
+        assertThat((result as ServerProbeResult.GenericOpds).requiresAuth).isTrue()
+    }
+
+    @Test fun `a bare 401 is not classified as a catalog`() = runTest {
+        // Kavita answers a wrong API key this way. Indistinguishable from
+        // "not an OPDS server", so it must not be accepted.
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(req: RecordedRequest): MockResponse =
+                MockResponse().setResponseCode(401)
+        }
+        val result = probe().probe("${baseUrl()}/api/opds/WRONG")
+        assertThat(result).isInstanceOf(ServerProbeResult.Unknown::class.java)
+    }
+
+    @Test fun `non-atom xml is not classified as a catalog`() = runTest {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(req: RecordedRequest): MockResponse = when (req.path) {
+                "/whatever" -> MockResponse()
+                    .setResponseCode(200)
+                    .setHeader("Content-Type", "application/xml")
+                    .setBody("<rss version=\"2.0\"><channel/></rss>")
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        assertThat(probe().probe("${baseUrl()}/whatever"))
+            .isInstanceOf(ServerProbeResult.Unknown::class.java)
+    }
+
+    @Test fun `html is not classified as a catalog`() = runTest {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(req: RecordedRequest): MockResponse = when (req.path) {
+                "/" -> MockResponse()
+                    .setResponseCode(200)
+                    .setHeader("Content-Type", "text/html")
+                    .setBody("<html><body>hello</body></html>")
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        assertThat(probe().probe(baseUrl()))
+            .isInstanceOf(ServerProbeResult.Unknown::class.java)
+    }
+
+    @Test fun `calibre-web wins over the generic catalog probe`() = runTest {
+        // The root serves an Atom feed AND /opds answers: calibre-web offers
+        // strictly more, so it must not be downgraded to reader-only.
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(req: RecordedRequest): MockResponse = when (req.path) {
+                "/opds" -> MockResponse()
+                    .setResponseCode(200)
+                    .setHeader("Content-Type", "application/atom+xml")
+                    .setBody(atomFeed)
+                "/" -> MockResponse()
+                    .setResponseCode(200)
+                    .setHeader("Content-Type", "application/xml")
+                    .setBody(atomFeed)
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        assertThat(probe().probe(baseUrl()))
+            .isInstanceOf(ServerProbeResult.Calibre::class.java)
     }
 }

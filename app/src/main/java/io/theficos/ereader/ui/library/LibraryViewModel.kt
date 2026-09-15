@@ -3,6 +3,7 @@ package io.theficos.ereader.ui.library
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import io.theficos.ereader.auth.AccountCredentials
 import io.theficos.ereader.core.model.Document
 import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.ProgressRepository
@@ -123,9 +124,22 @@ class LibraryViewModel(
     private val _events = MutableSharedFlow<LibraryEvent>(extraBufferCapacity = 4)
     val events: SharedFlow<LibraryEvent> = _events.asSharedFlow()
 
+    /**
+     * True only for a SERVER-BACKED account. An OPDS-only catalog has no
+     * quire-server behind it, so the empty-state restore prompt it gates could
+     * never succeed: the use case throws "baseUrl not configured" on its first
+     * statement. See issue #101.
+     */
     private val connected: StateFlow<Boolean> =
-        (credentialStore?.accountFlow?.map { it != null } ?: flowOf(false))
-            .stateIn(viewModelScope, SharingStarted.Eagerly, credentialStore?.accountFlow?.value != null)
+        (credentialStore?.accountFlow?.map { it != null && it !is AccountCredentials.OpdsOnly }
+            ?: flowOf(false))
+            .stateIn(
+                viewModelScope,
+                SharingStarted.Eagerly,
+                credentialStore?.accountFlow?.value.let {
+                    it != null && it !is AccountCredentials.OpdsOnly
+                },
+            )
 
     /**
      * True only when the library is empty AND an account is connected — the

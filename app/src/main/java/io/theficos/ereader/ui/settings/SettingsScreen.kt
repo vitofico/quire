@@ -32,11 +32,13 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import io.theficos.ereader.data.ai.AiHealthResponse
 import io.theficos.ereader.data.ai.RetrievalSourceHealth
@@ -90,6 +92,7 @@ fun SettingsScreen(
     onNavigateToLicenses: () -> Unit = {},
 ) {
     val calibre by viewModel.calibre.collectAsState()
+    val opds by viewModel.opds.collectAsState()
     val reader by viewModel.readerPreferences.collectAsState()
     val aiState by viewModel.ai.collectAsState()
     val deleteInFlight by viewModel.deleteProfileInFlight.collectAsState()
@@ -166,6 +169,73 @@ fun SettingsScreen(
             }
         }
 
+        SectionLabel("OPDS catalog")
+        QuireCard(modifier = Modifier.fillMaxWidth()) {
+            var revealUrl by rememberSaveable { mutableStateOf(false) }
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "Connect to any OPDS catalog, such as Kavita. Fill this in " +
+                        "instead of calibre-web above, not as well as it.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = opds.catalogUrl,
+                    onValueChange = viewModel::onOpdsCatalogUrlChange,
+                    label = { Text("Catalog URL") },
+                    isError = opds.error != null,
+                    supportingText = opds.error?.let { msg -> { Text(msg) } },
+                    // Some catalogs put an account key in the URL, so it is
+                    // masked like a password until the user asks to see it.
+                    visualTransformation = if (revealUrl) {
+                        VisualTransformation.None
+                    } else {
+                        PasswordVisualTransformation()
+                    },
+                    trailingIcon = {
+                        TextButton(onClick = { revealUrl = !revealUrl }) {
+                            Text(if (revealUrl) "Hide" else "Show")
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = opds.username,
+                    onValueChange = viewModel::onOpdsUsernameChange,
+                    label = { Text("Username (optional)") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = opds.password,
+                    onValueChange = viewModel::onOpdsPasswordChange,
+                    label = { Text("Password (optional)") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (opds.isActive) {
+                    Text(
+                        "Connected to an OPDS catalog. Your place in a book is " +
+                            "saved on this device only, and the AI features are " +
+                            "off: both need a Quire server.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Button(
+                    onClick = viewModel::saveOpds,
+                    // Saving REPLACES the stored account, so a typo here would
+                    // wipe a working calibre-web password. Require a scheme
+                    // before the button is even tappable (issue #101).
+                    enabled = opds.catalogUrl.isNotBlank() &&
+                        (opds.catalogUrl.startsWith("http://", ignoreCase = true) ||
+                            opds.catalogUrl.startsWith("https://", ignoreCase = true)) &&
+                        opds.username.isBlank() == opds.password.isBlank(),
+                ) {
+                    Text(if (opds.saved) "Saved" else "Save")
+                }
+            }
+        }
+
         SectionLabel("Reader defaults")
         QuireCard(modifier = Modifier.fillMaxWidth()) {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -231,7 +301,12 @@ fun SettingsScreen(
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (!syncState.hasCredentials) {
                     Text(
-                        "Configure calibre-web above to enable sync.",
+                        if (opds.isActive) {
+                            "This OPDS catalog has no Quire server behind it, so " +
+                                "there's nothing to sync with."
+                        } else {
+                            "Configure a server above to enable sync."
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

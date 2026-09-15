@@ -1,13 +1,17 @@
 package io.theficos.ereader.auth
 
+import java.security.MessageDigest
+
 /**
  * Scheme-tagged credentials for a single configured Quire account.
  *
- * Two concrete shapes:
+ * Three concrete shapes:
  * - [Basic]: `username` + `password` (calibre-web style). Emits
  *   `Authorization: Basic <base64(user:pass)>`.
  * - [Bearer]: `email` (subject hint) + `token` (long-lived bearer).
  *   Emits `Authorization: Bearer <token>`.
+ * - [OpdsOnly]: a complete OPDS catalog URL with optional Basic credentials.
+ *   Reader-only, with no quire-server behind it. See issue #101.
  *
  * Subclasses **deliberately override `toString()`** to redact secrets — these
  * objects must never leak into logs in their raw form. Tests that need to
@@ -93,4 +97,52 @@ sealed class AccountCredentials {
             "AccountCredentials.Bearer(baseUrl=$baseUrl, email=$email, token=***, " +
                 "expiresAtEpochMs=$expiresAtEpochMs)"
     }
+
+    /**
+     * A plain OPDS 1.x catalog at an arbitrary URL (Kavita, Komga, a hand-rolled
+     * feed, or calibre-web reached by its feed URL rather than its root).
+     *
+     * [baseUrl] is a COMPLETE catalog URL, used verbatim. Unlike the other two
+     * variants it is not a server root and callers must never append a path to
+     * it: the whole point of this scheme is that the catalog lives at a layout
+     * we cannot predict. `ServerProbe` and `CatalogViewModel` are the only two
+     * callers that ever appended, and both special-case this variant.
+     *
+     * [baseUrl] may itself be a credential. Kavita's catalog URL embeds a
+     * full-account API key as a path segment, which is why [toString] redacts
+     * the URL outright rather than just the password. Never interpolate it into
+     * a log line or a user-facing message: use `redactUrl` from the opds module.
+     *
+     * [username] and [password] are both null for an anonymous or URL-authed
+     * catalog, and both non-null for one behind HTTP Basic. One-of-two is not a
+     * valid state and the credential store rejects it.
+     *
+     * Reader-only by construction: `quireServerUrlOrNull()` returns null for
+     * this variant, which switches off sync, the library mirror and AI.
+     */
+    data class OpdsOnly(
+        override val baseUrl: String,
+        val username: String? = null,
+        val password: String? = null,
+    ) : AccountCredentials() {
+        override val scheme: AuthScheme = AuthScheme.OPDS
+
+        /**
+         * Local-only principal, used to partition the catalog insight stash.
+         * There is no server behind this account, so there is no server-issued
+         * subject to mirror. A truncated hash of the catalog URL is stable
+         * across restarts, distinct per catalog, and exposes neither the host
+         * nor any embedded key.
+         */
+        override val subject: String
+            get() = "opds:" + sha256Hex(baseUrl).take(16)
+
+        override fun toString(): String =
+            "AccountCredentials.OpdsOnly(baseUrl=***, username=$username, password=***)"
+    }
 }
+
+private fun sha256Hex(value: String): String =
+    MessageDigest.getInstance("SHA-256")
+        .digest(value.toByteArray())
+        .joinToString("") { "%02x".format(it) }

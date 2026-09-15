@@ -41,6 +41,10 @@ A self-hosted reading stack for people who already run [calibre-web]:
   profile, recommendations, and barcode book-scanning — all routed through
   an OpenAI-compatible endpoint *you* control. Off by default, opt-in per
   user. [Jump to AI ↓](#ai-on-your-terms)
+- **Other OPDS catalogs.** Quire also connects to any OPDS 1.x catalog, such
+  as [Kavita], by its full feed URL. That mode is reader-only: browse,
+  download, read, and keep your place on the device. Reading-state sync, the
+  library mirror, and the AI features need a Quire server and stay off.
 
 calibre-web stays the source of truth for books. Quire Server is the
 source of truth for reading state. Quire reconciles both on the device.
@@ -270,3 +274,4 @@ If Quire is useful to you and you'd like to chip in, you can buy me a coffee:
 [calibre-web]: https://github.com/janeczku/calibre-web
 [Releases]: https://github.com/vitofico/quire/releases
 [F-Droid]: https://f-droid.org/packages/io.theficos.quire/
+[Kavita]: https://www.kavitareader.com/

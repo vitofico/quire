@@ -395,4 +395,94 @@ class CalibreCredentialStoreTest {
         assertThat(withExp.isExpiredAt(9L)).isFalse()
         assertThat(withExp.isExpiredAt(10L)).isTrue()
     }
+
+    // ---------- issue #101: OPDS-only accounts ----------
+
+    @Test fun `opds account round trips without credentials`() {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.clear()
+        store.saveOpdsAccount("https://kavita.example/api/opds/secret-key")
+        val got = store.getAccount()
+        assertThat(got).isInstanceOf(AccountCredentials.OpdsOnly::class.java)
+        got as AccountCredentials.OpdsOnly
+        assertThat(got.baseUrl).isEqualTo("https://kavita.example/api/opds/secret-key")
+        assertThat(got.username).isNull()
+        assertThat(got.password).isNull()
+    }
+
+    @Test fun `opds account round trips with basic credentials`() {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.clear()
+        store.saveOpdsAccount("https://feed.example/opds", "alice", "hunter2")
+        val got = store.getAccount() as AccountCredentials.OpdsOnly
+        assertThat(got.username).isEqualTo("alice")
+        assertThat(got.password).isEqualTo("hunter2")
+    }
+
+    @Test fun `opds account preserves a trailing slash and a query`() {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.clear()
+        store.saveOpdsAccount("https://feed.example/opds/?apiKey=abc")
+        val got = store.getAccount() as AccountCredentials.OpdsOnly
+        assertThat(got.baseUrl).isEqualTo("https://feed.example/opds/?apiKey=abc")
+    }
+
+    @Test fun `opds account is not visible through the legacy basic accessors`() {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.clear()
+        store.saveOpdsAccount("https://kavita.example/api/opds/secret-key")
+        assertThat(store.get()).isNull()
+        assertThat(store.flow.value).isNull()
+        assertThat(store.accountFlow.value).isNotNull()
+    }
+
+    @Test fun `saving an opds account clears a previous bearer record`() {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.clear()
+        store.saveBearerAccount("https://quire.example", "a@b.c", "tok", 1L)
+        store.saveOpdsAccount("https://kavita.example/api/opds/secret-key")
+        val got = store.getAccount()
+        assertThat(got).isInstanceOf(AccountCredentials.OpdsOnly::class.java)
+        assertThat(store.needsReauth.value).isFalse()
+    }
+
+    @Test fun `saving a basic account after an opds account clears the opds record`() {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.clear()
+        store.saveOpdsAccount("https://kavita.example/api/opds/secret-key", "alice", "hunter2")
+        store.saveBasicAccount("https://calibre.example", "bob", "pw")
+        val got = store.getAccount() as AccountCredentials.Basic
+        assertThat(got.username).isEqualTo("bob")
+        assertThat(got.baseUrl).isEqualTo("https://calibre.example")
+    }
+
+    @Test fun `opds account rejects a blank url`() {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.clear()
+        try {
+            store.saveOpdsAccount("   ")
+            throw AssertionError("expected IllegalArgumentException")
+        } catch (e: IllegalArgumentException) {
+            assertThat(e).hasMessageThat().contains("catalogUrl")
+        }
+    }
+
+    @Test fun `opds account rejects a username without a password`() {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.clear()
+        try {
+            store.saveOpdsAccount("https://feed.example/opds", "alice", null)
+            throw AssertionError("expected IllegalArgumentException")
+        } catch (e: IllegalArgumentException) {
+            assertThat(e).hasMessageThat().contains("both")
+        }
+    }
+
+    @Test fun `notifyUnauthorized does not raise re-auth for an opds account`() {
+        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
+        store.clear()
+        store.saveOpdsAccount("https://kavita.example/api/opds/secret-key")
+        store.notifyUnauthorized()
+        assertThat(store.needsReauth.value).isFalse()
+    }
 }

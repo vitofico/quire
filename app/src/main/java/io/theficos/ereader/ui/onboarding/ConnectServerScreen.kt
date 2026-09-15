@@ -129,6 +129,7 @@ fun ConnectServerScreen(
                 state = state,
                 onVerifyBasic = { base, u, p -> viewModel.verifyAndSaveBasic(base, u, p) },
                 onVerifyBearer = { base, e, p -> viewModel.verifyAndSaveBearer(base, e, p) },
+                onVerifyOpds = { catalog, u, p -> viewModel.verifyAndSaveOpds(catalog, u, p) },
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -144,6 +145,7 @@ private fun ResultPanel(
     state: ConnectServerViewModel.UiState,
     onVerifyBasic: (String, String, String) -> Unit,
     onVerifyBearer: (String, String, String) -> Unit,
+    onVerifyOpds: (String, String?, String?) -> Unit,
 ) {
     when (state) {
         ConnectServerViewModel.UiState.Idle -> Unit
@@ -168,6 +170,11 @@ private fun ResultPanel(
                     canonicalBaseUrl = probe.canonicalBaseUrl,
                     onVerifyBasic = onVerifyBasic,
                     onVerifyBearer = onVerifyBearer,
+                )
+                is ServerProbeResult.GenericOpds -> GenericOpdsCard(
+                    canonicalCatalogUrl = probe.canonicalCatalogUrl,
+                    requiresAuth = probe.requiresAuth,
+                    onSubmit = onVerifyOpds,
                 )
                 is ServerProbeResult.Unknown -> QuireCard(modifier = Modifier.fillMaxWidth()) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -350,6 +357,89 @@ private fun BearerCredentialCard(
 }
 
 @Composable
+private fun GenericOpdsCard(
+    canonicalCatalogUrl: String,
+    requiresAuth: Boolean,
+    onSubmit: (String, String?, String?) -> Unit,
+) {
+    var username by rememberSaveable { mutableStateOf("") }
+    var password by rememberSaveable { mutableStateOf("") }
+
+    QuireCard(modifier = Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("OPDS catalog detected", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Quire can browse, download and read from this catalog, and it " +
+                    "will remember your place on this device.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                "Reading progress won't sync between devices, and the AI features " +
+                    "stay off: both of those need a Quire server, which this " +
+                    "catalog doesn't provide.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                "If this is a calibre-web server, go back and enter its address " +
+                    "instead of the feed URL, and you'll get sync too.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (requiresAuth) {
+                Text(
+                    "This catalog asked for a username and password.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            OutlinedTextField(
+                value = username,
+                onValueChange = { username = it },
+                label = { Text("Username (optional)") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Text,
+                    imeAction = ImeAction.Next,
+                    autoCorrect = false,
+                    capitalization = KeyboardCapitalization.None,
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { contentDescription = "Catalog username" },
+            )
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it },
+                label = { Text("Password (optional)") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Password,
+                    imeAction = ImeAction.Go,
+                    autoCorrect = false,
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { contentDescription = "Catalog password" },
+            )
+            Button(
+                onClick = {
+                    onSubmit(
+                        canonicalCatalogUrl,
+                        username.takeIf { it.isNotBlank() },
+                        password.takeIf { it.isNotBlank() },
+                    )
+                },
+                // One credential without the other would send no header and
+                // then fail with an unexplained 401.
+                enabled = username.isBlank() == password.isBlank(),
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Connect") }
+        }
+    }
+}
+
+@Composable
 private fun AmbiguousChoiceCard(
     canonicalBaseUrl: String,
     onVerifyBasic: (String, String, String) -> Unit,
@@ -444,6 +534,22 @@ private fun ConnectServerScreenBearerPreview() {
                 BearerCredentialCard(
                     canonicalBaseUrl = "https://quire.example.com",
                     headline = "Quire server detected",
+                    onSubmit = { _, _, _ -> },
+                )
+            }
+        }
+    }
+}
+
+@Preview(showBackground = true, name = "Result - OPDS catalog")
+@Composable
+private fun ConnectServerScreenGenericOpdsPreview() {
+    EReaderTheme {
+        Surface(modifier = Modifier.fillMaxSize()) {
+            Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                GenericOpdsCard(
+                    canonicalCatalogUrl = "https://catalog.example.com/opds",
+                    requiresAuth = false,
                     onSubmit = { _, _, _ -> },
                 )
             }

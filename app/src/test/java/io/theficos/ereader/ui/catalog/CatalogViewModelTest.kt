@@ -1,19 +1,25 @@
 package io.theficos.ereader.ui.catalog
 
 import android.content.Context
+import androidx.lifecycle.viewModelScope
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import app.cash.turbine.test
 import com.google.common.truth.Truth.assertThat
 import io.theficos.ereader.auth.CalibreCredentialStore
+import io.theficos.ereader.data.library.LibraryClient
+import io.theficos.ereader.data.library.LibraryUploader
 import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.db.EReaderDatabase
 import io.theficos.ereader.data.local.db.SyncStateEntity
 import io.theficos.ereader.data.opds.BookDownloader
+import io.theficos.ereader.data.opds.CLEARTEXT_BLOCKED_MESSAGE
 import io.theficos.ereader.data.opds.OpdsClient
 import io.theficos.ereader.data.opds.OpdsPublication
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -31,6 +37,8 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.File
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.TimeUnit
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -73,11 +81,25 @@ class CatalogViewModelTest {
         // Reset the Main dispatcher unconditionally — if any of the cleanup
         // steps throw, an un-reset Main pollutes the next test's setMain() and
         // cascades lateinit failures across the suite.
+        runCatching { viewModels.forEach { it.viewModelScope.cancel() } }
         runCatching { db.close() }
         runCatching { server.shutdown() }
         runCatching { booksDir.deleteRecursively() }
         Dispatchers.resetMain()
     }
+
+    /**
+     * View models a test built, cancelled when that test ends.
+     *
+     * A [CatalogViewModel] collects `accountFlow` from `viewModelScope` for as
+     * long as it lives. Left running past its own test, that collector wakes on
+     * the next account this suite saves and touches a Main dispatcher another
+     * test is busy resetting — "Dispatchers.Main is used concurrently with
+     * setting it", failing a test that has nothing to do with the leak.
+     */
+    private val viewModels = mutableListOf<CatalogViewModel>()
+
+    private fun track(vm: CatalogViewModel): CatalogViewModel = vm.also { viewModels += it }
 
     private fun feedXml(epubUrl: String): String = """
         <?xml version="1.0" encoding="UTF-8"?>
@@ -118,7 +140,7 @@ class CatalogViewModelTest {
             }
         }
 
-        val vm = CatalogViewModel(
+        val vm = track(CatalogViewModel(
             client = opdsClient,
             downloader = downloader,
             docs = docs,
@@ -128,7 +150,7 @@ class CatalogViewModelTest {
                 androidx.test.core.app.ApplicationProvider.getApplicationContext()
             ),
             syncEnqueuer = { enqueueCount++ },
-        )
+        ))
 
         // Drive into Loaded state so download()'s state guard passes. The OPDS
         // fetch suspends on Dispatchers.IO (real), which advanceUntilIdle won't
@@ -188,7 +210,7 @@ class CatalogViewModelTest {
             }
         }
 
-        val vm = CatalogViewModel(
+        val vm = track(CatalogViewModel(
             client = opdsClient,
             downloader = downloader,
             docs = docs,
@@ -201,7 +223,7 @@ class CatalogViewModelTest {
             aiRepository = null,  // We supply the repo via injection trick below.
             catalogInsightStash = stash,
             subjectProvider = { "alice" },
-        )
+        ))
 
         // Drive into Loaded so download() proceeds.
         vm.load(server.url("/opds").toString())
@@ -260,5 +282,218 @@ class CatalogViewModelTest {
      */
     private class RecordingAiRepository {
         val calls = mutableListOf<Triple<io.theficos.ereader.core.model.DocumentIdentity, io.theficos.ereader.core.model.DocumentIdentity, Long>>()
+    }
+
+    // ---------- issue #101: generic OPDS catalogs ----------
+
+    /**
+     * Serves the same acquisition feed at every path, so a root load succeeds
+     * whatever URL the view model decides to fetch. The test then asserts on
+     * which path was actually requested.
+     */
+    private fun serveFeedAtEveryPath() {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(req: RecordedRequest): MockResponse = MockResponse()
+                .setHeader("Content-Type", "application/atom+xml")
+                .setBody(feedXml(server.url("/book.epub").toString()))
+        }
+    }
+
+    private fun newViewModel(
+        syncEnqueuer: (Context) -> Unit = { enqueueCount++ },
+        libraryUploader: LibraryUploader? = null,
+    ) = track(
+        CatalogViewModel(
+            client = opdsClient,
+            downloader = downloader,
+            docs = docs,
+            credentialStore = credentialStore,
+            syncStateDao = db.syncStateDao(),
+            catalogPreferencesStore = CatalogPreferencesStore(context),
+            libraryUploader = libraryUploader,
+            syncEnqueuer = syncEnqueuer,
+        )
+    )
+
+    /** First request the view model made, or a failure if it made none. */
+    private fun firstRequestPath(): String {
+        val recorded = server.takeRequest(10, TimeUnit.SECONDS)
+            ?: error("the view model never issued a request")
+        return checkNotNull(recorded.path)
+    }
+
+    @Test fun `opds account loads the catalog url verbatim`() = runTest {
+        serveFeedAtEveryPath()
+        credentialStore.saveOpdsAccount(server.url("/api/opds/TEST-KEY").toString())
+        newViewModel().loadRoot()
+
+        assertThat(firstRequestPath()).isEqualTo("/api/opds/TEST-KEY")
+    }
+
+    @Test fun `opds account does not append the catalog suffix`() = runTest {
+        serveFeedAtEveryPath()
+        credentialStore.saveOpdsAccount(server.url("/api/opds/TEST-KEY").toString())
+        newViewModel().loadRoot()
+
+        assertThat(firstRequestPath()).doesNotContain("/api/opds/TEST-KEY/opds")
+    }
+
+    @Test fun `calibre account still appends the opds suffix`() = runTest {
+        serveFeedAtEveryPath()
+        credentialStore.saveBasicAccount(server.url("/").toString().trimEnd('/'), "u", "p")
+        newViewModel().loadRoot()
+
+        assertThat(firstRequestPath()).isEqualTo("/opds")
+    }
+
+    @Test fun `a blocked http catalog explains itself instead of quoting the exception`() = runTest {
+        // Stand in for the platform: on device this is what OkHttp raises when
+        // the network security policy refuses a cleartext request (issue #101).
+        val blocked = OpdsClient(
+            OkHttpClient.Builder()
+                .addInterceptor {
+                    throw java.net.UnknownServiceException(
+                        "CLEARTEXT communication to books.example.com not permitted by " +
+                            "network security policy",
+                    )
+                }
+                .build(),
+        )
+        val vm = track(CatalogViewModel(
+            client = blocked,
+            downloader = downloader,
+            docs = docs,
+            credentialStore = credentialStore,
+            syncStateDao = db.syncStateDao(),
+            catalogPreferencesStore = CatalogPreferencesStore(context),
+            syncEnqueuer = { enqueueCount++ },
+        ))
+        vm.load("http://books.example.com/opds")
+
+        vm.state.test {
+            var state = awaitItem()
+            while (state !is CatalogUiState.Error) state = awaitItem()
+            assertThat(state.message).isEqualTo(CLEARTEXT_BLOCKED_MESSAGE)
+            assertThat(state.message).doesNotContain("CLEARTEXT communication")
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test fun `no account shows a scheme-neutral error`() = runTest {
+        credentialStore.clear()
+        val vm = newViewModel()
+        vm.loadRoot()
+
+        val state = vm.state.value as CatalogUiState.Error
+        assertThat(state.message).doesNotContain("calibre-web")
+        assertThat(state.message).contains("Settings")
+    }
+
+    // ---------- issue #101: reader-only accounts ----------
+
+    /** Every library-mirror PUT that reached the server, in arrival order. */
+    private val libraryPuts = CopyOnWriteArrayList<String>()
+
+    private val libraryItemJson = """
+        {"content_hash":"abc","title":"Test Book",
+         "created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}
+    """.trimIndent()
+
+    /**
+     * Serves the catalog feed at every path, the EPUB bytes at `/book.epub`,
+     * and accepts the library-mirror PUT, recording it so a test can assert
+     * whether the post-download hook fired at all.
+     */
+    private fun serveCatalogAndLibrary() {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(req: RecordedRequest): MockResponse {
+                return when (req.path?.substringBefore('?')) {
+                    "/library/v1/items" -> {
+                        libraryPuts += req.method.orEmpty()
+                        MockResponse()
+                            .setHeader("Content-Type", "application/json")
+                            .setBody(libraryItemJson)
+                    }
+                    "/book.epub" -> MockResponse()
+                        .setHeader("Content-Type", "application/epub+zip")
+                        .setBody(Buffer().write("fake-epub-bytes".toByteArray()))
+                    else -> MockResponse()
+                        .setHeader("Content-Type", "application/atom+xml")
+                        .setBody(feedXml(server.url("/book.epub").toString()))
+                }
+            }
+        }
+    }
+
+    /**
+     * A real uploader pointed at the MockWebServer. [LibraryUploader] is final,
+     * so the cheapest honest observation of "did the mirror push happen" is
+     * whether the PUT arrived.
+     */
+    private fun libraryUploaderOn(scope: CoroutineScope) = LibraryUploader(
+        client = LibraryClient(
+            baseUrlProvider = { server.url("/").toString() },
+            http = OkHttpClient(),
+        ),
+        dao = db.documentDao(),
+        scope = scope,
+    )
+
+    /**
+     * Loads the root feed, downloads its single publication and returns once
+     * the download coroutine has run its post-download hook. The OPDS and EPUB
+     * fetches suspend on the real IO dispatcher, so this awaits the state
+     * emissions rather than advancing a test scheduler.
+     */
+    private suspend fun downloadFirstPublication(vm: CatalogViewModel) {
+        vm.loadRoot()
+        var publication: OpdsPublication? = null
+        vm.state.test {
+            var s = awaitItem()
+            while (s !is CatalogUiState.Loaded) s = awaitItem()
+            publication = s.feed.publications[0]
+            cancelAndIgnoreRemainingEvents()
+        }
+        val pub = checkNotNull(publication) { "the feed produced no publication" }
+
+        vm.download(pub, context)
+        vm.state.test {
+            var s = awaitItem()
+            while (s !is CatalogUiState.Loaded || s.lastDownloaded == null) {
+                if (s is CatalogUiState.Loaded && s.error != null) {
+                    error("Download failed unexpectedly: ${s.error}")
+                }
+                s = awaitItem()
+            }
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test fun `download from an opds catalog does not enqueue sync or a mirror push`() = runTest {
+        serveCatalogAndLibrary()
+        credentialStore.saveOpdsAccount(server.url("/api/opds/TEST-KEY").toString())
+        val uploaderScope = CoroutineScope(Dispatchers.IO)
+        try {
+            downloadFirstPublication(newViewModel(libraryUploader = libraryUploaderOn(uploaderScope)))
+
+            assertThat(enqueueCount).isEqualTo(0)
+            assertThat(libraryPuts).isEmpty()
+        } finally {
+            uploaderScope.cancel()
+        }
+    }
+
+    @Test fun `download from a calibre catalog still enqueues sync and a mirror push`() = runTest {
+        serveCatalogAndLibrary()
+        credentialStore.saveBasicAccount(server.url("/").toString().trimEnd('/'), "u", "p")
+        val uploaderScope = CoroutineScope(Dispatchers.IO)
+        try {
+            downloadFirstPublication(newViewModel(libraryUploader = libraryUploaderOn(uploaderScope)))
+
+            assertThat(enqueueCount).isEqualTo(1)
+            assertThat(libraryPuts).isNotEmpty()
+        } finally {
+            uploaderScope.cancel()
+        }
     }
 }

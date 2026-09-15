@@ -3,6 +3,7 @@ package io.theficos.ereader.ui.settings
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import io.theficos.ereader.auth.AccountCredentials
 import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.data.ai.AiConfig
 import io.theficos.ereader.data.ai.AiHealthResponse
@@ -12,6 +13,7 @@ import io.theficos.ereader.data.ai.InsightSyncRepository
 import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.db.InsightDao
 import io.theficos.ereader.data.local.db.SyncStateDao
+import io.theficos.ereader.data.opds.normalizeCatalogUrl
 import io.theficos.ereader.data.sync.SyncEnqueuer
 import io.theficos.ereader.domain.restore.RestoreProgress
 import io.theficos.ereader.domain.restore.RestoreSummary
@@ -80,9 +82,22 @@ class SettingsViewModel(
     private val _calibre = MutableStateFlow(loadInitialCalibre())
     val calibre: StateFlow<CalibreUiState> = _calibre.asStateFlow()
 
+    private val _opds = MutableStateFlow(loadInitialOpds())
+    val opds: StateFlow<OpdsUiState> = _opds.asStateFlow()
+
     val readerPreferences: StateFlow<ReaderPreferences> = readerStore.flow
 
-    private val _sync = MutableStateFlow(SyncUiState(hasCredentials = store.get() != null, lastSyncedAtMs = null))
+    private val _sync = MutableStateFlow(
+        SyncUiState(
+            // An OPDS-only catalog has no Quire server behind it, so it must
+            // never report sync credentials. The legacy accessor already
+            // returns null for that variant; the explicit check keeps the
+            // guarantee readable and independent of that accessor.
+            hasCredentials = store.get() != null &&
+                store.getAccount() !is AccountCredentials.OpdsOnly,
+            lastSyncedAtMs = null,
+        )
+    )
     val sync: StateFlow<SyncUiState> = _sync.asStateFlow()
 
     private val _aiHealth = MutableStateFlow<AiHealthResponse?>(null)
@@ -95,11 +110,23 @@ class SettingsViewModel(
     private val _events = MutableSharedFlow<SettingsEvent>(extraBufferCapacity = 4)
     val events: SharedFlow<SettingsEvent> = _events.asSharedFlow()
 
-    /** True whenever an account is configured (any scheme), gating the restore action. */
+    /**
+     * True when a SERVER-BACKED account is configured, gating the restore action.
+     *
+     * Restore reads the library mirror off quire-server, so an OPDS-only account
+     * can never satisfy it: RestoreInProgressUseCase reaches
+     * LibraryClient.resolveBaseUrl() on its first statement and throws because
+     * quireServerUrlOrNull() is null. Offering the action anyway put an internal
+     * exception string in front of a user who had done nothing wrong.
+     */
     val isConnected: StateFlow<Boolean> =
         store.accountFlow
-            .map { it != null }
-            .stateIn(viewModelScope, SharingStarted.Eagerly, store.accountFlow.value != null)
+            .map { it != null && it !is AccountCredentials.OpdsOnly }
+            .stateIn(
+                viewModelScope,
+                SharingStarted.Eagerly,
+                store.accountFlow.value.let { it != null && it !is AccountCredentials.OpdsOnly },
+            )
 
     private val _restoreRunning = MutableStateFlow(false)
     val restoreRunning: StateFlow<Boolean> = _restoreRunning.asStateFlow()
@@ -143,7 +170,7 @@ class SettingsViewModel(
     }
 
     private fun loadInitialCalibre(): CalibreUiState {
-        val account = store.getAccount() as? io.theficos.ereader.auth.AccountCredentials.Basic
+        val account = store.getAccount() as? AccountCredentials.Basic
         return CalibreUiState(
             baseUrl = account?.baseUrl.orEmpty(),
             username = account?.username.orEmpty(),
@@ -172,6 +199,66 @@ class SettingsViewModel(
             )
             _calibre.value = s.copy(saved = true)
             _sync.value = _sync.value.copy(hasCredentials = true)
+        }
+    }
+
+    private fun loadInitialOpds(): OpdsUiState {
+        val account = store.getAccount() as? AccountCredentials.OpdsOnly
+        return OpdsUiState(
+            catalogUrl = account?.baseUrl.orEmpty(),
+            username = account?.username.orEmpty(),
+            password = account?.password.orEmpty(),
+            isActive = account != null,
+            saved = account != null,
+        )
+    }
+
+    fun onOpdsCatalogUrlChange(value: String) {
+        _opds.value = _opds.value.copy(catalogUrl = value, saved = false, error = null)
+    }
+
+    fun onOpdsUsernameChange(value: String) {
+        _opds.value = _opds.value.copy(username = value, saved = false)
+    }
+
+    fun onOpdsPasswordChange(value: String) {
+        _opds.value = _opds.value.copy(password = value, saved = false)
+    }
+
+    /**
+     * Persist the OPDS catalog account. Username and password are optional but
+     * go together: exactly one of the two would produce an account that sends
+     * no `Authorization` header and then fails with an unexplained 401, so the
+     * half-filled form is refused here as well as in the credential store.
+     */
+    fun saveOpds() {
+        val s = _opds.value
+        if (s.catalogUrl.isBlank()) return
+        if (s.username.isBlank() != s.password.isBlank()) return
+        // Saving an account REPLACES whatever was stored, and persistAccount
+        // removes the inverse scheme's keys in the same transaction. A typo
+        // here (a missing scheme, say) would therefore destroy a working
+        // calibre-web password with no way to get it back, while persisting a
+        // catalog URL that OkHttp cannot even build a request for. Onboarding
+        // is safe because it only ever passes the probe's canonical URL; this
+        // is the one entry point with no gate, so it validates its own input.
+        val canonical = normalizeCatalogUrl(s.catalogUrl)
+        if (canonical == null) {
+            _opds.value = s.copy(
+                error = "Enter a full catalog URL starting with http:// or https://",
+                saved = false,
+            )
+            return
+        }
+        viewModelScope.launch {
+            store.saveOpdsAccount(
+                catalogUrl = canonical,
+                username = s.username.takeIf { it.isNotBlank() },
+                password = s.password.takeIf { it.isNotBlank() },
+            )
+            _opds.value = s.copy(catalogUrl = canonical, isActive = true, saved = true, error = null)
+            // Reader-only: there is no Quire server to sync against.
+            _sync.value = _sync.value.copy(hasCredentials = false)
         }
     }
 
@@ -290,6 +377,23 @@ class SettingsViewModel(
         }
     }
 }
+
+/**
+ * Settings state for a generic OPDS catalog account, issue #101.
+ *
+ * [catalogUrl] is the complete catalog URL used verbatim, not a server root.
+ * It may itself be a credential (some catalogs embed a full-account API key as
+ * a path segment), which is why the screen masks it behind a reveal toggle.
+ */
+data class OpdsUiState(
+    val catalogUrl: String,
+    val username: String,
+    val password: String,
+    val isActive: Boolean,
+    val saved: Boolean,
+    /** Validation message for the catalog URL, or null when it looks usable. */
+    val error: String? = null,
+)
 
 data class CalibreUiState(
     val baseUrl: String,

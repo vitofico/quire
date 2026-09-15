@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  A Kavita series feed for a series the user has started reading, trimmed from a
+  live response of Kavita's public demo server.
+
+  Two things here are Kavita's own display conventions rather than book data:
+  every acquisition entry's title starts with a reading-progress glyph, and a
+  copy of the chapter in progress is injected at the top under a "Continue
+  Reading from:" title, pointing at the same acquisition href as the chapter's
+  own entry below. See issue #101.
+-->
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <updated>2026-09-15T15:08:54</updated>
+  <id>series-71</id>
+  <title>EXP Is Golden - Storyline</title>
+  <link rel="self" type="application/atom+xml;profile=opds-catalog;kind=acquisition" href="/api/opds/TEST-KEY/series/71" />
+  <entry>
+    <updated>2026-09-15T15:08:54</updated>
+    <id>94</id>
+    <title>Continue Reading from: ◔ EXP Is Golden - EXP Is Golden: Volume 1</title>
+    <summary>File Type: epub+zip - 356 KB</summary>
+    <content type="text">application/epub+zip</content>
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=94&amp;apiKey=TEST-KEY" />
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/TEST-KEY/series/71/volume/93/chapter/94/download/Volume1.epub" />
+  </entry>
+  <entry>
+    <updated>2026-09-15T15:08:54</updated>
+    <id>94</id>
+    <title>◔ EXP Is Golden - EXP Is Golden: Volume 1</title>
+    <summary>File Type: epub+zip - 356 KB</summary>
+    <content type="text">application/epub+zip</content>
+    <author><name>Harajun</name></author>
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=94&amp;apiKey=TEST-KEY" />
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/TEST-KEY/series/71/volume/93/chapter/94/download/Volume1.epub" />
+  </entry>
+  <entry>
+    <updated>2026-09-15T15:08:54</updated>
+    <id>95</id>
+    <title>⭘ EXP Is Golden - EXP Is Golden: Volume 2</title>
+    <summary>&lt;p&gt;The Queen of Destruction&lt;/p&gt; &lt;p&gt;plays on.&lt;/p&gt;</summary>
+    <author><name>Harajun</name></author>
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=95&amp;apiKey=TEST-KEY" />
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/TEST-KEY/series/71/volume/93/chapter/95/download/Volume2.epub" />
+  </entry>
+</feed>
