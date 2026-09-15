@@ -14,6 +14,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.net.UnknownServiceException
 import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
@@ -40,6 +41,28 @@ class ServerProbeTest {
             .build(),
         perRequestTimeoutMs = timeoutMs,
     )
+
+    /**
+     * A probe client that fails the way Android's network security policy does
+     * when an app asks it to send a request in the clear.
+     */
+    private fun cleartextBlockedProbe(): ServerProbe = ServerProbe(
+        client = OkHttpClient.Builder()
+            .addInterceptor {
+                throw UnknownServiceException(
+                    "CLEARTEXT communication to books.example.com not permitted by " +
+                        "network security policy",
+                )
+            }
+            .build(),
+        perRequestTimeoutMs = 5_000L,
+    )
+
+    @Test fun `a blocked cleartext request is reported as such, not as unexpected`() = runTest {
+        val result = cleartextBlockedProbe().probe("http://books.example.com")
+        assertThat(result).isInstanceOf(ServerProbeResult.Error::class.java)
+        assertThat((result as ServerProbeResult.Error).reason).isEqualTo(ProbeError.Cleartext)
+    }
 
     @Test fun `calibre-web detected via 200 atom-xml`() = runTest {
         server.dispatcher = object : Dispatcher() {

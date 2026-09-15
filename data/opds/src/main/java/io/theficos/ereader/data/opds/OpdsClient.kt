@@ -36,6 +36,10 @@ class OpdsClient(
             // for the AI catalog-preview lookup. Readium doesn't surface DC
             // elements either.
             val dcIdsByEpubHref = parseDcIdentifiers(bytes, absoluteUrl)
+            // The entry's blurb (`<summary>` / `<content>`). Readium models it
+            // as publication metadata that our OpdsPublication doesn't carry,
+            // and it is the only book description a reader-only account has.
+            val descriptionsByEpubHref = parseDescriptions(bytes, absoluteUrl)
             OpdsFeed(
                 title = feed.metadata.title,
                 navigation = feed.navigation.map { link ->
@@ -44,23 +48,26 @@ class OpdsClient(
                         href = absolutize(absoluteUrl, link.href.toString()),
                     )
                 },
-                publications = feed.publications.mapNotNull { pub ->
-                    val epubLink = pub.links.firstOrNull { link ->
-                        link.rels.any { isAcquisitionRel(it) } &&
-                            isEpubMediaType(link.mediaType.toString())
-                    } ?: return@mapNotNull null
-                    val absoluteEpubHref = absolutize(absoluteUrl, epubLink.href.toString())
-                    OpdsPublication(
-                        title = pub.metadata.title.orEmpty(),
-                        author = pub.metadata.authors.firstOrNull()?.name,
-                        epubDownloadHref = absoluteEpubHref,
-                        coverUrl = coversByEpubHref[absoluteEpubHref],
-                        webUrl = webUrlsByEpubHref[absoluteEpubHref]
-                            ?: deriveCalibreWebDetailUrl(absoluteEpubHref),
-                        opdsDcId = dcIdsByEpubHref[absoluteEpubHref],
-                        calibreBookId = extractCalibreBookId(absoluteEpubHref),
-                    )
-                },
+                publications = dedupeByDownloadHref(
+                    feed.publications.mapNotNull { pub ->
+                        val epubLink = pub.links.firstOrNull { link ->
+                            link.rels.any { isAcquisitionRel(it) } &&
+                                isEpubMediaType(link.mediaType.toString())
+                        } ?: return@mapNotNull null
+                        val absoluteEpubHref = absolutize(absoluteUrl, epubLink.href.toString())
+                        OpdsPublication(
+                            title = cleanEntryTitle(pub.metadata.title.orEmpty()),
+                            author = pub.metadata.authors.firstOrNull()?.name,
+                            epubDownloadHref = absoluteEpubHref,
+                            coverUrl = coversByEpubHref[absoluteEpubHref],
+                            description = descriptionsByEpubHref[absoluteEpubHref],
+                            webUrl = webUrlsByEpubHref[absoluteEpubHref]
+                                ?: deriveCalibreWebDetailUrl(absoluteEpubHref),
+                            opdsDcId = dcIdsByEpubHref[absoluteEpubHref],
+                            calibreBookId = extractCalibreBookId(absoluteEpubHref),
+                        )
+                    },
+                ),
                 searchLink = searchLink,
             )
         }
@@ -72,6 +79,71 @@ class OpdsClient(
         val rawTemplate = if (link.isDescription) fetchSearchTemplate(link.href) else link.href
         return absolutize(link.baseUrl, applyTemplate(rawTemplate, query))
     }
+
+    /**
+     * Collapse entries that offer the same file, keeping the LAST of each.
+     *
+     * Kavita injects a "Continue Reading from: …" copy of the chapter you are
+     * part-way through at the top of a series feed, pointing at the same
+     * acquisition href as the chapter's own entry further down. Two tiles for
+     * one book is the mild symptom; the sharp one is that the catalog grid keys
+     * its items by that href, and Compose's lazy layouts require item keys to
+     * be unique.
+     *
+     * Last-wins because the duplicate is the injected one: keeping the natural
+     * entry preserves both its position in the feed and its undecorated title.
+     */
+    private fun dedupeByDownloadHref(publications: List<OpdsPublication>): List<OpdsPublication> {
+        if (publications.size < 2) return publications
+        val byHref = LinkedHashMap<String, OpdsPublication>(publications.size)
+        for (pub in publications) {
+            // Re-putting an existing key overwrites the value while keeping the
+            // ORIGINAL insertion position, which would hold the duplicate at the
+            // injected entry's slot. Remove first so it lands in its own place.
+            byHref.remove(pub.epubDownloadHref)
+            byHref[pub.epubDownloadHref] = pub
+        }
+        return byHref.values.toList()
+    }
+
+    /**
+     * Per-entry blurbs, keyed by absolute acquisition href.
+     *
+     * `<summary>` wins over `<content>`: feeds that carry both put the prose in
+     * the summary (Kavita's `<content>` is the literal media type). Markup is
+     * stripped because `type="html"` entries arrive as escaped tags, which would
+     * otherwise be shown verbatim to the reader.
+     */
+    private fun parseDescriptions(bytes: ByteArray, feedUrl: String): Map<String, String> {
+        val doc = parseXmlOrNull(bytes) ?: return emptyMap()
+        val entries = doc.getElementsByTagNameNS(ATOM_NAMESPACE, "entry")
+        val result = mutableMapOf<String, String>()
+        for (i in 0 until entries.length) {
+            val entry = entries.item(i) as org.w3c.dom.Element
+            val links = entry.getElementsByTagNameNS(ATOM_NAMESPACE, "link")
+            var epubHref: String? = null
+            for (j in 0 until links.length) {
+                val el = links.item(j) as org.w3c.dom.Element
+                if (isAcquisitionRel(el.getAttribute("rel")) &&
+                    isEpubMediaType(el.getAttribute("type"))
+                ) {
+                    epubHref = el.getAttribute("href").takeIf { it.isNotBlank() }
+                    break
+                }
+            }
+            if (epubHref == null) continue
+            val text = firstNonBlankChildText(entry, ATOM_NAMESPACE, "summary")
+                ?: firstNonBlankChildText(entry, ATOM_NAMESPACE, "content")
+                ?: continue
+            val plain = stripMarkup(text)
+            if (plain.isNotEmpty()) result[absolutize(feedUrl, epubHref)] = plain
+        }
+        return result
+    }
+
+    /** Drop HTML tags and collapse runs of whitespace into single spaces. */
+    private fun stripMarkup(raw: String): String =
+        raw.replace(HTML_TAG, " ").replace(WHITESPACE_RUN, " ").trim()
 
     private fun parseCoverHrefs(bytes: ByteArray, feedUrl: String): Map<String, String> {
         val doc = runCatching {
@@ -285,6 +357,8 @@ class OpdsClient(
 
     private companion object {
         private val OPTIONAL_PARAM = Regex("""\{[^{}]+\?\}""")
+        private val HTML_TAG = Regex("""<[^>]+>""")
+        private val WHITESPACE_RUN = Regex("""\s+""")
         private val CALIBRE_DOWNLOAD_REGEX = Regex("""/opds/download/(\d+)/[^/?]+/?(?:\?.*)?$""")
         private const val DC_TERMS_NS = "http://purl.org/dc/terms/"
         private const val DC_ELEMENTS_NS = "http://purl.org/dc/elements/1.1/"

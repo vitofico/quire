@@ -346,6 +346,29 @@ nothing may log it unredacted. `quireServerUrlOrNull()` returns null for it,
 which is the single gate that keeps sync, the library mirror, and AI switched
 off. See issue #101 for the design discussion.
 
+### Reading someone else's feed
+
+A catalog decorates its entries for its own UI, and Quire carries entry text
+into the library at download time, so `OpdsClient` normalises what it reads
+before anything downstream sees it:
+
+- **A leading reading-progress glyph is stripped from the title.** Kavita
+  prefixes every acquisition entry with `⭘`, `◔`, `◑`, `◕` or `⬤` when the
+  user has its `EmbedProgressIndicator` preference on. Without this, books
+  landed in the library named `⭘ Series - Volume 3`.
+- **Entries sharing an acquisition href are collapsed, last one wins.** Kavita
+  injects a "Continue Reading from: …" copy of the chapter in progress at the
+  top of a series feed, pointing at the file the chapter's own entry already
+  offers. The catalog grid keys its tiles by that href, and Compose's lazy
+  layouts require unique keys.
+- **`<summary>`, else `<content>`, becomes the publication description**, with
+  markup stripped. On a reader-only account it is the only blurb the book
+  detail screen has, since the AI insight section needs a quire-server.
+
+Both Kavita behaviours were confirmed against live feeds from its public demo
+server; the fixtures under `data/opds/src/test/resources/opds/` are trimmed
+copies of those responses.
+
 ## AuthBackend abstraction (Phase 0, 2026-05-22)
 
 The OSS server's primary authentication is now selected through a thin

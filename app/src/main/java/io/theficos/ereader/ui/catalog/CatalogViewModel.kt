@@ -19,6 +19,7 @@ import io.theficos.ereader.data.opds.BookDownloader
 import io.theficos.ereader.data.opds.OpdsClient
 import io.theficos.ereader.data.opds.OpdsFeed
 import io.theficos.ereader.data.opds.OpdsPublication
+import io.theficos.ereader.data.opds.cleartextBlockedMessage
 import io.theficos.ereader.data.opds.redactUrl
 import io.theficos.ereader.data.sync.SyncEnqueuer
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -110,7 +111,7 @@ class CatalogViewModel(
                 .onSuccess { feed ->
                     _state.value = CatalogUiState.Loaded(current.url, feed, canGoBack = backStack.isNotEmpty())
                 }
-                .onFailure { _state.value = CatalogUiState.Error(it.message ?: "Fetch failed") }
+                .onFailure { _state.value = CatalogUiState.Error(describeFailure(it, "Fetch failed")) }
             _isRefreshing.value = false
         }
     }
@@ -124,7 +125,7 @@ class CatalogViewModel(
                     if (current != null) backStack.push(current.url to current.feed)
                     _state.value = CatalogUiState.Loaded(url, feed, canGoBack = backStack.isNotEmpty())
                 }
-                .onFailure { _state.value = CatalogUiState.Error(it.message ?: "Fetch failed") }
+                .onFailure { _state.value = CatalogUiState.Error(describeFailure(it, "Fetch failed")) }
         }
     }
 
@@ -147,7 +148,7 @@ class CatalogViewModel(
                 backStack.push(current.url to current.feed)
                 _state.value = CatalogUiState.Loaded(resolved, feed, canGoBack = true)
             }.onFailure {
-                _state.value = CatalogUiState.Error(it.message ?: "Search failed")
+                _state.value = CatalogUiState.Error(describeFailure(it, "Search failed"))
             }
         }
     }
@@ -196,6 +197,17 @@ class CatalogViewModel(
             )
         }
     }
+
+    /**
+     * Failure copy for the catalog screen.
+     *
+     * Exception text is the fallback, not the answer: the one failure a user can
+     * act on themselves is the platform refusing an `http://` request, and its
+     * raw form ("CLEARTEXT communication to … not permitted by network security
+     * policy") reads like a crash report (issue #101).
+     */
+    private fun describeFailure(t: Throwable, fallback: String): String =
+        cleartextBlockedMessage(t) ?: t.message ?: fallback
 
     fun download(pub: OpdsPublication, context: Context) {
         val current = _state.value as? CatalogUiState.Loaded ?: return
@@ -272,7 +284,8 @@ class CatalogViewModel(
                 _state.value = current.copy(
                     downloading = null,
                     progress = 0f,
-                    error = "${it.javaClass.simpleName}: ${it.message ?: "(no message)"}",
+                    error = cleartextBlockedMessage(it)
+                        ?: "${it.javaClass.simpleName}: ${it.message ?: "(no message)"}",
                 )
             }
         }

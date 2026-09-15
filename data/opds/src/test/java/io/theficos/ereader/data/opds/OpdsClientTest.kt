@@ -52,6 +52,8 @@ class OpdsClientTest {
                         .setBody(resource("/opds/kavita-root.xml"))
                     "/api/opds/TEST-KEY/series/70" -> MockResponse().setHeader("Content-Type", "application/xml")
                         .setBody(resource("/opds/kavita-series.xml"))
+                    "/api/opds/TEST-KEY/series/71" -> MockResponse().setHeader("Content-Type", "application/xml")
+                        .setBody(resource("/opds/kavita-series-progress.xml"))
                     "/flibusta-style" -> MockResponse().setHeader("Content-Type", "application/atom+xml")
                         .setBody(resource("/opds/flibusta-style.xml"))
                     "/gutenberg-style" -> MockResponse().setHeader("Content-Type", "application/atom+xml")
@@ -238,6 +240,50 @@ class OpdsClientTest {
     @Test fun `the short opds thumbnail rel resolves a cover`() = runTest {
         val feed = client.fetch(server.url("/flibusta-style").toString())
         assertThat(feed.publications[0].coverUrl).endsWith("/i/89/889227/cover.jpg")
+    }
+
+    // ---------- issue #101 follow-up: what Kavita puts in an entry ----------
+
+    @Test fun `a reading-progress glyph is not part of the book title`() = runTest {
+        val feed = client.fetch(server.url("/api/opds/TEST-KEY/series/71").toString())
+        assertThat(feed.publications.map { it.title })
+            .containsExactly(
+                "EXP Is Golden - EXP Is Golden: Volume 1",
+                "EXP Is Golden - EXP Is Golden: Volume 2",
+            )
+            .inOrder()
+    }
+
+    @Test fun `the injected continue-reading copy of an entry is dropped`() = runTest {
+        val feed = client.fetch(server.url("/api/opds/TEST-KEY/series/71").toString())
+        // Both entries point at Volume1.epub; only one tile may survive, and the
+        // catalog grid keys its items by this href.
+        assertThat(feed.publications.map { it.epubDownloadHref }.toSet())
+            .hasSize(feed.publications.size)
+        assertThat(feed.publications.map { it.title })
+            .doesNotContain("Continue Reading from: \u25D4 EXP Is Golden - EXP Is Golden: Volume 1")
+    }
+
+    @Test fun `the surviving copy keeps the metadata of the natural entry`() = runTest {
+        val feed = client.fetch(server.url("/api/opds/TEST-KEY/series/71").toString())
+        // The injected copy carries no author; the entry in its own place does.
+        assertThat(feed.publications.first().author).isEqualTo("Harajun")
+    }
+
+    @Test fun `an entry summary becomes the publication description`() = runTest {
+        val feed = client.fetch(server.url("/api/opds/TEST-KEY/series/71").toString())
+        assertThat(feed.publications[0].description).isEqualTo("File Type: epub+zip - 356 KB")
+    }
+
+    @Test fun `html markup in a summary is stripped`() = runTest {
+        val feed = client.fetch(server.url("/api/opds/TEST-KEY/series/71").toString())
+        assertThat(feed.publications[1].description)
+            .isEqualTo("The Queen of Destruction plays on.")
+    }
+
+    @Test fun `a description is null when the entry carries none`() = runTest {
+        val feed = client.fetch(server.url("/opds/new").toString())
+        assertThat(feed.publications.single().description).isNull()
     }
 
     @Test fun `a data uri is never surfaced as a cover`() = runTest {

@@ -251,10 +251,12 @@ class ServerProbe(
         } catch (e: IOException) {
             // Per-call timeout surfaces as InterruptedIOException → IOException.
             val msg = e.localizedMessage.orEmpty().lowercase()
-            val reason = if ("timeout" in msg || "timed out" in msg) {
-                ProbeError.Timeout
-            } else {
-                ProbeError.Unexpected
+            val reason = when {
+                // A blocked http:// request never leaves the device, so this is
+                // not a server the user can fix by retrying (issue #101).
+                cleartextBlockedMessage(e) != null -> ProbeError.Cleartext
+                "timeout" in msg || "timed out" in msg -> ProbeError.Timeout
+                else -> ProbeError.Unexpected
             }
             ProbeOutcome.NegativeWith(reason, e.localizedMessage ?: "I/O error")
         }
@@ -393,6 +395,9 @@ enum class ProbeError {
     ConnectionRefused,
     Timeout,
     RedirectRejected,
+
+    /** The URL is `http://` and the platform refused to send the request. */
+    Cleartext,
     Unexpected,
 }
 

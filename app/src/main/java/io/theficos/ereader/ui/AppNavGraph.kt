@@ -21,6 +21,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import android.content.Intent
 import android.net.Uri
 import kotlinx.coroutines.launch
@@ -129,23 +132,34 @@ fun AppNavGraph(container: AppContainer) {
                     restoreInProgress = { onProgress -> container.runRestoreInProgress(onProgress) },
                 )
             }
-            val catVm = remember {
-                CatalogViewModel(
-                    client = container.opdsClient,
-                    downloader = container.bookDownloader,
-                    docs = container.documentRepository,
-                    credentialStore = container.credentialStore,
-                    syncStateDao = container.syncStateDao,
-                    catalogPreferencesStore = container.catalogPreferencesStore,
-                    libraryUploader = container.libraryUploader,
-                    aiRepository = container.aiRepository,
-                    catalogInsightStash = container.catalogInsightStash,
-                    insightSyncRepository = container.insightSyncRepository,
-                    subjectProvider = {
-                        container.credentialStore.get()?.username?.lowercase()
-                    },
-                )
-            }
+            // Scoped to the "home" back-stack entry rather than `remember`ed:
+            // opening a book's detail screen takes "home" out of composition,
+            // and a remembered viewmodel dies with it. The rebuilt one starts at
+            // the catalog root, so coming back from a book landed the user at
+            // the top-level menu instead of the shelf they were looking at
+            // (issue #101). A viewmodel outlives the composition and is cleared
+            // with the entry itself.
+            val catVm: CatalogViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer {
+                        CatalogViewModel(
+                            client = container.opdsClient,
+                            downloader = container.bookDownloader,
+                            docs = container.documentRepository,
+                            credentialStore = container.credentialStore,
+                            syncStateDao = container.syncStateDao,
+                            catalogPreferencesStore = container.catalogPreferencesStore,
+                            libraryUploader = container.libraryUploader,
+                            aiRepository = container.aiRepository,
+                            catalogInsightStash = container.catalogInsightStash,
+                            insightSyncRepository = container.insightSyncRepository,
+                            subjectProvider = {
+                                container.credentialStore.get()?.username?.lowercase()
+                            },
+                        )
+                    }
+                },
+            )
             val setVm = remember {
                 SettingsViewModel(
                     store = container.credentialStore,

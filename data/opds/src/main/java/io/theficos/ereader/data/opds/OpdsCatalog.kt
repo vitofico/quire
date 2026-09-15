@@ -17,6 +17,13 @@ data class OpdsPublication(
     val author: String?,
     val epubDownloadHref: String,
     val coverUrl: String?,
+    /**
+     * The entry's own blurb, from `<summary>` or `<content>`, with any HTML
+     * markup stripped. Null when the feed carried neither, or carried only an
+     * empty one. It is the only description a reader-only account can show:
+     * the AI insight section stays hidden without a quire-server (issue #101).
+     */
+    val description: String? = null,
     /** OPDS `rel=alternate type=text/html` href — the book's web detail page on the OPDS server (calibre-web's `/book/{id}`). Null if the feed didn't expose one. */
     val webUrl: String? = null,
     /**

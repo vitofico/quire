@@ -1,6 +1,7 @@
 package io.theficos.ereader.ui.catalog
 
 import android.content.Context
+import androidx.lifecycle.viewModelScope
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import app.cash.turbine.test
@@ -12,6 +13,7 @@ import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.db.EReaderDatabase
 import io.theficos.ereader.data.local.db.SyncStateEntity
 import io.theficos.ereader.data.opds.BookDownloader
+import io.theficos.ereader.data.opds.CLEARTEXT_BLOCKED_MESSAGE
 import io.theficos.ereader.data.opds.OpdsClient
 import io.theficos.ereader.data.opds.OpdsPublication
 import kotlinx.coroutines.CoroutineScope
@@ -79,11 +81,25 @@ class CatalogViewModelTest {
         // Reset the Main dispatcher unconditionally — if any of the cleanup
         // steps throw, an un-reset Main pollutes the next test's setMain() and
         // cascades lateinit failures across the suite.
+        runCatching { viewModels.forEach { it.viewModelScope.cancel() } }
         runCatching { db.close() }
         runCatching { server.shutdown() }
         runCatching { booksDir.deleteRecursively() }
         Dispatchers.resetMain()
     }
+
+    /**
+     * View models a test built, cancelled when that test ends.
+     *
+     * A [CatalogViewModel] collects `accountFlow` from `viewModelScope` for as
+     * long as it lives. Left running past its own test, that collector wakes on
+     * the next account this suite saves and touches a Main dispatcher another
+     * test is busy resetting — "Dispatchers.Main is used concurrently with
+     * setting it", failing a test that has nothing to do with the leak.
+     */
+    private val viewModels = mutableListOf<CatalogViewModel>()
+
+    private fun track(vm: CatalogViewModel): CatalogViewModel = vm.also { viewModels += it }
 
     private fun feedXml(epubUrl: String): String = """
         <?xml version="1.0" encoding="UTF-8"?>
@@ -124,7 +140,7 @@ class CatalogViewModelTest {
             }
         }
 
-        val vm = CatalogViewModel(
+        val vm = track(CatalogViewModel(
             client = opdsClient,
             downloader = downloader,
             docs = docs,
@@ -134,7 +150,7 @@ class CatalogViewModelTest {
                 androidx.test.core.app.ApplicationProvider.getApplicationContext()
             ),
             syncEnqueuer = { enqueueCount++ },
-        )
+        ))
 
         // Drive into Loaded state so download()'s state guard passes. The OPDS
         // fetch suspends on Dispatchers.IO (real), which advanceUntilIdle won't
@@ -194,7 +210,7 @@ class CatalogViewModelTest {
             }
         }
 
-        val vm = CatalogViewModel(
+        val vm = track(CatalogViewModel(
             client = opdsClient,
             downloader = downloader,
             docs = docs,
@@ -207,7 +223,7 @@ class CatalogViewModelTest {
             aiRepository = null,  // We supply the repo via injection trick below.
             catalogInsightStash = stash,
             subjectProvider = { "alice" },
-        )
+        ))
 
         // Drive into Loaded so download() proceeds.
         vm.load(server.url("/opds").toString())
@@ -286,15 +302,17 @@ class CatalogViewModelTest {
     private fun newViewModel(
         syncEnqueuer: (Context) -> Unit = { enqueueCount++ },
         libraryUploader: LibraryUploader? = null,
-    ) = CatalogViewModel(
-        client = opdsClient,
-        downloader = downloader,
-        docs = docs,
-        credentialStore = credentialStore,
-        syncStateDao = db.syncStateDao(),
-        catalogPreferencesStore = CatalogPreferencesStore(context),
-        libraryUploader = libraryUploader,
-        syncEnqueuer = syncEnqueuer,
+    ) = track(
+        CatalogViewModel(
+            client = opdsClient,
+            downloader = downloader,
+            docs = docs,
+            credentialStore = credentialStore,
+            syncStateDao = db.syncStateDao(),
+            catalogPreferencesStore = CatalogPreferencesStore(context),
+            libraryUploader = libraryUploader,
+            syncEnqueuer = syncEnqueuer,
+        )
     )
 
     /** First request the view model made, or a failure if it made none. */
@@ -326,6 +344,39 @@ class CatalogViewModelTest {
         newViewModel().loadRoot()
 
         assertThat(firstRequestPath()).isEqualTo("/opds")
+    }
+
+    @Test fun `a blocked http catalog explains itself instead of quoting the exception`() = runTest {
+        // Stand in for the platform: on device this is what OkHttp raises when
+        // the network security policy refuses a cleartext request (issue #101).
+        val blocked = OpdsClient(
+            OkHttpClient.Builder()
+                .addInterceptor {
+                    throw java.net.UnknownServiceException(
+                        "CLEARTEXT communication to books.example.com not permitted by " +
+                            "network security policy",
+                    )
+                }
+                .build(),
+        )
+        val vm = track(CatalogViewModel(
+            client = blocked,
+            downloader = downloader,
+            docs = docs,
+            credentialStore = credentialStore,
+            syncStateDao = db.syncStateDao(),
+            catalogPreferencesStore = CatalogPreferencesStore(context),
+            syncEnqueuer = { enqueueCount++ },
+        ))
+        vm.load("http://books.example.com/opds")
+
+        vm.state.test {
+            var state = awaitItem()
+            while (state !is CatalogUiState.Error) state = awaitItem()
+            assertThat(state.message).isEqualTo(CLEARTEXT_BLOCKED_MESSAGE)
+            assertThat(state.message).doesNotContain("CLEARTEXT communication")
+            cancelAndIgnoreRemainingEvents()
+        }
     }
 
     @Test fun `no account shows a scheme-neutral error`() = runTest {

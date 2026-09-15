@@ -3,9 +3,11 @@ package io.theficos.ereader.ui.onboarding
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.theficos.ereader.auth.CalibreCredentialStore
+import io.theficos.ereader.data.opds.CLEARTEXT_BLOCKED_MESSAGE
 import io.theficos.ereader.data.opds.ProbeError
 import io.theficos.ereader.data.opds.ServerProbe
 import io.theficos.ereader.data.opds.ServerProbeResult
+import io.theficos.ereader.data.opds.cleartextBlockedMessage
 import io.theficos.ereader.data.opds.isAcquisitionRel
 import io.theficos.ereader.data.opds.isEpubMediaType
 import io.theficos.ereader.data.opds.parseXmlOrNull
@@ -209,7 +211,9 @@ class ConnectServerViewModel(
                 }
             }
         } catch (e: IOException) {
-            VerificationOutcome.Failure(e.localizedMessage ?: "Network error.")
+            VerificationOutcome.Failure(
+                cleartextBlockedMessage(e) ?: e.localizedMessage ?: "Network error.",
+            )
         }
     }
 
@@ -281,7 +285,9 @@ class ConnectServerViewModel(
                 }
             }
         } catch (e: IOException) {
-            VerificationOutcome.Failure(e.localizedMessage ?: "Network error.")
+            VerificationOutcome.Failure(
+                cleartextBlockedMessage(e) ?: e.localizedMessage ?: "Network error.",
+            )
         }
     }
 
@@ -333,7 +339,9 @@ class ConnectServerViewModel(
                 }
             }
         } catch (e: IOException) {
-            VerificationOutcome.Failure(e.localizedMessage ?: "Network error.")
+            VerificationOutcome.Failure(
+                cleartextBlockedMessage(e) ?: e.localizedMessage ?: "Network error.",
+            )
         }
     }
 
@@ -416,5 +424,6 @@ fun probeErrorMessage(reason: ProbeError, raw: String): String = when (reason) {
     ProbeError.RedirectRejected ->
         "The server redirected us somewhere unexpected. " +
             "Try the redirect's final URL directly."
+    ProbeError.Cleartext -> CLEARTEXT_BLOCKED_MESSAGE
     ProbeError.Unexpected -> "Couldn't reach the server: $raw"
 }
