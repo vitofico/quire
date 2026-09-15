@@ -1,5 +1,6 @@
 package io.theficos.ereader.ui.library
 
+import androidx.lifecycle.viewModelScope
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import app.cash.turbine.test
@@ -17,6 +18,7 @@ import io.theficos.ereader.domain.restore.RestoreSummary
 import io.theficos.ereader.ui.catalog.FakeAndroidKeyStore
 import io.theficos.ereader.core.model.Progress as DomainProgress
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -65,17 +67,22 @@ class LibraryViewModelTest {
             syncState = db.syncStateDao(),
             nowMillis = { 100L },
         )
-        vm = LibraryViewModel(
+        vm = track(LibraryViewModel(
             docs = docs,
             progress = progress,
             syncOrchestrator = orchestrator,
             booksDir = File("/dev/null"),
             libraryPreferencesStore = LibraryPreferencesStore(ApplicationProvider.getApplicationContext()),
             nowMillis = { 999L },
-        )
+        ))
     }
 
     @After fun tearDown() {
+        // Every view model this test built keeps `WhileSubscribed` collectors alive
+        // on viewModelScope, which runs on the Main dispatcher we are about to reset.
+        // Left running they outlive the test and trip the next one's setMain() with
+        // "Dispatchers.Main is used concurrently with setting it" (see 4bfc1bd).
+        runCatching { viewModels.forEach { it.viewModelScope.cancel() } }
         // Reset the Main dispatcher unconditionally — if db.close()/server.shutdown()
         // throw, an un-reset Main pollutes the next test's setMain() with an
         // IllegalStateException and cascades lateinit failures across the suite.
@@ -83,6 +90,12 @@ class LibraryViewModelTest {
         runCatching { server.shutdown() }
         Dispatchers.resetMain()
     }
+
+    /** Every view model built by this test, so tearDown can cancel their scopes. */
+    private val viewModels = mutableListOf<LibraryViewModel>()
+
+    private fun track(viewModel: LibraryViewModel): LibraryViewModel =
+        viewModel.also { viewModels += it }
 
     private suspend fun seedDoc(file: File): Document {
         val id = db.documentDao().insert(DocumentEntity(
@@ -287,7 +300,7 @@ class LibraryViewModelTest {
         }
     }
 
-    private fun vmWith(store: CalibreCredentialStore): LibraryViewModel = LibraryViewModel(
+    private fun vmWith(store: CalibreCredentialStore): LibraryViewModel = track(LibraryViewModel(
         docs = docs,
         progress = progress,
         syncOrchestrator = orchestrator,
@@ -296,7 +309,7 @@ class LibraryViewModelTest {
         nowMillis = { 999L },
         credentialStore = store,
         restoreInProgress = { _ -> RestoreSummary(0, 0, 0, 0, 0) },
-    )
+    ))
 
     @Test fun `canRestore is true when connected and library empty`() = runTest {
         val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
