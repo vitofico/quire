@@ -54,6 +54,8 @@ class OpdsClientTest {
                         .setBody(resource("/opds/kavita-series.xml"))
                     "/api/opds/TEST-KEY/series/71" -> MockResponse().setHeader("Content-Type", "application/xml")
                         .setBody(resource("/opds/kavita-series-progress.xml"))
+                    "/api/opds/TEST-KEY/series/4" -> MockResponse().setHeader("Content-Type", "application/xml")
+                        .setBody(resource("/opds/kavita-series-volumes.xml"))
                     "/flibusta-style" -> MockResponse().setHeader("Content-Type", "application/atom+xml")
                         .setBody(resource("/opds/flibusta-style.xml"))
                     "/gutenberg-style" -> MockResponse().setHeader("Content-Type", "application/atom+xml")
@@ -293,5 +295,18 @@ class OpdsClientTest {
         assertThat(feed.navigation).hasSize(1)
         assertThat(feed.publications.mapNotNull { it.coverUrl })
             .doesNotContain("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABYAAAAWCAYAAADEtGw7AAAABGdBTUEAAK/INwWK6QAA")
+    }
+
+    @Test fun `a series feed keeps the order the server sent`() = runTest {
+        // Issue #105: the reporter's Kavita series page, 29 volumes in reading
+        // order. Two entries are untidy in ways that an alphabetical sort would
+        // act on — volume 19 names only one of the two authors, and volume 16's
+        // title has a stray colon ("Re:ZERO:") — so this asserts the parser hands
+        // the feed on untouched and leaves ordering to the caller.
+        val feed = client.fetch(server.url("/api/opds/TEST-KEY/series/4").toString())
+
+        assertThat(feed.publications).hasSize(29)
+        val volumes = feed.publications.map { it.title.substringAfterLast("Vol. ") }
+        assertThat(volumes).isEqualTo((1..29).map { "%02d".format(it) })
     }
 }

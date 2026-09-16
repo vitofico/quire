@@ -289,15 +289,6 @@ private val catalogSortLabels: List<Pair<CatalogSort, String>> = listOf(
     CatalogSort.AS_SHOWN to "As shown",
 )
 
-private fun applyCatalogSort(list: List<OpdsPublication>, by: CatalogSort): List<OpdsPublication> = when (by) {
-    CatalogSort.AUTHOR -> list.sortedWith(
-        compareBy<OpdsPublication> { it.author?.lowercase() ?: "￿" }
-            .thenBy { it.title.lowercase() }
-    )
-    CatalogSort.TITLE -> list.sortedBy { it.title.lowercase() }
-    CatalogSort.AS_SHOWN -> list
-}
-
 @Composable
 private fun CatalogBooksHeader(
     count: Int,
