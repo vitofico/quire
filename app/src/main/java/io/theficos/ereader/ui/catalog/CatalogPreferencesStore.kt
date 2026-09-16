@@ -17,10 +17,16 @@ class CatalogPreferencesStore(context: Context) {
         _flow.value = sort
     }
 
+    /**
+     * Default [CatalogSort.AS_SHOWN]: leave a catalog page in the order the
+     * server sent it. The old default sorted every page by author, which
+     * scrambled feeds whose order is the point — a Kavita series page came out
+     * with volume 19 first and volume 16 last (issue #105).
+     */
     private fun load(): CatalogSort {
-        val raw = prefs.getString(KEY_SORT, CatalogSort.AUTHOR.name)
-            ?: CatalogSort.AUTHOR.name
-        return runCatching { CatalogSort.valueOf(raw) }.getOrDefault(CatalogSort.AUTHOR)
+        val raw = prefs.getString(KEY_SORT, CatalogSort.AS_SHOWN.name)
+            ?: CatalogSort.AS_SHOWN.name
+        return runCatching { CatalogSort.valueOf(raw) }.getOrDefault(CatalogSort.AS_SHOWN)
     }
 
     private companion object {

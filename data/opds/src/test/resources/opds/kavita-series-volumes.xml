@@ -1,0 +1,483 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns="http://www.w3.org/2005/Atom">
+  <updated>2026-09-15T21:35:38</updated>
+  <id>series-4</id>
+  <title>Re:ZERO -Starting Life in Another World - Storyline</title>
+  <icon>/api/opds/APIKEY/favicon</icon>
+  <author>
+    <name>Kavita</name>
+    <uri>https://www.kavitareader.com</uri>
+  </author>
+  <link rel="self" type="application/atom+xml;profile=opds-catalog;kind=acquisition" href="/api/opds/APIKEY/series/4"/>
+  <link rel="start" type="application/atom+xml;profile=opds-catalog;kind=navigation" href="/api/opds/APIKEY"/>
+  <link rel="search" type="application/opensearchdescription+xml" href="/api/opds/APIKEY/search"/>
+  <link rel="http://opds-spec.org/image" type="image/jpeg" href="/api/image/series-cover?seriesId=4&amp;apiKey=APIKEY"/>
+  <entry>
+    <updated>2026-09-15T21:35:38</updated>
+    <id>5</id>
+    <title>⭘ Re:ZERO -Starting Life in Another World - Re:ZERO -Starting Life in Another World-, Vol. 01</title>
+    <summary>File Type: epub+zip - 11.66 MB</summary>
+    <extent xmlns="http://purl.org/dc/terms/">11.66 MB</extent>
+    <format xmlns="http://purl.org/dc/terms/format">Epub</format>
+    <content type="text">application/epub+zip</content>
+    <link rel="http://opds-spec.org/image" type="image/jpeg" href="/api/image/chapter-cover?chapterId=5&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=5&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/APIKEY/series/4/volume/5/chapter/5/download/ReZERO%20-Starting%20Life%20in%20Another%20World-%20v01%20%5BYen%20Press%5D%20%5BStick%5D.epub" title="ReZERO%20-Starting%20Life%20in%20Another%20World-%20v01%20%5BYen%20Press%5D%20%5BStick%5D.epub" p5:count="41" xmlns:p5="http://vaemendis.net/opds-pse/ns"/>
+    <author>
+      <name>Tappei Nagatsuki and Shinichirou Otsuka</name>
+      <uri>http://opds-spec.org/author/12</uri>
+    </author>
+  </entry>
+  <entry>
+    <updated>2026-09-15T21:35:38</updated>
+    <id>12</id>
+    <title>⭘ Re:ZERO -Starting Life in Another World - Re:ZERO -Starting Life in Another World-, Vol. 02</title>
+    <summary>File Type: epub+zip - 14.63 MB</summary>
+    <extent xmlns="http://purl.org/dc/terms/">14.63 MB</extent>
+    <format xmlns="http://purl.org/dc/terms/format">Epub</format>
+    <content type="text">application/epub+zip</content>
+    <link rel="http://opds-spec.org/image" type="image/jpeg" href="/api/image/chapter-cover?chapterId=12&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=12&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/APIKEY/series/4/volume/12/chapter/12/download/ReZERO%20-Starting%20Life%20in%20Another%20World-%20v02%20%5BYen%20Press%5D%20%5BStick%5D%20%7Br%7D.epub" title="ReZERO%20-Starting%20Life%20in%20Another%20World-%20v02%20%5BYen%20Press%5D%20%5BStick%5D%20%7Br%7D.epub" p5:count="39" xmlns:p5="http://vaemendis.net/opds-pse/ns"/>
+    <author>
+      <name>Tappei Nagatsuki and Shinichirou Otsuka</name>
+      <uri>http://opds-spec.org/author/12</uri>
+    </author>
+  </entry>
+  <entry>
+    <updated>2026-09-15T21:35:38</updated>
+    <id>29</id>
+    <title>⭘ Re:ZERO -Starting Life in Another World - Re:ZERO -Starting Life in Another World-, Vol. 03</title>
+    <summary>File Type: epub+zip - 12.25 MB</summary>
+    <extent xmlns="http://purl.org/dc/terms/">12.25 MB</extent>
+    <format xmlns="http://purl.org/dc/terms/format">Epub</format>
+    <content type="text">application/epub+zip</content>
+    <link rel="http://opds-spec.org/image" type="image/jpeg" href="/api/image/chapter-cover?chapterId=29&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=29&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/APIKEY/series/4/volume/29/chapter/29/download/ReZERO%20-Starting%20Life%20in%20Another%20World-%20v03%20%5BYen%20Press%5D%20%5BStick%5D.epub" title="ReZERO%20-Starting%20Life%20in%20Another%20World-%20v03%20%5BYen%20Press%5D%20%5BStick%5D.epub" p5:count="40" xmlns:p5="http://vaemendis.net/opds-pse/ns"/>
+    <author>
+      <name>Tappei Nagatsuki and Shinichirou Otsuka</name>
+      <uri>http://opds-spec.org/author/12</uri>
+    </author>
+  </entry>
+  <entry>
+    <updated>2026-09-15T21:35:38</updated>
+    <id>30</id>
+    <title>⭘ Re:ZERO -Starting Life in Another World - Re:ZERO -Starting Life in Another World-, Vol. 04</title>
+    <summary>File Type: epub+zip - 16.96 MB</summary>
+    <extent xmlns="http://purl.org/dc/terms/">16.96 MB</extent>
+    <format xmlns="http://purl.org/dc/terms/format">Epub</format>
+    <content type="text">application/epub+zip</content>
+    <link rel="http://opds-spec.org/image" type="image/jpeg" href="/api/image/chapter-cover?chapterId=30&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=30&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/APIKEY/series/4/volume/30/chapter/30/download/ReZERO%20-Starting%20Life%20in%20Another%20World-%20v04%20%5BYen%20Press%5D%20%5BStick%5D.epub" title="ReZERO%20-Starting%20Life%20in%20Another%20World-%20v04%20%5BYen%20Press%5D%20%5BStick%5D.epub" p5:count="40" xmlns:p5="http://vaemendis.net/opds-pse/ns"/>
+    <author>
+      <name>Tappei Nagatsuki and Shinichirou Otsuka</name>
+      <uri>http://opds-spec.org/author/12</uri>
+    </author>
+  </entry>
+  <entry>
+    <updated>2026-09-15T21:35:38</updated>
+    <id>6</id>
+    <title>⭘ Re:ZERO -Starting Life in Another World - Re:ZERO -Starting Life in Another World-, Vol. 05</title>
+    <summary>File Type: epub+zip - 13.75 MB</summary>
+    <extent xmlns="http://purl.org/dc/terms/">13.75 MB</extent>
+    <format xmlns="http://purl.org/dc/terms/format">Epub</format>
+    <content type="text">application/epub+zip</content>
+    <link rel="http://opds-spec.org/image" type="image/jpeg" href="/api/image/chapter-cover?chapterId=6&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=6&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/APIKEY/series/4/volume/6/chapter/6/download/ReZERO%20-Starting%20Life%20in%20Another%20World-%20v05%20%5BYen%20Press%5D%20%5BStick%5D.epub" title="ReZERO%20-Starting%20Life%20in%20Another%20World-%20v05%20%5BYen%20Press%5D%20%5BStick%5D.epub" p5:count="38" xmlns:p5="http://vaemendis.net/opds-pse/ns"/>
+    <author>
+      <name>Tappei Nagatsuki and Shinichirou Otsuka</name>
+      <uri>http://opds-spec.org/author/12</uri>
+    </author>
+  </entry>
+  <entry>
+    <updated>2026-09-15T21:35:38</updated>
+    <id>9</id>
+    <title>⭘ Re:ZERO -Starting Life in Another World - Re:ZERO -Starting Life in Another World-, Vol. 06</title>
+    <summary>File Type: epub+zip - 15.72 MB</summary>
+    <extent xmlns="http://purl.org/dc/terms/">15.72 MB</extent>
+    <format xmlns="http://purl.org/dc/terms/format">Epub</format>
+    <content type="text">application/epub+zip</content>
+    <link rel="http://opds-spec.org/image" type="image/jpeg" href="/api/image/chapter-cover?chapterId=9&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=9&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/APIKEY/series/4/volume/9/chapter/9/download/ReZERO%20-Starting%20Life%20in%20Another%20World-%20v06%20%5BYen%20Press%5D%20%5BStick%5D.epub" title="ReZERO%20-Starting%20Life%20in%20Another%20World-%20v06%20%5BYen%20Press%5D%20%5BStick%5D.epub" p5:count="39" xmlns:p5="http://vaemendis.net/opds-pse/ns"/>
+    <author>
+      <name>Tappei Nagatsuki and Shinichirou Otsuka</name>
+      <uri>http://opds-spec.org/author/12</uri>
+    </author>
+  </entry>
+  <entry>
+    <updated>2026-09-15T21:35:38</updated>
+    <id>19</id>
+    <title>⭘ Re:ZERO -Starting Life in Another World - Re:ZERO -Starting Life in Another World-, Vol. 07</title>
+    <summary>File Type: epub+zip - 12.9 MB</summary>
+    <extent xmlns="http://purl.org/dc/terms/">12.9 MB</extent>
+    <format xmlns="http://purl.org/dc/terms/format">Epub</format>
+    <content type="text">application/epub+zip</content>
+    <link rel="http://opds-spec.org/image" type="image/jpeg" href="/api/image/chapter-cover?chapterId=19&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=19&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/APIKEY/series/4/volume/19/chapter/19/download/ReZERO%20-Starting%20Life%20in%20Another%20World-%20v07%20%5BYen%20Press%5D%20%5BStick%5D.epub" title="ReZERO%20-Starting%20Life%20in%20Another%20World-%20v07%20%5BYen%20Press%5D%20%5BStick%5D.epub" p5:count="33" xmlns:p5="http://vaemendis.net/opds-pse/ns"/>
+    <author>
+      <name>Tappei Nagatsuki and Shinichirou Otsuka</name>
+      <uri>http://opds-spec.org/author/12</uri>
+    </author>
+  </entry>
+  <entry>
+    <updated>2026-09-15T21:35:38</updated>
+    <id>10</id>
+    <title>⭘ Re:ZERO -Starting Life in Another World - Re:ZERO -Starting Life in Another World-, Vol. 08</title>
+    <summary>File Type: epub+zip - 13.52 MB</summary>
+    <extent xmlns="http://purl.org/dc/terms/">13.52 MB</extent>
+    <format xmlns="http://purl.org/dc/terms/format">Epub</format>
+    <content type="text">application/epub+zip</content>
+    <link rel="http://opds-spec.org/image" type="image/jpeg" href="/api/image/chapter-cover?chapterId=10&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=10&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/APIKEY/series/4/volume/10/chapter/10/download/ReZERO%20-Starting%20Life%20in%20Another%20World-%20v08%20%5BYen%20Press%5D%20%5BStick%5D.epub" title="ReZERO%20-Starting%20Life%20in%20Another%20World-%20v08%20%5BYen%20Press%5D%20%5BStick%5D.epub" p5:count="36" xmlns:p5="http://vaemendis.net/opds-pse/ns"/>
+    <author>
+      <name>Tappei Nagatsuki and Shinichirou Otsuka</name>
+      <uri>http://opds-spec.org/author/12</uri>
+    </author>
+  </entry>
+  <entry>
+    <updated>2026-09-15T21:35:38</updated>
+    <id>32</id>
+    <title>⭘ Re:ZERO -Starting Life in Another World - Re:ZERO -Starting Life in Another World-, Vol. 09</title>
+    <summary>File Type: epub+zip - 12.34 MB</summary>
+    <extent xmlns="http://purl.org/dc/terms/">12.34 MB</extent>
+    <format xmlns="http://purl.org/dc/terms/format">Epub</format>
+    <content type="text">application/epub+zip</content>
+    <link rel="http://opds-spec.org/image" type="image/jpeg" href="/api/image/chapter-cover?chapterId=32&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=32&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/APIKEY/series/4/volume/32/chapter/32/download/ReZERO%20-Starting%20Life%20in%20Another%20World-%20v09%20%5BYen%20Press%5D%20%5BStick%5D%20%7Br%7D.epub" title="ReZERO%20-Starting%20Life%20in%20Another%20World-%20v09%20%5BYen%20Press%5D%20%5BStick%5D%20%7Br%7D.epub" p5:count="42" xmlns:p5="http://vaemendis.net/opds-pse/ns"/>
+    <author>
+      <name>Tappei Nagatsuki and Shinichirou Otsuka</name>
+      <uri>http://opds-spec.org/author/12</uri>
+    </author>
+  </entry>
+  <entry>
+    <updated>2026-09-15T21:35:38</updated>
+    <id>13</id>
+    <title>⭘ Re:ZERO -Starting Life in Another World - Re:ZERO -Starting Life in Another World-, Vol. 10</title>
+    <summary>File Type: epub+zip - 13.55 MB</summary>
+    <extent xmlns="http://purl.org/dc/terms/">13.55 MB</extent>
+    <format xmlns="http://purl.org/dc/terms/format">Epub</format>
+    <content type="text">application/epub+zip</content>
+    <link rel="http://opds-spec.org/image" type="image/jpeg" href="/api/image/chapter-cover?chapterId=13&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=13&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/APIKEY/series/4/volume/13/chapter/13/download/ReZERO%20-Starting%20Life%20in%20Another%20World-%20v10%20%5BYen%20Press%5D%20%5BStick%5D.epub" title="ReZERO%20-Starting%20Life%20in%20Another%20World-%20v10%20%5BYen%20Press%5D%20%5BStick%5D.epub" p5:count="39" xmlns:p5="http://vaemendis.net/opds-pse/ns"/>
+    <author>
+      <name>Tappei Nagatsuki and Shinichirou Otsuka</name>
+      <uri>http://opds-spec.org/author/12</uri>
+    </author>
+  </entry>
+  <entry>
+    <updated>2026-09-15T21:35:38</updated>
+    <id>8</id>
+    <title>⭘ Re:ZERO -Starting Life in Another World - Re:ZERO -Starting Life in Another World-, Vol. 11</title>
+    <summary>File Type: epub+zip - 15.24 MB</summary>
+    <extent xmlns="http://purl.org/dc/terms/">15.24 MB</extent>
+    <format xmlns="http://purl.org/dc/terms/format">Epub</format>
+    <content type="text">application/epub+zip</content>
+    <link rel="http://opds-spec.org/image" type="image/jpeg" href="/api/image/chapter-cover?chapterId=8&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=8&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/APIKEY/series/4/volume/8/chapter/8/download/ReZERO%20-Starting%20Life%20in%20Another%20World-%20v11%20%5BYen%20Press%5D%20%5BStick%5D.epub" title="ReZERO%20-Starting%20Life%20in%20Another%20World-%20v11%20%5BYen%20Press%5D%20%5BStick%5D.epub" p5:count="39" xmlns:p5="http://vaemendis.net/opds-pse/ns"/>
+    <author>
+      <name>Tappei Nagatsuki and Shinichirou Otsuka</name>
+      <uri>http://opds-spec.org/author/12</uri>
+    </author>
+  </entry>
+  <entry>
+    <updated>2026-09-15T21:35:38</updated>
+    <id>14</id>
+    <title>⭘ Re:ZERO -Starting Life in Another World - Re:ZERO -Starting Life in Another World-, Vol. 12</title>
+    <summary>File Type: epub+zip - 13.5 MB</summary>
+    <extent xmlns="http://purl.org/dc/terms/">13.5 MB</extent>
+    <format xmlns="http://purl.org/dc/terms/format">Epub</format>
+    <content type="text">application/epub+zip</content>
+    <link rel="http://opds-spec.org/image" type="image/jpeg" href="/api/image/chapter-cover?chapterId=14&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=14&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/APIKEY/series/4/volume/14/chapter/14/download/ReZERO%20-Starting%20Life%20in%20Another%20World-%20v12%20%5BYen%20Press%5D%20%5BStick%5D.epub" title="ReZERO%20-Starting%20Life%20in%20Another%20World-%20v12%20%5BYen%20Press%5D%20%5BStick%5D.epub" p5:count="39" xmlns:p5="http://vaemendis.net/opds-pse/ns"/>
+    <author>
+      <name>Tappei Nagatsuki and Shinichirou Otsuka</name>
+      <uri>http://opds-spec.org/author/12</uri>
+    </author>
+  </entry>
+  <entry>
+    <updated>2026-09-15T21:35:38</updated>
+    <id>18</id>
+    <title>⭘ Re:ZERO -Starting Life in Another World - Re:ZERO -Starting Life in Another World-, Vol. 13</title>
+    <summary>File Type: epub+zip - 15.57 MB</summary>
+    <extent xmlns="http://purl.org/dc/terms/">15.57 MB</extent>
+    <format xmlns="http://purl.org/dc/terms/format">Epub</format>
+    <content type="text">application/epub+zip</content>
+    <link rel="http://opds-spec.org/image" type="image/jpeg" href="/api/image/chapter-cover?chapterId=18&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=18&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/APIKEY/series/4/volume/18/chapter/18/download/ReZERO%20-Starting%20Life%20in%20Another%20World-%20v13%20%5BYen%20Press%5D%20%5BStick%5D.epub" title="ReZERO%20-Starting%20Life%20in%20Another%20World-%20v13%20%5BYen%20Press%5D%20%5BStick%5D.epub" p5:count="41" xmlns:p5="http://vaemendis.net/opds-pse/ns"/>
+    <author>
+      <name>Tappei Nagatsuki and Shinichirou Otsuka</name>
+      <uri>http://opds-spec.org/author/12</uri>
+    </author>
+  </entry>
+  <entry>
+    <updated>2026-09-15T21:35:38</updated>
+    <id>24</id>
+    <title>⭘ Re:ZERO -Starting Life in Another World - Re:ZERO -Starting Life in Another World-, Vol. 14</title>
+    <summary>File Type: epub+zip - 15.15 MB</summary>
+    <extent xmlns="http://purl.org/dc/terms/">15.15 MB</extent>
+    <format xmlns="http://purl.org/dc/terms/format">Epub</format>
+    <content type="text">application/epub+zip</content>
+    <link rel="http://opds-spec.org/image" type="image/jpeg" href="/api/image/chapter-cover?chapterId=24&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=24&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/APIKEY/series/4/volume/24/chapter/24/download/ReZERO%20-Starting%20Life%20in%20Another%20World-%20v14%20%5BYen%20Press%5D%20%5BStick%5D%20%7Br%7D.epub" title="ReZERO%20-Starting%20Life%20in%20Another%20World-%20v14%20%5BYen%20Press%5D%20%5BStick%5D%20%7Br%7D.epub" p5:count="39" xmlns:p5="http://vaemendis.net/opds-pse/ns"/>
+    <author>
+      <name>Tappei Nagatsuki and Shinichirou Otsuka</name>
+      <uri>http://opds-spec.org/author/12</uri>
+    </author>
+  </entry>
+  <entry>
+    <updated>2026-09-15T21:35:38</updated>
+    <id>11</id>
+    <title>⭘ Re:ZERO -Starting Life in Another World - Re:ZERO -Starting Life in Another World-, Vol. 15</title>
+    <summary>File Type: epub+zip - 12.38 MB</summary>
+    <extent xmlns="http://purl.org/dc/terms/">12.38 MB</extent>
+    <format xmlns="http://purl.org/dc/terms/format">Epub</format>
+    <content type="text">application/epub+zip</content>
+    <link rel="http://opds-spec.org/image" type="image/jpeg" href="/api/image/chapter-cover?chapterId=11&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=11&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/APIKEY/series/4/volume/11/chapter/11/download/ReZERO%20-Starting%20Life%20in%20Another%20World-%20v15%20%5BYen%20Press%5D%20%5BStick%5D%20%7Br%7D.epub" title="ReZERO%20-Starting%20Life%20in%20Another%20World-%20v15%20%5BYen%20Press%5D%20%5BStick%5D%20%7Br%7D.epub" p5:count="41" xmlns:p5="http://vaemendis.net/opds-pse/ns"/>
+    <author>
+      <name>Tappei Nagatsuki and Shinichirou Otsuka</name>
+      <uri>http://opds-spec.org/author/12</uri>
+    </author>
+  </entry>
+  <entry>
+    <updated>2026-09-15T21:35:38</updated>
+    <id>22</id>
+    <title>⭘ Re:ZERO -Starting Life in Another World - Re:ZERO: -Starting Life in Another World-, Vol. 16</title>
+    <summary>File Type: epub+zip - 11.87 MB</summary>
+    <extent xmlns="http://purl.org/dc/terms/">11.87 MB</extent>
+    <format xmlns="http://purl.org/dc/terms/format">Epub</format>
+    <content type="text">application/epub+zip</content>
+    <link rel="http://opds-spec.org/image" type="image/jpeg" href="/api/image/chapter-cover?chapterId=22&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=22&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/APIKEY/series/4/volume/22/chapter/22/download/ReZERO%20-Starting%20Life%20in%20Another%20World-%20v16%20%5BYen%20Press%5D%20%5BStick%5D.epub" title="ReZERO%20-Starting%20Life%20in%20Another%20World-%20v16%20%5BYen%20Press%5D%20%5BStick%5D.epub" p5:count="35" xmlns:p5="http://vaemendis.net/opds-pse/ns"/>
+    <author>
+      <name>Tappei Nagatsuki and Shinichirou Otsuka</name>
+      <uri>http://opds-spec.org/author/12</uri>
+    </author>
+  </entry>
+  <entry>
+    <updated>2026-09-15T21:35:38</updated>
+    <id>26</id>
+    <title>⭘ Re:ZERO -Starting Life in Another World - Re:ZERO -Starting Life in Another World-, Vol. 17</title>
+    <summary>File Type: epub+zip - 14.82 MB</summary>
+    <extent xmlns="http://purl.org/dc/terms/">14.82 MB</extent>
+    <format xmlns="http://purl.org/dc/terms/format">Epub</format>
+    <content type="text">application/epub+zip</content>
+    <link rel="http://opds-spec.org/image" type="image/jpeg" href="/api/image/chapter-cover?chapterId=26&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=26&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/APIKEY/series/4/volume/26/chapter/26/download/ReZERO%20-Starting%20Life%20in%20Another%20World-%20v17%20%5BYen%20Press%5D%20%5BStick%5D.epub" title="ReZERO%20-Starting%20Life%20in%20Another%20World-%20v17%20%5BYen%20Press%5D%20%5BStick%5D.epub" p5:count="37" xmlns:p5="http://vaemendis.net/opds-pse/ns"/>
+    <author>
+      <name>Tappei Nagatsuki and Shinichirou Otsuka</name>
+      <uri>http://opds-spec.org/author/12</uri>
+    </author>
+  </entry>
+  <entry>
+    <updated>2026-09-15T21:35:38</updated>
+    <id>23</id>
+    <title>⭘ Re:ZERO -Starting Life in Another World - Re:ZERO -Starting Life in Another World-, Vol. 18</title>
+    <summary>File Type: epub+zip - 13.05 MB</summary>
+    <extent xmlns="http://purl.org/dc/terms/">13.05 MB</extent>
+    <format xmlns="http://purl.org/dc/terms/format">Epub</format>
+    <content type="text">application/epub+zip</content>
+    <link rel="http://opds-spec.org/image" type="image/jpeg" href="/api/image/chapter-cover?chapterId=23&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=23&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/APIKEY/series/4/volume/23/chapter/23/download/ReZERO%20-Starting%20Life%20in%20Another%20World-%20v18%20%5BYen%20Press%5D%20%5BStick%5D.epub" title="ReZERO%20-Starting%20Life%20in%20Another%20World-%20v18%20%5BYen%20Press%5D%20%5BStick%5D.epub" p5:count="37" xmlns:p5="http://vaemendis.net/opds-pse/ns"/>
+    <author>
+      <name>Tappei Nagatsuki and Shinichirou Otsuka</name>
+      <uri>http://opds-spec.org/author/12</uri>
+    </author>
+  </entry>
+  <entry>
+    <updated>2026-09-15T21:35:38</updated>
+    <id>16</id>
+    <title>⭘ Re:ZERO -Starting Life in Another World - Re:ZERO -Starting Life in Another World-, Vol. 19</title>
+    <summary>File Type: epub+zip - 15.63 MB</summary>
+    <extent xmlns="http://purl.org/dc/terms/">15.63 MB</extent>
+    <format xmlns="http://purl.org/dc/terms/format">Epub</format>
+    <content type="text">application/epub+zip</content>
+    <link rel="http://opds-spec.org/image" type="image/jpeg" href="/api/image/chapter-cover?chapterId=16&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=16&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/APIKEY/series/4/volume/16/chapter/16/download/ReZERO%20-Starting%20Life%20in%20Another%20World-%20v19%20%5BYen%20Press%5D%20%5BStick%5D.epub" title="ReZERO%20-Starting%20Life%20in%20Another%20World-%20v19%20%5BYen%20Press%5D%20%5BStick%5D.epub" p5:count="38" xmlns:p5="http://vaemendis.net/opds-pse/ns"/>
+    <author>
+      <name>Shinichirou Otsuka</name>
+      <uri>http://opds-spec.org/author/14</uri>
+    </author>
+    <author>
+      <name>Tappei Nagatsuki</name>
+      <uri>http://opds-spec.org/author/13</uri>
+    </author>
+  </entry>
+  <entry>
+    <updated>2026-09-15T21:35:38</updated>
+    <id>21</id>
+    <title>⭘ Re:ZERO -Starting Life in Another World - Re:ZERO -Starting Life in Another World-, Vol. 20</title>
+    <summary>File Type: epub+zip - 13.32 MB</summary>
+    <extent xmlns="http://purl.org/dc/terms/">13.32 MB</extent>
+    <format xmlns="http://purl.org/dc/terms/format">Epub</format>
+    <content type="text">application/epub+zip</content>
+    <link rel="http://opds-spec.org/image" type="image/jpeg" href="/api/image/chapter-cover?chapterId=21&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=21&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/APIKEY/series/4/volume/21/chapter/21/download/ReZERO%20-Starting%20Life%20in%20Another%20World-%20v20%20%5BYen%20Press%5D%20%5BStick%5D.epub" title="ReZERO%20-Starting%20Life%20in%20Another%20World-%20v20%20%5BYen%20Press%5D%20%5BStick%5D.epub" p5:count="39" xmlns:p5="http://vaemendis.net/opds-pse/ns"/>
+    <author>
+      <name>Tappei Nagatsuki and Shinichirou Otsuka</name>
+      <uri>http://opds-spec.org/author/12</uri>
+    </author>
+  </entry>
+  <entry>
+    <updated>2026-09-15T21:35:38</updated>
+    <id>28</id>
+    <title>⭘ Re:ZERO -Starting Life in Another World - Re:ZERO -Starting Life in Another World-, Vol. 21</title>
+    <summary>File Type: epub+zip - 8.7 MB</summary>
+    <extent xmlns="http://purl.org/dc/terms/">8.7 MB</extent>
+    <format xmlns="http://purl.org/dc/terms/format">Epub</format>
+    <content type="text">application/epub+zip</content>
+    <link rel="http://opds-spec.org/image" type="image/jpeg" href="/api/image/chapter-cover?chapterId=28&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=28&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/APIKEY/series/4/volume/28/chapter/28/download/ReZERO%20-Starting%20Life%20in%20Another%20World-%20v21%20%5BYen%20Press%5D%20%5BStick%5D.epub" title="ReZERO%20-Starting%20Life%20in%20Another%20World-%20v21%20%5BYen%20Press%5D%20%5BStick%5D.epub" p5:count="37" xmlns:p5="http://vaemendis.net/opds-pse/ns"/>
+    <author>
+      <name>Tappei Nagatsuki and Shinichirou Otsuka</name>
+      <uri>http://opds-spec.org/author/12</uri>
+    </author>
+  </entry>
+  <entry>
+    <updated>2026-09-15T21:35:38</updated>
+    <id>20</id>
+    <title>⭘ Re:ZERO -Starting Life in Another World - Re:ZERO -Starting Life in Another World-, Vol. 22</title>
+    <summary>File Type: epub+zip - 13.91 MB</summary>
+    <extent xmlns="http://purl.org/dc/terms/">13.91 MB</extent>
+    <format xmlns="http://purl.org/dc/terms/format">Epub</format>
+    <content type="text">application/epub+zip</content>
+    <link rel="http://opds-spec.org/image" type="image/jpeg" href="/api/image/chapter-cover?chapterId=20&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=20&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/APIKEY/series/4/volume/20/chapter/20/download/ReZERO%20-Starting%20Life%20in%20Another%20World-%20v22%20%5BYen%20Press%5D%20%5BStick%5D.epub" title="ReZERO%20-Starting%20Life%20in%20Another%20World-%20v22%20%5BYen%20Press%5D%20%5BStick%5D.epub" p5:count="40" xmlns:p5="http://vaemendis.net/opds-pse/ns"/>
+    <author>
+      <name>Tappei Nagatsuki and Shinichirou Otsuka</name>
+      <uri>http://opds-spec.org/author/12</uri>
+    </author>
+  </entry>
+  <entry>
+    <updated>2026-09-15T21:35:38</updated>
+    <id>31</id>
+    <title>⭘ Re:ZERO -Starting Life in Another World - Re:ZERO -Starting Life in Another World-, Vol. 23</title>
+    <summary>File Type: epub+zip - 13.18 MB</summary>
+    <extent xmlns="http://purl.org/dc/terms/">13.18 MB</extent>
+    <format xmlns="http://purl.org/dc/terms/format">Epub</format>
+    <content type="text">application/epub+zip</content>
+    <link rel="http://opds-spec.org/image" type="image/jpeg" href="/api/image/chapter-cover?chapterId=31&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=31&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/APIKEY/series/4/volume/31/chapter/31/download/ReZERO%20-Starting%20Life%20in%20Another%20World-%20v23%20%5BYen%20Press%5D%20%5BStick%5D.epub" title="ReZERO%20-Starting%20Life%20in%20Another%20World-%20v23%20%5BYen%20Press%5D%20%5BStick%5D.epub" p5:count="39" xmlns:p5="http://vaemendis.net/opds-pse/ns"/>
+    <author>
+      <name>Tappei Nagatsuki and Shinichirou Otsuka</name>
+      <uri>http://opds-spec.org/author/12</uri>
+    </author>
+  </entry>
+  <entry>
+    <updated>2026-09-15T21:35:38</updated>
+    <id>7</id>
+    <title>⭘ Re:ZERO -Starting Life in Another World - Re:ZERO -Starting Life in Another World-, Vol. 24</title>
+    <summary>File Type: epub+zip - 13.66 MB</summary>
+    <extent xmlns="http://purl.org/dc/terms/">13.66 MB</extent>
+    <format xmlns="http://purl.org/dc/terms/format">Epub</format>
+    <content type="text">application/epub+zip</content>
+    <link rel="http://opds-spec.org/image" type="image/jpeg" href="/api/image/chapter-cover?chapterId=7&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=7&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/APIKEY/series/4/volume/7/chapter/7/download/ReZERO%20-Starting%20Life%20in%20Another%20World-%20v24%20%5BYen%20Press%5D%20%5BStick%5D.epub" title="ReZERO%20-Starting%20Life%20in%20Another%20World-%20v24%20%5BYen%20Press%5D%20%5BStick%5D.epub" p5:count="38" xmlns:p5="http://vaemendis.net/opds-pse/ns"/>
+    <author>
+      <name>Tappei Nagatsuki and Shinichirou Otsuka</name>
+      <uri>http://opds-spec.org/author/12</uri>
+    </author>
+  </entry>
+  <entry>
+    <updated>2026-09-15T21:35:38</updated>
+    <id>27</id>
+    <title>⭘ Re:ZERO -Starting Life in Another World - Re:ZERO -Starting Life in Another World-, Vol. 25</title>
+    <summary>File Type: epub+zip - 12.53 MB</summary>
+    <extent xmlns="http://purl.org/dc/terms/">12.53 MB</extent>
+    <format xmlns="http://purl.org/dc/terms/format">Epub</format>
+    <content type="text">application/epub+zip</content>
+    <link rel="http://opds-spec.org/image" type="image/jpeg" href="/api/image/chapter-cover?chapterId=27&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=27&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/APIKEY/series/4/volume/27/chapter/27/download/ReZERO%20-Starting%20Life%20in%20Another%20World-%20v25%20%5BYen%20Press%5D%20%5BStick%5D.epub" title="ReZERO%20-Starting%20Life%20in%20Another%20World-%20v25%20%5BYen%20Press%5D%20%5BStick%5D.epub" p5:count="41" xmlns:p5="http://vaemendis.net/opds-pse/ns"/>
+    <author>
+      <name>Tappei Nagatsuki and Shinichirou Otsuka</name>
+      <uri>http://opds-spec.org/author/12</uri>
+    </author>
+  </entry>
+  <entry>
+    <updated>2026-09-15T21:35:38</updated>
+    <id>17</id>
+    <title>⭘ Re:ZERO -Starting Life in Another World - Re:ZERO -Starting Life in Another World-, Vol. 26</title>
+    <summary>File Type: epub+zip - 13.3 MB</summary>
+    <extent xmlns="http://purl.org/dc/terms/">13.3 MB</extent>
+    <format xmlns="http://purl.org/dc/terms/format">Epub</format>
+    <content type="text">application/epub+zip</content>
+    <link rel="http://opds-spec.org/image" type="image/jpeg" href="/api/image/chapter-cover?chapterId=17&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=17&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/APIKEY/series/4/volume/17/chapter/17/download/ReZERO%20-Starting%20Life%20in%20Another%20World-%20v26%20%5BYen%20Press%5D%20%5BStick%5D.epub" title="ReZERO%20-Starting%20Life%20in%20Another%20World-%20v26%20%5BYen%20Press%5D%20%5BStick%5D.epub" p5:count="38" xmlns:p5="http://vaemendis.net/opds-pse/ns"/>
+    <author>
+      <name>Tappei Nagatsuki and Shinichirou Otsuka</name>
+      <uri>http://opds-spec.org/author/12</uri>
+    </author>
+  </entry>
+  <entry>
+    <updated>2026-09-15T21:35:38</updated>
+    <id>25</id>
+    <title>⭘ Re:ZERO -Starting Life in Another World - Re:ZERO -Starting Life in Another World-, Vol. 27</title>
+    <summary>File Type: epub+zip - 14.4 MB</summary>
+    <extent xmlns="http://purl.org/dc/terms/">14.4 MB</extent>
+    <format xmlns="http://purl.org/dc/terms/format">Epub</format>
+    <content type="text">application/epub+zip</content>
+    <link rel="http://opds-spec.org/image" type="image/jpeg" href="/api/image/chapter-cover?chapterId=25&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=25&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/APIKEY/series/4/volume/25/chapter/25/download/ReZERO%20-Starting%20Life%20in%20Another%20World-%20v27%20%5BYen%20Press%5D%20%5BStick%5D.epub" title="ReZERO%20-Starting%20Life%20in%20Another%20World-%20v27%20%5BYen%20Press%5D%20%5BStick%5D.epub" p5:count="39" xmlns:p5="http://vaemendis.net/opds-pse/ns"/>
+    <author>
+      <name>Tappei Nagatsuki and Shinichirou Otsuka</name>
+      <uri>http://opds-spec.org/author/12</uri>
+    </author>
+  </entry>
+  <entry>
+    <updated>2026-09-15T21:35:38</updated>
+    <id>15</id>
+    <title>⭘ Re:ZERO -Starting Life in Another World - Re:ZERO -Starting Life in Another World-, Vol. 28</title>
+    <summary>File Type: epub+zip - 10.34 MB</summary>
+    <extent xmlns="http://purl.org/dc/terms/">10.34 MB</extent>
+    <format xmlns="http://purl.org/dc/terms/format">Epub</format>
+    <content type="text">application/epub+zip</content>
+    <link rel="http://opds-spec.org/image" type="image/jpeg" href="/api/image/chapter-cover?chapterId=15&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=15&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/APIKEY/series/4/volume/15/chapter/15/download/ReZERO%20-Starting%20Life%20in%20Another%20World-%20v28%20%5BYen%20Press%5D%20%5BStick%5D.epub" title="ReZERO%20-Starting%20Life%20in%20Another%20World-%20v28%20%5BYen%20Press%5D%20%5BStick%5D.epub" p5:count="37" xmlns:p5="http://vaemendis.net/opds-pse/ns"/>
+    <author>
+      <name>Tappei Nagatsuki and Shinichirou Otsuka</name>
+      <uri>http://opds-spec.org/author/12</uri>
+    </author>
+  </entry>
+  <entry>
+    <updated>2026-09-15T21:35:38</updated>
+    <id>161</id>
+    <title>⭘ Re:ZERO -Starting Life in Another World - Re:ZERO -Starting Life in Another World-, Vol. 29</title>
+    <summary>File Type: epub+zip - 17.89 MB</summary>
+    <extent xmlns="http://purl.org/dc/terms/">17.89 MB</extent>
+    <format xmlns="http://purl.org/dc/terms/format">Epub</format>
+    <content type="text">application/epub+zip</content>
+    <link rel="http://opds-spec.org/image" type="image/jpeg" href="/api/image/chapter-cover?chapterId=161&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" href="/api/image/chapter-cover?chapterId=161&amp;apiKey=APIKEY"/>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="/api/opds/APIKEY/series/4/volume/161/chapter/161/download/ReZERO%20-Starting%20Life%20in%20Another%20World-%20v29%20%5BYen%20Press%5D%20%5BStick%5D.epub" title="ReZERO%20-Starting%20Life%20in%20Another%20World-%20v29%20%5BYen%20Press%5D%20%5BStick%5D.epub" p5:count="39" xmlns:p5="http://vaemendis.net/opds-pse/ns"/>
+    <author>
+      <name>Tappei Nagatsuki and Shinichirou Otsuka</name>
+      <uri>http://opds-spec.org/author/12</uri>
+    </author>
+  </entry>
+</feed>
