@@ -22,7 +22,7 @@ from fastapi import FastAPI
 
 from quire_server.api import health
 from quire_server.api.middleware import RequestIDMiddleware, RequestSizeMiddleware
-from quire_server.config import Settings, get_settings, unknown_env_vars
+from quire_server.config import Settings, config_warnings, get_settings, unknown_env_vars
 from quire_server.core.auth import CalibreAuthValidator
 from quire_server.core.auth_backend import CalibreWebBasicAuth, NativeAuth
 from quire_server.core.logging_ctx import RequestIdLogFilter
@@ -146,14 +146,16 @@ def _collect_config_warnings(settings: Settings) -> list[str]:
     """Plain-language boot warnings, logged once and exposed on GET /health.
 
     Issue #104. Unknown variables come first because a typo of something the
-    operator meant to set is the most common cause. Messages name variables,
-    never values, so nothing secret can leak through this path.
+    operator meant to set is the most common cause; semantic checks from
+    ``config_warnings`` follow. Messages name variables, never values, so
+    nothing secret can leak through this path.
     """
     messages = [
         f"Unknown setting {name} is ignored; check the spelling against "
         "server/README.md (Environment variables)"
         for name in unknown_env_vars()
     ]
+    messages.extend(config_warnings(settings))
     for msg in messages:
         logger.warning("event=config.warning msg=%s", msg)
     return messages

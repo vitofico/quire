@@ -3,6 +3,7 @@ from collections.abc import Mapping
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ENV_PREFIX = "QUIRE_SERVER_"
@@ -145,6 +146,18 @@ class Settings(BaseSettings):
     # at this stage (deferred per spec).
     native_session_ttl_s: int = 30 * 24 * 3600
 
+    @field_validator("ai_base_url", "ai_api_key", "ai_model", mode="before")
+    @classmethod
+    def _blank_means_unset(cls, value: object) -> object:
+        """Treat an empty or whitespace-only string as ``None``.
+
+        Compose files and shells hand the container ``""`` for an unset
+        variable more often than they omit it. Issue #104.
+        """
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
 
 def unknown_env_vars(environ: Mapping[str, str] | None = None) -> list[str]:
     """Names of ``QUIRE_SERVER_*`` variables the server does not read.
@@ -163,6 +176,44 @@ def unknown_env_vars(environ: Mapping[str, str] | None = None) -> list[str]:
         and name.upper() not in known
         and name.upper() not in COMPOSE_ONLY_ENV_VARS
     )
+
+
+def config_warnings(settings: Settings) -> list[str]:
+    """Semantic checks that must not crash boot but must not stay silent.
+
+    Pure function so tests can call it with a constructed ``Settings``. Each
+    message names the variable to fix and never echoes a value. Native auth
+    has no environment prerequisites beyond migrations, which ``/readyz``
+    already reports, so there is no check for it here.
+    """
+    out: list[str] = []
+    if settings.ai_enabled:
+        missing = [
+            name
+            for name, value in (
+                ("QUIRE_SERVER_AI_BASE_URL", settings.ai_base_url),
+                ("QUIRE_SERVER_AI_MODEL", settings.ai_model),
+            )
+            if not value
+        ]
+        if missing:
+            names = " and ".join(missing)
+            verb, pronoun = ("is", "it") if len(missing) == 1 else ("are", "them")
+            out.append(
+                f"AI is enabled but {names} {verb} not set; the app will report AI as "
+                f"unconfigured. Set {pronoun} or set QUIRE_SERVER_AI_ENABLED=false"
+            )
+        elif settings.ai_base_url and not settings.ai_base_url.rstrip("/").endswith("/v1"):
+            out.append(
+                "QUIRE_SERVER_AI_BASE_URL does not end with /v1; OpenAI-compatible providers "
+                "such as Ollama expect for example http://ollama:11434/v1"
+            )
+    if not settings.progress_enabled and not settings.ai_enabled:
+        out.append(
+            "QUIRE_SERVER_PROGRESS_ENABLED and QUIRE_SERVER_AI_ENABLED are both false; "
+            "only /health and /readyz are served"
+        )
+    return out
 
 
 @lru_cache(maxsize=1)

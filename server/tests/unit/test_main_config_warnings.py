@@ -73,3 +73,34 @@ def test_compose_only_port_is_not_flagged(monkeypatch):
 def test_clean_config_has_no_warnings():
     app = _create_app()
     assert app.state.config_warnings == []
+
+
+def test_ai_enabled_without_provider_warns(monkeypatch):
+    monkeypatch.setenv("QUIRE_SERVER_AI_ENABLED", "true")
+    app = _create_app()
+    assert app.state.config_warnings == [
+        "AI is enabled but QUIRE_SERVER_AI_BASE_URL and QUIRE_SERVER_AI_MODEL are not set; "
+        "the app will report AI as unconfigured. Set them or set QUIRE_SERVER_AI_ENABLED=false"
+    ]
+    assert getattr(app.state, "ai_orchestrator", None) is None
+
+
+def test_blank_compose_fallback_counts_as_unset(monkeypatch):
+    monkeypatch.setenv("QUIRE_SERVER_AI_ENABLED", "true")
+    monkeypatch.setenv("QUIRE_SERVER_AI_BASE_URL", "")
+    monkeypatch.setenv("QUIRE_SERVER_AI_MODEL", "")
+    app = _create_app()
+    assert getattr(app.state, "ai_orchestrator", None) is None
+    assert app.state.config_warnings == [
+        "AI is enabled but QUIRE_SERVER_AI_BASE_URL and QUIRE_SERVER_AI_MODEL are not set; "
+        "the app will report AI as unconfigured. Set them or set QUIRE_SERVER_AI_ENABLED=false"
+    ]
+
+
+def test_unknown_variables_are_listed_before_semantic_warnings(monkeypatch):
+    monkeypatch.setenv("QUIRE_SERVER_AI_ENABLED", "true")
+    monkeypatch.setenv("QUIRE_SERVER_AI_MODLE", "typo")
+    app = _create_app()
+    assert len(app.state.config_warnings) == 2
+    assert app.state.config_warnings[0].startswith("Unknown setting QUIRE_SERVER_AI_MODLE")
+    assert app.state.config_warnings[1].startswith("AI is enabled but")
