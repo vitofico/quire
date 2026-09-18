@@ -10,6 +10,7 @@ an ``api_key`` so a test can prove the key never reaches the response.
 from __future__ import annotations
 
 import base64
+from datetime import UTC, datetime
 
 import httpx
 import pytest
@@ -17,6 +18,7 @@ import pytest
 from quire_server.core.ai.client import AIClient
 from quire_server.core.ai.health_state import AiHealthState
 from quire_server.core.ai.service import InsightOrchestrator
+from quire_server.db.models import Document, LibraryItem, Progress
 
 pytestmark = pytest.mark.requires_ai
 
@@ -63,6 +65,39 @@ def _install_fake_ai(app, *, fake_handler, api_key: str | None = None) -> Insigh
     )
     app.state.ai_orchestrator = orch
     return orch
+
+
+async def _seed_finished_book(session, *, user_id: str, content_hash: str = "ch-fin") -> None:
+    """The minimum reading history that gets ``/profile/refresh`` past its
+    low-data short-circuit: one alive library item bridged (user_id +
+    content_hash) to a document with a finished progress row. With
+    ``finished_count == 0`` the route answers a stats-only payload and never
+    calls the provider. Mirrors the ``_seed_*`` helpers in
+    ``test_reader_profile.py``.
+    """
+    now = datetime.now(UTC)
+    session.add(
+        LibraryItem(
+            user_id=user_id,
+            metadata_id="m-fin",
+            content_hash=content_hash,
+            title="Foundation",
+            authors=["Isaac Asimov"],
+        )
+    )
+    doc = Document(user_id=user_id, metadata_id="m-fin", content_hash=content_hash)
+    session.add(doc)
+    await session.flush()
+    session.add(
+        Progress(
+            document_pk=doc.pk,
+            locator="{}",
+            percent=1.0,
+            client_updated_at=now,
+            finished_at=now,
+        )
+    )
+    await session.commit()
 
 
 async def _opted_in_lookup(client_factory, app, *, fake_handler, api_key=None):
@@ -172,3 +207,34 @@ async def test_error_response_still_carries_request_id(client_factory, app, sess
     r = await _opted_in_lookup(client_factory, app, fake_handler=handler)
     assert r.status_code == 504
     assert r.headers.get("x-request-id")
+
+
+async def test_profile_refresh_timeout_names_the_profile_variable(client_factory, app, session):
+    """``/profile/refresh`` catches ``ProfileGenerationError`` before the
+    exception handler can see the provider failure, so the route maps
+    ``__cause__`` itself. Same body shape as the insight routes, but the hint
+    must name the profile budget rather than the insight one.
+    """
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("simulated")
+
+    async with client_factory(ai_enabled=True, ai_base_url="http://x", ai_model="m") as client:
+        _install_fake_ai(app, fake_handler=handler)
+        await _seed_finished_book(session, user_id="alice")
+        await client.put(
+            "/ai/v1/preferences", headers=_basic_header("alice"), json={"ai_enabled": True}
+        )
+        r = await client.post("/ai/v1/profile/refresh", headers=_basic_header("alice"))
+
+    assert r.status_code == 504, r.text
+    assert r.json()["detail"] == {
+        "code": "provider_timeout",
+        # 90 is the QUIRE_SERVER_AI_PROFILE_TIMEOUT_S default; the insight
+        # tests above see 120 from QUIRE_SERVER_AI_TIMEOUT_S.
+        "message": "The AI provider did not answer within 90 seconds.",
+        "hint": (
+            "Raise QUIRE_SERVER_AI_PROFILE_TIMEOUT_S for slow local models, or pick a faster model."
+        ),
+        "provider_status": None,
+    }
