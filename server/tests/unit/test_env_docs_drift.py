@@ -74,3 +74,14 @@ def test_env_example_covers_what_a_new_operator_needs():
 def test_compose_loads_dotenv_wholesale(label):
     text = DOC_FILES[label].read_text(encoding="utf-8")
     assert ENV_FILE_RE.search(text), f"{label} must load .env via env_file (path + required: false)"
+
+
+def test_readme_documents_every_setting():
+    text = DOC_FILES["server/README.md"].read_text(encoding="utf-8")
+    present = set(TOKEN_RE.findall(text))
+    missing = sorted(
+        f"{ENV_PREFIX}{name.upper()}"
+        for name in Settings.model_fields
+        if f"{ENV_PREFIX}{name.upper()}" not in present
+    )
+    assert missing == [], f"server/README.md is missing rows for: {missing}"
