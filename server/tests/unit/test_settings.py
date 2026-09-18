@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from quire_server.config import Settings, get_settings
+from quire_server.config import COMPOSE_ONLY_ENV_VARS, Settings, get_settings, unknown_env_vars
 
 
 @pytest.fixture(autouse=True)
@@ -83,3 +83,32 @@ def test_ai_token_issuer_audience_env_override(monkeypatch):
     s = Settings()
     assert s.ai_token_issuer == "quire-cloud"
     assert s.ai_token_audience == "quire-server"
+
+
+# --- Issue #104: unknown QUIRE_SERVER_* variable detection -----------------
+
+
+def test_unknown_env_vars_flags_only_unread_prefixed_names():
+    env = {
+        "QUIRE_SERVER_AI_MODEL": "m",  # real field
+        "QUIRE_SERVER_PORT": "8000",  # compose-only, never read by the server
+        "QUIRE_SERVER_AI_MODLE": "typo",
+        "QUIRE_SERVER_AI_PROVIDER": "ollama",  # invented name
+        "POSTGRES_PASSWORD": "x",  # other prefix, not ours to judge
+    }
+    assert unknown_env_vars(env) == ["QUIRE_SERVER_AI_MODLE", "QUIRE_SERVER_AI_PROVIDER"]
+
+
+def test_unknown_env_vars_matches_case_insensitively_like_pydantic_settings():
+    assert unknown_env_vars({"quire_server_ai_model": "m"}) == []
+    assert unknown_env_vars({"quire_server_ai_modle": "x"}) == ["quire_server_ai_modle"]
+
+
+def test_unknown_env_vars_empty_when_nothing_is_prefixed():
+    assert unknown_env_vars({"PATH": "/bin", "HOME": "/root"}) == []
+
+
+def test_compose_only_names_are_not_settings_fields():
+    for name in COMPOSE_ONLY_ENV_VARS:
+        assert name.startswith("QUIRE_SERVER_")
+        assert name.removeprefix("QUIRE_SERVER_").lower() not in Settings.model_fields

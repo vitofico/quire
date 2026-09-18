@@ -1,11 +1,19 @@
+import os
+from collections.abc import Mapping
 from functools import lru_cache
 from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+ENV_PREFIX = "QUIRE_SERVER_"
+
+# Variables that share the prefix but are consumed by docker compose, never by
+# the server process. Listed so the unknown-variable scan does not flag them.
+COMPOSE_ONLY_ENV_VARS: frozenset[str] = frozenset({"QUIRE_SERVER_PORT"})
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="QUIRE_SERVER_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_prefix=ENV_PREFIX, env_file=".env", extra="ignore")
 
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/opds_sync"
     cwa_base_url: str = "http://calibre-web.calibre-web.svc.cluster.local:8083"
@@ -136,6 +144,25 @@ class Settings(BaseSettings):
     # by logging in again before expiry. No refresh-token mechanism exists
     # at this stage (deferred per spec).
     native_session_ttl_s: int = 30 * 24 * 3600
+
+
+def unknown_env_vars(environ: Mapping[str, str] | None = None) -> list[str]:
+    """Names of ``QUIRE_SERVER_*`` variables the server does not read.
+
+    Issue #104: a misspelled variable used to be ignored without a word.
+    Comparison is case-insensitive because pydantic-settings matches names
+    that way. ``environ`` defaults to ``os.environ``; tests pass a dict.
+    The result is sorted so log output is stable.
+    """
+    env = os.environ if environ is None else environ
+    known = {f"{ENV_PREFIX}{name.upper()}" for name in Settings.model_fields}
+    return sorted(
+        name
+        for name in env
+        if name.upper().startswith(ENV_PREFIX)
+        and name.upper() not in known
+        and name.upper() not in COMPOSE_ONLY_ENV_VARS
+    )
 
 
 @lru_cache(maxsize=1)
