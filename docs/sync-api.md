@@ -678,7 +678,8 @@ Returns the user-visible AI configuration. Public to authed users.
   "daily_budget": 200,
   "regen_daily_limit": 3,
   "prompt_version": "5",
-  "progress_supported": true
+  "progress_supported": true,
+  "generation_timeout_s": 120
 }
 ```
 
@@ -695,6 +696,13 @@ this to suppress the reader-profile UI on AI-only deploys (where
 `{"error": "profile_requires_progress_data"}`). Older deploys that don't
 emit the field decode safely on the client because the DTO default is
 `true`.
+
+`generation_timeout_s` (issue #102) is `QUIRE_SERVER_AI_TIMEOUT_S` rounded
+up to whole seconds, `null` when AI is disabled. The Android client sizes
+its HTTP timeout for `/insights/lookup` and `/profile/refresh` as twice
+this value plus 30 seconds, clamped to 60 to 600, so the phone never gives
+up before the server does. Older deploys omit the field and the client
+assumes 120.
 
 ### `GET /ai/v1/preferences` / `PUT /ai/v1/preferences`
 

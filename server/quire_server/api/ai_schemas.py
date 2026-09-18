@@ -577,6 +577,10 @@ class ConfigResponse(BaseModel):
     # Insights screen uses this to gate visibility of the profile UI in
     # AI-only deploys.
     progress_supported: bool = True
+    # Issue #102: QUIRE_SERVER_AI_TIMEOUT_S rounded up. The Android client
+    # waits twice this plus 30 s on generation calls instead of its 60 s
+    # OPDS default. None only when AI is disabled; older servers omit it.
+    generation_timeout_s: int | None = None
 
 
 class PreferencesResponse(BaseModel):

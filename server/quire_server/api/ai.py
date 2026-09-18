@@ -10,6 +10,7 @@ this seam only swings on `/ai/v1/*`.
 
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime
 from typing import Annotated
 from urllib.parse import urlparse
@@ -288,6 +289,7 @@ async def get_config(
         # pr-β / Lock #15 / coordinator §3.5: surfaces PROGRESS_ENABLED so
         # AI-only deploys can suppress the reader profile UI on Android.
         progress_supported=settings.progress_enabled,
+        generation_timeout_s=math.ceil(settings.ai_timeout_s) if settings.ai_enabled else None,
     )
 
 
