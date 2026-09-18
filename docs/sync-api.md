@@ -1044,8 +1044,8 @@ Status codes (Lock #10 closes the opt-out question on 409):
 | `409` | `{"detail":"ai_not_opted_in"}` | Caller has not opted in (Lock #10). |
 | `429` | `QuotaResponse` + `Retry-After` | Daily refresh cap exceeded. |
 | `502` | provider error object, or `{"detail":"..."}` | The model call failed; see [AI provider errors](#ai-provider-errors). Failures that are not the provider's keep the plain string. |
-| `504` | provider error object | No answer within `QUIRE_SERVER_AI_PROFILE_TIMEOUT_S`. |
 | `503` | `{"error":"profile_requires_progress_data"}` | `PROGRESS_ENABLED=false`. |
+| `504` | provider error object | No answer within `QUIRE_SERVER_AI_PROFILE_TIMEOUT_S`. |
 
 Rate limit: `QUIRE_SERVER_AI_PROFILE_REFRESH_DAILY_LIMIT` (default 3). Stored
 on `ai_usage_daily.profile_count`; resets at UTC midnight. **Weight = 0**
