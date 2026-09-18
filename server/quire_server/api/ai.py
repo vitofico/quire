@@ -749,10 +749,12 @@ async def refresh_profile(
         # body the insight routes use; other causes keep the plain string.
         cause = exc.__cause__
         if isinstance(cause, TimeoutError):
-            # The orchestrator also guards the call with its own asyncio.wait_for on
-            # the profile budget, which covers discovery plus the client's one retry
-            # on malformed output, so it can fire with no ProviderError in flight.
-            # A bare TimeoutError is still a timeout; str(exc) for it is empty.
+            # The orchestrator wraps only the model call in its own asyncio.wait_for,
+            # on a budget wider than the per-call one (room for both of the client's
+            # attempts plus a second of slack). That wait is a backstop for a provider
+            # that trickles bytes past the per-read timeout, so it can still fire with
+            # no ProviderError in flight. A bare TimeoutError is still a timeout;
+            # str(exc) for it is empty.
             cause = ProviderTimeout("profile refresh exceeded QUIRE_SERVER_AI_PROFILE_TIMEOUT_S")
         if isinstance(cause, ProviderError):
             info = describe(

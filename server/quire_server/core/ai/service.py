@@ -285,7 +285,9 @@ class InsightOrchestrator:
         profile_retriever_factory: Callable[[AsyncSession], _ProfileRetrieverLike] | None = None,
         # pr-β: per-user-per-UTC-day cap on /ai/v1/profile/refresh. 0 disables.
         profile_refresh_daily_limit: int = 3,
-        # pr-β: overall wall-clock cap on one /profile/refresh model call.
+        # pr-β: per-call budget for the /profile/refresh model call. The client
+        # retries once on malformed output, each attempt under this budget, and
+        # the orchestrator's outer backstop is derived from it (issue #102).
         profile_timeout_s: float = 90.0,
     ) -> None:
         self.ai = ai
