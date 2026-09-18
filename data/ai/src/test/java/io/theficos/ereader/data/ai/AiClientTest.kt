@@ -195,4 +195,56 @@ class AiClientTest {
             assertThat(e.body).contains("baseUrl not configured")
         }
     }
+
+    private val insightBody =
+        """{"payload":{"schema_version":2,"intro":"hi","confidence":"high"},"sources":[],"model_id":"m","prompt_version":"2","generated_at":"2026-05-09T00:00:00+00:00"}"""
+
+    @Test
+    fun `getConfig parses generation_timeout_s and tolerates its absence`() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"configured":true,"generation_timeout_s":300}"""
+            )
+        )
+        assertThat(client.getConfig().generationTimeoutS).isEqualTo(300)
+
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"configured":true}"""))
+        assertThat(client.getConfig().generationTimeoutS).isNull()
+    }
+
+    @Test
+    fun `computeLongCallTimeoutS falls back to 270s when the server does not advertise`() {
+        assertThat(AiClient.computeLongCallTimeoutS(null)).isEqualTo(270L)
+    }
+
+    @Test
+    fun `computeLongCallTimeoutS doubles the server timeout plus margin and clamps`() {
+        assertThat(AiClient.computeLongCallTimeoutS(60)).isEqualTo(150L)
+        assertThat(AiClient.computeLongCallTimeoutS(5)).isEqualTo(60L) // 40 clamped up
+        assertThat(AiClient.computeLongCallTimeoutS(300)).isEqualTo(600L) // 630 clamped down
+    }
+
+    @Test
+    fun `lookupInsight outlives the shared client's read timeout`() = runTest {
+        // Issue #102: the shared OkHttpClient is tuned for OPDS (short reads).
+        // A generation must not inherit that limit.
+        val impatient = AiClient(
+            baseUrlProvider = { server.url("").toString().trimEnd('/') },
+            http = OkHttpClient.Builder().readTimeout(1, TimeUnit.SECONDS).build(),
+        )
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody("""{"configured":true,"generation_timeout_s":30}""")
+        )
+        impatient.getConfig()
+        server.enqueue(
+            MockResponse().setResponseCode(200)
+                .setBodyDelay(2, TimeUnit.SECONDS)
+                .setBody(insightBody)
+        )
+        val resp = impatient.lookupInsight(
+            DocumentIdentity(metadataId = "m"),
+            MetadataBundle(title = "T", author = "A"),
+        )
+        assertThat(resp.modelId).isEqualTo("m")
+    }
 }

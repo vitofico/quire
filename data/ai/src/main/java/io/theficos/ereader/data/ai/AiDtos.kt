@@ -23,6 +23,10 @@ data class AiConfig(
     // deploy that doesn't emit the field is treated as supported — same
     // behavior we had before the field existed.
     @SerialName("progress_supported") val progressSupported: Boolean = true,
+    // Issue #102: QUIRE_SERVER_AI_TIMEOUT_S rounded up, so the app can wait
+    // at least as long as the server may take. Null on servers that predate
+    // the field; AiClient then assumes the server default of 120.
+    @SerialName("generation_timeout_s") val generationTimeoutS: Int? = null,
 )
 
 @Serializable
