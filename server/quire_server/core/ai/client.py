@@ -136,6 +136,12 @@ class AIClient:
         }
         try:
             r = await http.post(f"{self._base_url}/chat/completions", json=body)
+        except httpx.ConnectTimeout as e:
+            # The connect phase is capped at 10 s (see _build_client). Failing
+            # there means the host never answered the handshake (firewall,
+            # wrong port, provider down), not that the model is slow.
+            # Issue #102.
+            raise ProviderUnreachable(str(e)) from e
         except httpx.TimeoutException as e:
             raise ProviderTimeout(str(e)) from e
         except httpx.HTTPError as e:
