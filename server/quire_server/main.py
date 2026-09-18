@@ -355,6 +355,13 @@ def create_app() -> FastAPI:
                 session_factory=session_factory,
             )
             app.state.ai_orchestrator = orch
+            # Issue #102: a provider failure used to escape as a bare 500.
+            # Now it is a 502/504 with a code, a sentence and a hint.
+            from quire_server.api.ai_errors import register_provider_error_handler
+
+            register_provider_error_handler(
+                app, timeout_s=settings.ai_timeout_s, model=settings.ai_model
+            )
             app.include_router(ai_router, prefix="/ai/v1")
         else:
             # AI enabled but missing base_url/model — still mount the router

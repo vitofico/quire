@@ -610,7 +610,9 @@ Standard FastAPI shape:
 | 409 | Identity conflict the server cannot auto-resolve (rare; mostly future-proofing for the alias endpoint). |
 | 422 | Validation failure (FastAPI default). |
 | 500 | Server error. |
+| 502 | An AI provider call failed; `detail` is an object, see [AI provider errors](#ai-provider-errors). |
 | 503 | Database unavailable (`/readyz`) or calibre-web unreachable for auth probes. |
+| 504 | The AI provider did not answer within `QUIRE_SERVER_AI_TIMEOUT_S`; same `detail` object. |
 
 ## AI endpoints (`/ai/v1`)
 
@@ -629,6 +631,39 @@ Two layers protect the configured AI endpoint:
   returns **429** with a JSON body `{ "detail": { "used", "limit", "resets_at" } }`
   and a `Retry-After` header (seconds until next UTC midnight). Set
   `AI_DAILY_BUDGET=0` to disable the per-user cap.
+
+### AI provider errors
+
+When the model call behind `/insights/lookup`, `/insights/regenerate`, or
+`/profile/refresh` fails, the response carries a structured `detail`
+instead of the bare 500 that older servers returned (issue #102):
+
+```json
+{
+  "detail": {
+    "code": "provider_timeout",
+    "message": "The AI provider did not answer within 120 seconds.",
+    "hint": "Raise QUIRE_SERVER_AI_TIMEOUT_S for slow local models, or pick a faster model.",
+    "provider_status": null
+  }
+}
+```
+
+`message` is written for the reader. `hint` (nullable) is written for the
+operator and names the variable to change. `provider_status` is the
+upstream HTTP status when the provider answered. No field ever contains
+the API key, the prompt, or provider response text.
+
+| Status | `code` | When |
+|---|---|---|
+| 504 | `provider_timeout` | No answer within `QUIRE_SERVER_AI_TIMEOUT_S` (`QUIRE_SERVER_AI_PROFILE_TIMEOUT_S` for the profile). The server has stopped waiting; let the user retry in a minute. |
+| 502 | `provider_unreachable` | Connection error, or a 5xx from the provider. |
+| 502 | `provider_rejected` | The provider answered 4xx; `provider_status` carries it (401/403 credentials, 404 unknown model). |
+| 502 | `provider_invalid_output` | The provider answered 200 but not with parseable structured JSON, even after one retry. |
+| 502 | `provider_error` | Any other provider failure. |
+
+Clients that predate this section keep working: they see a 502 or 504
+with a JSON body where they used to see a 500 without one.
 
 ### `GET /ai/v1/config`
 
@@ -703,7 +738,12 @@ new dimensions.
 
 Cache hit returns the existing insight; cache miss generates synchronously.
 Requires opt-in. May return **429** with the quota body shape and `Retry-After`
-header if the user's daily budget is exhausted. Body:
+header if the user's daily budget is exhausted.
+
+A failed model call returns **502** or **504** with the body described under
+[AI provider errors](#ai-provider-errors).
+
+Body:
 
 ```json
 {
@@ -863,6 +903,9 @@ Requires opt-in. Subject to a tighter daily ceiling
 (`AI_REGEN_DAILY_LIMIT`, default 3 per user). Returns 429 with the same body
 shape as `lookup` when exceeded.
 
+A failed model call returns **502** or **504** with the body described under
+[AI provider errors](#ai-provider-errors).
+
 Body adds a required `reason`:
 
 ```json
@@ -1000,7 +1043,8 @@ Status codes (Lock #10 closes the opt-out question on 409):
 | `404` | `{"detail":"ai_disabled"}` | AI disabled or unconfigured on this deploy. |
 | `409` | `{"detail":"ai_not_opted_in"}` | Caller has not opted in (Lock #10). |
 | `429` | `QuotaResponse` + `Retry-After` | Daily refresh cap exceeded. |
-| `502` | `{"detail":"..."}` | LLM call failed mid-flight. |
+| `502` | provider error object, or `{"detail":"..."}` | The model call failed; see [AI provider errors](#ai-provider-errors). Failures that are not the provider's keep the plain string. |
+| `504` | provider error object | No answer within `QUIRE_SERVER_AI_PROFILE_TIMEOUT_S`. |
 | `503` | `{"error":"profile_requires_progress_data"}` | `PROGRESS_ENABLED=false`. |
 
 Rate limit: `QUIRE_SERVER_AI_PROFILE_REFRESH_DAILY_LIMIT` (default 3). Stored

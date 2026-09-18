@@ -46,7 +46,9 @@ from quire_server.api.ai_schemas import (
     RetrievalSourceHealth,
 )
 from quire_server.config import get_settings
+from quire_server.core.ai.client import ProviderError
 from quire_server.core.ai.health_state import AiHealthState
+from quire_server.core.ai.provider_errors import describe
 from quire_server.core.ai.service import (
     IdentityUnresolvable,
     InsightOrchestrator,
@@ -718,7 +720,8 @@ async def refresh_profile(
       * 409 — Caller has not opted in (``{"detail": "ai_not_opted_in"}``).
       * 429 — Daily cap exceeded (3/day by default, low-data mode is
               weight=0 and runs even at cap).
-      * 502 — LLM call failed mid-flight.
+      * 502 or 504 with a structured detail when the provider failed
+              (issue #102); 502 with a string for other generation failures.
 
     Singleflight: concurrent POSTs from the same ``(tenant_id, subject)``
     serialize through a per-user in-process lock; collapsed waiters each
@@ -739,6 +742,18 @@ async def refresh_profile(
     except QuotaExceeded as exc:
         raise _quota_http_exception(exc) from exc
     except ProfileGenerationError as exc:
+        # Issue #102: the orchestrator wraps the provider exception (raise ...
+        # from exc). When that is what failed, answer with the same structured
+        # body the insight routes use; other causes keep the plain string.
+        cause = exc.__cause__
+        if isinstance(cause, ProviderError):
+            info = describe(
+                cause,
+                timeout_s=settings.ai_profile_timeout_s,
+                model=settings.ai_model,
+                timeout_var="QUIRE_SERVER_AI_PROFILE_TIMEOUT_S",
+            )
+            raise HTTPException(status_code=info.http_status, detail=info.as_detail()) from exc
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(exc),
