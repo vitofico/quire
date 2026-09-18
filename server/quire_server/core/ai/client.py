@@ -152,7 +152,18 @@ class AIClient:
         if r.status_code >= 400:
             raise ProviderRejected(r.status_code, f"provider {r.status_code}: {r.text[:200]}")
 
-        data = r.json()
+        # Issue #102: a reverse proxy or a plain web server can answer 200 with a
+        # page instead of the provider's JSON. Raising the parse error as a
+        # ProviderError keeps that failure on the documented 502
+        # provider_invalid_output path instead of escaping as a raw 500. The
+        # body itself never reaches the message: a retry prompt cannot fix a
+        # proxy, so this deliberately bypasses the malformed-output retry above.
+        try:
+            data = r.json()
+        except ValueError as e:
+            raise ProviderParseError("provider response body was not JSON") from e
+        if not isinstance(data, dict):
+            raise ProviderParseError("provider response body was not a JSON object")
         choices = data.get("choices") or []
         if not choices:
             raise ProviderParseError("no choices in provider response")

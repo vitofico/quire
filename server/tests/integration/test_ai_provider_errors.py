@@ -207,6 +207,24 @@ async def test_unparseable_output_returns_502_invalid_output(client_factory, app
     assert "gpt-oss:120b-cloud" in detail["hint"]
 
 
+async def test_non_json_provider_body_returns_502_invalid_output(client_factory, app, session):
+    """Issue #102: a reverse proxy, a captive portal or a plain web server can
+    answer 200 with HTML in place of the provider. Parsing that body raised
+    ``json.JSONDecodeError``, which is not a ``ProviderError``, so it escaped the
+    exception handler and the route died with a raw 500. It is invalid output
+    like any other unparseable answer, and the page's own bytes never reach the
+    caller.
+    """
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="<html>upstream</html>")
+
+    r = await _opted_in_lookup(client_factory, app, fake_handler=handler)
+    assert r.status_code == 502, r.text
+    assert r.json()["detail"]["code"] == "provider_invalid_output"
+    assert "<html>" not in r.text
+
+
 async def test_error_response_still_carries_request_id(client_factory, app, session):
     """The handler runs inside the middleware stack, so X-Request-ID survives."""
 

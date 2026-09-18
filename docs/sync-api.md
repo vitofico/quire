@@ -659,7 +659,7 @@ the API key, the prompt, or provider response text.
 | 504 | `provider_timeout` | No answer within `QUIRE_SERVER_AI_TIMEOUT_S` (`QUIRE_SERVER_AI_PROFILE_TIMEOUT_S` for the profile). The server has stopped waiting; let the user retry in a minute. |
 | 502 | `provider_unreachable` | Connection error, or a 5xx from the provider. |
 | 502 | `provider_rejected` | The provider answered 4xx; `provider_status` carries it (401/403 credentials, 404 unknown model). |
-| 502 | `provider_invalid_output` | The provider answered 200 but not with parseable structured JSON, even after one retry. |
+| 502 | `provider_invalid_output` | The provider answered 200 but not with parseable structured JSON, even after one retry, or the body was not a JSON object at all (for example a proxy answering with a web page in place of the provider). |
 | 502 | `provider_error` | Any other provider failure. |
 
 Clients that predate this section keep working: they see a 502 or 504
