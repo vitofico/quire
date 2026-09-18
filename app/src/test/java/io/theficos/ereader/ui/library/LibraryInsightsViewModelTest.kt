@@ -200,6 +200,18 @@ class LibraryInsightsViewModelTest {
         assertThat(vm.state.value).isEqualTo(LibraryInsightsUiState.Disabled.OptedOut)
     }
 
+    @Test fun `mapErrorToState routes a read timeout to Timeout`() = runBlocking {
+        val vm = newVm()
+        vm.mapErrorToState(java.net.SocketTimeoutException("timeout"))
+        assertThat(vm.state.value).isEqualTo(LibraryInsightsUiState.Error.Timeout)
+    }
+
+    @Test fun `mapErrorToState keeps other io errors on Network`() = runBlocking {
+        val vm = newVm()
+        vm.mapErrorToState(java.net.ConnectException("refused"))
+        assertThat(vm.state.value).isInstanceOf(LibraryInsightsUiState.Error.Network::class.java)
+    }
+
     @Test fun `409 on refresh maps to Disabled OptedOut`() = runBlocking {
         server.dispatcher = pathDispatcher(
             "/ai/v1/profile" to { MockResponse().setResponseCode(404) },
