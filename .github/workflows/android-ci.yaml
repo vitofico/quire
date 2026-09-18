@@ -250,6 +250,20 @@ jobs:
         run: echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
         env:
           KEYSTORE_B64: ${{ secrets.QUIRE_RELEASE_KEYSTORE_B64 }}
+      # A blank keystore makes app/build.gradle.kts fall back to the debug
+      # signing config, and :app:assembleRelease then succeeds and produces a
+      # debug-signed app-release.apk. Publishing that is worse than publishing
+      # nothing: F-Droid rejects the signature outright, and anyone who installs
+      # it can never upgrade to a properly signed build, because Android refuses
+      # to install over a changed signature. Failing here does strand the tag
+      # the build job already pushed, but that is the recoverable state: fix the
+      # secrets, then run release-apk.yaml against the tag to publish it.
+      - name: Require signing secrets
+        run: |
+          test -s "$RUNNER_TEMP/release.keystore" || {
+            echo "::error::Release keystore missing — refusing to publish a debug-signed build."
+            exit 1
+          }
       - name: Assemble release APK
         env:
           QUIRE_RELEASE_KEYSTORE: ${{ secrets.QUIRE_RELEASE_KEYSTORE_B64 != '' && format('{0}/release.keystore', runner.temp) || '' }}
