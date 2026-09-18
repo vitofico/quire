@@ -120,6 +120,24 @@ def test_compose_only_names_are_not_settings_fields():
         assert name.removeprefix("QUIRE_SERVER_").lower() not in Settings.model_fields
 
 
+def test_unknown_env_vars_reads_dotenv_file(monkeypatch, tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "QUIRE_SERVER_AI_MODLE=typo\n"
+        "QUIRE_SERVER_PORT=8000\n"
+        "QUIRE_SERVER_AI_MODEL=gpt-oss:120b-cloud\n"
+        "POSTGRES_PASSWORD=x\n"
+        "# QUIRE_SERVER_COMMENTED=out\n"
+    )
+    monkeypatch.setitem(Settings.model_config, "env_file", str(env_file))
+    assert unknown_env_vars(environ={}) == ["QUIRE_SERVER_AI_MODLE"]
+
+
+def test_unknown_env_vars_tolerates_missing_dotenv_file(monkeypatch, tmp_path):
+    monkeypatch.setitem(Settings.model_config, "env_file", str(tmp_path / "absent.env"))
+    assert unknown_env_vars(environ={"QUIRE_SERVER_AI_MODLE": "typo"}) == ["QUIRE_SERVER_AI_MODLE"]
+
+
 # --- Issue #104: blank AI provider strings mean unset -----------------------
 
 

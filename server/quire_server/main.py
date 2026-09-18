@@ -226,14 +226,14 @@ def create_app() -> FastAPI:
     # Issue #104: say at boot what cannot work, instead of failing later with
     # a bare 500. Logged here (after logging setup) and stored on app.state
     # below so /health can repeat it.
-    config_warnings = _collect_config_warnings(settings)
+    boot_warnings = _collect_config_warnings(settings)
 
     engine = make_engine(settings.database_url)
     configure(engine)
     session_factory = make_session_factory(engine)
 
     app = FastAPI(title="quire-server", version="0.3.0")
-    app.state.config_warnings = config_warnings
+    app.state.config_warnings = boot_warnings
 
     httpx_client = httpx.AsyncClient(timeout=settings.cwa_probe_timeout_s)
     app.state.httpx_client = httpx_client

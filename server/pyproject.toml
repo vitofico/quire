@@ -11,6 +11,8 @@ dependencies = [
     "alembic>=1.13",
     "pydantic>=2.7",
     "pydantic-settings>=2.4",
+    # Imported directly by config.py (dotenv scan); pydantic-settings already requires it.
+    "python-dotenv>=0.21",
     "httpx>=0.27",
     "python-json-logger>=2.0",
     # Phase 0, task S-1: argon2id password hashing for NativeAuth. The CFFI
