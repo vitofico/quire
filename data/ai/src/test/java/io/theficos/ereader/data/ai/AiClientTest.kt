@@ -306,4 +306,21 @@ class AiClientTest {
         assertThat(e).isInstanceOf(AiQuotaException::class.java)
         assertThat((e as AiQuotaException).info.limit).isEqualTo(3)
     }
+
+    @Test
+    fun `a 429 whose detail carries a code stays a plain AiHttpException`() = runTest {
+        // The provider shape is only recognised when the status is not 429.
+        server.enqueue(
+            MockResponse().setResponseCode(429).setBody(
+                """{"detail":{"code":"rate_limited","message":"Slow down.","hint":null,"provider_status":null}}"""
+            )
+        )
+        val e = runCatching {
+            client.lookupInsight(DocumentIdentity(metadataId = "m"), MetadataBundle(title = "T", author = "A"))
+        }.exceptionOrNull()
+        assertThat(e).isInstanceOf(AiHttpException::class.java)
+        assertThat(e).isNotInstanceOf(AiProviderException::class.java)
+        assertThat(e).isNotInstanceOf(AiQuotaException::class.java)
+        assertThat((e as AiHttpException).code).isEqualTo(429)
+    }
 }
