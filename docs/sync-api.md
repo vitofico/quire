@@ -578,9 +578,14 @@ Both endpoints mount on the root path (no `/sync/v1` prefix) and are always
 available regardless of deploy mode. The previous `/sync/v1/healthz` was
 removed in PR-A; cluster manifests must point at `/health` going forward.
 
-- `/health` is liveness. Returns `{ "ready": true, "modes": ["progress","ai"] }`
-  where `modes` reflects `QUIRE_SERVER_PROGRESS_ENABLED` and `QUIRE_SERVER_AI_ENABLED`.
-  Returns 200 unless the process is broken.
+- `/health` is liveness. Returns
+  `{ "ready": true, "modes": ["progress","ai"], "warnings": [] }` where `modes`
+  reflects `QUIRE_SERVER_PROGRESS_ENABLED` and `QUIRE_SERVER_AI_ENABLED`, and
+  `warnings` lists the plain-language configuration problems the server
+  found at boot (an unknown `QUIRE_SERVER_*` variable, AI enabled without
+  `QUIRE_SERVER_AI_BASE_URL` and `QUIRE_SERVER_AI_MODEL`, a provider URL
+  without `/v1`). Empty when the configuration is clean. Returns 200 unless
+  the process is broken.
 - `/readyz` is readiness. Opens a Postgres connection and verifies that all
   required migration heads (for the enabled modes) are present in
   `alembic_version`. Returns 200 with `heads_applied` listing current heads,

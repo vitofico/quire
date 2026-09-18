@@ -16,6 +16,7 @@ import logging
 import os
 
 import pytest
+from httpx import ASGITransport, AsyncClient
 
 from quire_server.config import get_settings
 
@@ -104,3 +105,22 @@ def test_unknown_variables_are_listed_before_semantic_warnings(monkeypatch):
     assert len(app.state.config_warnings) == 2
     assert app.state.config_warnings[0].startswith("Unknown setting QUIRE_SERVER_AI_MODLE")
     assert app.state.config_warnings[1].startswith("AI is enabled but")
+
+
+async def test_health_repeats_config_warnings(monkeypatch):
+    monkeypatch.setenv("QUIRE_SERVER_AI_MODLE", "typo")
+    app = _create_app()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.get("/health")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ready"] is True
+    assert body["modes"] == ["progress"]
+    assert body["warnings"] == [f"Unknown setting QUIRE_SERVER_AI_MODLE {UNKNOWN_HINT}"]
+
+
+async def test_health_warnings_empty_on_clean_config():
+    app = _create_app()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.get("/health")
+    assert r.json()["warnings"] == []
