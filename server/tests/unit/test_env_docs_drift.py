@@ -6,7 +6,9 @@ missing seven fields. These checks fail the unit suite whenever:
 
 * a ``QUIRE_SERVER_*`` name appears in the docs or compose files that the
   server does not read (a typo, or a field that was renamed or removed);
-* ``.env.example`` stops mentioning a setting a new operator needs;
+* ``.env.example`` stops mentioning one of the names in
+  ``ENV_EXAMPLE_MUST_MENTION`` below (a mention inside a comment counts,
+  since the ``[ai]`` block is commented out on purpose);
 * a compose file stops loading ``.env`` wholesale.
 """
 
