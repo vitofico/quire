@@ -19,7 +19,10 @@ fun insightErrorMessage(e: Throwable): String = when {
     e is AiQuotaException ->
         "You've reached today's regeneration limit. Try again after ${e.info.resetsAt.take(10)}."
     e is AiProviderException ->
-        listOfNotNull(e.serverMessage, e.hint).joinToString(" ")
+        listOfNotNull(e.serverMessage, e.hint)
+            .filter { it.isNotBlank() }
+            .joinToString(" ")
+            .ifBlank { "Couldn't generate insights (${e.code})." }
     e is AiHttpException && e.code == 429 ->
         "You've reached today's regeneration limit. Try again tomorrow."
     e is AiHttpException -> "Couldn't generate insights (${e.code})."

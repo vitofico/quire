@@ -75,4 +75,22 @@ class InsightErrorMessagesTest {
     fun `anything else is the generic sentence`() {
         assertThat(insightErrorMessage(IllegalStateException("x"))).isEqualTo("Couldn't generate insights.")
     }
+
+    @Test
+    fun `provider error with a blank message falls back to the status code`() {
+        val e = AiProviderException(
+            code = 502,
+            body = "",
+            errorCode = "provider_error",
+            serverMessage = "",
+            hint = " ",
+            providerStatus = null,
+        )
+        assertThat(insightErrorMessage(e)).isEqualTo("Couldn't generate insights (502).")
+    }
+
+    @Test
+    fun `provider error with a blank hint shows only the sentence`() {
+        assertThat(insightErrorMessage(provider(""))).isEqualTo("The AI provider did not answer within 120 seconds.")
+    }
 }
