@@ -285,7 +285,7 @@ mapping. The server always listens on 8000 inside the container.
 | `QUIRE_SERVER_AI_REGEN_DAILY_LIMIT` | `3` | Per-user `/insights/regenerate` ceiling per UTC day. |
 | `QUIRE_SERVER_AI_PROMOTE_DAILY_LIMIT` | `100` | Per-user `/insights/promote` ceiling per UTC day; process-local counter, `0` disables. |
 | `QUIRE_SERVER_AI_PROFILE_REFRESH_DAILY_LIMIT` | `3` | Reader Profile refreshes per user per UTC day. |
-| `QUIRE_SERVER_AI_PROFILE_TIMEOUT_S` | `90` | Reader Profile generation timeout in seconds. |
+| `QUIRE_SERVER_AI_PROFILE_TIMEOUT_S` | `90` | Timeout in seconds for one Reader Profile model call. The server retries once when the model answers off-schema, so a refresh can take up to twice this. |
 
 #### Auth probes and request limits
 

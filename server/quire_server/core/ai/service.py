@@ -1585,7 +1585,14 @@ class InsightOrchestrator:
                             schema=ReaderProfilePromptOutput,
                             timeout_s=self._profile_timeout_s,
                         ),
-                        timeout=self._profile_timeout_s,
+                        # Issue #102: each of the client's (up to two) attempts is
+                        # bounded by the per-call budget above. This outer wait is
+                        # only a backstop for a provider that trickles bytes past
+                        # the per-read timeout, so it must leave room for both
+                        # attempts plus a second of slack for connect and parsing.
+                        # Otherwise a model that answers fast but off-schema is
+                        # reported as a timeout instead of as invalid output.
+                        timeout=2 * self._profile_timeout_s + 1.0,
                     )
                 except Exception as exc:
                     latency_ms = _ms_since(started_at)
