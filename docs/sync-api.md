@@ -610,7 +610,7 @@ Standard FastAPI shape:
 | 409 | Identity conflict the server cannot auto-resolve (rare; mostly future-proofing for the alias endpoint). |
 | 422 | Validation failure (FastAPI default). |
 | 500 | Server error. |
-| 502 | An AI provider call failed; `detail` is an object, see [AI provider errors](#ai-provider-errors). |
+| 502 | An AI provider call failed; `detail` is an object, see [AI provider errors](#ai-provider-errors), or a plain string on `/profile/refresh` when the failure is not a provider error. |
 | 503 | Database unavailable (`/readyz`) or calibre-web unreachable for auth probes. |
 | 504 | The AI provider did not answer within `QUIRE_SERVER_AI_TIMEOUT_S`; same `detail` object. |
 
@@ -657,7 +657,7 @@ the API key, the prompt, or provider response text.
 | Status | `code` | When |
 |---|---|---|
 | 504 | `provider_timeout` | No answer within `QUIRE_SERVER_AI_TIMEOUT_S` (`QUIRE_SERVER_AI_PROFILE_TIMEOUT_S` for the profile). The server has stopped waiting; let the user retry in a minute. |
-| 502 | `provider_unreachable` | Connection error, or a 5xx from the provider. |
+| 502 | `provider_unreachable` | Connection error, or a 5xx from the provider. `provider_status` stays null even for that 5xx: the server treats an upstream 5xx like an outage rather than an answer. |
 | 502 | `provider_rejected` | The provider answered 4xx; `provider_status` carries it (401/403 credentials, 404 unknown model). |
 | 502 | `provider_invalid_output` | The provider answered 200 but not with parseable structured JSON, even after one retry, or the body was not a JSON object at all (for example a proxy answering with a web page in place of the provider). |
 | 502 | `provider_error` | Any other provider failure. |
