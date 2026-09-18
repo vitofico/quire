@@ -19,6 +19,15 @@ import pytest
 
 from quire_server.config import get_settings
 
+# Imported at module scope, not inside a test or fixture. `quire_server.main`
+# has a pre-existing module-level `app = create_app()` line (its ASGI
+# entrypoint); the first import of the module in a process runs that line as
+# a side effect and logs whatever config warnings apply at that moment. Doing
+# the import here means that cold-import side effect fires at collection
+# time, before any test's `caplog.at_level(...)` block attaches its handler,
+# so it never lands in a test's captured records.
+from quire_server.main import create_app
+
 UNKNOWN_HINT = "is ignored; check the spelling against server/README.md (Environment variables)"
 
 
@@ -41,8 +50,6 @@ def _isolate_env(monkeypatch):
 
 
 def _create_app():
-    from quire_server.main import create_app
-
     return create_app()
 
 
@@ -51,17 +58,7 @@ def test_unknown_variable_is_logged_and_stored(monkeypatch, caplog):
     with caplog.at_level(logging.WARNING, logger="quire_server.main"):
         app = _create_app()
     assert app.state.config_warnings == [f"Unknown setting QUIRE_SERVER_AI_MODLE {UNKNOWN_HINT}"]
-    # De-duplicated: quire_server/main.py builds a module-level `app` at
-    # import time (`app = create_app()`), so the first test in a session to
-    # import quire_server.main also observes that boot's warning alongside
-    # this call's own, both carrying the identical message. Dedup keeps the
-    # assertion about message content, not about how many times a cold
-    # import happens to fire in this process.
-    logged = list(
-        dict.fromkeys(
-            r.getMessage() for r in caplog.records if "event=config.warning" in r.getMessage()
-        )
-    )
+    logged = [r.getMessage() for r in caplog.records if "event=config.warning" in r.getMessage()]
     assert logged == [
         f"event=config.warning msg=Unknown setting QUIRE_SERVER_AI_MODLE {UNKNOWN_HINT}"
     ]
