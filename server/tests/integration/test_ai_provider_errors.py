@@ -20,7 +20,7 @@ import pytest
 
 from quire_server.core.ai.client import AIClient
 from quire_server.core.ai.health_state import AiHealthState
-from quire_server.core.ai.service import InsightOrchestrator
+from quire_server.core.ai.service import InsightOrchestrator, ProfileGenerationError
 from quire_server.db.models import Document, LibraryItem, Progress
 
 pytestmark = pytest.mark.requires_ai
@@ -339,6 +339,37 @@ async def test_profile_refresh_retry_fits_inside_the_backstop(client_factory, ap
     # Two attempts at 0.3 s each: they fit only because the backstop is wider
     # than the per-call budget.
     assert len(calls) == 2
+
+
+async def test_profile_refresh_non_provider_failure_keeps_a_string_detail(
+    client_factory, app, session, monkeypatch
+):
+    """``/profile/refresh`` only builds the structured body when the generation
+    failure was caused by a provider error. Everything else (a bug in the
+    profile builder, a database hiccup) keeps the plain string ``detail`` older
+    clients already decode. Issue #102 deliberately left that path alone, so pin
+    it: a compatibility contract with no test is a compatibility contract that
+    breaks silently.
+    """
+
+    def handler(req: httpx.Request) -> httpx.Response:  # never called
+        return httpx.Response(200, json=_chat_response("{}"))
+
+    async def _fail(**kwargs):
+        # No ``from``: ``__cause__`` is None, so the route cannot find a
+        # ProviderError to describe.
+        raise ProfileGenerationError("profile builder failed")
+
+    async with client_factory(ai_enabled=True, ai_base_url="http://x", ai_model="m") as client:
+        _install_fake_ai(app, fake_handler=handler)
+        monkeypatch.setattr(app.state.ai_orchestrator, "refresh_profile", _fail)
+        await client.put(
+            "/ai/v1/preferences", headers=_basic_header("alice"), json={"ai_enabled": True}
+        )
+        r = await client.post("/ai/v1/profile/refresh", headers=_basic_header("alice"))
+
+    assert r.status_code == 502, r.text
+    assert r.json()["detail"] == "profile builder failed"
 
 
 async def test_failed_generation_logs_the_operator_hint(client_factory, app, session, caplog):
