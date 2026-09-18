@@ -38,6 +38,8 @@ TOKEN_RE = re.compile(r"\bQUIRE_SERVER_[A-Z0-9_]+\b(?!\*)")
 
 KNOWN = {f"{ENV_PREFIX}{name.upper()}" for name in Settings.model_fields} | COMPOSE_ONLY_ENV_VARS
 
+# Hand-maintained: the `[ai]` block in `.env.example` is deliberately commented
+# out, so this list cannot be derived from `Settings.model_fields`.
 ENV_EXAMPLE_MUST_MENTION = (
     "QUIRE_SERVER_CWA_BASE_URL",
     "QUIRE_SERVER_PROGRESS_ENABLED",

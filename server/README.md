@@ -42,9 +42,12 @@ curl http://localhost:8000/health
 
 quire-server listens on `${QUIRE_SERVER_PORT:-8000}`. Every `QUIRE_SERVER_*`
 line in `.env` reaches the server, including the AI provider block, so the
-minimal compose supports every deploy mode. Point Quire's "sync URL" at it
-and Quire's "OPDS URL" at your existing calibre-web. Two URLs to configure
-in the app; you handle TLS yourself if exposing to the internet.
+minimal compose supports every deploy mode. The exception is
+`QUIRE_SERVER_DATABASE_URL`, pinned by the compose file to the bundled
+Postgres; edit the compose file to use an external database. Point Quire's
+"sync URL" at it and Quire's "OPDS URL" at your existing calibre-web. Two
+URLs to configure in the app; you handle TLS yourself if exposing to the
+internet.
 
 With this file, `.env` must exist for every compose command, including
 `ps`, `logs`, and `down`, because `QUIRE_SERVER_CWA_BASE_URL` is required
@@ -240,10 +243,12 @@ Every setting is an environment variable with the `QUIRE_SERVER_` prefix,
 matched case-insensitively. Both compose files load `.env` wholesale, so a
 line in `.env` is all it takes. At boot the server logs one
 `event=config.warning` line per problem it can detect (an unknown or
-misspelled variable, AI enabled without a provider, a provider URL without
-`/v1`) and repeats the same list under `warnings` in `GET /health`, so
-`curl http://localhost:8000/health` is the first thing to check when
-something does not work.
+misspelled variable, set in the environment or in `.env`; AI enabled
+without a provider; a provider URL without `/v1`; or both
+`QUIRE_SERVER_PROGRESS_ENABLED` and `QUIRE_SERVER_AI_ENABLED` false) and
+repeats the same list under `warnings` in `GET /health`, so `curl
+http://localhost:8000/health` is the first thing to check when something
+does not work.
 
 Settings live in `.env`. Compose forwards the whole file to the container;
 a variable exported only in the shell, for example
@@ -257,7 +262,7 @@ mapping. The server always listens on 8000 inside the container.
 
 | Var | Default | Purpose |
 | --- | --- | --- |
-| `QUIRE_SERVER_DATABASE_URL` | local Postgres | SQLAlchemy URL (asyncpg). Both composes set it for you. |
+| `QUIRE_SERVER_DATABASE_URL` | local Postgres | SQLAlchemy URL (asyncpg). Both composes pin it under `environment:`, which wins over `.env`, so a line in `.env` is ignored; edit the compose file for an external database. |
 | `QUIRE_SERVER_CWA_BASE_URL` | in-cluster Calibre | Upstream calibre-web URL for Basic auth proxying. Required in the minimal compose (it refuses to start without it); the full compose pins it to its own calibre-web. |
 | `QUIRE_SERVER_PROGRESS_ENABLED` | `true` | Mounts `/sync/v1/*` and `/library/v1/*`. Disable for AI-only mode. |
 | `QUIRE_SERVER_AI_ENABLED` | `true` | Mounts `/ai/v1/*`. With no provider configured the server boots with a warning and the app reports AI as unconfigured. |

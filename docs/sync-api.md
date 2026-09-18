@@ -584,8 +584,11 @@ removed in PR-A; cluster manifests must point at `/health` going forward.
   `warnings` lists the plain-language configuration problems the server
   found at boot (an unknown `QUIRE_SERVER_*` variable, AI enabled without
   `QUIRE_SERVER_AI_BASE_URL` and `QUIRE_SERVER_AI_MODEL`, a provider URL
-  without `/v1`). Empty when the configuration is clean. Returns 200 unless
-  the process is broken.
+  without `/v1`, or both `QUIRE_SERVER_PROGRESS_ENABLED` and
+  `QUIRE_SERVER_AI_ENABLED` false). Empty when the configuration is clean.
+  The warnings name variables and never echo values, which matters because
+  `/health` needs no authentication and the full stack serves it at the
+  public origin. Returns 200 unless the process is broken.
 - `/readyz` is readiness. Opens a Postgres connection and verifies that all
   required migration heads (for the enabled modes) are present in
   `alembic_version`. Returns 200 with `heads_applied` listing current heads,
