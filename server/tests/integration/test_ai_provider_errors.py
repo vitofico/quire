@@ -9,6 +9,7 @@ an ``api_key`` so a test can prove the key never reaches the response.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 from datetime import UTC, datetime
 
@@ -37,7 +38,12 @@ def _chat_response(content: str) -> dict:
     }
 
 
-def _install_fake_ai(app, *, fake_handler, api_key: str | None = None) -> InsightOrchestrator:
+def _install_fake_ai(
+    app, *, fake_handler, api_key: str | None = None, profile_timeout_s: float = 90.0
+) -> InsightOrchestrator:
+    # ``profile_timeout_s`` defaults to the production default; a test that wants the
+    # outer profile budget to fire passes a small one here and the matching
+    # ``ai_profile_timeout_s`` to ``client_factory`` (the route reads settings for the text).
     ai = AIClient(
         base_url="http://fake/v1",
         api_key=api_key,
@@ -61,6 +67,7 @@ def _install_fake_ai(app, *, fake_handler, api_key: str | None = None) -> Insigh
         prompt_version="t1",
         max_concurrency=4,
         ai_timeout_s=5.0,
+        profile_timeout_s=profile_timeout_s,
         health_state=health,
     )
     app.state.ai_orchestrator = orch
@@ -233,6 +240,44 @@ async def test_profile_refresh_timeout_names_the_profile_variable(client_factory
         # 90 is the QUIRE_SERVER_AI_PROFILE_TIMEOUT_S default; the insight
         # tests above see 120 from QUIRE_SERVER_AI_TIMEOUT_S.
         "message": "The AI provider did not answer within 90 seconds.",
+        "hint": (
+            "Raise QUIRE_SERVER_AI_PROFILE_TIMEOUT_S for slow local models, or pick a faster model."
+        ),
+        "provider_status": None,
+    }
+
+
+async def test_profile_refresh_outer_budget_timeout_is_a_504(client_factory, app, session):
+    """``refresh_profile`` wraps the client call in ``asyncio.wait_for`` on the
+    same budget it hands the client, and the client retries once on malformed
+    output, so the outer budget can expire with no provider exception in flight.
+    The cause is then a bare ``TimeoutError`` whose ``str()`` is empty, which
+    used to leave ``502`` with ``detail: ""``: exactly the illegible failure
+    issue #102 is about, and a contradiction of the documented 504.
+    """
+
+    async def handler(req: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(1.0)  # far past the 0.2s budget below
+        return httpx.Response(200, json=_chat_response("{}"))
+
+    async with client_factory(
+        ai_enabled=True, ai_base_url="http://x", ai_model="m", ai_profile_timeout_s=0.2
+    ) as client:
+        # The mock transport never sees httpx's own timeout, so the orchestrator's
+        # outer ``wait_for`` is the deterministic winner.
+        _install_fake_ai(app, fake_handler=handler, profile_timeout_s=0.2)
+        await _seed_finished_book(session, user_id="alice")
+        await client.put(
+            "/ai/v1/preferences", headers=_basic_header("alice"), json={"ai_enabled": True}
+        )
+        r = await client.post("/ai/v1/profile/refresh", headers=_basic_header("alice"))
+
+    assert r.status_code == 504, r.text
+    assert r.json()["detail"] == {
+        "code": "provider_timeout",
+        # ceil(0.2) == 1; the sentence is built from the budget, not from the
+        # exception, so a bare TimeoutError still names the right number.
+        "message": "The AI provider did not answer within 1 seconds.",
         "hint": (
             "Raise QUIRE_SERVER_AI_PROFILE_TIMEOUT_S for slow local models, or pick a faster model."
         ),

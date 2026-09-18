@@ -46,7 +46,7 @@ from quire_server.api.ai_schemas import (
     RetrievalSourceHealth,
 )
 from quire_server.config import get_settings
-from quire_server.core.ai.client import ProviderError
+from quire_server.core.ai.client import ProviderError, ProviderTimeout
 from quire_server.core.ai.health_state import AiHealthState
 from quire_server.core.ai.provider_errors import describe
 from quire_server.core.ai.service import (
@@ -746,6 +746,12 @@ async def refresh_profile(
         # from exc). When that is what failed, answer with the same structured
         # body the insight routes use; other causes keep the plain string.
         cause = exc.__cause__
+        if isinstance(cause, TimeoutError):
+            # The orchestrator also guards the call with its own asyncio.wait_for on
+            # the profile budget, which covers discovery plus the client's one retry
+            # on malformed output, so it can fire with no ProviderError in flight.
+            # A bare TimeoutError is still a timeout; str(exc) for it is empty.
+            cause = ProviderTimeout("profile refresh exceeded QUIRE_SERVER_AI_PROFILE_TIMEOUT_S")
         if isinstance(cause, ProviderError):
             info = describe(
                 cause,
