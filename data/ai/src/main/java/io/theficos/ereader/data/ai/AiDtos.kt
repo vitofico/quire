@@ -262,3 +262,15 @@ data class ReaderProfileResponseDto(
     @SerialName("input_fingerprint") val inputFingerprint: String? = null,
     @SerialName("generated_at") val generatedAt: String,
 )
+
+/**
+ * Issue #102: the `detail` object the server sends with 502/504 when the AI
+ * provider failed. `message` is for the reader, `hint` for the operator.
+ */
+@Serializable
+data class ProviderErrorDetail(
+    val code: String,
+    val message: String,
+    val hint: String? = null,
+    @SerialName("provider_status") val providerStatus: Int? = null,
+)

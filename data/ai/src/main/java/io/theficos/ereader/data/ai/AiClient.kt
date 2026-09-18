@@ -266,19 +266,39 @@ class AiClient(
             .build()
     }
 
-    /** Map an HTTP error to either AiQuotaException (429 with quota body) or AiHttpException. */
+    /**
+     * Map an HTTP error body to the most specific exception:
+     * 429 with a quota body -> [AiQuotaException];
+     * a non-429 status with a `detail` object carrying `code` (issue #102) -> [AiProviderException];
+     * anything else -> [AiHttpException].
+     */
     private fun makeError(code: Int, body: String): RuntimeException {
-        if (code == 429) {
+        val detail = try {
+            (json.parseToJsonElement(body) as? JsonObject)?.get("detail")
+        } catch (ignored: Exception) {
+            null
+        }
+        if (code == 429 && detail != null) {
             // 429 body shape from server: {detail: {used, limit, resets_at}}
             try {
-                val parsed = json.parseToJsonElement(body) as? JsonObject
-                val detail = parsed?.get("detail")
-                if (detail != null) {
-                    val info = json.decodeFromString(QuotaInfo.serializer(), detail.toString())
-                    return AiQuotaException(info)
-                }
+                return AiQuotaException(json.decodeFromString(QuotaInfo.serializer(), detail.toString()))
             } catch (ignored: Exception) {
-                // fall through to generic
+                // fall through
+            }
+        }
+        if (code != 429 && detail is JsonObject && detail["code"] != null) {
+            try {
+                val info = json.decodeFromString(ProviderErrorDetail.serializer(), detail.toString())
+                return AiProviderException(
+                    code = code,
+                    body = body,
+                    errorCode = info.code,
+                    serverMessage = info.message,
+                    hint = info.hint,
+                    providerStatus = info.providerStatus,
+                )
+            } catch (ignored: Exception) {
+                // fall through to the generic exception
             }
         }
         return AiHttpException(code, body)
@@ -298,8 +318,22 @@ class AiClient(
     }
 }
 
-class AiHttpException(val code: Int, val body: String) :
+open class AiHttpException(val code: Int, val body: String) :
     RuntimeException("AI request failed: $code body=${body.take(200)}")
+
+/**
+ * Issue #102: a provider failure the server described. [serverMessage] is
+ * written for the reader, [hint] for whoever runs the server. Subclass of
+ * [AiHttpException] so existing `is AiHttpException` branches keep working.
+ */
+class AiProviderException(
+    code: Int,
+    body: String,
+    val errorCode: String,
+    val serverMessage: String,
+    val hint: String?,
+    val providerStatus: Int?,
+) : AiHttpException(code, body)
 
 class InsightNotCachedException : RuntimeException("insight not cached")
 

@@ -247,4 +247,63 @@ class AiClientTest {
         )
         assertThat(resp.modelId).isEqualTo("m")
     }
+
+    @Test
+    fun `lookupInsight maps a structured provider error to AiProviderException`() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(504).setBody(
+                """{"detail":{"code":"provider_timeout","message":"The AI provider did not answer within 120 seconds.","hint":"Raise QUIRE_SERVER_AI_TIMEOUT_S for slow local models, or pick a faster model.","provider_status":null}}"""
+            )
+        )
+        val e = runCatching {
+            client.lookupInsight(DocumentIdentity(metadataId = "m"), MetadataBundle(title = "T", author = "A"))
+        }.exceptionOrNull()
+        assertThat(e).isInstanceOf(AiProviderException::class.java)
+        e as AiProviderException
+        assertThat(e.code).isEqualTo(504)
+        assertThat(e.errorCode).isEqualTo("provider_timeout")
+        assertThat(e.serverMessage).isEqualTo("The AI provider did not answer within 120 seconds.")
+        assertThat(e.hint).isEqualTo("Raise QUIRE_SERVER_AI_TIMEOUT_S for slow local models, or pick a faster model.")
+        assertThat(e.providerStatus).isNull()
+    }
+
+    @Test
+    fun `lookupInsight keeps provider_status from a rejected error`() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(502).setBody(
+                """{"detail":{"code":"provider_rejected","message":"The AI provider rejected the server's credentials.","hint":"Check QUIRE_SERVER_AI_API_KEY.","provider_status":401}}"""
+            )
+        )
+        val e = runCatching {
+            client.lookupInsight(DocumentIdentity(metadataId = "m"), MetadataBundle(title = "T", author = "A"))
+        }.exceptionOrNull() as AiProviderException
+        assertThat(e.providerStatus).isEqualTo(401)
+        assertThat(e.hint).isEqualTo("Check QUIRE_SERVER_AI_API_KEY.")
+    }
+
+    @Test
+    fun `lookupInsight keeps AiHttpException for a plain string detail`() = runTest {
+        // An older server, or a non-provider failure: no structured body.
+        server.enqueue(MockResponse().setResponseCode(502).setBody("""{"detail":"boom"}"""))
+        val e = runCatching {
+            client.lookupInsight(DocumentIdentity(metadataId = "m"), MetadataBundle(title = "T", author = "A"))
+        }.exceptionOrNull()
+        assertThat(e).isInstanceOf(AiHttpException::class.java)
+        assertThat(e).isNotInstanceOf(AiProviderException::class.java)
+        assertThat((e as AiHttpException).code).isEqualTo(502)
+    }
+
+    @Test
+    fun `a 429 quota body still becomes AiQuotaException`() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(429).setBody(
+                """{"detail":{"used":3,"limit":3,"resets_at":"2026-09-17T00:00:00+00:00"}}"""
+            )
+        )
+        val e = runCatching {
+            client.lookupInsight(DocumentIdentity(metadataId = "m"), MetadataBundle(title = "T", author = "A"))
+        }.exceptionOrNull()
+        assertThat(e).isInstanceOf(AiQuotaException::class.java)
+        assertThat((e as AiQuotaException).info.limit).isEqualTo(3)
+    }
 }
