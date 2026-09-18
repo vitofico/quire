@@ -69,27 +69,19 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # Every QUIRE_SERVER_* line in .env reaches the container. The block
+    # under `environment:` only pins what this compose topology decides:
+    # the bundled database and the in-network calibre-web.
+    env_file:
+      - path: .env
+        required: false
     environment:
       QUIRE_SERVER_DATABASE_URL: postgresql+asyncpg://opds_sync:${POSTGRES_PASSWORD:-changeme}@postgres:5432/opds_sync
       QUIRE_SERVER_CWA_BASE_URL: http://calibre-web:8083
-      QUIRE_SERVER_LOG_LEVEL: ${QUIRE_SERVER_LOG_LEVEL:-INFO}
-      # Deploy-mode flags. Defaults give the full stack; flip one of
-      # these to false for sync-only or AI-only mode (see README).
-      QUIRE_SERVER_PROGRESS_ENABLED: ${QUIRE_SERVER_PROGRESS_ENABLED:-true}
-      QUIRE_SERVER_AI_ENABLED: ${QUIRE_SERVER_AI_ENABLED:-true}
-      # AI provider config. Required when QUIRE_SERVER_AI_ENABLED=true.
-      # Point at any OpenAI-compatible endpoint.
-      QUIRE_SERVER_AI_BASE_URL: ${QUIRE_SERVER_AI_BASE_URL:-}
-      QUIRE_SERVER_AI_MODEL: ${QUIRE_SERVER_AI_MODEL:-}
-      QUIRE_SERVER_AI_API_KEY: ${QUIRE_SERVER_AI_API_KEY:-}
-      QUIRE_SERVER_AI_SOURCES: ${QUIRE_SERVER_AI_SOURCES:-wikipedia,openlibrary}
-      QUIRE_SERVER_AI_RATE_PER_MIN: ${QUIRE_SERVER_AI_RATE_PER_MIN:-10}
-      QUIRE_SERVER_AI_DAILY_BUDGET: ${QUIRE_SERVER_AI_DAILY_BUDGET:-200}
-      QUIRE_SERVER_AI_REGEN_DAILY_LIMIT: ${QUIRE_SERVER_AI_REGEN_DAILY_LIMIT:-3}
-      # NOTE: AI_PROFILE_REFRESH_DAILY_LIMIT, AI_PROFILE_TIMEOUT_S, and
-      # AI_PROMOTE_DAILY_LIMIT intentionally OMITTED here. Their
-      # defaults live in config.py; users opting in to non-defaults
-      # set them in .env (see .env.example).
+    # Lets QUIRE_SERVER_AI_BASE_URL=http://host.docker.internal:11434/v1 reach
+    # an Ollama running on the Docker host, on Linux as well as Docker Desktop.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     command: >
       sh -c "python /app/scripts/migrate.py &&
              uvicorn quire_server.main:app --host 0.0.0.0 --port 8000"

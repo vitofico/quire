@@ -20,10 +20,20 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # Every QUIRE_SERVER_* line in .env reaches the container. The block
+    # under `environment:` only pins what this compose topology decides.
+    env_file:
+      - path: .env
+        required: false
     environment:
       QUIRE_SERVER_DATABASE_URL: postgresql+asyncpg://opds_sync:${POSTGRES_PASSWORD:-changeme}@postgres:5432/opds_sync
-      QUIRE_SERVER_CWA_BASE_URL: ${QUIRE_SERVER_CWA_BASE_URL}
-      QUIRE_SERVER_LOG_LEVEL: ${QUIRE_SERVER_LOG_LEVEL:-INFO}
+      # Fail `docker compose up` with a readable message instead of booting a
+      # server that cannot authenticate anyone.
+      QUIRE_SERVER_CWA_BASE_URL: ${QUIRE_SERVER_CWA_BASE_URL:?set QUIRE_SERVER_CWA_BASE_URL in .env to your calibre-web URL}
+    # Lets QUIRE_SERVER_AI_BASE_URL=http://host.docker.internal:11434/v1 reach
+    # an Ollama running on the Docker host, on Linux as well as Docker Desktop.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${QUIRE_SERVER_PORT:-8000}:8000"
     command: >
