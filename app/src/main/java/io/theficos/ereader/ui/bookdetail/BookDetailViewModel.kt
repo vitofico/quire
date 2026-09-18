@@ -6,8 +6,6 @@ import io.theficos.ereader.core.metadata.MetadataBundle
 import io.theficos.ereader.core.metadata.OpfMetadataExtractor
 import io.theficos.ereader.core.model.Document
 import io.theficos.ereader.core.model.DocumentIdentity
-import io.theficos.ereader.data.ai.AiHttpException
-import io.theficos.ereader.data.ai.AiQuotaException
 import io.theficos.ereader.data.ai.AiRepository
 import io.theficos.ereader.data.ai.BookInsightPayload
 import io.theficos.ereader.data.ai.Citation
@@ -83,14 +81,7 @@ class BookDetailViewModel(
                 )
             }
             .onFailure { e ->
-                val msg = when {
-                    e is AiQuotaException ->
-                        "You've reached today's regeneration limit. Try again after ${e.info.resetsAt.take(10)}."
-                    e is AiHttpException && e.code == 429 ->
-                        "You've reached today's regeneration limit. Try again tomorrow."
-                    e is AiHttpException -> "Couldn't generate insights (${e.code})."
-                    else -> "Couldn't generate insights."
-                }
+                val msg = insightErrorMessage(e)
                 _state.value = _state.value.copy(insight = InsightUiState.Error(msg))
             }
     }
