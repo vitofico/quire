@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import logging
+import re
 from datetime import UTC, datetime
 
 import httpx
@@ -283,3 +285,21 @@ async def test_profile_refresh_outer_budget_timeout_is_a_504(client_factory, app
         ),
         "provider_status": None,
     }
+
+
+async def test_failed_generation_logs_the_operator_hint(client_factory, app, session, caplog):
+    def handler(req: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("simulated")
+
+    with caplog.at_level(logging.WARNING, logger="quire_server.core.ai.service"):
+        r = await _opted_in_lookup(client_factory, app, fake_handler=handler)
+    assert r.status_code == 504
+    lines = [
+        rec.getMessage() for rec in caplog.records if "event=ai.generate.error" in rec.getMessage()
+    ]
+    assert len(lines) == 1
+    assert "error_class=ProviderTimeout" in lines[0]
+    assert re.search(r" prompt_chars=\d+ hint=", lines[0])
+    assert lines[0].endswith(
+        "hint=Raise QUIRE_SERVER_AI_TIMEOUT_S for slow local models, or pick a faster model."
+    )

@@ -391,6 +391,50 @@ backbone, then `alembic upgrade <branch>@head` for each enabled+materialized
 branch (`progress`, `ai`). Branches with no migration files yet are skipped.
 See `migrations/README.md` for the splice rule and labeling convention.
 
+## Slow models and timeouts
+
+One insight is one model call bounded by `QUIRE_SERVER_AI_TIMEOUT_S`
+(default 120 s), retried once when the model answers with malformed JSON,
+so a single `/ai/v1/insights/lookup` can take twice that plus a few seconds
+of Wikipedia and Open Library retrieval. The app reads
+`generation_timeout_s` from `GET /ai/v1/config` and waits twice that plus
+30 s, so raising the variable on the server is the whole fix; the app
+adapts on its next config refresh.
+
+A quick answer from `ollama run` proves little. That prompt is a few words;
+Quire's is a few thousand characters of metadata, retrieved snippets and the
+JSON schema, and on a CPU the prompt evaluation is most of the wall time.
+Ollama also unloads a model after five idle minutes, so the first request
+after a pause pays the load time again (`OLLAMA_KEEP_ALIVE=30m` on the Ollama
+side keeps it resident). The `event=ai.generate.error` log line carries
+`prompt_chars`, the size of what the model was given.
+
+When a small local model keeps timing out, work down this ladder:
+
+1. Set `QUIRE_SERVER_AI_TIMEOUT_S=600` and try again. If it now succeeds, the
+   model is simply slow; keep the higher value or pick a faster model.
+2. Set `QUIRE_SERVER_AI_SOURCES=` (empty). Retrieval is skipped and the prompt
+   holds only the book metadata. If that succeeds, the model cannot digest
+   the retrieved context in time; leave retrieval off or use a larger model.
+3. Point `QUIRE_SERVER_AI_BASE_URL` at a hosted model. Ollama's free tier
+   with `gpt-oss:120b-cloud` answers in seconds and needs no local GPU.
+
+When the provider fails, the server answers with a JSON body (`detail.code`,
+`detail.message`, `detail.hint`) and logs the same hint on the
+`event=ai.generate.error` line:
+
+| What you see | Meaning | What to do |
+| --- | --- | --- |
+| 504 `provider_timeout` | The model did not answer in time. Usual with any model on CPU, and on the first call after Ollama unloaded the model. | Follow the ladder above: raise `QUIRE_SERVER_AI_TIMEOUT_S`, then try `QUIRE_SERVER_AI_SOURCES=` to shrink the prompt, then a hosted model such as `gpt-oss:120b-cloud` on Ollama's free tier. |
+| 502 `provider_unreachable` | The container could not reach `QUIRE_SERVER_AI_BASE_URL` (connection refused, firewall, or no answer to the TCP connect within 10 s). | Test from inside the container: `docker compose exec quire-server python -c "import os,urllib.request;print(urllib.request.urlopen(os.environ['QUIRE_SERVER_AI_BASE_URL']+'/models').status)"`. For an Ollama on the Docker host use `http://host.docker.internal:11434/v1`. |
+| 502 `provider_rejected`, `provider_status` 401 or 403 | The provider refused the key. | Check `QUIRE_SERVER_AI_API_KEY`. |
+| 502 `provider_rejected`, `provider_status` 404 | The provider does not know the model. | Check `QUIRE_SERVER_AI_MODEL`; `ollama pull <model>` for a local Ollama. |
+| 502 `provider_invalid_output` | The model answered, but not with the JSON structure Quire asks for. | Small models often cannot; try a larger one. |
+
+`GET /ai/v1/health` (authenticated) shows the last failure class and when
+the provider was last reachable. `GET /health` lists boot-time
+configuration warnings.
+
 ## AI smoke test
 
 End-to-end check that the `/ai/v1/*` surface is wired correctly against a
