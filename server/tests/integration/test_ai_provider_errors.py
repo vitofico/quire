@@ -236,6 +236,7 @@ async def test_error_response_still_carries_request_id(client_factory, app, sess
     assert r.headers.get("x-request-id")
 
 
+@pytest.mark.requires_progress
 async def test_profile_refresh_timeout_names_the_profile_variable(client_factory, app, session):
     """``/profile/refresh`` catches ``ProfileGenerationError`` before the
     exception handler can see the provider failure, so the route maps
@@ -267,6 +268,7 @@ async def test_profile_refresh_timeout_names_the_profile_variable(client_factory
     }
 
 
+@pytest.mark.requires_progress
 async def test_profile_refresh_outer_budget_timeout_is_a_504(client_factory, app, session):
     """``refresh_profile`` wraps the client call in ``asyncio.wait_for`` as a
     backstop against a provider that trickles bytes past the per-read timeout,
@@ -307,6 +309,7 @@ async def test_profile_refresh_outer_budget_timeout_is_a_504(client_factory, app
     }
 
 
+@pytest.mark.requires_progress
 async def test_profile_refresh_retry_fits_inside_the_backstop(client_factory, app, session):
     """Issue #102: the client retries once on malformed output, each attempt
     bounded by the per-call budget, so the orchestrator's backstop has to leave
@@ -341,6 +344,7 @@ async def test_profile_refresh_retry_fits_inside_the_backstop(client_factory, ap
     assert len(calls) == 2
 
 
+@pytest.mark.requires_progress
 async def test_profile_refresh_non_provider_failure_keeps_a_string_detail(
     client_factory, app, session, monkeypatch
 ):
