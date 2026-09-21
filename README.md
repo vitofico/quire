@@ -183,25 +183,6 @@ ships two reference docker-compose files (`docker-compose.yml` for
 "bring your own proxy"; `docker-compose.full.yml` for a Caddy-fronted
 full stack with calibre-web + quire-server + TLS behind one base URL).
 
-## Roadmap
-
-**Shipped:** OPDS catalog browsing and search, EPUB rendering with
-Readium, local reading progress, progress sync (server + Android
-client), single-credential auth via calibre-web Basic, per-user library
-mirror with stats (`GET /library/v1/stats`), optional AI book insights
-(schema v4: themes, craft notes, comparative anchors, discussion
-prompts), optional AI reader profile with in-library and OpenLibrary
-discovery recommendations, abandoned-book status.
-
-**Planned:** bookmarks sync, calibre-web read-only consumer plugin.
-
-**Not on the roadmap:** PDF support (deferred), separate IdP or
-non-calibre-web auth.
-
-This is pre-1.0 software built for the author's personal eink device.
-It works and it's tested, but the API and DB schema may still change.
-Pin a commit if you depend on it.
-
 ## Build from source
 
 ```sh
