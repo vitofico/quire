@@ -12,6 +12,14 @@ from sqlalchemy.ext.asyncio import (
 )
 from testcontainers.postgres import PostgresContainer
 
+from quire_server.config import Settings
+
+
+@pytest.fixture(autouse=True)
+def _no_dotenv(monkeypatch):
+    """Ignore a developer's server/.env: tests build their own environment."""
+    monkeypatch.setitem(Settings.model_config, "env_file", None)
+
 
 def pytest_collection_modifyitems(config, items):
     """Ordering + mode-marker skipping.

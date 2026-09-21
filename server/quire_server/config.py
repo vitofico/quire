@@ -1,11 +1,22 @@
+import os
+from collections.abc import Mapping
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
+from dotenv import dotenv_values
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+ENV_PREFIX = "QUIRE_SERVER_"
+
+# Variables that share the prefix but are consumed by docker compose, never by
+# the server process. Listed so the unknown-variable scan does not flag them.
+COMPOSE_ONLY_ENV_VARS: frozenset[str] = frozenset({"QUIRE_SERVER_PORT"})
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="QUIRE_SERVER_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_prefix=ENV_PREFIX, env_file=".env", extra="ignore")
 
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/opds_sync"
     cwa_base_url: str = "http://calibre-web.calibre-web.svc.cluster.local:8083"
@@ -136,6 +147,98 @@ class Settings(BaseSettings):
     # by logging in again before expiry. No refresh-token mechanism exists
     # at this stage (deferred per spec).
     native_session_ttl_s: int = 30 * 24 * 3600
+
+    @field_validator("ai_base_url", "ai_api_key", "ai_model", mode="before")
+    @classmethod
+    def _blank_means_unset(cls, value: object) -> object:
+        """Treat an empty or whitespace-only string as ``None``.
+
+        Compose files and shells hand the container ``""`` for an unset
+        variable more often than they omit it. Issue #104.
+        """
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+
+def _dotenv_names() -> set[str]:
+    """Names in the dotenv file(s) ``Settings`` reads, or an empty set.
+
+    Same ``env_file`` config and same parser as pydantic-settings, so the
+    scan sees exactly the lines the settings object sees. A missing file
+    is not an error, just no names.
+    """
+    env_file = Settings.model_config.get("env_file")
+    if not env_file:
+        return set()
+    paths = [env_file] if isinstance(env_file, (str, os.PathLike)) else list(env_file)
+    names: set[str] = set()
+    for candidate in paths:
+        path = Path(candidate)
+        if path.is_file():
+            names.update(name for name in dotenv_values(path) if name)
+    return names
+
+
+def unknown_env_vars(environ: Mapping[str, str] | None = None) -> list[str]:
+    """Names of ``QUIRE_SERVER_*`` variables the server does not read.
+
+    Issue #104: a misspelled variable used to be ignored without a word.
+    Comparison is case-insensitive because pydantic-settings matches names
+    that way. ``environ`` defaults to ``os.environ``; tests pass a dict.
+    The scan also covers the dotenv file named by
+    ``Settings.model_config["env_file"]``, since ``Settings`` reads it
+    directly and a locally run process never copies it into the
+    environment first. The result is sorted so log output is stable.
+    """
+    env = os.environ if environ is None else environ
+    names = set(env) | _dotenv_names()
+    known = {f"{ENV_PREFIX}{name.upper()}" for name in Settings.model_fields}
+    return sorted(
+        name
+        for name in names
+        if name.upper().startswith(ENV_PREFIX)
+        and name.upper() not in known
+        and name.upper() not in COMPOSE_ONLY_ENV_VARS
+    )
+
+
+def config_warnings(settings: Settings) -> list[str]:
+    """Semantic checks that must not crash boot but must not stay silent.
+
+    Pure function so tests can call it with a constructed ``Settings``. Each
+    message names the variable to fix and never echoes a value. Native auth
+    has no environment prerequisites beyond migrations, which ``/readyz``
+    already reports, so there is no check for it here.
+    """
+    out: list[str] = []
+    if settings.ai_enabled:
+        missing = [
+            name
+            for name, value in (
+                ("QUIRE_SERVER_AI_BASE_URL", settings.ai_base_url),
+                ("QUIRE_SERVER_AI_MODEL", settings.ai_model),
+            )
+            if not value
+        ]
+        if missing:
+            names = " and ".join(missing)
+            verb, pronoun = ("is", "it") if len(missing) == 1 else ("are", "them")
+            out.append(
+                f"AI is enabled but {names} {verb} not set; the app will report AI as "
+                f"unconfigured. Set {pronoun} or set QUIRE_SERVER_AI_ENABLED=false"
+            )
+        if settings.ai_base_url and not settings.ai_base_url.rstrip("/").endswith("/v1"):
+            out.append(
+                "QUIRE_SERVER_AI_BASE_URL does not end with /v1; OpenAI-compatible providers "
+                "such as Ollama expect for example http://ollama:11434/v1"
+            )
+    if not settings.progress_enabled and not settings.ai_enabled:
+        out.append(
+            "QUIRE_SERVER_PROGRESS_ENABLED and QUIRE_SERVER_AI_ENABLED are both false; "
+            "only /health and /readyz are served"
+        )
+    return out
 
 
 @lru_cache(maxsize=1)

@@ -26,6 +26,10 @@ Two reference composes ship in this directory. Pick one:
 | `docker-compose.yml`       | postgres + quire-server                                  | You already run calibre-web (and maybe TLS) elsewhere and only want the sync/AI server.   |
 | `docker-compose.full.yml`  | postgres + calibre-web + quire-server + Caddy (TLS)      | You want the whole stack behind a single base URL with TLS, matching the production k8s ingress. |
 
+Both files need Docker Compose v2.24.0 or newer: they load `.env` with the
+long `env_file` syntax (`path` plus `required`), which older Compose
+versions do not understand.
+
 ### Minimal: bring your own proxy
 
 ```sh
@@ -36,10 +40,19 @@ docker compose up -d
 curl http://localhost:8000/health
 ```
 
-quire-server listens on `${QUIRE_SERVER_PORT:-8000}`. Point Quire's "sync
-URL" at it and Quire's "OPDS URL" at your existing calibre-web. Two
-URLs to configure in the app; you handle TLS yourself if exposing to
-the internet.
+quire-server listens on `${QUIRE_SERVER_PORT:-8000}`. Every `QUIRE_SERVER_*`
+line in `.env` reaches the server, including the AI provider block, so the
+minimal compose supports every deploy mode. The exception is
+`QUIRE_SERVER_DATABASE_URL`, pinned by the compose file to the bundled
+Postgres; edit the compose file to use an external database. Point Quire's
+"sync URL" at it and Quire's "OPDS URL" at your existing calibre-web. Two
+URLs to configure in the app; you handle TLS yourself if exposing to the
+internet.
+
+With this file, `.env` must exist for every compose command, including
+`ps`, `logs`, and `down`, because `QUIRE_SERVER_CWA_BASE_URL` is required
+and the compose file refuses to start without it. The full-stack compose
+below pins its own calibre-web URL and starts without a `.env`.
 
 ### Full-stack reference compose
 
@@ -226,35 +239,79 @@ bump alongside this release.
 
 ### Environment variables
 
-`QUIRE_SERVER_` prefix; full list in `quire_server/config.py`. Most-load-bearing:
+Every setting is an environment variable with the `QUIRE_SERVER_` prefix,
+matched case-insensitively. Both compose files load `.env` wholesale, so a
+line in `.env` is all it takes. At boot the server logs one
+`event=config.warning` line per problem it can detect (an unknown or
+misspelled variable, set in the environment or in `.env`; AI enabled
+without a provider; a provider URL without `/v1`; or both
+`QUIRE_SERVER_PROGRESS_ENABLED` and `QUIRE_SERVER_AI_ENABLED` false) and
+repeats the same list under `warnings` in `GET /health`, so `curl
+http://localhost:8000/health` is the first thing to check when something
+does not work.
 
-| Var                                 | Default                                | Purpose                                                                 |
-| ----------------------------------- | -------------------------------------- | ----------------------------------------------------------------------- |
-| `QUIRE_SERVER_DATABASE_URL`            | local Postgres                         | SQLAlchemy URL (asyncpg).                                               |
-| `QUIRE_SERVER_CWA_BASE_URL`            | in-cluster Calibre                     | Upstream calibre-web URL for Basic auth proxying.                       |
-| `QUIRE_SERVER_PROGRESS_ENABLED`        | `true`                                 | Mounts `/sync/v1/*`. Disable for AI-only mode.                          |
-| `QUIRE_SERVER_AI_ENABLED`              | `true`                                 | Mounts `/ai/v1/*` and enables lazy AI provider imports.                 |
-| `QUIRE_SERVER_MAX_REQUEST_BYTES`       | `1048576` (1 MiB)                      | `RequestSizeMiddleware` threshold; oversized requests get 413.          |
-| `QUIRE_SERVER_AI_BASE_URL`             | unset                                  | Required when `AI_ENABLED=true`; OpenAI-compatible endpoint.            |
-| `QUIRE_SERVER_AI_MODEL`                | unset                                  | Required when `AI_ENABLED=true`; model id.                              |
-| `QUIRE_SERVER_AI_API_KEY`              | unset                                  | Bearer token; never logged or returned.                                 |
-| `QUIRE_SERVER_AI_RATE_PER_MIN`         | `10`                                   | Process-wide token bucket against `AI_BASE_URL`.                        |
-| `QUIRE_SERVER_AI_DAILY_BUDGET`         | `200`                                  | Per-user generations per UTC day; 0 disables.                           |
-| `QUIRE_SERVER_AI_REGEN_DAILY_LIMIT`    | `3`                                    | Per-user `/insights/regenerate` ceiling per UTC day.                    |
-| `QUIRE_SERVER_AI_PROMOTE_DAILY_LIMIT`  | `100`                                  | Per-user `/insights/promote` ceiling per UTC day; process-local counter, 0 disables. (PR-ζ) |
-| `QUIRE_SERVER_AI_PROFILE_REFRESH_DAILY_LIMIT` | `3`                              | Reader Profile refresh cap per user per UTC day. (PR-β)                 |
-| `QUIRE_SERVER_AI_PROFILE_TIMEOUT_S`    | `90`                                   | Reader Profile orchestrator timeout, in seconds. (PR-β)                 |
-| `QUIRE_SERVER_AI_METADATA_SERVER_LOOKUP_ENABLED` | `false`                          | **DEPRECATED (Phase 0, 2026-05-22).** Legacy fallback: when `true`, `/ai/v1/insights/{lookup,regenerate}` reconstruct a `MetadataBundle` from the caller's `library_items` row when the client omits the `bundle` block. The push-model contract has the client send `bundle` on every request; this flag is the migration escape hatch. Boots emit a `DeprecationWarning` + `logging.warning` when enabled. Slated for removal 2 minor releases after the Phase 0 release. |
-| `QUIRE_SERVER_AI_AUTH_MODE`            | `basic`                                | `basic` (default, wraps calibre-web verifier) or `token` (HMAC-SHA256, **deprecated** — see "AI auth mode" below; use `QUIRE_SERVER_AUTH_BACKEND=native` instead). |
-| `QUIRE_SERVER_AI_TOKEN_SECRETS`        | unset                                  | Token mode: JSON `{kid: secret}`. Each secret ≥32 bytes; multiple kids enable rotation. |
-| `QUIRE_SERVER_AI_TOKEN_ISSUER`         | unset                                  | Token mode: required; validated against `iss`.                          |
-| `QUIRE_SERVER_AI_TOKEN_AUDIENCE`       | unset                                  | Token mode: required; validated against `aud`.                          |
-| `QUIRE_SERVER_CWA_PROBE_PATH`          | `/opds`                                | Path on upstream calibre-web hit for the auth probe.                    |
-| `QUIRE_SERVER_CWA_PROBE_TIMEOUT_S`     | `3.0`                                  | HTTP timeout for the auth-probe call to calibre-web.                    |
-| `QUIRE_SERVER_AUTH_CACHE_POSITIVE_TTL_S` | `60`                                 | Cached `200` from the auth probe.                                       |
-| `QUIRE_SERVER_AUTH_CACHE_NEGATIVE_TTL_S` | `10`                                 | Cached `401` from the auth probe.                                       |
-| `QUIRE_SERVER_AUTH_CACHE_MAX_ENTRIES`  | `1024`                                 | Upper bound on the auth-probe LRU cache.                                |
-| `QUIRE_SERVER_AI_PROMPT_VERSION`       | `""` (in-code default)                 | Advanced / incident-response only. Pins the AI prompt version for cache-key compat during a model regression. The legacy value `"1"` is treated as "unset" (falls back to the in-code constant); see PR-ε for runtime resolution. |
+Settings live in `.env`. Compose forwards the whole file to the container;
+a variable exported only in the shell, for example
+`QUIRE_SERVER_AI_ENABLED=false docker compose up`, is not forwarded any
+more.
+
+`QUIRE_SERVER_PORT` is read by the minimal compose only, for the host port
+mapping. The server always listens on 8000 inside the container.
+
+#### Required and deploy mode
+
+| Var | Default | Purpose |
+| --- | --- | --- |
+| `QUIRE_SERVER_DATABASE_URL` | local Postgres | SQLAlchemy URL (asyncpg). Both composes pin it under `environment:`, which wins over `.env`, so a line in `.env` is ignored; edit the compose file for an external database. |
+| `QUIRE_SERVER_CWA_BASE_URL` | in-cluster Calibre | Upstream calibre-web URL for Basic auth proxying. Required in the minimal compose (it refuses to start without it); the full compose pins it to its own calibre-web. |
+| `QUIRE_SERVER_PROGRESS_ENABLED` | `true` | Mounts `/sync/v1/*` and `/library/v1/*`. Disable for AI-only mode. |
+| `QUIRE_SERVER_AI_ENABLED` | `true` | Mounts `/ai/v1/*`. With no provider configured the server boots with a warning and the app reports AI as unconfigured. |
+| `QUIRE_SERVER_AUTH_BACKEND` | `calibreweb` | `calibreweb` verifies credentials against calibre-web; `native` keeps its own users and sessions (see "AI auth mode"). |
+| `QUIRE_SERVER_LOG_LEVEL` | `INFO` | Python log level: `DEBUG`, `INFO`, `WARNING`, `ERROR`. |
+
+#### AI provider and tuning
+
+| Var | Default | Purpose |
+| --- | --- | --- |
+| `QUIRE_SERVER_AI_BASE_URL` | unset | OpenAI-compatible endpoint including `/v1`, for example `https://ollama.com/v1` or `http://host.docker.internal:11434/v1` for an Ollama on the Docker host. Empty counts as unset. |
+| `QUIRE_SERVER_AI_MODEL` | unset | Model id as the provider names it, for example `gpt-oss:120b-cloud`. Empty counts as unset. |
+| `QUIRE_SERVER_AI_API_KEY` | unset | Bearer token; never logged or returned. Empty counts as unset and sends no `Authorization` header. |
+| `QUIRE_SERVER_AI_TIMEOUT_S` | `120` | Seconds to wait for one model answer. The server retries once on malformed output, so one request can take twice this. CPU-only hosts often need `300` or more. |
+| `QUIRE_SERVER_AI_RETRIEVAL_TIMEOUT_S` | `8` | Seconds for each Wikipedia / Open Library lookup. |
+| `QUIRE_SERVER_AI_SOURCES` | `wikipedia,openlibrary` | Comma-separated retrieval sources. Empty disables retrieval and shrinks the prompt to the book metadata, which is the first thing to try when a small local model keeps timing out. |
+| `QUIRE_SERVER_AI_MAX_CONCURRENCY` | `4` | Parallel model calls allowed at once. |
+| `QUIRE_SERVER_AI_RATE_PER_MIN` | `10` | Process-wide token bucket against the provider. |
+| `QUIRE_SERVER_AI_DAILY_BUDGET` | `200` | Per-user generations per UTC day; `0` disables. |
+| `QUIRE_SERVER_AI_REGEN_DAILY_LIMIT` | `3` | Per-user `/insights/regenerate` ceiling per UTC day. |
+| `QUIRE_SERVER_AI_PROMOTE_DAILY_LIMIT` | `100` | Per-user `/insights/promote` ceiling per UTC day; process-local counter, `0` disables. |
+| `QUIRE_SERVER_AI_PROFILE_REFRESH_DAILY_LIMIT` | `3` | Reader Profile refreshes per user per UTC day. |
+| `QUIRE_SERVER_AI_PROFILE_TIMEOUT_S` | `90` | Reader Profile generation timeout in seconds. |
+
+#### Auth probes and request limits
+
+| Var | Default | Purpose |
+| --- | --- | --- |
+| `QUIRE_SERVER_CWA_PROBE_PATH` | `/opds` | Path on calibre-web hit by the auth probe. |
+| `QUIRE_SERVER_CWA_PROBE_TIMEOUT_S` | `3.0` | HTTP timeout for the auth probe. |
+| `QUIRE_SERVER_AUTH_CACHE_POSITIVE_TTL_S` | `60` | Seconds a successful probe is cached. |
+| `QUIRE_SERVER_AUTH_CACHE_NEGATIVE_TTL_S` | `10` | Seconds a rejected probe is cached. |
+| `QUIRE_SERVER_AUTH_CACHE_MAX_ENTRIES` | `1024` | Upper bound on the auth-probe cache. |
+| `QUIRE_SERVER_NATIVE_SESSION_TTL_S` | `2592000` (30 days) | Session lifetime under `QUIRE_SERVER_AUTH_BACKEND=native`. |
+| `QUIRE_SERVER_MAX_REQUEST_BYTES` | `1048576` (1 MiB) | `RequestSizeMiddleware` threshold; oversized requests get 413. |
+| `QUIRE_SERVER_LIBRARY_SYNC_MAX_ITEMS` | `500` | Cap on entries per `POST /library/v1/sync` call. |
+
+#### Advanced and deprecated
+
+Leave these alone unless a section of this README sends you here.
+
+| Var | Default | Purpose |
+| --- | --- | --- |
+| `QUIRE_SERVER_AI_PROMPT_VERSION` | `"1"` (means unset) | Pins the AI prompt version for cache-key compatibility during a model regression. `"1"` and empty fall back to the in-code constant; see PR-ε for runtime resolution. |
+| `QUIRE_SERVER_AI_AUTH_MODE` | `basic` | `basic` (default, wraps the calibre-web verifier) or `token` (HMAC-SHA256, **deprecated**; use `QUIRE_SERVER_AUTH_BACKEND=native` instead). See "AI auth mode" below. |
+| `QUIRE_SERVER_AI_TOKEN_SECRETS` | unset | Token mode: JSON `{kid: secret}`. Each secret 32 bytes or more; multiple kids enable rotation. |
+| `QUIRE_SERVER_AI_TOKEN_ISSUER` | unset | Token mode: required; validated against `iss`. |
+| `QUIRE_SERVER_AI_TOKEN_AUDIENCE` | unset | Token mode: required; validated against `aud`. |
+| `QUIRE_SERVER_AI_METADATA_SERVER_LOOKUP_ENABLED` | `false` | **Deprecated (Phase 0, 2026-05-22).** When `true`, `/ai/v1/insights/{lookup,regenerate}` rebuild a `MetadataBundle` from the caller's `library_items` row when the client omits the `bundle` block. Boots emit a `DeprecationWarning` and a `logging.warning`. Removal two minor releases after the Phase 0 release. |
 
 #### Push-model API: deprecated server-side metadata fallback (Phase 0, 2026-05-22)
 

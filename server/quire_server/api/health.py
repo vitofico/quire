@@ -3,7 +3,7 @@
 These mount at the root of the application (no prefix) regardless of mode,
 so k8s liveness/readiness probes work in every deploy mode.
 
-GET /health   liveness — does NOT touch the DB; returns enabled modes.
+GET /health   liveness. Does NOT touch the DB; returns enabled modes and boot warnings.
 GET /readyz   readiness — checks DB connectivity AND that all required
               migration heads (per the enabled-modes + script-directory state)
               are present in `alembic_version`.
@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
@@ -168,11 +168,14 @@ async def _db_alembic_heads() -> set[str]:
 
 
 @router.get("/health")
-async def health() -> dict:
+async def health(request: Request) -> dict:
     settings = get_settings()
     return {
         "ready": True,
         "modes": _enabled_modes(settings.progress_enabled, settings.ai_enabled),
+        # Issue #104: the boot warnings, so an operator can curl /health
+        # instead of digging through container logs.
+        "warnings": list(getattr(request.app.state, "config_warnings", [])),
     }
 
 

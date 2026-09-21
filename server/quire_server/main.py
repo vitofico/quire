@@ -22,11 +22,13 @@ from fastapi import FastAPI
 
 from quire_server.api import health
 from quire_server.api.middleware import RequestIDMiddleware, RequestSizeMiddleware
-from quire_server.config import Settings, get_settings
+from quire_server.config import Settings, config_warnings, get_settings, unknown_env_vars
 from quire_server.core.auth import CalibreAuthValidator
 from quire_server.core.auth_backend import CalibreWebBasicAuth, NativeAuth
 from quire_server.core.logging_ctx import RequestIdLogFilter
 from quire_server.db.session import configure, make_engine, make_session_factory
+
+logger = logging.getLogger(__name__)
 
 
 def _warn_deprecated_ai_metadata_lookup(settings: Settings) -> None:
@@ -140,6 +142,25 @@ def _warn_if_ai_auth_mode_deprecated(settings: Settings) -> None:
     warnings.warn(msg, DeprecationWarning, stacklevel=2)
 
 
+def _collect_config_warnings(settings: Settings) -> list[str]:
+    """Plain-language boot warnings, logged once and exposed on GET /health.
+
+    Issue #104. Unknown variables come first because a typo of something the
+    operator meant to set is the most common cause; semantic checks from
+    ``config_warnings`` follow. Messages name variables, never values, so
+    nothing secret can leak through this path.
+    """
+    messages = [
+        f"Unknown setting {name} is ignored; check the spelling against "
+        "server/README.md (Environment variables)"
+        for name in unknown_env_vars()
+    ]
+    messages.extend(config_warnings(settings))
+    for msg in messages:
+        logger.warning("event=config.warning msg=%s", msg)
+    return messages
+
+
 def _build_ai_authenticator(settings: Settings, validator: CalibreAuthValidator, auth_backend):
     """Construct the AiAuthenticator implied by the auth config.
 
@@ -202,11 +223,17 @@ def create_app() -> FastAPI:
     # accidentally mask the notice.
     _warn_deprecated_ai_metadata_lookup(settings)
 
+    # Issue #104: say at boot what cannot work, instead of failing later with
+    # a bare 500. Logged here (after logging setup) and stored on app.state
+    # below so /health can repeat it.
+    boot_warnings = _collect_config_warnings(settings)
+
     engine = make_engine(settings.database_url)
     configure(engine)
     session_factory = make_session_factory(engine)
 
     app = FastAPI(title="quire-server", version="0.3.0")
+    app.state.config_warnings = boot_warnings
 
     httpx_client = httpx.AsyncClient(timeout=settings.cwa_probe_timeout_s)
     app.state.httpx_client = httpx_client

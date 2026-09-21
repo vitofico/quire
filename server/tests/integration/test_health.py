@@ -20,6 +20,9 @@ async def test_health_returns_200_with_modes(app_under_test):
     # exact contents here — that's covered by test_modes.py — only that the
     # endpoint responds with a list.
     assert isinstance(body["modes"], list)
+    # Issue #104: boot warnings ride along. Content depends on the test env
+    # (AI may be enabled without a provider), so only the shape is pinned.
+    assert isinstance(body["warnings"], list)
 
 
 async def test_readyz_returns_200_when_db_reachable_and_heads_applied(app_under_test):

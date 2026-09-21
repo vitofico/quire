@@ -8,7 +8,13 @@ from __future__ import annotations
 
 import pytest
 
-from quire_server.config import Settings, get_settings
+from quire_server.config import (
+    COMPOSE_ONLY_ENV_VARS,
+    Settings,
+    config_warnings,
+    get_settings,
+    unknown_env_vars,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -83,3 +89,118 @@ def test_ai_token_issuer_audience_env_override(monkeypatch):
     s = Settings()
     assert s.ai_token_issuer == "quire-cloud"
     assert s.ai_token_audience == "quire-server"
+
+
+# --- Issue #104: unknown QUIRE_SERVER_* variable detection -----------------
+
+
+def test_unknown_env_vars_flags_only_unread_prefixed_names():
+    env = {
+        "QUIRE_SERVER_AI_MODEL": "m",  # real field
+        "QUIRE_SERVER_PORT": "8000",  # compose-only, never read by the server
+        "QUIRE_SERVER_AI_MODLE": "typo",
+        "QUIRE_SERVER_AI_PROVIDER": "ollama",  # invented name
+        "POSTGRES_PASSWORD": "x",  # other prefix, not ours to judge
+    }
+    assert unknown_env_vars(env) == ["QUIRE_SERVER_AI_MODLE", "QUIRE_SERVER_AI_PROVIDER"]
+
+
+def test_unknown_env_vars_matches_case_insensitively_like_pydantic_settings():
+    assert unknown_env_vars({"quire_server_ai_model": "m"}) == []
+    assert unknown_env_vars({"quire_server_ai_modle": "x"}) == ["quire_server_ai_modle"]
+
+
+def test_unknown_env_vars_empty_when_nothing_is_prefixed():
+    assert unknown_env_vars({"PATH": "/bin", "HOME": "/root"}) == []
+
+
+def test_compose_only_names_are_not_settings_fields():
+    for name in COMPOSE_ONLY_ENV_VARS:
+        assert name.startswith("QUIRE_SERVER_")
+        assert name.removeprefix("QUIRE_SERVER_").lower() not in Settings.model_fields
+
+
+def test_unknown_env_vars_reads_dotenv_file(monkeypatch, tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "QUIRE_SERVER_AI_MODLE=typo\n"
+        "QUIRE_SERVER_PORT=8000\n"
+        "QUIRE_SERVER_AI_MODEL=gpt-oss:120b-cloud\n"
+        "POSTGRES_PASSWORD=x\n"
+        "# QUIRE_SERVER_COMMENTED=out\n"
+    )
+    monkeypatch.setitem(Settings.model_config, "env_file", str(env_file))
+    assert unknown_env_vars(environ={}) == ["QUIRE_SERVER_AI_MODLE"]
+
+
+def test_unknown_env_vars_tolerates_missing_dotenv_file(monkeypatch, tmp_path):
+    monkeypatch.setitem(Settings.model_config, "env_file", str(tmp_path / "absent.env"))
+    assert unknown_env_vars(environ={"QUIRE_SERVER_AI_MODLE": "typo"}) == ["QUIRE_SERVER_AI_MODLE"]
+
+
+# --- Issue #104: blank AI provider strings mean unset -----------------------
+
+
+def test_blank_ai_provider_strings_are_unset(monkeypatch):
+    monkeypatch.setenv("QUIRE_SERVER_AI_BASE_URL", "")
+    monkeypatch.setenv("QUIRE_SERVER_AI_MODEL", "   ")
+    monkeypatch.setenv("QUIRE_SERVER_AI_API_KEY", "")
+    s = Settings()
+    assert s.ai_base_url is None
+    assert s.ai_model is None
+    assert s.ai_api_key is None
+
+
+def test_non_blank_ai_provider_strings_are_kept(monkeypatch):
+    monkeypatch.setenv("QUIRE_SERVER_AI_BASE_URL", "https://ollama.com/v1")
+    monkeypatch.setenv("QUIRE_SERVER_AI_MODEL", "gpt-oss:120b-cloud")
+    monkeypatch.setenv("QUIRE_SERVER_AI_API_KEY", "k")
+    s = Settings()
+    assert (s.ai_base_url, s.ai_model, s.ai_api_key) == (
+        "https://ollama.com/v1",
+        "gpt-oss:120b-cloud",
+        "k",
+    )
+
+
+def test_config_warnings_ai_enabled_without_provider():
+    s = Settings(ai_enabled=True, ai_base_url=None, ai_model=None)
+    assert config_warnings(s) == [
+        "AI is enabled but QUIRE_SERVER_AI_BASE_URL and QUIRE_SERVER_AI_MODEL are not set; "
+        "the app will report AI as unconfigured. Set them or set QUIRE_SERVER_AI_ENABLED=false"
+    ]
+
+
+def test_config_warnings_ai_enabled_missing_model_only():
+    s = Settings(ai_enabled=True, ai_base_url="http://ollama:11434/v1", ai_model=None)
+    assert config_warnings(s) == [
+        "AI is enabled but QUIRE_SERVER_AI_MODEL is not set; the app will report AI as "
+        "unconfigured. Set it or set QUIRE_SERVER_AI_ENABLED=false"
+    ]
+
+
+def test_config_warnings_base_url_without_v1_suffix():
+    s = Settings(ai_enabled=True, ai_base_url="http://ollama:11434", ai_model="m")
+    assert config_warnings(s) == [
+        "QUIRE_SERVER_AI_BASE_URL does not end with /v1; OpenAI-compatible providers "
+        "such as Ollama expect for example http://ollama:11434/v1"
+    ]
+
+
+def test_config_warnings_silent_when_ai_configured():
+    s = Settings(
+        ai_enabled=True, ai_base_url="https://ollama.com/v1/", ai_model="gpt-oss:120b-cloud"
+    )
+    assert config_warnings(s) == []
+
+
+def test_config_warnings_silent_when_ai_disabled():
+    assert config_warnings(Settings(ai_enabled=False, progress_enabled=True)) == []
+
+
+def test_config_warnings_both_modes_off():
+    s = Settings(ai_enabled=False, progress_enabled=False)
+    assert config_warnings(s) == [
+        "QUIRE_SERVER_PROGRESS_ENABLED and QUIRE_SERVER_AI_ENABLED are both false; "
+        "only /health and /readyz are served"
+    ]
