@@ -345,6 +345,10 @@ def create_app() -> FastAPI:
                 prompt_version=_resolve_prompt_version(settings.ai_prompt_version),
                 max_concurrency=settings.ai_max_concurrency,
                 ai_timeout_s=settings.ai_timeout_s,
+                # Issue #102: /profile/refresh quotes this variable in its 504
+                # body, so the orchestrator must run on it rather than on the
+                # constructor default.
+                profile_timeout_s=settings.ai_profile_timeout_s,
                 rate_per_min=settings.ai_rate_per_min,
                 daily_budget=settings.ai_daily_budget,
                 regen_daily_limit=settings.ai_regen_daily_limit,
@@ -355,6 +359,13 @@ def create_app() -> FastAPI:
                 session_factory=session_factory,
             )
             app.state.ai_orchestrator = orch
+            # Issue #102: a provider failure used to escape as a bare 500.
+            # Now it is a 502/504 with a code, a sentence and a hint.
+            from quire_server.api.ai_errors import register_provider_error_handler
+
+            register_provider_error_handler(
+                app, timeout_s=settings.ai_timeout_s, model=settings.ai_model
+            )
             app.include_router(ai_router, prefix="/ai/v1")
         else:
             # AI enabled but missing base_url/model — still mount the router

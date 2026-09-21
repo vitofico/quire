@@ -55,6 +55,7 @@ from quire_server.api.ai_schemas import (
     SeriesInsight,
     _LLMRec,
 )
+from quire_server.core.ai.client import ProviderError
 from quire_server.core.ai.health_state import AiHealthState
 from quire_server.core.ai.identity import (
     IDENTITY_HIERARCHY,
@@ -70,6 +71,7 @@ from quire_server.core.ai.prompts import (
     _normalize_book_language,
     compose_user_prompt,
 )
+from quire_server.core.ai.provider_errors import describe
 from quire_server.core.ai.themes import normalize_theme
 from quire_server.core.logging_ctx import request_id_var
 from quire_server.db.models import (
@@ -283,7 +285,9 @@ class InsightOrchestrator:
         profile_retriever_factory: Callable[[AsyncSession], _ProfileRetrieverLike] | None = None,
         # pr-β: per-user-per-UTC-day cap on /ai/v1/profile/refresh. 0 disables.
         profile_refresh_daily_limit: int = 3,
-        # pr-β: overall wall-clock cap on one /profile/refresh model call.
+        # pr-β: per-call budget for the /profile/refresh model call. The client
+        # retries once on malformed output, each attempt under this budget, and
+        # the orchestrator's outer backstop is derived from it (issue #102).
         profile_timeout_s: float = 90.0,
     ) -> None:
         self.ai = ai
@@ -621,15 +625,27 @@ class InsightOrchestrator:
                 # The structured log line is the operator-facing audit trail;
                 # request_id is attached by RequestIdLogFilter (record.request_id).
                 latency_ms = int((time.monotonic() - t0) * 1000)
+                # Issue #102: the same hint the HTTP response carries, so the
+                # container log alone is enough to fix the deploy. prompt_chars
+                # answers "was the prompt too big for this model" without a
+                # debugger: retrieval off (QUIRE_SERVER_AI_SOURCES=) shrinks it.
+                hint = (
+                    describe(e, timeout_s=self._ai_timeout_s, model=self.model_id).hint
+                    if isinstance(e, ProviderError)
+                    else None
+                )
                 logger.warning(
                     "event=ai.generate.error tenant_id=%s subject=%s model=%s "
-                    "prompt_version=%s latency_ms=%d error_class=%s",
+                    "prompt_version=%s latency_ms=%d error_class=%s "
+                    "prompt_chars=%d hint=%s",
                     tenant_id,
                     user_id,
                     self.model_id,
                     self.prompt_version,
                     latency_ms,
                     type(e).__name__,
+                    len(user_prompt),
+                    hint or "none",
                 )
                 # PR5: surface provider reachability to GET /ai/v1/health.
                 if self._health is not None:
@@ -1571,7 +1587,14 @@ class InsightOrchestrator:
                             schema=ReaderProfilePromptOutput,
                             timeout_s=self._profile_timeout_s,
                         ),
-                        timeout=self._profile_timeout_s,
+                        # Issue #102: each of the client's (up to two) attempts is
+                        # bounded by the per-call budget above. This outer wait is
+                        # only a backstop for a provider that trickles bytes past
+                        # the per-read timeout, so it must leave room for both
+                        # attempts plus a second of slack for connect and parsing.
+                        # Otherwise a model that answers fast but off-schema is
+                        # reported as a timeout instead of as invalid output.
+                        timeout=2 * self._profile_timeout_s + 1.0,
                     )
                 except Exception as exc:
                     latency_ms = _ms_since(started_at)

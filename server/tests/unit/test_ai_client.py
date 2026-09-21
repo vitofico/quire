@@ -160,3 +160,22 @@ async def test_5xx_raises_provider_unreachable():
     client = AIClient(base_url="http://fake/v1", api_key=None, model="m", transport=handler)
     with pytest.raises(ProviderUnreachable):
         await client.chat_structured(system="s", user="u", schema=BookInsightPayload, timeout_s=5.0)
+
+
+@pytest.mark.asyncio
+async def test_connect_timeout_is_unreachable_not_slow():
+    """A firewall or a wrong host fails the 10 s connect phase (issue #102).
+    That is not the model being slow, so it must not point at the timeout."""
+    from quire_server.core.ai.client import ProviderUnreachable
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectTimeout("simulated")
+
+    client = AIClient(
+        base_url="http://fake/v1",
+        api_key=None,
+        model="m",
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(ProviderUnreachable):
+        await client.chat_structured(system="s", user="u", schema=BookInsightPayload, timeout_s=5.0)

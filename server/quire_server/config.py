@@ -95,9 +95,10 @@ class Settings(BaseSettings):
     # POST /ai/v1/profile/refresh. Counted against ai_usage_daily.profile_count.
     # 0 disables the cap entirely.
     ai_profile_refresh_daily_limit: int = 3
-    # pr-β (Bundle 3, coordinator §3.7 + §3.14): wall-clock timeout for one
-    # /profile/refresh model call. Discovery fetches (sequential, up to 5
-    # authors at ~8s each) plus the LLM call must fit under this cap.
+    # pr-β (Bundle 3, coordinator §3.7 + §3.14): timeout for one model call of
+    # /profile/refresh. Issue #102: the server retries once when the model
+    # answers off-schema, and each attempt gets this budget, so a refresh can
+    # take up to twice this value.
     ai_profile_timeout_s: float = 90.0
 
     # ---------------------------------------------------------------------

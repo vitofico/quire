@@ -12,12 +12,7 @@ import json
 import httpx
 import pytest
 
-from quire_server.core.ai.client import (
-    AIClient,
-    ProviderRejected,
-    ProviderTimeout,
-    ProviderUnreachable,
-)
+from quire_server.core.ai.client import AIClient
 from quire_server.core.ai.health_state import AiHealthState
 from quire_server.core.ai.service import InsightOrchestrator
 
@@ -193,18 +188,16 @@ async def test_health_provider_timeout_classified(client_factory, app, session):
             headers=_basic_header("alice"),
             json={"ai_enabled": True},
         )
-        # The orchestrator re-raises the provider exception; ASGITransport
-        # propagates app exceptions by default, so we catch here and confirm
-        # the side effect on the health endpoint below.
-        with pytest.raises(ProviderTimeout):
-            await client.post(
-                "/ai/v1/insights/lookup",
-                headers=_basic_header("alice"),
-                json={
-                    "identity": {"content_hash": "ch-to"},
-                    "bundle": {"title": "X"},
-                },
-            )
+        # Issue #102: the provider error is now answered, not raised.
+        r = await client.post(
+            "/ai/v1/insights/lookup",
+            headers=_basic_header("alice"),
+            json={
+                "identity": {"content_hash": "ch-to"},
+                "bundle": {"title": "X"},
+            },
+        )
+        assert r.status_code == 504
 
         r = await client.get("/ai/v1/health")
     body = r.json()
@@ -227,15 +220,16 @@ async def test_health_provider_502_classified(client_factory, app, session):
             headers=_basic_header("alice"),
             json={"ai_enabled": True},
         )
-        with pytest.raises(ProviderUnreachable):
-            await client.post(
-                "/ai/v1/insights/lookup",
-                headers=_basic_header("alice"),
-                json={
-                    "identity": {"content_hash": "ch-502"},
-                    "bundle": {"title": "X"},
-                },
-            )
+        # Issue #102: the provider error is now answered, not raised.
+        r = await client.post(
+            "/ai/v1/insights/lookup",
+            headers=_basic_header("alice"),
+            json={
+                "identity": {"content_hash": "ch-502"},
+                "bundle": {"title": "X"},
+            },
+        )
+        assert r.status_code == 502
 
         r = await client.get("/ai/v1/health")
     body = r.json()
@@ -256,15 +250,16 @@ async def test_health_provider_400_classified(client_factory, app, session):
             headers=_basic_header("alice"),
             json={"ai_enabled": True},
         )
-        with pytest.raises(ProviderRejected):
-            await client.post(
-                "/ai/v1/insights/lookup",
-                headers=_basic_header("alice"),
-                json={
-                    "identity": {"content_hash": "ch-400"},
-                    "bundle": {"title": "X"},
-                },
-            )
+        # Issue #102: the provider error is now answered, not raised.
+        r = await client.post(
+            "/ai/v1/insights/lookup",
+            headers=_basic_header("alice"),
+            json={
+                "identity": {"content_hash": "ch-400"},
+                "bundle": {"title": "X"},
+            },
+        )
+        assert r.status_code == 502
 
         r = await client.get("/ai/v1/health")
     body = r.json()
@@ -293,15 +288,16 @@ async def test_health_recovery_clears_failure(client_factory, app, session):
         )
 
         # First call: fails.
-        with pytest.raises(ProviderUnreachable):
-            await client.post(
-                "/ai/v1/insights/lookup",
-                headers=_basic_header("alice"),
-                json={
-                    "identity": {"content_hash": "ch-rec-1"},
-                    "bundle": {"title": "X"},
-                },
-            )
+        # Issue #102: the provider error is now answered, not raised.
+        r0 = await client.post(
+            "/ai/v1/insights/lookup",
+            headers=_basic_header("alice"),
+            json={
+                "identity": {"content_hash": "ch-rec-1"},
+                "bundle": {"title": "X"},
+            },
+        )
+        assert r0.status_code == 502
         r1 = await client.get("/ai/v1/health")
         assert r1.json()["provider_reachable"] is False
 
