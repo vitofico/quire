@@ -65,12 +65,10 @@ branch_labels = ("<branch>",)
 depends_on = None
 
 
-def upgrade() -> None:
-    ...
+def upgrade() -> None: ...
 
 
-def downgrade() -> None:
-    ...
+def downgrade() -> None: ...
 ```
 
 ### Adding SUBSEQUENT migrations on an existing branch
@@ -86,8 +84,8 @@ And the file looks like:
 
 ```python
 revision = "<branch>_NNN"
-down_revision = "<branch>_NN"        # parent on the same branch
-branch_labels = None                  # only the first migration of a branch labels it
+down_revision = "<branch>_NN"  # parent on the same branch
+branch_labels = None  # only the first migration of a branch labels it
 depends_on = None
 ```
 
@@ -129,6 +127,6 @@ from alembic.script import ScriptDirectory
 
 cfg = Config("alembic.ini")
 script = ScriptDirectory.from_config(cfg)
-print(script.get_heads())                  # ['0004'] today; multi-head once branches materialize
-print(script.get_revision("ai@head"))      # raises if ai branch doesn't exist
+print(script.get_heads())  # ['0004'] today; multi-head once branches materialize
+print(script.get_revision("ai@head"))  # raises if ai branch doesn't exist
 ```
