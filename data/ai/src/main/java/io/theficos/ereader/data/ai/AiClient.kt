@@ -2,6 +2,7 @@ package io.theficos.ereader.data.ai
 
 import io.theficos.ereader.core.metadata.MetadataBundle
 import io.theficos.ereader.core.model.DocumentIdentity
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
@@ -36,8 +37,12 @@ class AiClient(
         return raw.trimEnd('/')
     }
 
+    /** Last `generation_timeout_s` the server advertised; null until the first config read. */
+    @Volatile
+    private var generationTimeoutS: Int? = null
+
     suspend fun getConfig(): AiConfig =
-        get("/ai/v1/config")
+        get<AiConfig>("/ai/v1/config").also { generationTimeoutS = it.generationTimeoutS }
 
     suspend fun getPreferences(): AiPreferences =
         get("/ai/v1/preferences")
@@ -53,12 +58,12 @@ class AiClient(
     ): AiPreferences =
         put("/ai/v1/preferences", AiPreferencesBody(aiEnabled = enabled, style = style))
 
-    /** Lookup-or-generate. May block for tens of seconds while a model runs. */
+    /** Lookup-or-generate. May block for minutes while a model runs; see [longCallHttp]. */
     suspend fun lookupInsight(
         identity: DocumentIdentity,
         bundle: MetadataBundle,
     ): BookInsightResponse =
-        post("/ai/v1/insights/lookup", InsightLookupBody(identity, bundle))
+        post("/ai/v1/insights/lookup", InsightLookupBody(identity, bundle), client = longCallHttp())
 
     /** Cache-only read. Throws [InsightNotCachedException] on 404. */
     suspend fun getInsight(identity: DocumentIdentity): BookInsightResponse =
@@ -85,16 +90,17 @@ class AiClient(
         }
 
     /**
-     * PR-γ: kick off a server-side profile regeneration. May block for up to
-     * ~90s while the model runs. Throws [AiQuotaException] on 429 (Retry-After
-     * may be embedded in the body), and [AiHttpException] on every other
-     * non-2xx (409 ai_not_opted_in is mapped to `AiHttpException(409)` and
-     * the ViewModel maps it to `Disabled.OptedOut`).
+     * PR-γ: kick off a server-side profile regeneration. May block for
+     * minutes while the model runs; see [longCallHttp]. Throws
+     * [AiQuotaException] on 429 (Retry-After may be embedded in the body),
+     * and [AiHttpException] on every other non-2xx (409 ai_not_opted_in is
+     * mapped to `AiHttpException(409)` and the ViewModel maps it to
+     * `Disabled.OptedOut`).
      */
     suspend fun refreshProfile(): ReaderProfileResponseDto = withContext(Dispatchers.IO) {
         // Server expects an empty JSON body — `{}` is the simplest valid shape.
         val empty = "{}".toRequestBody(mediaType)
-        http.newCall(
+        longCallHttp().newCall(
             Request.Builder()
                 .url("${resolveBaseUrl()}/ai/v1/profile/refresh")
                 .post(empty)
@@ -176,11 +182,16 @@ class AiClient(
     private suspend inline fun <reified T> get(path: String): T =
         execute(Request.Builder().url("${resolveBaseUrl()}$path").get())
 
-    private suspend inline fun <reified Body, reified Resp> post(path: String, body: Body): Resp =
+    private suspend inline fun <reified Body, reified Resp> post(
+        path: String,
+        body: Body,
+        client: OkHttpClient = http,
+    ): Resp =
         execute(
             Request.Builder()
                 .url("${resolveBaseUrl()}$path")
-                .post(json.encodeToString(body).toRequestBody(mediaType))
+                .post(json.encodeToString(body).toRequestBody(mediaType)),
+            client,
         )
 
     private suspend inline fun <reified Body> postUnit(path: String, body: Body) {
@@ -216,9 +227,12 @@ class AiClient(
                 .put(json.encodeToString(body).toRequestBody(mediaType))
         )
 
-    private suspend inline fun <reified Resp> execute(builder: Request.Builder): Resp =
+    private suspend inline fun <reified Resp> execute(
+        builder: Request.Builder,
+        client: OkHttpClient = http,
+    ): Resp =
         withContext(Dispatchers.IO) {
-            http.newCall(builder.build()).execute().use { resp ->
+            client.newCall(builder.build()).execute().use { resp ->
                 val body = resp.body?.string().orEmpty()
                 if (!resp.isSuccessful) {
                     throw makeError(resp.code, body)
@@ -237,27 +251,89 @@ class AiClient(
         }
     }
 
-    /** Map an HTTP error to either AiQuotaException (429 with quota body) or AiHttpException. */
+    /**
+     * Issue #102: a client for calls that block on a model. The shared
+     * client's timeouts are sized for OPDS and sync, not for a generation
+     * that the server bounds at `generation_timeout_s` and retries once.
+     * Derived per call so a config refresh takes effect immediately;
+     * `newBuilder()` shares the connection pool and dispatcher.
+     */
+    private fun longCallHttp(): OkHttpClient {
+        val seconds = computeLongCallTimeoutS(generationTimeoutS)
+        return http.newBuilder()
+            .readTimeout(seconds, TimeUnit.SECONDS)
+            .callTimeout(seconds + 30, TimeUnit.SECONDS)
+            .build()
+    }
+
+    /**
+     * Map an HTTP error body to the most specific exception:
+     * 429 with a quota body -> [AiQuotaException];
+     * a non-429 status with a `detail` object carrying `code` (issue #102) -> [AiProviderException];
+     * anything else -> [AiHttpException].
+     */
     private fun makeError(code: Int, body: String): RuntimeException {
-        if (code == 429) {
+        val detail = try {
+            (json.parseToJsonElement(body) as? JsonObject)?.get("detail")
+        } catch (ignored: Exception) {
+            null
+        }
+        if (code == 429 && detail != null) {
             // 429 body shape from server: {detail: {used, limit, resets_at}}
             try {
-                val parsed = json.parseToJsonElement(body) as? JsonObject
-                val detail = parsed?.get("detail")
-                if (detail != null) {
-                    val info = json.decodeFromString(QuotaInfo.serializer(), detail.toString())
-                    return AiQuotaException(info)
-                }
+                return AiQuotaException(json.decodeFromString(QuotaInfo.serializer(), detail.toString()))
             } catch (ignored: Exception) {
-                // fall through to generic
+                // fall through
+            }
+        }
+        if (code != 429 && detail is JsonObject && detail["code"] != null) {
+            try {
+                val info = json.decodeFromString(ProviderErrorDetail.serializer(), detail.toString())
+                return AiProviderException(
+                    code = code,
+                    body = body,
+                    errorCode = info.code,
+                    serverMessage = info.message,
+                    hint = info.hint,
+                    providerStatus = info.providerStatus,
+                )
+            } catch (ignored: Exception) {
+                // fall through to the generic exception
             }
         }
         return AiHttpException(code, body)
     }
+
+    companion object {
+        /** Server default for QUIRE_SERVER_AI_TIMEOUT_S, assumed when the server does not advertise one. */
+        const val DEFAULT_GENERATION_TIMEOUT_S = 120
+
+        /**
+         * Twice the server's generation timeout (the server retries once on
+         * malformed output) plus 30 s for retrieval and queueing, clamped to
+         * one to ten minutes so a misconfigured server cannot pin the phone.
+         */
+        fun computeLongCallTimeoutS(generationTimeoutS: Int?): Long =
+            (2L * (generationTimeoutS ?: DEFAULT_GENERATION_TIMEOUT_S) + 30L).coerceIn(60L, 600L)
+    }
 }
 
-class AiHttpException(val code: Int, val body: String) :
+open class AiHttpException(val code: Int, val body: String) :
     RuntimeException("AI request failed: $code body=${body.take(200)}")
+
+/**
+ * Issue #102: a provider failure the server described. [serverMessage] is
+ * written for the reader, [hint] for whoever runs the server. Subclass of
+ * [AiHttpException] so existing `is AiHttpException` branches keep working.
+ */
+class AiProviderException(
+    code: Int,
+    body: String,
+    val errorCode: String,
+    val serverMessage: String,
+    val hint: String?,
+    val providerStatus: Int?,
+) : AiHttpException(code, body)
 
 class InsightNotCachedException : RuntimeException("insight not cached")
 

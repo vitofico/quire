@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.io.IOException
+import java.io.InterruptedIOException
 import java.security.MessageDigest
 import java.time.Instant
 
@@ -81,6 +82,14 @@ sealed interface LibraryInsightsUiState {
         val retryable: Boolean
 
         data class Network(val detail: String) : Error {
+            override val retryable: Boolean = true
+        }
+
+        /**
+         * Issue #102: the profile refresh outlived the app's wait. The server
+         * was reachable and may still be generating.
+         */
+        data object Timeout : Error {
             override val retryable: Boolean = true
         }
 
@@ -253,6 +262,10 @@ class LibraryInsightsViewModel(
                 LibraryInsightsUiState.Error.RateLimit(resetHint = t.info.resetsAt)
             t is AiHttpException && t.code in 500..599 ->
                 LibraryInsightsUiState.Error.ModelFailure
+            // SocketTimeoutException (read timeout) extends InterruptedIOException
+            // (OkHttp call timeout); both mean the server may still be working.
+            t is InterruptedIOException ->
+                LibraryInsightsUiState.Error.Timeout
             t is IOException ->
                 LibraryInsightsUiState.Error.Network(t.message ?: "Couldn't reach the server")
             else ->

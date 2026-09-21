@@ -7,6 +7,7 @@ import io.theficos.ereader.core.model.DocumentIdentity
 import io.theficos.ereader.data.ai.AiConfig
 import io.theficos.ereader.data.ai.AiHttpException
 import io.theficos.ereader.data.ai.AiPreferences
+import io.theficos.ereader.data.ai.AiProviderException
 import io.theficos.ereader.data.ai.AiStyle
 import io.theficos.ereader.data.ai.BookInsightPayload
 import io.theficos.ereader.data.ai.BookInsightResponse
@@ -289,6 +290,31 @@ class CatalogDetailViewModelTest {
             var s = awaitItem()
             while (s.insight !is InsightUiState.Error) s = awaitItem()
             assertThat((s.insight as InsightUiState.Error).message).contains("502")
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `state Error on AiProviderException shows the server's explanation`() = runTest {
+        fakeAi.configFlow.value = AiConfig(configured = true)
+        fakeAi.prefsFlow.value = AiPreferences(aiEnabled = true, style = AiStyle())
+        fakeAi.cached = null
+        fakeAi.lookupError = AiProviderException(
+            code = 504,
+            body = "{}",
+            errorCode = "provider_timeout",
+            serverMessage = "The AI provider did not answer within 120 seconds.",
+            hint = "Raise QUIRE_SERVER_AI_TIMEOUT_S for slow local models, or pick a faster model.",
+            providerStatus = null,
+        )
+
+        val vm = CatalogDetailViewModel(publication, fakeAi)
+
+        vm.state.test {
+            var s = awaitItem()
+            while (s.insight !is InsightUiState.Error) s = awaitItem()
+            assertThat((s.insight as InsightUiState.Error).message)
+                .startsWith("The AI provider did not answer within 120 seconds.")
             cancelAndIgnoreRemainingEvents()
         }
     }

@@ -3,10 +3,9 @@ package io.theficos.ereader.ui.scan
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.theficos.ereader.core.model.DocumentIdentity
-import io.theficos.ereader.data.ai.AiHttpException
-import io.theficos.ereader.data.ai.AiQuotaException
 import io.theficos.ereader.data.ai.AiRepository
 import io.theficos.ereader.ui.bookdetail.InsightUiState
+import io.theficos.ereader.ui.bookdetail.insightErrorMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -56,14 +55,7 @@ class ScanResultViewModel(
                     _insight.value = InsightUiState.Loaded(resp.payload, resp.sources)
                 }
                 .onFailure { e ->
-                    val msg = when {
-                        e is AiQuotaException ->
-                            "You've reached today's regeneration limit. Try again after ${e.info.resetsAt.take(10)}."
-                        e is AiHttpException && e.code == 429 ->
-                            "You've reached today's regeneration limit. Try again tomorrow."
-                        e is AiHttpException -> "Couldn't generate insights (${e.code})."
-                        else -> "Couldn't generate insights."
-                    }
+                    val msg = insightErrorMessage(e)
                     _insight.value = InsightUiState.Error(msg)
                 }
         }

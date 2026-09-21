@@ -533,6 +533,8 @@ private fun ErrorScreen(
     val (title, body) = when (error) {
         is LibraryInsightsUiState.Error.Network ->
             "Couldn't reach the server" to error.detail
+        LibraryInsightsUiState.Error.Timeout ->
+            "The server took too long to answer" to "It may still be generating; try again in a minute."
         is LibraryInsightsUiState.Error.RateLimit ->
             "Daily refresh limit reached" to "Try again tomorrow."
         LibraryInsightsUiState.Error.ModelFailure ->

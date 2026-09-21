@@ -23,6 +23,10 @@ data class AiConfig(
     // deploy that doesn't emit the field is treated as supported — same
     // behavior we had before the field existed.
     @SerialName("progress_supported") val progressSupported: Boolean = true,
+    // Issue #102: QUIRE_SERVER_AI_TIMEOUT_S rounded up, so the app can wait
+    // at least as long as the server may take. Null on servers that predate
+    // the field; AiClient then assumes the server default of 120.
+    @SerialName("generation_timeout_s") val generationTimeoutS: Int? = null,
 )
 
 @Serializable
@@ -257,4 +261,16 @@ data class ReaderProfileResponseDto(
     @SerialName("prompt_version") val promptVersion: String,
     @SerialName("input_fingerprint") val inputFingerprint: String? = null,
     @SerialName("generated_at") val generatedAt: String,
+)
+
+/**
+ * Issue #102: the `detail` object the server sends with 502/504 when the AI
+ * provider failed. `message` is for the reader, `hint` for the operator.
+ */
+@Serializable
+data class ProviderErrorDetail(
+    val code: String,
+    val message: String,
+    val hint: String? = null,
+    @SerialName("provider_status") val providerStatus: Int? = null,
 )

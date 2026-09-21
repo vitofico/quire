@@ -195,4 +195,132 @@ class AiClientTest {
             assertThat(e.body).contains("baseUrl not configured")
         }
     }
+
+    private val insightBody =
+        """{"payload":{"schema_version":2,"intro":"hi","confidence":"high"},"sources":[],"model_id":"m","prompt_version":"2","generated_at":"2026-05-09T00:00:00+00:00"}"""
+
+    @Test
+    fun `getConfig parses generation_timeout_s and tolerates its absence`() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"configured":true,"generation_timeout_s":300}"""
+            )
+        )
+        assertThat(client.getConfig().generationTimeoutS).isEqualTo(300)
+
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"configured":true}"""))
+        assertThat(client.getConfig().generationTimeoutS).isNull()
+    }
+
+    @Test
+    fun `computeLongCallTimeoutS falls back to 270s when the server does not advertise`() {
+        assertThat(AiClient.computeLongCallTimeoutS(null)).isEqualTo(270L)
+    }
+
+    @Test
+    fun `computeLongCallTimeoutS doubles the server timeout plus margin and clamps`() {
+        assertThat(AiClient.computeLongCallTimeoutS(60)).isEqualTo(150L)
+        assertThat(AiClient.computeLongCallTimeoutS(5)).isEqualTo(60L) // 40 clamped up
+        assertThat(AiClient.computeLongCallTimeoutS(300)).isEqualTo(600L) // 630 clamped down
+    }
+
+    @Test
+    fun `lookupInsight outlives the shared client's read timeout`() = runTest {
+        // Issue #102: the shared OkHttpClient is tuned for OPDS (short reads).
+        // A generation must not inherit that limit.
+        val impatient = AiClient(
+            baseUrlProvider = { server.url("").toString().trimEnd('/') },
+            http = OkHttpClient.Builder().readTimeout(1, TimeUnit.SECONDS).build(),
+        )
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody("""{"configured":true,"generation_timeout_s":30}""")
+        )
+        impatient.getConfig()
+        server.enqueue(
+            MockResponse().setResponseCode(200)
+                .setBodyDelay(2, TimeUnit.SECONDS)
+                .setBody(insightBody)
+        )
+        val resp = impatient.lookupInsight(
+            DocumentIdentity(metadataId = "m"),
+            MetadataBundle(title = "T", author = "A"),
+        )
+        assertThat(resp.modelId).isEqualTo("m")
+    }
+
+    @Test
+    fun `lookupInsight maps a structured provider error to AiProviderException`() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(504).setBody(
+                """{"detail":{"code":"provider_timeout","message":"The AI provider did not answer within 120 seconds.","hint":"Raise QUIRE_SERVER_AI_TIMEOUT_S for slow local models, or pick a faster model.","provider_status":null}}"""
+            )
+        )
+        val e = runCatching {
+            client.lookupInsight(DocumentIdentity(metadataId = "m"), MetadataBundle(title = "T", author = "A"))
+        }.exceptionOrNull()
+        assertThat(e).isInstanceOf(AiProviderException::class.java)
+        e as AiProviderException
+        assertThat(e.code).isEqualTo(504)
+        assertThat(e.errorCode).isEqualTo("provider_timeout")
+        assertThat(e.serverMessage).isEqualTo("The AI provider did not answer within 120 seconds.")
+        assertThat(e.hint).isEqualTo("Raise QUIRE_SERVER_AI_TIMEOUT_S for slow local models, or pick a faster model.")
+        assertThat(e.providerStatus).isNull()
+    }
+
+    @Test
+    fun `lookupInsight keeps provider_status from a rejected error`() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(502).setBody(
+                """{"detail":{"code":"provider_rejected","message":"The AI provider rejected the server's credentials.","hint":"Check QUIRE_SERVER_AI_API_KEY.","provider_status":401}}"""
+            )
+        )
+        val e = runCatching {
+            client.lookupInsight(DocumentIdentity(metadataId = "m"), MetadataBundle(title = "T", author = "A"))
+        }.exceptionOrNull() as AiProviderException
+        assertThat(e.providerStatus).isEqualTo(401)
+        assertThat(e.hint).isEqualTo("Check QUIRE_SERVER_AI_API_KEY.")
+    }
+
+    @Test
+    fun `lookupInsight keeps AiHttpException for a plain string detail`() = runTest {
+        // An older server, or a non-provider failure: no structured body.
+        server.enqueue(MockResponse().setResponseCode(502).setBody("""{"detail":"boom"}"""))
+        val e = runCatching {
+            client.lookupInsight(DocumentIdentity(metadataId = "m"), MetadataBundle(title = "T", author = "A"))
+        }.exceptionOrNull()
+        assertThat(e).isInstanceOf(AiHttpException::class.java)
+        assertThat(e).isNotInstanceOf(AiProviderException::class.java)
+        assertThat((e as AiHttpException).code).isEqualTo(502)
+    }
+
+    @Test
+    fun `a 429 quota body still becomes AiQuotaException`() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(429).setBody(
+                """{"detail":{"used":3,"limit":3,"resets_at":"2026-09-17T00:00:00+00:00"}}"""
+            )
+        )
+        val e = runCatching {
+            client.lookupInsight(DocumentIdentity(metadataId = "m"), MetadataBundle(title = "T", author = "A"))
+        }.exceptionOrNull()
+        assertThat(e).isInstanceOf(AiQuotaException::class.java)
+        assertThat((e as AiQuotaException).info.limit).isEqualTo(3)
+    }
+
+    @Test
+    fun `a 429 whose detail carries a code stays a plain AiHttpException`() = runTest {
+        // The provider shape is only recognised when the status is not 429.
+        server.enqueue(
+            MockResponse().setResponseCode(429).setBody(
+                """{"detail":{"code":"rate_limited","message":"Slow down.","hint":null,"provider_status":null}}"""
+            )
+        )
+        val e = runCatching {
+            client.lookupInsight(DocumentIdentity(metadataId = "m"), MetadataBundle(title = "T", author = "A"))
+        }.exceptionOrNull()
+        assertThat(e).isInstanceOf(AiHttpException::class.java)
+        assertThat(e).isNotInstanceOf(AiProviderException::class.java)
+        assertThat(e).isNotInstanceOf(AiQuotaException::class.java)
+        assertThat((e as AiHttpException).code).isEqualTo(429)
+    }
 }
