@@ -2,8 +2,8 @@
 
 ## Supported versions
 
-This project is pre-1.0. Only the latest commit on `main` is supported.
-Older releases get no backports.
+The latest release and the current `main` branch get fixes. Older
+releases get no backports.
 
 ## Reporting a vulnerability
 
