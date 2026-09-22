@@ -290,6 +290,7 @@ async def get_config(
         # AI-only deploys can suppress the reader profile UI on Android.
         progress_supported=settings.progress_enabled,
         generation_timeout_s=math.ceil(settings.ai_timeout_s) if settings.ai_enabled else None,
+        profile_timeout_s=math.ceil(settings.ai_profile_timeout_s) if settings.ai_enabled else None,
     )
 
 

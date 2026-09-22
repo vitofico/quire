@@ -581,6 +581,12 @@ class ConfigResponse(BaseModel):
     # waits twice this plus 30 s on generation calls instead of its 60 s
     # OPDS default. None only when AI is disabled; older servers omit it.
     generation_timeout_s: int | None = None
+    # QUIRE_SERVER_AI_PROFILE_TIMEOUT_S rounded up. The reader-profile
+    # refresh has its own, shorter budget than a regular generation; without
+    # this field the Android client sized its profile-refresh wait off
+    # generation_timeout_s instead, which is never too short but longer than
+    # needed. None only when AI is disabled; older servers omit it.
+    profile_timeout_s: int | None = None
 
 
 class PreferencesResponse(BaseModel):

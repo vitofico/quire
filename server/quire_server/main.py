@@ -232,7 +232,7 @@ def create_app() -> FastAPI:
     configure(engine)
     session_factory = make_session_factory(engine)
 
-    app = FastAPI(title="quire-server", version="0.3.0")
+    app = FastAPI(title="quire-server", version=settings.version)
     app.state.config_warnings = boot_warnings
 
     httpx_client = httpx.AsyncClient(timeout=settings.cwa_probe_timeout_s)

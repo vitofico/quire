@@ -1,10 +1,17 @@
 FROM python:3.12-slim AS base
 
+# Build-time version identity. server-ci.yaml's `image` job passes the
+# commit sha; a local `docker build` with no --build-arg keeps "dev". Turned
+# into QUIRE_SERVER_VERSION below so the running process can read it
+# (quire_server.config.Settings.version).
+ARG QUIRE_VERSION=dev
+
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     VIRTUAL_ENV=/opt/venv \
-    PATH=/opt/venv/bin:$PATH
+    PATH=/opt/venv/bin:$PATH \
+    QUIRE_SERVER_VERSION=$QUIRE_VERSION
 
 WORKDIR /app
 
