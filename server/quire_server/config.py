@@ -18,6 +18,14 @@ COMPOSE_ONLY_ENV_VARS: frozenset[str] = frozenset({"QUIRE_SERVER_PORT"})
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix=ENV_PREFIX, env_file=".env", extra="ignore")
 
+    # Build-time identity, not a deploy choice. `server/Dockerfile` sets
+    # `QUIRE_SERVER_VERSION` from the commit sha via `ARG QUIRE_VERSION` (see
+    # the `image` job in `.github/workflows/server-ci.yaml`); a manually run
+    # process keeps the "dev" default. Reported verbatim as the FastAPI app
+    # `version` and in `GET /health`, so an operator can tell which build a
+    # running container is without digging through `docker inspect`.
+    version: str = "dev"
+
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/opds_sync"
     cwa_base_url: str = "http://calibre-web.calibre-web.svc.cluster.local:8083"
     cwa_probe_path: str = "/opds"

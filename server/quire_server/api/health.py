@@ -172,6 +172,7 @@ async def health(request: Request) -> dict:
     settings = get_settings()
     return {
         "ready": True,
+        "version": settings.version,
         "modes": _enabled_modes(settings.progress_enabled, settings.ai_enabled),
         # Issue #104: the boot warnings, so an operator can curl /health
         # instead of digging through container logs.

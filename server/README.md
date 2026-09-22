@@ -258,6 +258,12 @@ more.
 `QUIRE_SERVER_PORT` is read by the minimal compose only, for the host port
 mapping. The server always listens on 8000 inside the container.
 
+#### Build-time
+
+| Var | Default | Purpose |
+| --- | --- | --- |
+| `QUIRE_SERVER_VERSION` | `dev` | Identifies the running build: the FastAPI `version` field and `GET /health`'s `version`. Baked into the image at build time from the commit sha (`server/Dockerfile`'s `QUIRE_VERSION` build arg, set by the `image` job in `server-ci.yaml`); not something you set by hand in `.env`. |
+
 #### Required and deploy mode
 
 | Var | Default | Purpose |
