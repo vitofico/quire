@@ -86,8 +86,8 @@ def test_rejected_other_status_points_at_provider_logs():
     info = describe(ProviderRejected(400, "provider 400: bad request"), timeout_s=1.0, model="m")
     assert info.message == "The AI provider rejected the request (HTTP 400)."
     assert info.hint == (
-        "Check the provider logs. Some providers reject response_format=json_object; "
-        "a different model may be needed."
+        "Check the provider logs, the model name and the API key. The server "
+        "already retries once in a plainer request shape before reporting this."
     )
     assert info.provider_status == 400
 

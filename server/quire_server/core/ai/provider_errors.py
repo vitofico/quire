@@ -87,8 +87,8 @@ def describe(
         else:
             message = f"The AI provider rejected the request (HTTP {status})."
             hint = (
-                "Check the provider logs. Some providers reject response_format=json_object; "
-                "a different model may be needed."
+                "Check the provider logs, the model name and the API key. The server "
+                "already retries once in a plainer request shape before reporting this."
             )
         return ProviderErrorInfo(
             code="provider_rejected",

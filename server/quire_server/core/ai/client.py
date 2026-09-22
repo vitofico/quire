@@ -5,14 +5,21 @@ OpenAI itself, Ollama (post-0.4), vLLM, llama.cpp's `--api`, OpenRouter,
 Anthropic via OpenAI-compat proxies, etc.
 
 Strategy:
-1. Send chat completion with `response_format = {"type": "json_object"}`. We
-   don't depend on `json_schema` mode because Ollama/llama.cpp don't all
-   support it; we instead inline the schema in the system prompt.
-2. Parse the assistant message as JSON, then validate against the Pydantic
+1. Send the chat completion with `response_format = {"type": "json_schema", ...}`
+   so the provider itself constrains the answer to the Pydantic schema. The
+   schema stays out of the prompt on purpose: a small model handed a schema as
+   text tends to hand the schema straight back instead of filling it in
+   (issue #102).
+2. If the provider turns that request down in a way that says it does not know
+   the mode, fall back once to `{"type": "json_object"}` with the schema inlined
+   in the system prompt, and keep that shape for the rest of this client's life.
+   A rejection that reads like a real one (bad key, unknown model, rate limit)
+   is never downgraded: it raises ProviderRejected as before.
+3. Parse the assistant message as JSON, then validate against the Pydantic
    schema.
-3. On ValidationError, retry once with the validation error appended to the
+4. On ValidationError, retry once with the validation error appended to the
    user message.
-4. On second failure or non-JSON output, raise ProviderParseError.
+5. On second failure or non-JSON output, raise ProviderParseError.
 """
 
 from __future__ import annotations
@@ -27,6 +34,40 @@ from pydantic import BaseModel, ValidationError
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
+
+# Issue #102: a provider that does not know `json_schema` mode says so with a
+# 4xx. These are the codes seen for "I don't understand this parameter": 400
+# from OpenAI and most compat shims, 404 from older Ollama routes, 422 from
+# servers that validate the body with FastAPI. 401, 403 and 429 are absent on
+# purpose; those are answers about the caller, not about the request shape.
+_MODE_REJECTION_STATUSES = frozenset({400, 404, 422})
+
+# On top of the status, the body has to name the parameter or complain about an
+# unknown one. "model not found" and "invalid api key" match nothing here and
+# stay ProviderRejected. A false positive costs one extra request and nothing
+# else: the fallback call re-sends in the old shape, and the genuine rejection
+# comes back from that one.
+_MODE_REJECTION_MARKERS = (
+    "response_format",
+    "response format",
+    "json_schema",
+    "json schema",
+    "unsupported parameter",
+    "unsupported_parameter",
+    "unknown parameter",
+    "unknown_parameter",
+    "unrecognized parameter",
+    "unrecognized_keys",
+    "invalid parameter",
+    "invalid_parameter",
+    "extra inputs are not permitted",
+    "extra fields not permitted",
+)
+
+
+def _error_count(err: json.JSONDecodeError | ValidationError) -> int:
+    """How many things were wrong, without saying what they were."""
+    return err.error_count() if isinstance(err, ValidationError) else 1
 
 
 class ProviderError(Exception):
@@ -53,6 +94,29 @@ class ProviderRejected(ProviderError):
         super().__init__(message)
 
 
+class _ResponseFormatUnsupported(ProviderRejected):
+    """Internal: the provider refused `json_schema` mode (issue #102).
+
+    `chat_structured` catches it, downgrades the client and calls again. It
+    subclasses ProviderRejected so that if it ever escapes that narrow window
+    it still reads as the rejection it is, with the right status code.
+    """
+
+
+def _looks_like_mode_rejection(status_code: int, body: str) -> bool:
+    """Does this 4xx mean "I don't know `json_schema`" or a genuine "no"?
+
+    Conservative on purpose: the answer has to carry one of the
+    parameter-complaint status codes AND name the parameter. Everything else,
+    including every credential and unknown-model failure, stays a real
+    rejection.
+    """
+    if status_code not in _MODE_REJECTION_STATUSES:
+        return False
+    haystack = body.lower()
+    return any(marker in haystack for marker in _MODE_REJECTION_MARKERS)
+
+
 class AIClient:
     def __init__(
         self,
@@ -67,6 +131,11 @@ class AIClient:
         self._model = model
         self._transport = transport  # tests inject MockTransport; prod is None
         self._user_agent = "quire-server"
+        # Issue #102: goes False the first time a provider turns down
+        # `json_schema` mode, and stays there. One AIClient serves the whole
+        # process (see main.create_app), so the probe is paid once per deploy,
+        # not once per insight.
+        self._native_schema = True
 
     async def chat_structured(
         self,
@@ -76,24 +145,30 @@ class AIClient:
         schema: type[T],
         timeout_s: float,
     ) -> T:
-        schema_text = json.dumps(schema.model_json_schema(), indent=2)
-        full_system = (
-            f"{system}\n\n"
-            "You MUST respond with a single JSON object that conforms exactly to "
-            "the following JSON Schema. No prose, no markdown, no code fences.\n\n"
-            f"```\n{schema_text}\n```"
-        )
-        messages = [
-            {"role": "system", "content": full_system},
-            {"role": "user", "content": user},
-        ]
-
         async with self._build_client(timeout_s) as http:
-            response_text = await self._do_call(http, messages)
+            messages = self._compose_messages(system, user, schema)
+            try:
+                response_text = await self._do_call(http, messages, schema)
+            except _ResponseFormatUnsupported:
+                # The provider cannot enforce the schema itself, so go back to
+                # asking for any JSON object and paste the schema in the prompt.
+                self._native_schema = False
+                messages = self._compose_messages(system, user, schema)
+                response_text = await self._do_call(http, messages, schema)
             try:
                 return self._parse(response_text, schema)
             except (json.JSONDecodeError, ValidationError) as first_err:
-                logger.info("ai.client.validation_retry err=%s", first_err)
+                # Facts only. A ValidationError stringifies with
+                # `input_value=...`, which is a slice of the provider's answer,
+                # and operator logs are no place for it (issue #102). The retry
+                # message below still carries the full error, on purpose: the
+                # model needs to see what it got wrong.
+                logger.info(
+                    "ai.client.validation_retry error_class=%s errors=%d native_schema=%s",
+                    type(first_err).__name__,
+                    _error_count(first_err),
+                    self._native_schema,
+                )
                 retry_messages = list(messages)
                 retry_messages.append({"role": "assistant", "content": response_text})
                 retry_messages.append(
@@ -106,13 +181,52 @@ class AIClient:
                         ),
                     }
                 )
-                retry_text = await self._do_call(http, retry_messages)
+                retry_text = await self._do_call(http, retry_messages, schema)
                 try:
                     return self._parse(retry_text, schema)
                 except (json.JSONDecodeError, ValidationError) as second_err:
                     raise ProviderParseError(
                         f"Validation failed twice; first: {first_err}; second: {second_err}"
                     ) from first_err
+
+    def _compose_messages(self, system: str, user: str, schema: type[T]) -> list[dict]:
+        if self._native_schema:
+            # The schema rides in `response_format` (see `_response_format`), so
+            # the prompt only has to rule out the wrapping that json_schema mode
+            # does not already rule out.
+            full_system = (
+                f"{system}\n\n"
+                "Answer with a single JSON object and nothing else: no prose, "
+                "no markdown, no code fences."
+            )
+        else:
+            schema_text = json.dumps(schema.model_json_schema(), indent=2)
+            full_system = (
+                f"{system}\n\n"
+                "You MUST respond with a single JSON object that conforms exactly to "
+                "the following JSON Schema. No prose, no markdown, no code fences.\n\n"
+                f"```\n{schema_text}\n```"
+            )
+        return [
+            {"role": "system", "content": full_system},
+            {"role": "user", "content": user},
+        ]
+
+    def _response_format(self, schema: type[T]) -> dict:
+        if not self._native_schema:
+            return {"type": "json_object"}
+        # `strict` is what makes a provider constrain the tokens rather than
+        # treat the schema as a hint. A provider that dislikes the schema under
+        # strict mode answers 4xx naming `response_format`, which lands on the
+        # fallback above, so the feature degrades instead of breaking.
+        return {
+            "type": "json_schema",
+            "json_schema": {
+                "name": schema.__name__,
+                "schema": schema.model_json_schema(),
+                "strict": True,
+            },
+        }
 
     def _build_client(self, timeout_s: float) -> httpx.AsyncClient:
         headers = {"User-Agent": self._user_agent, "Content-Type": "application/json"}
@@ -126,11 +240,11 @@ class AIClient:
             kwargs["transport"] = self._transport
         return httpx.AsyncClient(**kwargs)
 
-    async def _do_call(self, http: httpx.AsyncClient, messages: list[dict]) -> str:
+    async def _do_call(self, http: httpx.AsyncClient, messages: list[dict], schema: type[T]) -> str:
         body = {
             "model": self._model,
             "messages": messages,
-            "response_format": {"type": "json_object"},
+            "response_format": self._response_format(schema),
             "temperature": 0.2,
             "stream": False,
         }
@@ -150,7 +264,10 @@ class AIClient:
         if r.status_code >= 500:
             raise ProviderUnreachable(f"provider {r.status_code}: {r.text[:200]}")
         if r.status_code >= 400:
-            raise ProviderRejected(r.status_code, f"provider {r.status_code}: {r.text[:200]}")
+            message = f"provider {r.status_code}: {r.text[:200]}"
+            if self._native_schema and _looks_like_mode_rejection(r.status_code, r.text):
+                raise _ResponseFormatUnsupported(r.status_code, message)
+            raise ProviderRejected(r.status_code, message)
 
         # Issue #102: a reverse proxy or a plain web server can answer 200 with a
         # page instead of the provider's JSON. Raising the parse error as a
