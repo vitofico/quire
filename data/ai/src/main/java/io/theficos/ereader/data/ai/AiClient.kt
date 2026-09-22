@@ -2,18 +2,25 @@ package io.theficos.ereader.data.ai
 
 import io.theficos.ereader.core.metadata.MetadataBundle
 import io.theficos.ereader.core.model.DocumentIdentity
+import java.io.IOException
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 
 /**
  * REST client for the AI endpoints on quire-server.
@@ -105,7 +112,7 @@ class AiClient(
                 .url("${resolveBaseUrl()}/ai/v1/profile/refresh")
                 .post(empty)
                 .build(),
-        ).execute().use { resp ->
+        ).await().use { resp ->
             val body = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) throw makeError(resp.code, body)
             json.decodeFromString<ReaderProfileResponseDto>(body)
@@ -123,7 +130,7 @@ class AiClient(
                 .url("${resolveBaseUrl()}/ai/v1/profile")
                 .delete()
                 .build(),
-        ).execute().use { resp ->
+        ).await().use { resp ->
             if (!resp.isSuccessful) {
                 throw makeError(resp.code, resp.body?.string().orEmpty())
             }
@@ -171,7 +178,7 @@ class AiClient(
             builder.addQueryParameter("since_id", cursor.id.toString())
         }
         http.newCall(Request.Builder().url(builder.build()).get().build())
-            .execute()
+            .await()
             .use { resp ->
                 val body = resp.body?.string().orEmpty()
                 if (!resp.isSuccessful) throw makeError(resp.code, body)
@@ -212,7 +219,7 @@ class AiClient(
                 .url("${resolveBaseUrl()}$path")
                 .post(json.encodeToString(body).toRequestBody(mediaType))
                 .build(),
-        ).execute().use { resp ->
+        ).await().use { resp ->
             if (resp.code == 204) return@use null
             val text = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) throw makeError(resp.code, text)
@@ -232,7 +239,7 @@ class AiClient(
         client: OkHttpClient = http,
     ): Resp =
         withContext(Dispatchers.IO) {
-            client.newCall(builder.build()).execute().use { resp ->
+            client.newCall(builder.build()).await().use { resp ->
                 val body = resp.body?.string().orEmpty()
                 if (!resp.isSuccessful) {
                     throw makeError(resp.code, body)
@@ -243,13 +250,35 @@ class AiClient(
 
     private suspend fun executeRaw(builder: Request.Builder) {
         withContext(Dispatchers.IO) {
-            http.newCall(builder.build()).execute().use { resp ->
+            http.newCall(builder.build()).await().use { resp ->
                 if (!resp.isSuccessful) {
                     throw makeError(resp.code, resp.body?.string().orEmpty())
                 }
             }
         }
     }
+
+    /**
+     * Issue #102: every request path in this client awaits its [Call]
+     * through here instead of calling `execute()` directly, so cancelling
+     * the coroutine (e.g. the reader screen that asked for the call is left)
+     * cancels the OkHttp call too, rather than leaving it to hold an IO
+     * thread and a socket until the call timeout elapses.
+     */
+    private suspend fun Call.await(): Response =
+        suspendCancellableCoroutine { cont ->
+            cont.invokeOnCancellation { cancel() }
+            enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    if (cont.isCancelled) return
+                    cont.resumeWithException(e)
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    cont.resume(response)
+                }
+            })
+        }
 
     /**
      * Issue #102: a client for calls that block on a model. The shared

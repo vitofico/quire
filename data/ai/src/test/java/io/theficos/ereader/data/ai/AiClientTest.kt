@@ -3,6 +3,9 @@ package io.theficos.ereader.data.ai
 import com.google.common.truth.Truth.assertThat
 import io.theficos.ereader.core.metadata.MetadataBundle
 import io.theficos.ereader.core.model.DocumentIdentity
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
@@ -12,6 +15,7 @@ import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import java.util.concurrent.TimeUnit
+import kotlin.system.measureTimeMillis
 
 class AiClientTest {
 
@@ -246,6 +250,32 @@ class AiClientTest {
             MetadataBundle(title = "T", author = "A"),
         )
         assertThat(resp.modelId).isEqualTo("m")
+    }
+
+    @Test
+    fun `cancelling the coroutine cancels the underlying HTTP call`() = runTest {
+        // Issue #102: a long call must give up its thread and socket the
+        // moment the caller stops waiting, not after the full timeout.
+        server.enqueue(
+            MockResponse().setResponseCode(200)
+                .setBodyDelay(5, TimeUnit.SECONDS)
+                .setBody(insightBody)
+        )
+        val job = launch(Dispatchers.Default) {
+            client.lookupInsight(
+                DocumentIdentity(metadataId = "m"),
+                MetadataBundle(title = "T", author = "A"),
+            )
+        }
+        // Block (real time, off the test scheduler) until the request actually
+        // reaches the server, so we know the call is in flight before cancelling.
+        val request = server.takeRequest(5, TimeUnit.SECONDS)
+        assertThat(request).isNotNull()
+
+        val elapsedMs = measureTimeMillis { job.cancelAndJoin() }
+        // Well under the 5 s body delay: proof the OkHttp call was cancelled
+        // rather than left to run out the clock.
+        assertThat(elapsedMs).isLessThan(2000)
     }
 
     @Test
