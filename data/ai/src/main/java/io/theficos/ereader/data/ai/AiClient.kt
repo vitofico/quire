@@ -4,7 +4,6 @@ import io.theficos.ereader.core.metadata.MetadataBundle
 import io.theficos.ereader.core.model.DocumentIdentity
 import java.io.IOException
 import java.util.concurrent.TimeUnit
-import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -276,6 +275,14 @@ class AiClient(
      * the coroutine (e.g. the reader screen that asked for the call is left)
      * cancels the OkHttp call too, rather than leaving it to hold an IO
      * thread and a socket until the call timeout elapses.
+     *
+     * `onResponse` can race `invokeOnCancellation`: OkHttp may hand us a
+     * `Response` after the coroutine is already cancelled, and a plain
+     * `resume` would then be a no-op, leaking that response's connection.
+     * The 3-argument `resume(value, onCancellation)` added in
+     * kotlinx-coroutines 1.9 covers exactly this: `onCancellation` runs with
+     * the undelivered value when the resume loses the race, so we close it
+     * there instead.
      */
     private suspend fun Call.await(): Response =
         suspendCancellableCoroutine { cont ->
@@ -287,7 +294,7 @@ class AiClient(
                 }
 
                 override fun onResponse(call: Call, response: Response) {
-                    cont.resume(response)
+                    cont.resume(response) { _, undelivered, _ -> undelivered.close() }
                 }
             })
         }
