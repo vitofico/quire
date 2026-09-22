@@ -405,7 +405,10 @@ so a single `/ai/v1/insights/lookup` can take twice that plus a few seconds
 of Wikipedia and Open Library retrieval. The app reads
 `generation_timeout_s` from `GET /ai/v1/config` and waits twice that plus
 30 s, so raising the variable on the server is the whole fix; the app
-adapts on its next config refresh.
+adapts on its next config refresh. `POST /ai/v1/profile/refresh` runs on
+its own, shorter budget, `QUIRE_SERVER_AI_PROFILE_TIMEOUT_S` (default
+90 s), advertised the same way as `profile_timeout_s` so the app sizes
+that wait separately instead of reusing the generation-sized one.
 
 A quick answer from `ollama run` proves little. That prompt is a few words;
 Quire's is a few thousand characters of metadata, retrieved snippets and the

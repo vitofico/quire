@@ -681,7 +681,8 @@ Returns the user-visible AI configuration. Public to authed users.
   "regen_daily_limit": 3,
   "prompt_version": "5",
   "progress_supported": true,
-  "generation_timeout_s": 120
+  "generation_timeout_s": 120,
+  "profile_timeout_s": 90
 }
 ```
 
@@ -705,6 +706,15 @@ its HTTP timeout for `/insights/lookup` and `/profile/refresh` as twice
 this value plus 30 seconds, clamped to 60 to 600, so the phone never gives
 up before the server does. Older deploys omit the field and the client
 assumes 120.
+
+`profile_timeout_s` (issue #102) is `QUIRE_SERVER_AI_PROFILE_TIMEOUT_S`
+rounded up to whole seconds, `null` when AI is disabled. The reader-profile
+refresh (`POST /ai/v1/profile/refresh`) runs on a separate, shorter budget
+than a regular insight generation; this field lets the Android client size
+its wait for that call from the server's actual profile timeout instead of
+`generation_timeout_s`, which is never too short but was longer than
+needed. Older deploys omit the field; the client falls back to sizing the
+profile-refresh wait off `generation_timeout_s`.
 
 ### `GET /ai/v1/preferences` / `PUT /ai/v1/preferences`
 
