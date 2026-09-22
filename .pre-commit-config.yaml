@@ -20,11 +20,12 @@ repos:
       - id: mixed-line-ending
         args: [--fix=lf]
 
-  # Same checks server-ci.yaml runs.
+  # Same checks server-ci.yaml runs. Keep this rev matching the ruff pin
+  # in server/pyproject.toml, or the hook and CI format code differently.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.9
+    rev: v0.16.8
     hooks:
-      - id: ruff
+      - id: ruff-check
         files: ^server/
       - id: ruff-format
         files: ^server/
