@@ -2,18 +2,24 @@ package io.theficos.ereader.data.ai
 
 import io.theficos.ereader.core.metadata.MetadataBundle
 import io.theficos.ereader.core.model.DocumentIdentity
+import java.io.IOException
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 
 /**
  * REST client for the AI endpoints on quire-server.
@@ -41,8 +47,15 @@ class AiClient(
     @Volatile
     private var generationTimeoutS: Int? = null
 
+    /** Last `profile_timeout_s` the server advertised; null until the first config read (or on a server that omits the field). */
+    @Volatile
+    private var profileTimeoutS: Int? = null
+
     suspend fun getConfig(): AiConfig =
-        get<AiConfig>("/ai/v1/config").also { generationTimeoutS = it.generationTimeoutS }
+        get<AiConfig>("/ai/v1/config").also {
+            generationTimeoutS = it.generationTimeoutS
+            profileTimeoutS = it.profileTimeoutS
+        }
 
     suspend fun getPreferences(): AiPreferences =
         get("/ai/v1/preferences")
@@ -63,7 +76,11 @@ class AiClient(
         identity: DocumentIdentity,
         bundle: MetadataBundle,
     ): BookInsightResponse =
-        post("/ai/v1/insights/lookup", InsightLookupBody(identity, bundle), client = longCallHttp())
+        post(
+            "/ai/v1/insights/lookup",
+            InsightLookupBody(identity, bundle),
+            client = longCallHttp(generationTimeoutS),
+        )
 
     /** Cache-only read. Throws [InsightNotCachedException] on 404. */
     suspend fun getInsight(identity: DocumentIdentity): BookInsightResponse =
@@ -91,21 +108,22 @@ class AiClient(
 
     /**
      * PR-γ: kick off a server-side profile regeneration. May block for
-     * minutes while the model runs; see [longCallHttp]. Throws
-     * [AiQuotaException] on 429 (Retry-After may be embedded in the body),
-     * and [AiHttpException] on every other non-2xx (409 ai_not_opted_in is
-     * mapped to `AiHttpException(409)` and the ViewModel maps it to
-     * `Disabled.OptedOut`).
+     * minutes while the model runs; sized from `profile_timeout_s` when the
+     * server advertises it, or from `generation_timeout_s` otherwise (see
+     * [longCallHttp]). Throws [AiQuotaException] on 429 (Retry-After may be
+     * embedded in the body), and [AiHttpException] on every other non-2xx
+     * (409 ai_not_opted_in is mapped to `AiHttpException(409)` and the
+     * ViewModel maps it to `Disabled.OptedOut`).
      */
     suspend fun refreshProfile(): ReaderProfileResponseDto = withContext(Dispatchers.IO) {
         // Server expects an empty JSON body — `{}` is the simplest valid shape.
         val empty = "{}".toRequestBody(mediaType)
-        longCallHttp().newCall(
+        longCallHttp(profileTimeoutS ?: generationTimeoutS).newCall(
             Request.Builder()
                 .url("${resolveBaseUrl()}/ai/v1/profile/refresh")
                 .post(empty)
                 .build(),
-        ).execute().use { resp ->
+        ).await().use { resp ->
             val body = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) throw makeError(resp.code, body)
             json.decodeFromString<ReaderProfileResponseDto>(body)
@@ -123,7 +141,7 @@ class AiClient(
                 .url("${resolveBaseUrl()}/ai/v1/profile")
                 .delete()
                 .build(),
-        ).execute().use { resp ->
+        ).await().use { resp ->
             if (!resp.isSuccessful) {
                 throw makeError(resp.code, resp.body?.string().orEmpty())
             }
@@ -171,7 +189,7 @@ class AiClient(
             builder.addQueryParameter("since_id", cursor.id.toString())
         }
         http.newCall(Request.Builder().url(builder.build()).get().build())
-            .execute()
+            .await()
             .use { resp ->
                 val body = resp.body?.string().orEmpty()
                 if (!resp.isSuccessful) throw makeError(resp.code, body)
@@ -212,7 +230,7 @@ class AiClient(
                 .url("${resolveBaseUrl()}$path")
                 .post(json.encodeToString(body).toRequestBody(mediaType))
                 .build(),
-        ).execute().use { resp ->
+        ).await().use { resp ->
             if (resp.code == 204) return@use null
             val text = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) throw makeError(resp.code, text)
@@ -232,7 +250,7 @@ class AiClient(
         client: OkHttpClient = http,
     ): Resp =
         withContext(Dispatchers.IO) {
-            client.newCall(builder.build()).execute().use { resp ->
+            client.newCall(builder.build()).await().use { resp ->
                 val body = resp.body?.string().orEmpty()
                 if (!resp.isSuccessful) {
                     throw makeError(resp.code, body)
@@ -243,7 +261,7 @@ class AiClient(
 
     private suspend fun executeRaw(builder: Request.Builder) {
         withContext(Dispatchers.IO) {
-            http.newCall(builder.build()).execute().use { resp ->
+            http.newCall(builder.build()).await().use { resp ->
                 if (!resp.isSuccessful) {
                     throw makeError(resp.code, resp.body?.string().orEmpty())
                 }
@@ -252,14 +270,44 @@ class AiClient(
     }
 
     /**
+     * Issue #102: every request path in this client awaits its [Call]
+     * through here instead of calling `execute()` directly, so cancelling
+     * the coroutine (e.g. the reader screen that asked for the call is left)
+     * cancels the OkHttp call too, rather than leaving it to hold an IO
+     * thread and a socket until the call timeout elapses.
+     *
+     * `onResponse` can race `invokeOnCancellation`: OkHttp may hand us a
+     * `Response` after the coroutine is already cancelled, and a plain
+     * `resume` would then be a no-op, leaking that response's connection.
+     * The 3-argument `resume(value, onCancellation)` added in
+     * kotlinx-coroutines 1.9 covers exactly this: `onCancellation` runs with
+     * the undelivered value when the resume loses the race, so we close it
+     * there instead.
+     */
+    private suspend fun Call.await(): Response =
+        suspendCancellableCoroutine { cont ->
+            cont.invokeOnCancellation { cancel() }
+            enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    if (cont.isCancelled) return
+                    cont.resumeWithException(e)
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    cont.resume(response) { _, undelivered, _ -> undelivered.close() }
+                }
+            })
+        }
+
+    /**
      * Issue #102: a client for calls that block on a model. The shared
      * client's timeouts are sized for OPDS and sync, not for a generation
-     * that the server bounds at `generation_timeout_s` and retries once.
-     * Derived per call so a config refresh takes effect immediately;
+     * or profile refresh that the server bounds at [timeoutS] and retries
+     * once. Derived per call so a config refresh takes effect immediately;
      * `newBuilder()` shares the connection pool and dispatcher.
      */
-    private fun longCallHttp(): OkHttpClient {
-        val seconds = computeLongCallTimeoutS(generationTimeoutS)
+    private fun longCallHttp(timeoutS: Int?): OkHttpClient {
+        val seconds = computeLongCallTimeoutS(timeoutS)
         return http.newBuilder()
             .readTimeout(seconds, TimeUnit.SECONDS)
             .callTimeout(seconds + 30, TimeUnit.SECONDS)

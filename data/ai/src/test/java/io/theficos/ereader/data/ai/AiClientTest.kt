@@ -3,6 +3,9 @@ package io.theficos.ereader.data.ai
 import com.google.common.truth.Truth.assertThat
 import io.theficos.ereader.core.metadata.MetadataBundle
 import io.theficos.ereader.core.model.DocumentIdentity
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
@@ -12,6 +15,7 @@ import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import java.util.concurrent.TimeUnit
+import kotlin.system.measureTimeMillis
 
 class AiClientTest {
 
@@ -199,6 +203,9 @@ class AiClientTest {
     private val insightBody =
         """{"payload":{"schema_version":2,"intro":"hi","confidence":"high"},"sources":[],"model_id":"m","prompt_version":"2","generated_at":"2026-05-09T00:00:00+00:00"}"""
 
+    private val profileBody =
+        """{"payload":{"schema_version":1,"stats":{"total_books":1,"finished_count":0,"in_progress_count":0,"abandoned_count":0}},"schema_version":1,"model_id":"m","prompt_version":"2","generated_at":"2026-05-09T00:00:00+00:00"}"""
+
     @Test
     fun `getConfig parses generation_timeout_s and tolerates its absence`() = runTest {
         server.enqueue(
@@ -225,6 +232,64 @@ class AiClientTest {
     }
 
     @Test
+    fun `getConfig parses profile_timeout_s and tolerates its absence`() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"configured":true,"profile_timeout_s":90}"""
+            )
+        )
+        assertThat(client.getConfig().profileTimeoutS).isEqualTo(90)
+
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"configured":true}"""))
+        assertThat(client.getConfig().profileTimeoutS).isNull()
+    }
+
+    @Test
+    fun `refreshProfile sizes its client from profile_timeout_s when advertised`() = runTest {
+        // Issue #102: a profile refresh must wait no longer than the server's
+        // own profile budget, not the (larger) generation budget.
+        val impatient = AiClient(
+            baseUrlProvider = { server.url("").toString().trimEnd('/') },
+            http = OkHttpClient.Builder().readTimeout(1, TimeUnit.SECONDS).build(),
+        )
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"configured":true,"generation_timeout_s":5,"profile_timeout_s":30}"""
+            )
+        )
+        impatient.getConfig()
+        server.enqueue(
+            MockResponse().setResponseCode(200)
+                .setBodyDelay(2, TimeUnit.SECONDS)
+                .setBody(profileBody)
+        )
+        val resp = impatient.refreshProfile()
+        assertThat(resp.modelId).isEqualTo("m")
+    }
+
+    @Test
+    fun `refreshProfile falls back to the generation budget when profile_timeout_s is absent`() = runTest {
+        // Today's behaviour, preserved for servers that predate profile_timeout_s.
+        val impatient = AiClient(
+            baseUrlProvider = { server.url("").toString().trimEnd('/') },
+            http = OkHttpClient.Builder().readTimeout(1, TimeUnit.SECONDS).build(),
+        )
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"configured":true,"generation_timeout_s":30}"""
+            )
+        )
+        impatient.getConfig()
+        server.enqueue(
+            MockResponse().setResponseCode(200)
+                .setBodyDelay(2, TimeUnit.SECONDS)
+                .setBody(profileBody)
+        )
+        val resp = impatient.refreshProfile()
+        assertThat(resp.modelId).isEqualTo("m")
+    }
+
+    @Test
     fun `lookupInsight outlives the shared client's read timeout`() = runTest {
         // Issue #102: the shared OkHttpClient is tuned for OPDS (short reads).
         // A generation must not inherit that limit.
@@ -246,6 +311,32 @@ class AiClientTest {
             MetadataBundle(title = "T", author = "A"),
         )
         assertThat(resp.modelId).isEqualTo("m")
+    }
+
+    @Test
+    fun `cancelling the coroutine cancels the underlying HTTP call`() = runTest {
+        // Issue #102: a long call must give up its thread and socket the
+        // moment the caller stops waiting, not after the full timeout.
+        server.enqueue(
+            MockResponse().setResponseCode(200)
+                .setBodyDelay(5, TimeUnit.SECONDS)
+                .setBody(insightBody)
+        )
+        val job = launch(Dispatchers.Default) {
+            client.lookupInsight(
+                DocumentIdentity(metadataId = "m"),
+                MetadataBundle(title = "T", author = "A"),
+            )
+        }
+        // Block (real time, off the test scheduler) until the request actually
+        // reaches the server, so we know the call is in flight before cancelling.
+        val request = server.takeRequest(5, TimeUnit.SECONDS)
+        assertThat(request).isNotNull()
+
+        val elapsedMs = measureTimeMillis { job.cancelAndJoin() }
+        // Well under the 5 s body delay: proof the OkHttp call was cancelled
+        // rather than left to run out the clock.
+        assertThat(elapsedMs).isLessThan(2000)
     }
 
     @Test
