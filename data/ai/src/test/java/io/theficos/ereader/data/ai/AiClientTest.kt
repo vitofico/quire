@@ -203,6 +203,9 @@ class AiClientTest {
     private val insightBody =
         """{"payload":{"schema_version":2,"intro":"hi","confidence":"high"},"sources":[],"model_id":"m","prompt_version":"2","generated_at":"2026-05-09T00:00:00+00:00"}"""
 
+    private val profileBody =
+        """{"payload":{"schema_version":1,"stats":{"total_books":1,"finished_count":0,"in_progress_count":0,"abandoned_count":0}},"schema_version":1,"model_id":"m","prompt_version":"2","generated_at":"2026-05-09T00:00:00+00:00"}"""
+
     @Test
     fun `getConfig parses generation_timeout_s and tolerates its absence`() = runTest {
         server.enqueue(
@@ -226,6 +229,64 @@ class AiClientTest {
         assertThat(AiClient.computeLongCallTimeoutS(60)).isEqualTo(150L)
         assertThat(AiClient.computeLongCallTimeoutS(5)).isEqualTo(60L) // 40 clamped up
         assertThat(AiClient.computeLongCallTimeoutS(300)).isEqualTo(600L) // 630 clamped down
+    }
+
+    @Test
+    fun `getConfig parses profile_timeout_s and tolerates its absence`() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"configured":true,"profile_timeout_s":90}"""
+            )
+        )
+        assertThat(client.getConfig().profileTimeoutS).isEqualTo(90)
+
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"configured":true}"""))
+        assertThat(client.getConfig().profileTimeoutS).isNull()
+    }
+
+    @Test
+    fun `refreshProfile sizes its client from profile_timeout_s when advertised`() = runTest {
+        // Issue #102: a profile refresh must wait no longer than the server's
+        // own profile budget, not the (larger) generation budget.
+        val impatient = AiClient(
+            baseUrlProvider = { server.url("").toString().trimEnd('/') },
+            http = OkHttpClient.Builder().readTimeout(1, TimeUnit.SECONDS).build(),
+        )
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"configured":true,"generation_timeout_s":5,"profile_timeout_s":30}"""
+            )
+        )
+        impatient.getConfig()
+        server.enqueue(
+            MockResponse().setResponseCode(200)
+                .setBodyDelay(2, TimeUnit.SECONDS)
+                .setBody(profileBody)
+        )
+        val resp = impatient.refreshProfile()
+        assertThat(resp.modelId).isEqualTo("m")
+    }
+
+    @Test
+    fun `refreshProfile falls back to the generation budget when profile_timeout_s is absent`() = runTest {
+        // Today's behaviour, preserved for servers that predate profile_timeout_s.
+        val impatient = AiClient(
+            baseUrlProvider = { server.url("").toString().trimEnd('/') },
+            http = OkHttpClient.Builder().readTimeout(1, TimeUnit.SECONDS).build(),
+        )
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"configured":true,"generation_timeout_s":30}"""
+            )
+        )
+        impatient.getConfig()
+        server.enqueue(
+            MockResponse().setResponseCode(200)
+                .setBodyDelay(2, TimeUnit.SECONDS)
+                .setBody(profileBody)
+        )
+        val resp = impatient.refreshProfile()
+        assertThat(resp.modelId).isEqualTo("m")
     }
 
     @Test

@@ -48,8 +48,15 @@ class AiClient(
     @Volatile
     private var generationTimeoutS: Int? = null
 
+    /** Last `profile_timeout_s` the server advertised; null until the first config read (or on a server that omits the field). */
+    @Volatile
+    private var profileTimeoutS: Int? = null
+
     suspend fun getConfig(): AiConfig =
-        get<AiConfig>("/ai/v1/config").also { generationTimeoutS = it.generationTimeoutS }
+        get<AiConfig>("/ai/v1/config").also {
+            generationTimeoutS = it.generationTimeoutS
+            profileTimeoutS = it.profileTimeoutS
+        }
 
     suspend fun getPreferences(): AiPreferences =
         get("/ai/v1/preferences")
@@ -70,7 +77,11 @@ class AiClient(
         identity: DocumentIdentity,
         bundle: MetadataBundle,
     ): BookInsightResponse =
-        post("/ai/v1/insights/lookup", InsightLookupBody(identity, bundle), client = longCallHttp())
+        post(
+            "/ai/v1/insights/lookup",
+            InsightLookupBody(identity, bundle),
+            client = longCallHttp(generationTimeoutS),
+        )
 
     /** Cache-only read. Throws [InsightNotCachedException] on 404. */
     suspend fun getInsight(identity: DocumentIdentity): BookInsightResponse =
@@ -98,16 +109,17 @@ class AiClient(
 
     /**
      * PR-γ: kick off a server-side profile regeneration. May block for
-     * minutes while the model runs; see [longCallHttp]. Throws
-     * [AiQuotaException] on 429 (Retry-After may be embedded in the body),
-     * and [AiHttpException] on every other non-2xx (409 ai_not_opted_in is
-     * mapped to `AiHttpException(409)` and the ViewModel maps it to
-     * `Disabled.OptedOut`).
+     * minutes while the model runs; sized from `profile_timeout_s` when the
+     * server advertises it, or from `generation_timeout_s` otherwise (see
+     * [longCallHttp]). Throws [AiQuotaException] on 429 (Retry-After may be
+     * embedded in the body), and [AiHttpException] on every other non-2xx
+     * (409 ai_not_opted_in is mapped to `AiHttpException(409)` and the
+     * ViewModel maps it to `Disabled.OptedOut`).
      */
     suspend fun refreshProfile(): ReaderProfileResponseDto = withContext(Dispatchers.IO) {
         // Server expects an empty JSON body — `{}` is the simplest valid shape.
         val empty = "{}".toRequestBody(mediaType)
-        longCallHttp().newCall(
+        longCallHttp(profileTimeoutS ?: generationTimeoutS).newCall(
             Request.Builder()
                 .url("${resolveBaseUrl()}/ai/v1/profile/refresh")
                 .post(empty)
@@ -283,12 +295,12 @@ class AiClient(
     /**
      * Issue #102: a client for calls that block on a model. The shared
      * client's timeouts are sized for OPDS and sync, not for a generation
-     * that the server bounds at `generation_timeout_s` and retries once.
-     * Derived per call so a config refresh takes effect immediately;
+     * or profile refresh that the server bounds at [timeoutS] and retries
+     * once. Derived per call so a config refresh takes effect immediately;
      * `newBuilder()` shares the connection pool and dispatcher.
      */
-    private fun longCallHttp(): OkHttpClient {
-        val seconds = computeLongCallTimeoutS(generationTimeoutS)
+    private fun longCallHttp(timeoutS: Int?): OkHttpClient {
+        val seconds = computeLongCallTimeoutS(timeoutS)
         return http.newBuilder()
             .readTimeout(seconds, TimeUnit.SECONDS)
             .callTimeout(seconds + 30, TimeUnit.SECONDS)

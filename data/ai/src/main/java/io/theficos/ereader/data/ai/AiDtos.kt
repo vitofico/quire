@@ -27,6 +27,12 @@ data class AiConfig(
     // at least as long as the server may take. Null on servers that predate
     // the field; AiClient then assumes the server default of 120.
     @SerialName("generation_timeout_s") val generationTimeoutS: Int? = null,
+    // Issue #102: QUIRE_SERVER_AI_PROFILE_TIMEOUT_S (server default 90),
+    // separate from generation_timeout_s because a profile refresh is
+    // capped on its own. Optional and nullable: a server that predates the
+    // field omits it, and AiClient then sizes the profile refresh call from
+    // generation_timeout_s instead, exactly as it did before this field existed.
+    @SerialName("profile_timeout_s") val profileTimeoutS: Int? = null,
 )
 
 @Serializable
