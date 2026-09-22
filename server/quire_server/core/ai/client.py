@@ -29,6 +29,11 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 
+def _error_count(err: json.JSONDecodeError | ValidationError) -> int:
+    """How many things were wrong, without saying what they were."""
+    return err.error_count() if isinstance(err, ValidationError) else 1
+
+
 class ProviderError(Exception):
     """Base for AI provider failures."""
 
@@ -93,7 +98,16 @@ class AIClient:
             try:
                 return self._parse(response_text, schema)
             except (json.JSONDecodeError, ValidationError) as first_err:
-                logger.info("ai.client.validation_retry err=%s", first_err)
+                # Facts only. A ValidationError stringifies with
+                # `input_value=...`, which is a slice of the provider's answer,
+                # and operator logs are no place for it (issue #102). The retry
+                # message below still carries the full error, on purpose: the
+                # model needs to see what it got wrong.
+                logger.info(
+                    "ai.client.validation_retry error_class=%s errors=%d",
+                    type(first_err).__name__,
+                    _error_count(first_err),
+                )
                 retry_messages = list(messages)
                 retry_messages.append({"role": "assistant", "content": response_text})
                 retry_messages.append(

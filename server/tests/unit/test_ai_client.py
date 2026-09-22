@@ -1,4 +1,5 @@
 import json
+import logging
 
 import httpx
 import pytest
@@ -179,3 +180,33 @@ async def test_connect_timeout_is_unreachable_not_slow():
     )
     with pytest.raises(ProviderUnreachable):
         await client.chat_structured(system="s", user="u", schema=BookInsightPayload, timeout_s=5.0)
+
+
+@pytest.mark.asyncio
+async def test_validation_retry_log_carries_no_provider_output(caplog):
+    """The operator log gets facts, not the model's answer (issue #102)."""
+    marker = "LEAKED-PROVIDER-TEXT"
+    bad = {"schema_version": 2, "intro": {"note": marker}}
+    good = {"schema_version": 2, "intro": "ok", "confidence": "low"}
+    calls = {"n": 0}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        content = json.dumps(bad if calls["n"] == 1 else good)
+        return httpx.Response(200, json=_make_chat_response(content))
+
+    client = AIClient(
+        base_url="http://fake/v1",
+        api_key=None,
+        model="m",
+        transport=httpx.MockTransport(handler),
+    )
+    with caplog.at_level(logging.INFO, logger="quire_server.core.ai.client"):
+        await client.chat_structured(system="s", user="u", schema=BookInsightPayload, timeout_s=5.0)
+
+    logged = "\n".join(r.getMessage() for r in caplog.records)
+    assert "ai.client.validation_retry" in logged
+    assert "error_class=ValidationError" in logged
+    assert "errors=1" in logged
+    assert marker not in logged
+    assert "input_value" not in logged
