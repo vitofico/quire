@@ -68,6 +68,14 @@ def _normalize_key(s: str) -> str:
     return re.sub(r"\s+", " ", s.strip().lower())
 
 
+def _lookup_key(title: str, **bits: str | None) -> str:
+    """Cache key of a title lookup. The author and the series decide which
+    pages are accepted, so they are part of it."""
+    parts = [f"title:{_normalize_key(title)}"]
+    parts += [f"{name}:{_normalize_key(value)}" for name, value in bits.items() if value]
+    return f"{_LOOKUP_KEY_VERSION}:" + "|".join(parts)
+
+
 class _SourceDown(Exception):
     """A lookup request failed in transit, was rate limited, hit a 5xx, or got
     a body that is not JSON. The lookup stops and caches nothing, so the next
@@ -75,8 +83,12 @@ class _SourceDown(Exception):
 
 
 # Title cleanup (issue #102). Ebook titles carry volume, edition and exam text
-# that no encyclopedia or catalogue entry has: "Spice and Wolf, Vol. 1".
-_BRACKETED = re.compile(r"\s*[(\[{][^)\]}]*[)\]}]")
+# that no encyclopedia or catalogue entry has: "Spice and Wolf, Vol. 1". A
+# marker only counts where it cannot be part of the name itself: as a whole
+# segment of the title (after a comma, colon or spaced dash), inside a
+# trailing bracket, or, for the unambiguous "Vol. 2" and "#2", at the very
+# end. "The Jungle Book 2", "The New Edition" and "The Special Ed Teacher"
+# stay whole.
 _ORDINAL = (
     r"(?:\d+(?:st|nd|rd|th)|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth"
     r"|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth"
@@ -86,19 +98,30 @@ _EDITION_WORD = (
     r"(?:revised|updated|expanded|anniversary|illustrated|annotated|special|deluxe"
     r"|international|definitive|collector'?s|new)"
 )
-_EDITION = re.compile(
-    rf"[\s,]*\b(?:{_ORDINAL}|{_EDITION_WORD})(?:\s+(?:{_ORDINAL}|{_EDITION_WORD}))*"
-    r"\s+(?:edition\b|ed\b\.?)",
-    re.IGNORECASE,
-)
+_EDITION = rf"\b(?:(?:{_ORDINAL}|{_EDITION_WORD})\s+)+(?:edition\b|ed\b\.?)"
 _NUMBER_WORDS = ("one two three four five six seven eight nine ten eleven twelve").split()
-_VOLUME = re.compile(
-    r"[\s,]*(?:\b(?:vol(?:ume)?\.?|book|part)"
-    rf"(?:\s*(?P<n>\d+)|\s+(?P<w>[ivx]+|{'|'.join(_NUMBER_WORDS)})\b)|#\s*(?P<h>\d+))",
-    re.IGNORECASE,
+_VOLUME_NUMBER = rf"(?:\s*(?P<d>\d+(?:\.\d+)?)|\s+(?P<w>[ivx]+|{'|'.join(_NUMBER_WORDS)})\b)"
+_VOLUME_HASH = r"#\s*(?P<h>\d+(?:\.\d+)?)"
+_VOLUME = rf"(?:\b(?:vol(?:ume)?\.?|book|part){_VOLUME_NUMBER}|{_VOLUME_HASH})"
+# Segments are separated by a comma, a semicolon, a colon or a spaced dash.
+_SEGMENT_SEP = r"(?:[,;]|:(?=\s)|\s[-\u2013\u2014](?=\s))"
+_SEGMENT_END = r"(?=\s*(?:$|[,;(\[{]|:\s|[-\u2013\u2014]\s))"
+# ", Vol. 1", ": 11th Edition", "Volume 2: ..."
+_MARKER_SEGMENT = re.compile(
+    rf"(?:^|{_SEGMENT_SEP})\s*(?:{_EDITION}|{_VOLUME}){_SEGMENT_END}", re.IGNORECASE
 )
+# ": Book One of the Stormlight Archive" names the volume, not the work.
+_VOLUME_SUBTITLE = re.compile(
+    rf"{_SEGMENT_SEP}\s*{_VOLUME}" r"\s+[^\s,;:()\[\]{}][^,;:()\[\]{}]*", re.IGNORECASE
+)
+_TRAILING_VOLUME = re.compile(
+    rf"\s(?:\bvol(?:ume)?\.?{_VOLUME_NUMBER}|{_VOLUME_HASH})\s*$", re.IGNORECASE
+)
+_TRAILING_BRACKET = re.compile(r"\s*[(\[{]([^()\[\]{}]*)[)\]}]\s*$")
+_VOLUME_ANYWHERE = re.compile(_VOLUME, re.IGNORECASE)
 _SUBTITLE_SEP = re.compile(r":\s|\s[-\u2013\u2014]\s")
 _ROMAN = {"i": 1, "v": 5, "x": 10}
+_STOPWORDS = frozenset("a an and at by for from in of on or the to with".split())
 
 
 def _tidy_title(s: str) -> str:
@@ -108,58 +131,117 @@ def _tidy_title(s: str) -> str:
     return s.strip(" ,;:/-\u2013\u2014")
 
 
-def _title_candidates(title: str) -> list[str]:
+def _marker_volume(m: re.Match[str]) -> float | None:
+    raw = m.group("d") or m.group("h")
+    if raw:
+        return float(raw)
+    word = (m.group("w") or "").lower()
+    if not word:
+        return None  # an edition phrase
+    if word in _NUMBER_WORDS:
+        return float(_NUMBER_WORDS.index(word) + 1)
+    values = [_ROMAN[c] for c in word]
+    return float(sum(-v if v < nxt else v for v, nxt in zip(values, [*values[1:], 0], strict=True)))
+
+
+def _strip_markers(title: str) -> tuple[str, float | None]:
+    """The title without edition and volume markers or trailing brackets, and
+    the volume those markers named ("Vol. 3", "Book Two", "#4"), if any."""
+    volumes: list[float] = []
+
+    def drop(m: re.Match[str]) -> str:
+        if (volume := _marker_volume(m)) is not None:
+            volumes.append(volume)
+        return ""
+
+    s = title
+    while True:
+        before = s
+        s = _MARKER_SEGMENT.sub(drop, s)
+        s = _VOLUME_SUBTITLE.sub(drop, s)
+        s = _TRAILING_VOLUME.sub(drop, s)
+        if bracket := _TRAILING_BRACKET.search(s):
+            if inner := _VOLUME_ANYWHERE.search(bracket.group(1)):
+                drop(inner)
+            s = s[: bracket.start()]
+        if s == before:
+            return _tidy_title(s), (volumes[0] if volumes else None)
+
+
+def _title_candidates(title: str, *, series: str | None = None) -> list[str]:
     """Titles to look a book up under, strongest first.
 
-    The first is the title without bracketed text, edition phrases and volume
-    markers. The second, when there is one, is the part before a subtitle
-    separator (": " or " - "): a weaker guess that names the main work, or the
-    series a volume belongs to.
+    The first is the title without edition and volume markers. The second,
+    when there is one, is the part before a subtitle separator (": " or
+    " - "): a weaker guess that names the main work. It is dropped when it is
+    the book's own series name, because a page about the series, or about its
+    first book, is not a page about this book. A candidate made only of words
+    like "The" is never used.
     """
-    cleaned = _tidy_title(_VOLUME.sub("", _EDITION.sub("", _BRACKETED.sub("", title))))
-    if not cleaned:
-        return []
+    cleaned, _ = _strip_markers(title)
     out = [cleaned]
     main = _tidy_title(_SUBTITLE_SEP.split(cleaned, maxsplit=1)[0])
-    if main and main != cleaned:
+    if main != cleaned and not (series and _match_form(main) == _match_form(series)):
         out.append(main)
-    return out
+    return [c for c in out if not set(_match_form(c).split()) <= _STOPWORDS]
 
 
-def _volume_number(title: str) -> int | None:
-    """The volume a title names ("Vol. 3", "Book Two", "#4"), or None."""
-    m = _VOLUME.search(title)
-    if m is None:
-        return None
-    raw = (m.group("n") or m.group("w") or m.group("h")).lower()
-    if raw.isdigit():
-        return int(raw)
-    if raw in _NUMBER_WORDS:
-        return _NUMBER_WORDS.index(raw) + 1
-    values = [_ROMAN[c] for c in raw]
-    return sum(-v if v < nxt else v for v, nxt in zip(values, [*values[1:], 0], strict=True))
+def _volume_number(title: str) -> float | None:
+    """The volume a title names ("Vol. 3", "Book Two", "Part IV", "#4"), or None."""
+    return _strip_markers(title)[1]
 
 
 def _match_form(s: str) -> str:
-    """Compare titles on letters and digits only: case, accents, punctuation
-    and "&" versus "and" never decide whether two titles are the same."""
+    """Compare titles on letters, digits, "+" and "#": case, accents, other
+    punctuation and "&" versus "and" never decide whether two titles are the
+    same, but "C" and "C++" are different books."""
     s = unicodedata.normalize("NFKD", s)
     s = "".join(c for c in s if not unicodedata.combining(c))
     s = s.casefold().replace("&", " and ")
-    return " ".join(re.sub(r"[\W_]+", " ", s).split())
+    return " ".join(re.sub(r"(?:[^\w+#]|_)+", " ", s).split())
 
 
-# A trailing "(novel)", "(1965 novel)", "(light novel)", "(book)", "(novel
-# series)" and the like. Wikipedia adds one only when the bare name already
-# belongs to another topic; "(film)" or "(TV series)" never qualifies.
+# A trailing "(novel)", "(1965 novel)", "(light novel)", "(Asimov novel)" and
+# the like. Wikipedia adds one only when the bare name already belongs to
+# another topic; "(film)" or "(TV series)" never qualifies.
 _WORK_QUALIFIER = re.compile(
-    r"\s*\((?:[^()]*\s)?(?:novels?|novella|books?|manga|(?:novel|book) series|short story"
-    r"|memoir|poem)\)$",
+    r"\s*\((?P<extra>[^()]*?)\s*\b(?:light novel|(?:novel|book) series|short story|novels?"
+    r"|novella|books?|manga|memoir|poem)\)$",
     re.IGNORECASE,
 )
+# A search hit's short description that names another medium: "Sandbox video
+# game", "2012 film", "American television series", "Media franchise".
+_OTHER_MEDIUM = re.compile(
+    r"\b(?:video game|board game|card game|films?|movie|television|tv|franchise|album|song"
+    r"|musical|anime|band|podcast)\b",
+    re.IGNORECASE,
+)
+_YEAR = re.compile(r"\d{4}")
+_NAME_SUFFIXES = frozenset({"jr", "sr", "ii", "iii"})
 
 
-def _matching_wikipedia_pages(pages: list[dict], candidates: list[str], *, tried: str) -> list[str]:
+def _surname(author: str) -> str | None:
+    """The first author's family name in match form: "asimov" for "Isaac
+    Asimov", "Asimov, Isaac" and "Isaac Asimov & Robert Silverberg"."""
+    first = re.split(r"[,;&]|\band\b", author, maxsplit=1, flags=re.IGNORECASE)[0]
+    words = [w for w in _match_form(first).split() if w not in _NAME_SUFFIXES]
+    return words[-1] if words else None
+
+
+def _by_someone_else(page: dict, qualifier: re.Match[str] | None, surname: str) -> bool:
+    """Whether a search hit names another author, in its description ("1941
+    short story by Isaac Asimov") or in its qualifier ("(Asimov novel)")."""
+    by = re.search(r"\bby\s+(.+)", page.get("description") or "", re.IGNORECASE)
+    if by and surname not in _match_form(by.group(1)).split():
+        return True
+    extra = qualifier.group("extra") if qualifier else ""
+    words = [w for w in _match_form(extra).split() if not _YEAR.fullmatch(w)]
+    return bool(words) and surname not in words
+
+
+def _matching_wikipedia_pages(
+    pages: list[dict], candidates: list[str], *, tried: str, author: str | None
+) -> list[str]:
     """Keys of the search hits that name the same work, best first.
 
     No source is better than the wrong source: a page about another book
@@ -167,22 +249,41 @@ def _matching_wikipedia_pages(pages: list[dict], candidates: list[str], *, tried
     title, minus a trailing work qualifier such as "(novel)", equals a title
     candidate. "Spice and Wolf" matches "Spice and Wolf, Vol. 1" and "Emma
     (novel)" matches "Emma"; "CompTIA" never matches the CompTIA exam guide.
-    Matches on the stronger candidate come first, then qualified pages over
-    bare ones, then Wikipedia's own order. ``tried`` is the page the direct
-    summary already fetched.
+    When the author is known, a hit that names another author is rejected.
+    A bare page found only through the weaker main title is rejected when it
+    is about a game, a film or the like: "Minecraft: The Crash" is not the
+    video game. Matches on the stronger candidate come first, then qualified
+    pages over bare ones, then Wikipedia's own order. ``tried`` is the page
+    the direct summary already fetched.
     """
     wanted = [_match_form(c) for c in candidates]
+    surname = _surname(author) if author else None
     ranked: list[tuple[int, bool, int, str]] = []
     for order, page in enumerate(pages):
         title = page.get("title") or ""
         key = page.get("key") or ""
         if not title or not key or title == tried:
             continue
-        bare = _WORK_QUALIFIER.sub("", title)
-        form = _match_form(bare)
-        if form in wanted:
-            ranked.append((wanted.index(form), bare == title, order, key))
+        qualifier = _WORK_QUALIFIER.search(title)
+        form = _match_form(title[: qualifier.start()] if qualifier else title)
+        if form not in wanted:
+            continue
+        index = wanted.index(form)
+        if surname and _by_someone_else(page, qualifier, surname):
+            continue
+        if index > 0 and qualifier is None and _OTHER_MEDIUM.search(page.get("description") or ""):
+            continue
+        ranked.append((index, qualifier is None, order, key))
     return [key for *_, key in sorted(ranked)]
+
+
+# Format words that make a catalogue entry another book than the one with the
+# same name: the manga of a light novel, the graphic novel of a novel.
+_FORMAT_WORD = re.compile(r"\b(manga|graphic novel|comic)s?\b", re.IGNORECASE)
+
+
+def _formats(title: str) -> set[str]:
+    return {w.lower() for w in _FORMAT_WORD.findall(title)}
 
 
 def _matching_openlibrary_doc(docs: list[dict], title: str, candidates: list[str]) -> dict | None:
@@ -190,20 +291,23 @@ def _matching_openlibrary_doc(docs: list[dict], title: str, candidates: list[str
 
     The same rule as for Wikipedia: the result's cleaned title must equal a
     title candidate, trying the stronger candidate across all results first.
-    When both titles name a volume the numbers must agree, so "Spice and Wolf,
-    Vol. 1" never borrows the description of "Vol. 14".
+    The volumes must agree, a title without one counting as the first, so
+    "Spice and Wolf, Vol. 1" never borrows the description of "Vol. 14" and
+    "Vol. 14" never borrows that of the unnumbered first book. A result that
+    names a format the book's title does not, such as "(manga)", is another
+    book.
     """
-    volume = _volume_number(title)
+    volume = _volume_number(title) or 1
+    formats = _formats(title)
     for wanted in (_match_form(c) for c in candidates):
         for doc in docs:
             doc_title = doc.get("title") or ""
             if not (doc.get("key") or "").startswith("/works/"):
                 continue
-            doc_candidates = _title_candidates(doc_title)
-            if not doc_candidates or _match_form(doc_candidates[0]) != wanted:
+            doc_cleaned, doc_volume = _strip_markers(doc_title)
+            if _match_form(doc_cleaned) != wanted:
                 continue
-            doc_volume = _volume_number(doc_title)
-            if volume is not None and doc_volume is not None and doc_volume != volume:
+            if (doc_volume or 1) != volume or _formats(doc_title) - formats:
                 continue
             return doc
     return None
@@ -506,15 +610,17 @@ class Retriever:
         await self._record_retrieval(name=positive_source, success=False)
         return []
 
-    async def lookup_wikipedia(self, *, author: str | None, title: str) -> list[Citation]:
-        key = f"{_LOOKUP_KEY_VERSION}:title:{_normalize_key(title)}"
+    async def lookup_wikipedia(
+        self, *, author: str | None, title: str, series: str | None = None
+    ) -> list[Citation]:
+        key = _lookup_key(title, author=author, series=series)
         cached = await self._read_cache("wikipedia", key)
         if cached is not None:
             return [Citation.model_validate(c) for c in cached.get("citations", [])]
 
         try:
             async with self._http() as http:
-                found = await self._wikipedia_for_title(http, title)
+                found = await self._wikipedia_for_title(http, title, author=author, series=series)
                 citations = [found] if found is not None else []
                 # Fallback to author summary if title returned nothing and we have an author.
                 if not citations and author:
@@ -542,14 +648,9 @@ class Retriever:
         return citations
 
     async def lookup_openlibrary(
-        self, *, author: str | None, title: str, isbn: str | None
+        self, *, author: str | None, title: str, isbn: str | None, series: str | None = None
     ) -> list[Citation]:
-        key_bits = [f"title:{_normalize_key(title)}"]
-        if author:
-            key_bits.append(f"author:{_normalize_key(author)}")
-        if isbn:
-            key_bits.append(f"isbn:{_normalize_key(isbn)}")
-        key = f"{_LOOKUP_KEY_VERSION}:" + "|".join(key_bits)
+        key = _lookup_key(title, author=author, isbn=isbn, series=series)
 
         cached = await self._read_cache("openlibrary", key)
         if cached is not None:
@@ -559,7 +660,7 @@ class Retriever:
         # books whose ISBN Open Library does not know. A title search needs
         # every word to match, so a subtitle Open Library does not store hides
         # the book until the main title is tried on its own.
-        candidates = _title_candidates(title)
+        candidates = _title_candidates(title, series=series)
         searches: list[dict[str, str]] = []
         if isbn:
             searches.append({"isbn": isbn})
@@ -651,10 +752,12 @@ class Retriever:
         await self._write_cache("openlibrary_language", key, {"language": language})
         return language
 
-    async def _wikipedia_for_title(self, http: httpx.AsyncClient, title: str) -> Citation | None:
+    async def _wikipedia_for_title(
+        self, http: httpx.AsyncClient, title: str, *, author: str | None, series: str | None
+    ) -> Citation | None:
         """The page for this book: the direct summary of the cleaned title, else
         a search hit that names the same work (see ``_matching_wikipedia_pages``)."""
-        candidates = _title_candidates(title)
+        candidates = _title_candidates(title, series=series)
         if not candidates:
             return None
         found = await self._wikipedia_summary(http, candidates[0])
@@ -664,7 +767,9 @@ class Retriever:
             http, "wikipedia", _WIKI_SEARCH, params={"q": candidates[0], "limit": "5"}
         )
         pages = (data or {}).get("pages") or []
-        for page in _matching_wikipedia_pages(pages, candidates, tried=candidates[0]):
+        for page in _matching_wikipedia_pages(
+            pages, candidates, tried=candidates[0], author=author
+        ):
             found = await self._wikipedia_summary(http, page)
             if found is not None:
                 return found

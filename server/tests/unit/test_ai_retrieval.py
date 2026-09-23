@@ -12,6 +12,7 @@ from quire_server.core.ai.retrieval import (
     _openlibrary_snippet,
     _parse_openlibrary_language,
     _title_candidates,
+    _volume_number,
 )
 from quire_server.db.models import ExternalSourceCacheEntry
 
@@ -273,20 +274,78 @@ _NASB = "New American Standard Bible - NASB 2020: Holy Bible"
             "Harry Potter and the Chamber of Secrets (Harry Potter #2)",
             ["Harry Potter and the Chamber of Secrets"],
         ),
+        # A subtitle that starts with a volume marker names the volume, not the work.
+        ("The Way of Kings: Book One of the Stormlight Archive", ["The Way of Kings"]),
         (
-            "The Way of Kings: Book One of the Stormlight Archive",
-            ["The Way of Kings: of the Stormlight Archive", "The Way of Kings"],
+            "Mistborn: The Final Empire (Mistborn, Book 1)",
+            ["Mistborn: The Final Empire", "Mistborn"],
         ),
-        # "Book" and "Part" count only when a number follows.
+        ("Naruto, Vol. 1: Uzumaki Naruto", ["Naruto: Uzumaki Naruto", "Naruto"]),
+        ("Spice and Wolf Vol. 3", ["Spice and Wolf"]),
+        ("Ghost in the Shell #1.5", ["Ghost in the Shell"]),
+        ("Dune: Deluxe Edition", ["Dune"]),
+        # Markers count only as a whole segment, in a trailing bracket, or ("Vol.
+        # 2", "#2") at the very end, so words that belong to the name stay.
+        ("The New Edition", ["The New Edition"]),
+        ("The First Edition", ["The First Edition"]),
+        ("The Tenth Edition", ["The Tenth Edition"]),
+        ("The Jungle Book 2", ["The Jungle Book 2"]),
+        ("The Special Ed Teacher", ["The Special Ed Teacher"]),
+        ("Confessions of a Special Ed Teacher", ["Confessions of a Special Ed Teacher"]),
+        ("The Book I Wish I'd Read", ["The Book I Wish I'd Read"]),
+        ("Hunger: A Memoir of (My) Body", ["Hunger: A Memoir of (My) Body", "Hunger"]),
         ("The Book Thief", ["The Book Thief"]),
         (
             "The Absolutely True Diary of a Part-Time Indian",
             ["The Absolutely True Diary of a Part-Time Indian"],
         ),
+        ("Catch-22", ["Catch-22"]),
+        ("Nineteen Eighty-Four", ["Nineteen Eighty-Four"]),
+        ("Part of Your World", ["Part of Your World"]),
+        ("Book of Mormon", ["Book of Mormon"]),
+        ("The Book of Three", ["The Book of Three"]),
+        ("Slaughterhouse-Five", ["Slaughterhouse-Five"]),
+        ("Fahrenheit 451", ["Fahrenheit 451"]),
+        ("#Girlboss", ["#Girlboss"]),
+        ("The No. 1 Ladies' Detective Agency", ["The No. 1 Ladies' Detective Agency"]),
+        ("2001: A Space Odyssey", ["2001: A Space Odyssey", "2001"]),
+        # A candidate that is only "The" would fetch the article about the word.
+        ("The: Book 2", []),
     ],
 )
 def test_title_candidates(title: str, candidates: list[str]):
     assert _title_candidates(title) == candidates
+
+
+def test_title_candidates_drop_the_main_title_when_it_is_the_series():
+    assert _title_candidates("Mistborn: The Hero of Ages", series="Mistborn") == [
+        "Mistborn: The Hero of Ages"
+    ]
+    assert _title_candidates("The Hunger Games: Mockingjay", series="the hunger games") == [
+        "The Hunger Games: Mockingjay"
+    ]
+    # The cleaned title itself stays, even when it is the series name.
+    assert _title_candidates(_SPICE, series="Spice and Wolf") == ["Spice and Wolf"]
+
+
+@pytest.mark.parametrize(
+    ("title", "volume"),
+    [
+        (_SPICE, 1),
+        ("Spice and Wolf, Volume Twelve", 12),
+        ("Dune Messiah, Book Two", 2),
+        ("Foundation, Part IV", 4),
+        ("Saga, Volume IX", 9),
+        ("Harry Potter and the Chamber of Secrets (Harry Potter #2)", 2),
+        ("The Way of Kings: Book One of the Stormlight Archive", 1),
+        ("Ghost in the Shell #1.5", 1.5),
+        ("The Book I Wish I'd Read", None),
+        ("The Jungle Book 2", None),
+        ("Dune", None),
+    ],
+)
+def test_volume_number(title: str, volume: float | None):
+    assert _volume_number(title) == volume
 
 
 def _wiki_router(
@@ -307,8 +366,8 @@ def _wiki_router(
     return httpx.MockTransport(handler)
 
 
-def _page(title: str) -> dict:
-    return {"key": title.replace(" ", "_"), "title": title, "description": ""}
+def _page(title: str, description: str = "") -> dict:
+    return {"key": title.replace(" ", "_"), "title": title, "description": description}
 
 
 @pytest.mark.asyncio
@@ -331,7 +390,10 @@ async def test_wikipedia_search_hit_naming_the_main_title_is_accepted(session: A
             "New American Standard Bible", "An English translation of the Bible."
         )
     }
-    pages = [_page("New American Standard Bible"), _page("Legacy Standard Bible")]
+    pages = [
+        _page("New American Standard Bible", "English translation of the Bible"),
+        _page("Legacy Standard Bible", "English translation of the Bible"),
+    ]
     r = Retriever(session=session, transport=_wiki_router(summaries, pages, seen), timeout_s=5.0)
 
     cites = await r.lookup_wikipedia(author=None, title=_NASB)
@@ -373,6 +435,57 @@ async def test_wikipedia_disambiguation_is_skipped_for_the_novel_page(session: A
     # The disambiguation page is fetched once, by the direct lookup, not again from search.
     assert seen.count("/api/rest_v1/page/summary/Emma") == 1
     assert "/api/rest_v1/page/summary/Emma_Frost" not in seen
+
+
+_NIGHTFALL_SUMMARIES = {
+    "Nightfall": {"type": "disambiguation", "title": "Nightfall", "extract": "It may refer to:"},
+    "Nightfall_%28Asimov_novelette_and_novel%29": _wiki_summary_response(
+        "Nightfall (Asimov novelette and novel)", "A world that sees the stars once."
+    ),
+    "Nightfall_%28Halpern_and_Kujawinski_novel%29": _wiki_summary_response(
+        "Nightfall (Halpern and Kujawinski novel)", "An island of long days and nights."
+    ),
+}
+_NIGHTFALL_PAGES = [
+    _page("Nightfall"),
+    _page("Nightfall (Asimov novelette and novel)", "1941 short story by Isaac Asimov"),
+    _page(
+        "Nightfall (Halpern and Kujawinski novel)",
+        "2015 novel by Jake Halpern and Peter Kujawinski",
+    ),
+]
+
+
+@pytest.mark.asyncio
+async def test_wikipedia_search_hit_by_another_author_is_rejected(session: AsyncSession):
+    """Two novels share the title; the author decides which page is the book,
+    and the cached answer for one author is not served to the other."""
+    r = Retriever(
+        session=session,
+        transport=_wiki_router(_NIGHTFALL_SUMMARIES, _NIGHTFALL_PAGES, []),
+        timeout_s=5.0,
+    )
+
+    halpern = await r.lookup_wikipedia(author="Jake Halpern", title="Nightfall: A Novel")
+    asimov = await r.lookup_wikipedia(author="Asimov, Isaac", title="Nightfall: A Novel")
+    other = await r.lookup_wikipedia(author="Robert Silverberg", title="Nightfall: A Novel")
+
+    assert [c.title for c in halpern] == ["Nightfall (Halpern and Kujawinski novel)"]
+    assert [c.title for c in asimov] == ["Nightfall (Asimov novelette and novel)"]
+    assert other == []
+
+
+@pytest.mark.asyncio
+async def test_wikipedia_main_title_hit_about_a_video_game_is_rejected(session: AsyncSession):
+    seen: list[str] = []
+    summaries = {"Minecraft": _wiki_summary_response("Minecraft", "A sandbox game.")}
+    pages = [_page("Minecraft", "Sandbox video game"), _page("Minecraft (film)", "2025 film")]
+    r = Retriever(session=session, transport=_wiki_router(summaries, pages, seen), timeout_s=5.0)
+
+    cites = await r.lookup_wikipedia(author="Tracey Baptiste", title="Minecraft: The Crash")
+
+    assert cites == []
+    assert "/api/rest_v1/page/summary/Minecraft" not in seen
 
 
 @pytest.mark.asyncio
@@ -445,6 +558,57 @@ async def test_openlibrary_title_match_accepts_the_same_volume(session: AsyncSes
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("docs", "expected"),
+    [
+        # Neither the unnumbered first book nor the manga of volume 14 is the novel.
+        (
+            [
+                {"title": "Spice and Wolf", "key": "/works/OL1W"},
+                {"title": "Spice and Wolf, Vol. 14 (manga)", "key": "/works/OL14MW"},
+            ],
+            [],
+        ),
+        (
+            [
+                {"title": "Spice and Wolf, Vol. 14 (manga)", "key": "/works/OL14MW"},
+                {"title": "Spice and Wolf, Vol. 14", "key": "/works/OL14W"},
+            ],
+            ["https://openlibrary.org/works/OL14W"],
+        ),
+    ],
+)
+async def test_openlibrary_later_volume_needs_the_same_volume_and_format(
+    session: AsyncSession, docs: list[dict], expected: list[str]
+):
+    r = Retriever(session=session, transport=_ol_router(docs, {}, []), timeout_s=5.0)
+
+    cites = await r.lookup_openlibrary(
+        author="Isuna Hasekura", title="Spice and Wolf, Vol. 14", isbn=None
+    )
+
+    assert [c.url for c in cites] == expected
+
+
+@pytest.mark.asyncio
+async def test_openlibrary_skips_the_main_title_when_it_is_the_series(session: AsyncSession):
+    """Searching "The Hunger Games" for "Mockingjay" finds book one."""
+    seen: list[str] = []
+    docs = [{"title": "The Hunger Games", "key": "/works/OL5735363W"}]
+    r = Retriever(session=session, transport=_ol_router(docs, {}, seen), timeout_s=5.0)
+
+    cites = await r.lookup_openlibrary(
+        author="Suzanne Collins",
+        title="The Hunger Games: Mockingjay",
+        isbn=None,
+        series="The Hunger Games",
+    )
+
+    assert cites == []
+    assert [httpx.URL(u).params["title"] for u in seen] == ["The Hunger Games: Mockingjay"]
+
+
+@pytest.mark.asyncio
 async def test_openlibrary_isbn_hit_with_another_title_falls_back_to_the_title(
     session: AsyncSession,
 ):
@@ -500,6 +664,25 @@ async def test_openlibrary_tries_the_main_title_when_the_full_title_finds_nothin
         "Atomic Habits: An Easy & Proven Way to Build Good Habits & Break Bad Ones",
         "Atomic Habits",
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("title", "expected"),
+    [("C Primer Plus", "/works/OL2W"), ("C++ Primer Plus", "/works/OL1W")],
+)
+async def test_openlibrary_keeps_c_and_c_plus_plus_apart(
+    session: AsyncSession, title: str, expected: str
+):
+    docs = [
+        {"title": "C++ Primer Plus", "key": "/works/OL1W"},
+        {"title": "C Primer Plus", "key": "/works/OL2W"},
+    ]
+    r = Retriever(session=session, transport=_ol_router(docs, {}, []), timeout_s=5.0)
+
+    cites = await r.lookup_openlibrary(author="Stephen Prata", title=title, isbn=None)
+
+    assert [c.url for c in cites] == [f"https://openlibrary.org{expected}"]
 
 
 def test_openlibrary_snippet_caps_the_description():
