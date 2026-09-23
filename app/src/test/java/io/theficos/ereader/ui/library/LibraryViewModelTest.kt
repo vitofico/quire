@@ -54,6 +54,12 @@ class LibraryViewModelTest {
         db = Room.inMemoryDatabaseBuilder(
             ApplicationProvider.getApplicationContext(), EReaderDatabase::class.java
         ).allowMainThreadQueries().build()
+        // Open the database here, on the test thread. Left to the first query, Room
+        // opens it on a worker thread, and a test that finishes before that open does
+        // leaves tearDown's close() racing it. Room's open and close take the same two
+        // locks in opposite order, so a close() that lands mid-open hangs both
+        // threads for good, and the whole test task with them.
+        db.openHelper.writableDatabase
         docs = DocumentRepository(db.documentDao())
         progress = ProgressRepository(db.progressDao())
         orchestrator = SyncOrchestrator(
