@@ -94,10 +94,10 @@ class _SourceDown(Exception):
 # Title cleanup (issue #102). Ebook titles carry volume, edition and exam text
 # that no encyclopedia or catalogue entry has: "Spice and Wolf, Vol. 1". A
 # marker only counts where it cannot be part of the name itself: as a whole
-# segment of the title (after a comma, colon or spaced dash), inside a
-# trailing bracket, or, for the unambiguous "Vol. 2" and "#2", at the very
-# end. "The Jungle Book 2", "The New Edition" and "The Special Ed Teacher"
-# stay whole.
+# segment of the title (after a comma, colon or spaced dash) or, for the
+# unambiguous "Vol. 2" and "#2", at the very end. "The Jungle Book 2", "The
+# New Edition" and "The Special Ed Teacher" stay whole. A trailing bracket is
+# dropped whole.
 _ORDINAL = (
     r"(?:\d+(?:st|nd|rd|th)|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth"
     r"|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth"
@@ -126,8 +126,7 @@ _VOLUME_SUBTITLE = re.compile(
 _TRAILING_VOLUME = re.compile(
     rf"\s(?:\bvol(?:ume)?\.?{_VOLUME_NUMBER}|{_VOLUME_HASH})\s*$", re.IGNORECASE
 )
-_TRAILING_BRACKET = re.compile(r"\s*[(\[{]([^()\[\]{}]*)[)\]}]\s*$")
-_VOLUME_ANYWHERE = re.compile(_VOLUME, re.IGNORECASE)
+_TRAILING_BRACKET = re.compile(r"\s*[(\[{][^()\[\]{}]*[)\]}]\s*$")
 _SUBTITLE_SEP = re.compile(r":\s|\s[-\u2013\u2014]\s")
 _ROMAN = {"i": 1, "v": 5, "x": 10}
 _STOPWORDS = frozenset("a an and at by for from in of on or the to with".split())
@@ -155,7 +154,9 @@ def _marker_volume(m: re.Match[str]) -> float | None:
 
 def _strip_markers(title: str) -> tuple[str, float | None]:
     """The title without edition and volume markers or trailing brackets, and
-    the volume those markers named ("Vol. 3", "Book Two", "#4"), if any."""
+    the volume those markers named ("Vol. 3", "Book Two", "#4"), if any. A
+    number in a trailing bracket is not read: "(The Hunger Games, #2)" is the
+    book's place in its series, not a volume of this work."""
     volumes: list[float] = []
 
     def drop(m: re.Match[str]) -> str:
@@ -169,10 +170,7 @@ def _strip_markers(title: str) -> tuple[str, float | None]:
         s = _MARKER_SEGMENT.sub(drop, s)
         s = _VOLUME_SUBTITLE.sub(drop, s)
         s = _TRAILING_VOLUME.sub(drop, s)
-        if bracket := _TRAILING_BRACKET.search(s):
-            if inner := _VOLUME_ANYWHERE.search(bracket.group(1)):
-                drop(inner)
-            s = s[: bracket.start()]
+        s = _TRAILING_BRACKET.sub("", s)
         if s == before:
             return _tidy_title(s), (volumes[0] if volumes else None)
 
@@ -227,7 +225,7 @@ _OTHER_MEDIUM = re.compile(
 )
 _WRITTEN_FORM = re.compile(
     r"\b(?:novels?|novellas?|novelettes?|books?|manga|short stor(?:y|ies)|memoirs?|poems?"
-    r"|comics?)\b",
+    r"|comics|comic (?:books?|strips?|series))\b",
     re.IGNORECASE,
 )
 _YEAR = re.compile(r"\d{4}")
@@ -327,16 +325,18 @@ def _formats(title: str) -> set[str]:
     return {w.lower() for w in _FORMAT_WORD.findall(title)}
 
 
-def _matching_openlibrary_doc(docs: list[dict], title: str, candidates: list[str]) -> dict | None:
+def _matching_openlibrary_doc(
+    docs: list[dict], title: str, candidates: list[str], *, by_isbn: bool
+) -> dict | None:
     """The first search result that is the same book, or None.
 
     The same rule as for Wikipedia: the result's cleaned title must equal a
     title candidate, trying the stronger candidate across all results first.
     The volumes must agree, a title without one counting as the first, so
     "Spice and Wolf, Vol. 1" never borrows the description of "Vol. 14" and
-    "Vol. 14" never borrows that of the unnumbered first book. A result that
-    names a format the book's title does not, such as "(manga)", is another
-    book.
+    "Vol. 14" never borrows that of the unnumbered first book. An ISBN result
+    is the exact edition, so its volume is not checked. A result that names a
+    format the book's title does not, such as "(manga)", is another book.
     """
     volume = _volume_number(title) or 1
     formats = _formats(title)
@@ -348,7 +348,9 @@ def _matching_openlibrary_doc(docs: list[dict], title: str, candidates: list[str
             doc_cleaned, doc_volume = _strip_markers(doc_title)
             if _match_form(doc_cleaned) != wanted:
                 continue
-            if (doc_volume or 1) != volume or _formats(doc_title) - formats:
+            if not by_isbn and (doc_volume or 1) != volume:
+                continue
+            if _formats(doc_title) - formats:
                 continue
             return doc
     return None
@@ -744,7 +746,9 @@ class Retriever:
                         params={**params, "limit": "5", "fields": _OL_SEARCH_FIELDS},
                     )
                     docs = (data or {}).get("docs") or []
-                    doc = _matching_openlibrary_doc(docs, title, candidates)
+                    doc = _matching_openlibrary_doc(
+                        docs, title, candidates, by_isbn="isbn" in params
+                    )
                     if doc is None:
                         continue
                     work = await self._get_json(http, "openlibrary", f"{_OL_BASE}{doc['key']}.json")

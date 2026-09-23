@@ -354,7 +354,9 @@ def test_title_candidates_drop_the_main_title_when_it_is_the_series():
         ("Dune Messiah, Book Two", 2),
         ("Foundation, Part IV", 4),
         ("Saga, Volume IX", 9),
-        ("Harry Potter and the Chamber of Secrets (Harry Potter #2)", 2),
+        # A trailing bracket names the book's place in its series, not a volume.
+        ("Harry Potter and the Chamber of Secrets (Harry Potter #2)", None),
+        ("Words of Radiance (The Stormlight Archive, Book 2)", None),
         ("The Way of Kings: Book One of the Stormlight Archive", 1),
         ("Ghost in the Shell #1.5", 1.5),
         ("The Book I Wish I'd Read", None),
@@ -538,19 +540,23 @@ async def test_wikipedia_direct_page_naming_no_author_of_the_book_is_rejected(
     assert seen.count("/api/rest_v1/page/summary/Dune") == 1
 
 
+# "Comic" alone is an adjective here, not a written form.
+@pytest.mark.parametrize("description", [_FRANCHISE, "2004 comic fantasy film"])
 @pytest.mark.asyncio
-async def test_wikipedia_direct_page_about_a_franchise_is_rejected(session: AsyncSession):
+async def test_wikipedia_direct_page_about_another_medium_is_rejected(
+    session: AsyncSession, description: str
+):
     seen: list[str] = []
     summaries = {
         "The_Hunger_Games": _wiki_summary_response(
-            "The Hunger Games", "The Hunger Games is a franchise.", _FRANCHISE
+            "The Hunger Games", "Not the book.", description
         ),
         "The_Hunger_Games_%28novel%29": _wiki_summary_response(
             "The Hunger Games (novel)", "A 2008 novel.", "2008 novel by Suzanne Collins"
         ),
     }
     pages = [
-        _page("The Hunger Games", _FRANCHISE),
+        _page("The Hunger Games", description),
         _page("The Hunger Games (novel)", "2008 novel by Suzanne Collins"),
         _page("The Hunger Games (film)", "2012 film by Gary Ross"),
     ]
@@ -835,6 +841,63 @@ async def test_openlibrary_later_volume_needs_the_same_volume_and_format(
     )
 
     assert [c.url for c in cites] == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("title", "docs", "expected"),
+    [
+        (
+            "Catching Fire (The Hunger Games, #2)",
+            [{"title": "Catching Fire", "key": "/works/OL5735364W"}],
+            "/works/OL5735364W",
+        ),
+        # "Book 2" of the series is the whole novel, not the second half of a split edition.
+        (
+            "Words of Radiance (The Stormlight Archive, Book 2)",
+            [
+                {"title": "Words of Radiance, Part Two", "key": "/works/OL2W"},
+                {"title": "Words of Radiance", "key": "/works/OL1W"},
+            ],
+            "/works/OL1W",
+        ),
+    ],
+)
+async def test_openlibrary_series_position_in_brackets_is_not_a_volume(
+    session: AsyncSession, title: str, docs: list[dict], expected: str
+):
+    r = Retriever(session=session, transport=_ol_router(docs, {}, []), timeout_s=5.0)
+
+    cites = await r.lookup_openlibrary(author="Someone", title=title, isbn=None)
+
+    assert [c.url for c in cites] == [f"https://openlibrary.org{expected}"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("title", "isbn", "doc_title"),
+    [
+        (
+            "Harry Potter and the Chamber of Secrets (Harry Potter #2)",
+            "9780439064873",
+            "Harry Potter and the Chamber of Secrets",
+        ),
+        # The ISBN pins the edition, so a work filed under the series title still counts.
+        ("Spice and Wolf, Vol. 2", "9780759531055", "Spice and Wolf"),
+    ],
+)
+async def test_openlibrary_isbn_hit_skips_the_volume_check(
+    session: AsyncSession, title: str, isbn: str, doc_title: str
+):
+    seen: list[str] = []
+    docs = [{"title": doc_title, "key": "/works/OL9W"}]
+    r = Retriever(session=session, transport=_ol_router(docs, {}, seen), timeout_s=5.0)
+
+    cites = await r.lookup_openlibrary(author=None, title=title, isbn=isbn)
+
+    assert [c.url for c in cites] == ["https://openlibrary.org/works/OL9W"]
+    assert httpx.URL(seen[0]).params["isbn"] == isbn
+    assert len(seen) == 2  # the ISBN search and the work, no title search
 
 
 @pytest.mark.asyncio
