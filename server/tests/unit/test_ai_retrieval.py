@@ -184,6 +184,21 @@ async def test_lookup_book_language_transient_status_not_cached(session: AsyncSe
 
 
 @pytest.mark.asyncio
+async def test_lookups_name_a_contact_in_the_user_agent(session: AsyncSession):
+    agents: set[str] = set()
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        agents.add(req.headers["User-Agent"])
+        return httpx.Response(404)
+
+    r = Retriever(session=session, transport=httpx.MockTransport(handler), timeout_s=5.0)
+    await r.lookup_wikipedia(author=None, title="Dune")
+    await r.lookup_openlibrary(author=None, title="Dune", isbn=None)
+
+    assert agents == {"quire-server/ai-retrieval (+https://github.com/vitofico/quire)"}
+
+
+@pytest.mark.asyncio
 async def test_lookup_wikipedia_returns_empty_on_404(session: AsyncSession):
     r = Retriever(
         session=session,

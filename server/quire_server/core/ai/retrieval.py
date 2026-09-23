@@ -47,6 +47,7 @@ _TTL = timedelta(days=30)
 _WIKI_BASE = "https://en.wikipedia.org/api/rest_v1"
 _WIKI_SEARCH = "https://en.wikipedia.org/w/rest.php/v1/search/page"
 _OL_BASE = "https://openlibrary.org"
+_USER_AGENT = "quire-server/ai-retrieval (+https://github.com/vitofico/quire)"
 # Prefix of the wikipedia title keys and the openlibrary keys. Bump it when the
 # lookup strategy changes: an empty result cached by the old strategy would
 # otherwise keep a book ungrounded for the rest of its 30 days.
@@ -861,7 +862,8 @@ class Retriever:
     def _http(self) -> httpx.AsyncClient:
         kwargs: dict = {
             "timeout": httpx.Timeout(self._timeout_s, connect=min(self._timeout_s, 5.0)),
-            "headers": {"User-Agent": "quire-server/ai-retrieval"},
+            # Wikimedia rate-limits clients that give no contact far sooner.
+            "headers": {"User-Agent": _USER_AGENT},
         }
         if self._transport is not None:
             kwargs["transport"] = self._transport
