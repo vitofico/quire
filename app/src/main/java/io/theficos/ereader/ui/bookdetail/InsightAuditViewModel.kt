@@ -21,10 +21,10 @@ import kotlinx.coroutines.launch
  * [BookInsightResponse] for a document and exposes a single invalidate
  * action.
  *
- * No regenerate path — PR11 drops that pattern entirely. Invalidate uses
- * the existing body-based `POST /ai/v1/insights/invalidate`; a 404 on
- * invalidate (the row was already evicted by another device between
- * screen open and the user's tap) is treated as success.
+ * No regenerate path — PR11 drops that pattern entirely. Invalidate goes
+ * through [AiRepository.invalidate], which already treats a server 404
+ * (nothing left to drop) as success, so any failure that reaches this VM
+ * is a real one.
  *
  * Style snapshot: the server response does NOT carry the `tone` /
  * `language` that produced the row. The audit screen surfaces the user's
@@ -91,15 +91,8 @@ class InsightAuditViewModel(
                     _events.emit(Event.Invalidated)
                 }
                 .onFailure { e ->
-                    // 404 means the row is already gone — that's exactly the
-                    // state the user asked for, so treat it as success.
-                    if (e is AiHttpException && e.code == 404) {
-                        _state.value = State.Done
-                        _events.emit(Event.Invalidated)
-                    } else {
-                        _state.value = loaded
-                        _events.emit(Event.InvalidateFailed(invalidateErrorMessage(e)))
-                    }
+                    _state.value = loaded
+                    _events.emit(Event.InvalidateFailed(invalidateErrorMessage(e)))
                 }
         }
     }

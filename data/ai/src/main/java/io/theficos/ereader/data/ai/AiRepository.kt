@@ -135,10 +135,22 @@ class AiRepository(
         }
     }
 
+    /**
+     * Issue #102: drop the insight on the server, then this book's local
+     * rows, which every read consults first and no sync would ever replace.
+     *
+     * A 404 means the server holds nothing for this book (or runs without
+     * AI), which is the state the user asked for, so it counts as success.
+     * Any other failure propagates before the local rows are touched, so the
+     * caller can report it and the phone keeps showing what the server still has.
+     */
     suspend fun invalidate(identity: DocumentIdentity) {
-        client.invalidateInsight(identity)
-        // Eviction policy "none in v1": the local row stays until the next
-        // sync (or next same-PK upsert) replaces it.
+        try {
+            client.invalidateInsight(identity)
+        } catch (e: AiHttpException) {
+            if (e.code != 404) throw e
+        }
+        insightDao.deleteForBook(identity.metadataId, identity.contentHash)
     }
 
     /**
