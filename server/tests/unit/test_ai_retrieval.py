@@ -9,7 +9,9 @@ from quire_server.core.ai.health_state import AiHealthState
 from quire_server.core.ai.retrieval import (
     Retriever,
     _normalize_key,
+    _openlibrary_snippet,
     _parse_openlibrary_language,
+    _title_candidates,
 )
 from quire_server.db.models import ExternalSourceCacheEntry
 
@@ -62,7 +64,7 @@ async def test_lookup_wikipedia_refetches_after_30d(session: AsyncSession):
     # Pre-seed a stale cache row.
     stale = ExternalSourceCacheEntry(
         source="wikipedia",
-        key="title:foundation",
+        key="v2:title:foundation",
         payload={"citations": []},
         fetched_at=datetime.now(UTC) - timedelta(days=31),
     )
@@ -200,31 +202,337 @@ async def test_lookup_wikipedia_returns_empty_on_timeout(session: AsyncSession):
 
 
 @pytest.mark.asyncio
-async def test_lookup_openlibrary_uses_isbn_when_present(session: AsyncSession):
-    seen_urls: list[str] = []
+async def test_lookup_openlibrary_searches_by_isbn_first_and_quotes_the_description(
+    session: AsyncSession,
+):
+    searches: list[httpx.QueryParams] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
-        seen_urls.append(str(req.url))
+        if req.url.path == "/search.json":
+            searches.append(req.url.params)
+            return httpx.Response(
+                200,
+                json=_ol_search_response(
+                    [
+                        {
+                            "title": "Foundation",
+                            "author_name": ["Isaac Asimov"],
+                            "key": "/works/OL46125W",
+                            "first_publish_year": 1951,
+                        }
+                    ]
+                ),
+            )
+        assert req.url.path == "/works/OL46125W.json"
         return httpx.Response(
             200,
-            json=_ol_search_response(
-                [
-                    {
-                        "title": "Foundation",
-                        "author_name": ["Isaac Asimov"],
-                        "key": "/works/OL12345W",
-                        "first_publish_year": 1951,
-                    }
-                ]
-            ),
+            json={
+                "description": "The Galactic Empire is dying and only Hari Seldon knows it.",
+                "subjects": ["Science fiction", "nyt:paperback=2021-05-02", "Galactic empires"],
+            },
         )
 
     r = Retriever(session=session, transport=httpx.MockTransport(handler), timeout_s=5.0)
     cites = await r.lookup_openlibrary(
         author="Isaac Asimov", title="Foundation", isbn="9780553293357"
     )
-    assert any("isbn=9780553293357" in u for u in seen_urls)
-    assert any(c.url and c.url.startswith("https://openlibrary.org/") for c in cites)
+    # The ISBN matched, so the title search never ran.
+    assert len(searches) == 1
+    assert searches[0]["isbn"] == "9780553293357"
+    assert "title" not in searches[0]
+    assert len(cites) == 1
+    assert cites[0].url == "https://openlibrary.org/works/OL46125W"
+    assert cites[0].snippet == (
+        "Foundation by Isaac Asimov (1951). The Galactic Empire is dying and only Hari "
+        "Seldon knows it. Subjects: Science fiction, Galactic empires."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Issue #102: finding the book when the ebook title is not the catalogue title
+# ---------------------------------------------------------------------------
+
+_SPICE = "Spice and Wolf, Vol. 1"
+_COMPTIA = (
+    "CompTIA A+ Certification All-in-One Exam Guide, Eleventh Edition "
+    "(Exams 220-1101 & 220-1102), 11th Edition"
+)
+_NASB = "New American Standard Bible - NASB 2020: Holy Bible"
+
+
+@pytest.mark.parametrize(
+    ("title", "candidates"),
+    [
+        (_SPICE, ["Spice and Wolf"]),
+        (_COMPTIA, ["CompTIA A+ Certification All-in-One Exam Guide"]),
+        (_NASB, [_NASB, "New American Standard Bible"]),
+        ("Dune", ["Dune"]),
+        ("Mistborn #3", ["Mistborn"]),
+        ("Calculus, 2nd ed.", ["Calculus"]),
+        (
+            "Harry Potter and the Chamber of Secrets (Harry Potter #2)",
+            ["Harry Potter and the Chamber of Secrets"],
+        ),
+        (
+            "The Way of Kings: Book One of the Stormlight Archive",
+            ["The Way of Kings: of the Stormlight Archive", "The Way of Kings"],
+        ),
+        # "Book" and "Part" count only when a number follows.
+        ("The Book Thief", ["The Book Thief"]),
+        (
+            "The Absolutely True Diary of a Part-Time Indian",
+            ["The Absolutely True Diary of a Part-Time Indian"],
+        ),
+    ],
+)
+def test_title_candidates(title: str, candidates: list[str]):
+    assert _title_candidates(title) == candidates
+
+
+def _wiki_router(
+    summaries: dict[str, dict], search_pages: list[dict], seen: list[str]
+) -> httpx.MockTransport:
+    """Summaries by slug (anything else is a 404) and one canned search answer."""
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        path = req.url.raw_path.decode()
+        seen.append(path)
+        if path.startswith("/w/rest.php/v1/search/page"):
+            return httpx.Response(200, json={"pages": search_pages})
+        slug = path.removeprefix("/api/rest_v1/page/summary/")
+        if slug in summaries:
+            return httpx.Response(200, json=summaries[slug])
+        return httpx.Response(404)
+
+    return httpx.MockTransport(handler)
+
+
+def _page(title: str) -> dict:
+    return {"key": title.replace(" ", "_"), "title": title, "description": ""}
+
+
+@pytest.mark.asyncio
+async def test_wikipedia_direct_summary_of_the_cleaned_title(session: AsyncSession):
+    seen: list[str] = []
+    summaries = {"Spice_and_Wolf": _wiki_summary_response("Spice and Wolf", "A light novel.")}
+    r = Retriever(session=session, transport=_wiki_router(summaries, [], seen), timeout_s=5.0)
+
+    cites = await r.lookup_wikipedia(author="Isuna Hasekura", title=_SPICE)
+
+    assert [c.title for c in cites] == ["Spice and Wolf"]
+    assert seen == ["/api/rest_v1/page/summary/Spice_and_Wolf"]  # no search needed
+
+
+@pytest.mark.asyncio
+async def test_wikipedia_search_hit_naming_the_main_title_is_accepted(session: AsyncSession):
+    seen: list[str] = []
+    summaries = {
+        "New_American_Standard_Bible": _wiki_summary_response(
+            "New American Standard Bible", "An English translation of the Bible."
+        )
+    }
+    pages = [_page("New American Standard Bible"), _page("Legacy Standard Bible")]
+    r = Retriever(session=session, transport=_wiki_router(summaries, pages, seen), timeout_s=5.0)
+
+    cites = await r.lookup_wikipedia(author=None, title=_NASB)
+
+    assert [c.title for c in cites] == ["New American Standard Bible"]
+    assert seen[-1] == "/api/rest_v1/page/summary/New_American_Standard_Bible"
+    assert not any("Legacy" in p for p in seen)
+
+
+@pytest.mark.asyncio
+async def test_wikipedia_search_hit_for_a_different_work_is_rejected(session: AsyncSession):
+    """The exam guide has no page. "CompTIA" (the company) is not the book, so
+    the lookup falls back to the author instead of grounding on it."""
+    seen: list[str] = []
+    summaries = {"CompTIA": _wiki_summary_response("CompTIA", "A trade association.")}
+    pages = [_page("CompTIA"), _page("Certification")]
+    r = Retriever(session=session, transport=_wiki_router(summaries, pages, seen), timeout_s=5.0)
+
+    cites = await r.lookup_wikipedia(author="Jane Author", title=_COMPTIA)
+
+    assert cites == []
+    assert "/api/rest_v1/page/summary/CompTIA" not in seen
+    assert seen[-1] == "/api/rest_v1/page/summary/Jane_Author"
+
+
+@pytest.mark.asyncio
+async def test_wikipedia_disambiguation_is_skipped_for_the_novel_page(session: AsyncSession):
+    seen: list[str] = []
+    summaries = {
+        "Emma": {"type": "disambiguation", "title": "Emma", "extract": "Emma may refer to:"},
+        "Emma_%28novel%29": _wiki_summary_response("Emma (novel)", "An 1815 novel."),
+    }
+    pages = [_page("Emma"), _page("Emma Frost"), _page("Emma (novel)"), _page("Emma (2020 film)")]
+    r = Retriever(session=session, transport=_wiki_router(summaries, pages, seen), timeout_s=5.0)
+
+    cites = await r.lookup_wikipedia(author="Jane Austen", title="Emma")
+
+    assert [c.title for c in cites] == ["Emma (novel)"]
+    # The disambiguation page is fetched once, by the direct lookup, not again from search.
+    assert seen.count("/api/rest_v1/page/summary/Emma") == 1
+    assert "/api/rest_v1/page/summary/Emma_Frost" not in seen
+
+
+@pytest.mark.asyncio
+async def test_wikipedia_outage_is_not_cached(session: AsyncSession):
+    calls: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        calls.append(str(req.url))
+        return httpx.Response(503)
+
+    r = Retriever(session=session, transport=httpx.MockTransport(handler), timeout_s=5.0)
+    assert await r.lookup_wikipedia(author="Frank Herbert", title="Dune") == []
+    assert await r.lookup_wikipedia(author="Frank Herbert", title="Dune") == []
+    # One request per attempt: the outage stops the lookup, and nothing is remembered.
+    assert len(calls) == 2
+    rows = (await session.execute(select(ExternalSourceCacheEntry))).scalars().all()
+    assert rows == []
+
+
+def _ol_router(docs: list[dict], works: dict[str, dict], seen: list[str]) -> httpx.MockTransport:
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(str(req.url))
+        if req.url.path == "/search.json":
+            return httpx.Response(200, json=_ol_search_response(docs))
+        return httpx.Response(200, json=works.get(req.url.path, {}))
+
+    return httpx.MockTransport(handler)
+
+
+@pytest.mark.asyncio
+async def test_openlibrary_title_match_rejects_other_volumes_and_other_books(
+    session: AsyncSession,
+):
+    seen: list[str] = []
+    docs = [
+        {"title": "Spice And Wolf 1", "key": "/works/OL1W"},
+        {"title": "Spice and Wolf, Vol. 14 (manga)", "key": "/works/OL14W"},
+        {"title": "Honey and Spice", "key": "/works/OL2W"},
+    ]
+    r = Retriever(session=session, transport=_ol_router(docs, {}, seen), timeout_s=5.0)
+
+    cites = await r.lookup_openlibrary(author="Isuna Hasekura", title=_SPICE, isbn=None)
+
+    assert cites == []
+    assert len(seen) == 1  # the search only; no work was fetched
+    params = httpx.URL(seen[0]).params
+    assert params["title"] == "Spice and Wolf"
+    assert params["author"] == "Isuna Hasekura"
+
+
+@pytest.mark.asyncio
+async def test_openlibrary_title_match_accepts_the_same_volume(session: AsyncSession):
+    seen: list[str] = []
+    docs = [
+        {"title": "Spice and Wolf, Vol. 14 (manga)", "key": "/works/OL14W"},
+        {
+            "title": "Spice and Wolf, Vol. 1",
+            "key": "/works/OL1W",
+            "author_name": ["Isuna Hasekura"],
+            "first_publish_year": 2006,
+        },
+    ]
+    works = {"/works/OL1W.json": {"description": {"type": "/type/text", "value": "Holo."}}}
+    r = Retriever(session=session, transport=_ol_router(docs, works, seen), timeout_s=5.0)
+
+    cites = await r.lookup_openlibrary(author="Isuna Hasekura", title=_SPICE, isbn=None)
+
+    assert [c.url for c in cites] == ["https://openlibrary.org/works/OL1W"]
+    assert cites[0].snippet == "Spice and Wolf, Vol. 1 by Isuna Hasekura (2006). Holo."
+
+
+@pytest.mark.asyncio
+async def test_openlibrary_isbn_hit_with_another_title_falls_back_to_the_title(
+    session: AsyncSession,
+):
+    searches: list[httpx.QueryParams] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path != "/search.json":
+            return httpx.Response(200, json={})
+        searches.append(req.url.params)
+        if "isbn" in req.url.params:
+            return httpx.Response(
+                200, json=_ol_search_response([{"title": "Another Book", "key": "/works/OL9W"}])
+            )
+        return httpx.Response(
+            200,
+            json=_ol_search_response(
+                [{"title": "CompTIA A+ Certification All-in-One Exam Guide", "key": "/works/OL5W"}]
+            ),
+        )
+
+    r = Retriever(session=session, transport=httpx.MockTransport(handler), timeout_s=5.0)
+    cites = await r.lookup_openlibrary(author=None, title=_COMPTIA, isbn="9781264609956")
+
+    assert [c.url for c in cites] == ["https://openlibrary.org/works/OL5W"]
+    assert [sorted(p.keys()) for p in searches] == [
+        ["fields", "isbn", "limit"],
+        ["fields", "limit", "title"],
+    ]
+
+
+@pytest.mark.asyncio
+async def test_openlibrary_tries_the_main_title_when_the_full_title_finds_nothing(
+    session: AsyncSession,
+):
+    titles: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path != "/search.json":
+            return httpx.Response(200, json={})
+        titles.append(req.url.params["title"])
+        docs = [{"title": "Atomic Habits", "key": "/works/OL17930368W"}]
+        return httpx.Response(200, json=_ol_search_response(docs if len(titles) > 1 else []))
+
+    r = Retriever(session=session, transport=httpx.MockTransport(handler), timeout_s=5.0)
+    cites = await r.lookup_openlibrary(
+        author="James Clear",
+        title="Atomic Habits: An Easy & Proven Way to Build Good Habits & Break Bad Ones",
+        isbn=None,
+    )
+
+    assert [c.title for c in cites] == ["Atomic Habits"]
+    assert titles == [
+        "Atomic Habits: An Easy & Proven Way to Build Good Habits & Break Bad Ones",
+        "Atomic Habits",
+    ]
+
+
+def test_openlibrary_snippet_caps_the_description():
+    doc = {"title": "Dune", "author_name": ["Frank Herbert"], "first_publish_year": 1965}
+    snippet = _openlibrary_snippet(doc, {"description": "word " * 1000})
+    assert snippet.startswith("Dune by Frank Herbert (1965). word word")
+    assert len(snippet) <= len("Dune by Frank Herbert (1965). ") + 1200
+    assert _openlibrary_snippet(doc, None) == "Dune by Frank Herbert (1965)."
+
+
+@pytest.mark.asyncio
+async def test_rows_cached_by_the_old_strategy_are_ignored(session: AsyncSession):
+    """An empty result cached before the strategy changed must not pin the
+    book to "no source" for the rest of its 30 days."""
+    for source, key in (
+        ("wikipedia", "title:dune"),
+        ("openlibrary", "title:dune|author:frank herbert"),
+    ):
+        session.add(ExternalSourceCacheEntry(source=source, key=key, payload={"citations": []}))
+    await session.commit()
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.host == "en.wikipedia.org":
+            return httpx.Response(200, json=_wiki_summary_response("Dune (novel)", "A novel."))
+        if req.url.path == "/search.json":
+            return httpx.Response(
+                200, json=_ol_search_response([{"title": "Dune", "key": "/works/OL893414W"}])
+            )
+        return httpx.Response(200, json={"description": "Arrakis."})
+
+    r = Retriever(session=session, transport=httpx.MockTransport(handler), timeout_s=5.0)
+    assert await r.lookup_wikipedia(author="Frank Herbert", title="Dune") != []
+    assert await r.lookup_openlibrary(author="Frank Herbert", title="Dune", isbn=None) != []
 
 
 @pytest.mark.asyncio

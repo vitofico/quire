@@ -3,21 +3,26 @@
 Each public lookup function:
   1. Computes a normalized cache key.
   2. Reads `external_source_cache`. Returns immediately if found and fresh.
-  3. Otherwise issues an HTTP call (with a strict timeout). On any failure
-     (timeout, non-2xx, JSON parse) returns []; the caller falls through to
-     the AI without retrieval grounding. Failures are logged at info — they
-     are not bugs, they are normal degraded behavior.
-  4. Persists the result and returns.
+  3. Otherwise issues its HTTP calls (each with a strict timeout). On any
+     failure returns []; the caller falls through to the AI without retrieval
+     grounding. Failures are logged at info: they are not bugs, they are
+     normal degraded behavior.
+  4. Persists the result and returns. A transient failure (network error,
+     429, 5xx, a body that is not JSON) is not persisted, so the next attempt
+     retries; "no such page" and "no matching book" are.
 
 URL choices:
-  - Wikipedia REST: /api/rest_v1/page/summary/{title}
-  - OpenLibrary search: /search.json?title=...&author=...&isbn=...&limit=3
+  - Wikipedia REST: /api/rest_v1/page/summary/{title}, then
+    /w/rest.php/v1/search/page?q=... when the title has no page of its own
+  - OpenLibrary: /search.json?isbn=... or ?title=...&author=..., then
+    /works/OL...W.json for the matched work's description
 """
 
 from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from urllib.parse import quote
@@ -35,7 +40,14 @@ logger = logging.getLogger(__name__)
 
 _TTL = timedelta(days=30)
 _WIKI_BASE = "https://en.wikipedia.org/api/rest_v1"
+_WIKI_SEARCH = "https://en.wikipedia.org/w/rest.php/v1/search/page"
 _OL_BASE = "https://openlibrary.org"
+# Prefix of the wikipedia title keys and the openlibrary keys. Bump it when the
+# lookup strategy changes: an empty result cached by the old strategy would
+# otherwise keep a book ungrounded for the rest of its 30 days.
+_LOOKUP_KEY_VERSION = "v2"
+_SNIPPET_CAP = 1200
+_OL_SEARCH_FIELDS = "key,title,author_name,first_publish_year"
 # pr-β author-bibliography cache TTLs (coordinator §3.7).
 _BIBLIO_TTL = timedelta(days=30)
 _BIBLIO_NEG_TTL = timedelta(hours=24)
@@ -54,6 +66,173 @@ class BookRef:
 
 def _normalize_key(s: str) -> str:
     return re.sub(r"\s+", " ", s.strip().lower())
+
+
+class _SourceDown(Exception):
+    """A lookup request failed in transit, was rate limited, hit a 5xx, or got
+    a body that is not JSON. The lookup stops and caches nothing, so the next
+    attempt retries instead of remembering an outage for 30 days."""
+
+
+# Title cleanup (issue #102). Ebook titles carry volume, edition and exam text
+# that no encyclopedia or catalogue entry has: "Spice and Wolf, Vol. 1".
+_BRACKETED = re.compile(r"\s*[(\[{][^)\]}]*[)\]}]")
+_ORDINAL = (
+    r"(?:\d+(?:st|nd|rd|th)|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth"
+    r"|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth"
+    r"|eighteenth|nineteenth|twentieth)"
+)
+_EDITION_WORD = (
+    r"(?:revised|updated|expanded|anniversary|illustrated|annotated|special|deluxe"
+    r"|international|definitive|collector'?s|new)"
+)
+_EDITION = re.compile(
+    rf"[\s,]*\b(?:{_ORDINAL}|{_EDITION_WORD})(?:\s+(?:{_ORDINAL}|{_EDITION_WORD}))*"
+    r"\s+(?:edition\b|ed\b\.?)",
+    re.IGNORECASE,
+)
+_NUMBER_WORDS = ("one two three four five six seven eight nine ten eleven twelve").split()
+_VOLUME = re.compile(
+    r"[\s,]*(?:\b(?:vol(?:ume)?\.?|book|part)"
+    rf"(?:\s*(?P<n>\d+)|\s+(?P<w>[ivx]+|{'|'.join(_NUMBER_WORDS)})\b)|#\s*(?P<h>\d+))",
+    re.IGNORECASE,
+)
+_SUBTITLE_SEP = re.compile(r":\s|\s[-\u2013\u2014]\s")
+_ROMAN = {"i": 1, "v": 5, "x": 10}
+
+
+def _tidy_title(s: str) -> str:
+    s = re.sub(r"\s+", " ", s)
+    s = re.sub(r"\s+([,;:])", r"\1", s)
+    s = re.sub(r"([,;:])(?:\s*[,;:])+", r"\1", s)
+    return s.strip(" ,;:/-\u2013\u2014")
+
+
+def _title_candidates(title: str) -> list[str]:
+    """Titles to look a book up under, strongest first.
+
+    The first is the title without bracketed text, edition phrases and volume
+    markers. The second, when there is one, is the part before a subtitle
+    separator (": " or " - "): a weaker guess that names the main work, or the
+    series a volume belongs to.
+    """
+    cleaned = _tidy_title(_VOLUME.sub("", _EDITION.sub("", _BRACKETED.sub("", title))))
+    if not cleaned:
+        return []
+    out = [cleaned]
+    main = _tidy_title(_SUBTITLE_SEP.split(cleaned, maxsplit=1)[0])
+    if main and main != cleaned:
+        out.append(main)
+    return out
+
+
+def _volume_number(title: str) -> int | None:
+    """The volume a title names ("Vol. 3", "Book Two", "#4"), or None."""
+    m = _VOLUME.search(title)
+    if m is None:
+        return None
+    raw = (m.group("n") or m.group("w") or m.group("h")).lower()
+    if raw.isdigit():
+        return int(raw)
+    if raw in _NUMBER_WORDS:
+        return _NUMBER_WORDS.index(raw) + 1
+    values = [_ROMAN[c] for c in raw]
+    return sum(-v if v < nxt else v for v, nxt in zip(values, [*values[1:], 0], strict=True))
+
+
+def _match_form(s: str) -> str:
+    """Compare titles on letters and digits only: case, accents, punctuation
+    and "&" versus "and" never decide whether two titles are the same."""
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    s = s.casefold().replace("&", " and ")
+    return " ".join(re.sub(r"[\W_]+", " ", s).split())
+
+
+# A trailing "(novel)", "(1965 novel)", "(light novel)", "(book)", "(novel
+# series)" and the like. Wikipedia adds one only when the bare name already
+# belongs to another topic; "(film)" or "(TV series)" never qualifies.
+_WORK_QUALIFIER = re.compile(
+    r"\s*\((?:[^()]*\s)?(?:novels?|novella|books?|manga|(?:novel|book) series|short story"
+    r"|memoir|poem)\)$",
+    re.IGNORECASE,
+)
+
+
+def _matching_wikipedia_pages(pages: list[dict], candidates: list[str], *, tried: str) -> list[str]:
+    """Keys of the search hits that name the same work, best first.
+
+    No source is better than the wrong source: a page about another book
+    grounds the model on the wrong book. So a hit is accepted only when its
+    title, minus a trailing work qualifier such as "(novel)", equals a title
+    candidate. "Spice and Wolf" matches "Spice and Wolf, Vol. 1" and "Emma
+    (novel)" matches "Emma"; "CompTIA" never matches the CompTIA exam guide.
+    Matches on the stronger candidate come first, then qualified pages over
+    bare ones, then Wikipedia's own order. ``tried`` is the page the direct
+    summary already fetched.
+    """
+    wanted = [_match_form(c) for c in candidates]
+    ranked: list[tuple[int, bool, int, str]] = []
+    for order, page in enumerate(pages):
+        title = page.get("title") or ""
+        key = page.get("key") or ""
+        if not title or not key or title == tried:
+            continue
+        bare = _WORK_QUALIFIER.sub("", title)
+        form = _match_form(bare)
+        if form in wanted:
+            ranked.append((wanted.index(form), bare == title, order, key))
+    return [key for *_, key in sorted(ranked)]
+
+
+def _matching_openlibrary_doc(docs: list[dict], title: str, candidates: list[str]) -> dict | None:
+    """The first search result that is the same book, or None.
+
+    The same rule as for Wikipedia: the result's cleaned title must equal a
+    title candidate, trying the stronger candidate across all results first.
+    When both titles name a volume the numbers must agree, so "Spice and Wolf,
+    Vol. 1" never borrows the description of "Vol. 14".
+    """
+    volume = _volume_number(title)
+    for wanted in (_match_form(c) for c in candidates):
+        for doc in docs:
+            doc_title = doc.get("title") or ""
+            if not (doc.get("key") or "").startswith("/works/"):
+                continue
+            doc_candidates = _title_candidates(doc_title)
+            if not doc_candidates or _match_form(doc_candidates[0]) != wanted:
+                continue
+            doc_volume = _volume_number(doc_title)
+            if volume is not None and doc_volume is not None and doc_volume != volume:
+                continue
+            return doc
+    return None
+
+
+def _openlibrary_snippet(doc: dict, work: dict | None) -> str:
+    """Who wrote it and when, then the work's description and a few subjects."""
+    parts = [doc.get("title") or ""]
+    authors = doc.get("author_name") or []
+    if authors:
+        parts.append(f"by {', '.join(authors[:3])}")
+    if doc.get("first_publish_year"):
+        parts.append(f"({doc['first_publish_year']})")
+    snippet = " ".join(parts) + "."
+    work = work or {}
+    description = work.get("description")
+    if isinstance(description, dict):
+        description = description.get("value")
+    if isinstance(description, str) and description.strip():
+        snippet += " " + " ".join(description.split())[:_SNIPPET_CAP]
+    # Subjects like "nyt:manga=2010-05-09" or "series:Twilight" are bookkeeping.
+    subjects = [
+        s
+        for s in work.get("subjects") or []
+        if isinstance(s, str) and ":" not in s and "=" not in s
+    ]
+    if subjects:
+        snippet += f" Subjects: {', '.join(subjects[:5])}."
+    return snippet
 
 
 def _parse_openlibrary_works(entries: list[dict], *, default_author: str) -> list[BookRef]:
@@ -328,24 +507,32 @@ class Retriever:
         return []
 
     async def lookup_wikipedia(self, *, author: str | None, title: str) -> list[Citation]:
-        key = f"title:{_normalize_key(title)}"
+        key = f"{_LOOKUP_KEY_VERSION}:title:{_normalize_key(title)}"
         cached = await self._read_cache("wikipedia", key)
         if cached is not None:
             return [Citation.model_validate(c) for c in cached.get("citations", [])]
 
-        citations = await self._fetch_wikipedia(title)
-        # Fallback to author summary if title returned nothing and we have an author.
-        if not citations and author:
-            author_key = f"author:{_normalize_key(author)}"
-            cached_author = await self._read_cache("wikipedia", author_key)
-            if cached_author is not None:
-                return [Citation.model_validate(c) for c in cached_author.get("citations", [])]
-            citations = await self._fetch_wikipedia(author)
-            await self._write_cache(
-                "wikipedia",
-                author_key,
-                {"citations": [c.model_dump() for c in citations]},
-            )
+        try:
+            async with self._http() as http:
+                found = await self._wikipedia_for_title(http, title)
+                citations = [found] if found is not None else []
+                # Fallback to author summary if title returned nothing and we have an author.
+                if not citations and author:
+                    author_key = f"author:{_normalize_key(author)}"
+                    cached_author = await self._read_cache("wikipedia", author_key)
+                    if cached_author is not None:
+                        return [
+                            Citation.model_validate(c) for c in cached_author.get("citations", [])
+                        ]
+                    found = await self._wikipedia_summary(http, author)
+                    citations = [found] if found is not None else []
+                    await self._write_cache(
+                        "wikipedia",
+                        author_key,
+                        {"citations": [c.model_dump() for c in citations]},
+                    )
+        except _SourceDown:
+            return []
 
         await self._write_cache(
             "wikipedia",
@@ -362,31 +549,52 @@ class Retriever:
             key_bits.append(f"author:{_normalize_key(author)}")
         if isbn:
             key_bits.append(f"isbn:{_normalize_key(isbn)}")
-        key = "|".join(key_bits)
+        key = f"{_LOOKUP_KEY_VERSION}:" + "|".join(key_bits)
 
         cached = await self._read_cache("openlibrary", key)
         if cached is not None:
             return [Citation.model_validate(c) for c in cached.get("citations", [])]
 
-        params = {"title": title, "limit": "3"}
-        if author:
-            params["author"] = author
+        # The ISBN names the edition exactly; the title searches catch the
+        # books whose ISBN Open Library does not know. A title search needs
+        # every word to match, so a subtitle Open Library does not store hides
+        # the book until the main title is tried on its own.
+        candidates = _title_candidates(title)
+        searches: list[dict[str, str]] = []
         if isbn:
-            params["isbn"] = isbn
+            searches.append({"isbn": isbn})
+        for candidate in candidates:
+            by_title = {"title": candidate}
+            if author:
+                by_title["author"] = author
+            searches.append(by_title)
 
+        citations: list[Citation] = []
         try:
             async with self._http() as http:
-                r = await http.get(f"{_OL_BASE}/search.json", params=params)
-                # OpenLibrary responded — reachable regardless of status code.
-                await self._record_retrieval(name="openlibrary", success=True)
-                if r.status_code != 200:
-                    citations = []
-                else:
-                    citations = self._parse_openlibrary_response(r.json())
-        except httpx.HTTPError as e:
-            logger.info("ai.retrieval.openlibrary.fail err=%s", e)
-            await self._record_retrieval(name="openlibrary", success=False)
-            citations = []
+                for params in searches:
+                    data = await self._get_json(
+                        http,
+                        "openlibrary",
+                        f"{_OL_BASE}/search.json",
+                        params={**params, "limit": "5", "fields": _OL_SEARCH_FIELDS},
+                    )
+                    docs = (data or {}).get("docs") or []
+                    doc = _matching_openlibrary_doc(docs, title, candidates)
+                    if doc is None:
+                        continue
+                    work = await self._get_json(http, "openlibrary", f"{_OL_BASE}{doc['key']}.json")
+                    citations = [
+                        Citation(
+                            kind="openlibrary",
+                            title=doc.get("title") or title,
+                            url=f"{_OL_BASE}{doc['key']}",
+                            snippet=_openlibrary_snippet(doc, work),
+                        )
+                    ]
+                    break
+        except _SourceDown:
+            return []
 
         await self._write_cache(
             "openlibrary",
@@ -443,64 +651,78 @@ class Retriever:
         await self._write_cache("openlibrary_language", key, {"language": language})
         return language
 
-    async def _fetch_wikipedia(self, term: str) -> list[Citation]:
-        try:
-            async with self._http() as http:
-                # Wikipedia's REST API takes a slug; URL-encode + replace spaces.
-                slug = quote(term.strip().replace(" ", "_"), safe="")
-                r = await http.get(f"{_WIKI_BASE}/page/summary/{slug}")
-                # We reached Wikipedia and got a response — regardless of
-                # status code (404 for unknown titles is normal). The
-                # reachability signal is "did the network call complete?".
-                await self._record_retrieval(name="wikipedia", success=True)
-                if r.status_code == 404:
-                    return []
-                if r.status_code != 200:
-                    logger.info(
-                        "ai.retrieval.wikipedia.status status=%s term=%s", r.status_code, term
-                    )
-                    return []
-                data = r.json()
-        except httpx.HTTPError as e:
-            logger.info("ai.retrieval.wikipedia.fail err=%s term=%s", e, term)
-            await self._record_retrieval(name="wikipedia", success=False)
-            return []
+    async def _wikipedia_for_title(self, http: httpx.AsyncClient, title: str) -> Citation | None:
+        """The page for this book: the direct summary of the cleaned title, else
+        a search hit that names the same work (see ``_matching_wikipedia_pages``)."""
+        candidates = _title_candidates(title)
+        if not candidates:
+            return None
+        found = await self._wikipedia_summary(http, candidates[0])
+        if found is not None:
+            return found
+        data = await self._get_json(
+            http, "wikipedia", _WIKI_SEARCH, params={"q": candidates[0], "limit": "5"}
+        )
+        pages = (data or {}).get("pages") or []
+        for page in _matching_wikipedia_pages(pages, candidates, tried=candidates[0]):
+            found = await self._wikipedia_summary(http, page)
+            if found is not None:
+                return found
+        return None
 
-        if data.get("type") == "disambiguation":
-            return []  # skip ambiguous results to avoid grounding on the wrong entity
-
+    async def _wikipedia_summary(self, http: httpx.AsyncClient, page: str) -> Citation | None:
+        # Wikipedia's REST API takes a slug; URL-encode + replace spaces.
+        slug = quote(page.strip().replace(" ", "_"), safe="")
+        data = await self._get_json(http, "wikipedia", f"{_WIKI_BASE}/page/summary/{slug}")
+        if data is None or data.get("type") == "disambiguation":
+            return None  # skip ambiguous results to avoid grounding on the wrong entity
         extract = data.get("extract") or ""
         if not extract:
-            return []
+            return None
         url = data.get("content_urls", {}).get("desktop", {}).get("page")
-        title = data.get("title") or term
-        return [Citation(kind="wikipedia", title=title, url=url, snippet=extract[:1200])]
+        return Citation(
+            kind="wikipedia",
+            title=data.get("title") or page,
+            url=url,
+            snippet=extract[:_SNIPPET_CAP],
+        )
 
-    @staticmethod
-    def _parse_openlibrary_response(payload: dict) -> list[Citation]:
-        out: list[Citation] = []
-        for doc in (payload.get("docs") or [])[:3]:
-            title = doc.get("title") or ""
-            authors = doc.get("author_name") or []
-            year = doc.get("first_publish_year")
-            key = doc.get("key") or ""
-            if not title:
-                continue
-            url = f"https://openlibrary.org{key}" if key.startswith("/") else None
-            snippet_bits = [title]
-            if authors:
-                snippet_bits.append(f"by {', '.join(authors[:3])}")
-            if year:
-                snippet_bits.append(f"({year})")
-            out.append(
-                Citation(
-                    kind="openlibrary",
-                    title=title,
-                    url=url,
-                    snippet=" — ".join(snippet_bits),
-                )
-            )
-        return out
+    async def _get_json(
+        self,
+        http: httpx.AsyncClient,
+        source: str,
+        url: str,
+        *,
+        params: dict[str, str] | None = None,
+    ) -> dict | None:
+        """GET one JSON object from a lookup source.
+
+        None means there is nothing there: a 404, or another status that
+        retrying will not change. Anything transient raises ``_SourceDown``.
+        """
+        try:
+            r = await http.get(url, params=params)
+        except httpx.HTTPError as e:
+            logger.info("ai.retrieval.%s.fail err=%s url=%s", source, e, url)
+            await self._record_retrieval(name=source, success=False)
+            raise _SourceDown from e
+        # We reached the source and got a response, so it is reachable whatever
+        # the status (404 for an unknown title is normal). The reachability
+        # signal is "did the network call complete?".
+        await self._record_retrieval(name=source, success=True)
+        if r.status_code == 404:
+            return None
+        if r.status_code != 200:
+            logger.info("ai.retrieval.%s.status status=%s url=%s", source, r.status_code, url)
+            if r.status_code == 429 or r.status_code >= 500:
+                raise _SourceDown
+            return None
+        try:
+            data = r.json()
+        except ValueError as e:
+            logger.info("ai.retrieval.%s.not_json url=%s", source, url)
+            raise _SourceDown from e
+        return data if isinstance(data, dict) else None
 
     def _http(self) -> httpx.AsyncClient:
         kwargs: dict = {
