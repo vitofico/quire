@@ -93,10 +93,16 @@ jobs:
             # that fails or hangs leaves origin untouched.
             BUILD_DATE=$(date -u +%Y-%m-%d)
             NEW_NAME="${BUILD_DATE//-/.}.${GITHUB_RUN_NUMBER}"
-            YY=$(date -u +%y)
-            MM=$(date -u +%m)
-            DD=$(date -u +%d)
-            NEW_CODE=$(( (10#$YY * 10000 + 10#$MM * 100 + 10#$DD) * 100 + GITHUB_RUN_NUMBER % 100 ))
+            # Android refuses an update whose versionCode is lower, and F-Droid
+            # only offers one whose code is higher, so the code must rise with
+            # every release. yyMMdd*100 + run%100 did not: two releases on one
+            # day either side of a multiple of 100 (runs 299 and 300) went
+            # from ...99 down to ...00. Take the current code plus one, lifted
+            # to yyMMdd*1000 on a new day so the code still reads as the date.
+            DAY=${BUILD_DATE//-/}
+            DAY_CODE=$(( 10#${DAY:2} * 1000 ))
+            PREV_CODE=$(sed -n 's/^VERSION_CODE=//p' gradle.properties)
+            NEW_CODE=$(( PREV_CODE + 1 > DAY_CODE ? PREV_CODE + 1 : DAY_CODE ))
 
             sed -i "s/^VERSION_NAME=.*/VERSION_NAME=$NEW_NAME/" gradle.properties
             sed -i "s/^VERSION_CODE=.*/VERSION_CODE=$NEW_CODE/" gradle.properties

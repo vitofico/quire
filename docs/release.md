@@ -3,12 +3,13 @@
 Push-driven. Pushes to `main` that touch Android-relevant paths
 (`app/**`, `auth/**`, `core/**`, `data/**`, `reader/**`, root Gradle
 files, or the workflow itself) trigger `android-ci.yaml`. The `build`
-job bumps `VERSION_NAME` / `VERSION_CODE` in `gradle.properties` to the
-next CalVer (`YYYY.MM.DD.<run>` / `yyMMdd*100 + run%100`), commits with
-a `[bot]` author, tags `vYYYY.MM.DD.<run>`, and pushes both once the
-debug build, unit tests and lint pass. The `release` job then builds
-and signs a release APK from the freshly-pushed tag and attaches it to
-a GitHub Release.
+job bumps `VERSION_NAME` in `gradle.properties` to the next CalVer
+(`YYYY.MM.DD.<run>`) and `VERSION_CODE` to one above its current
+value, or to `yyMMdd*1000` on a new day. It commits with a `[bot]`
+author, tags `vYYYY.MM.DD.<run>`, and pushes both once the debug
+build, unit tests and lint pass. The `release` job then builds and
+signs a release APK from the freshly-pushed tag and attaches it to a
+GitHub Release.
 
 Server-only PRs (everything under `server/**`) **do not cut a release**
 — the path filter excludes them. A batch of stacked server PRs that
