@@ -61,6 +61,9 @@ class CatalogViewModelTest {
         db = Room.inMemoryDatabaseBuilder(context, EReaderDatabase::class.java)
             .allowMainThreadQueries()
             .build()
+        // Open now, on the test thread. Left to a Room worker, the open can deadlock
+        // with tearDown's close() when the test ends first.
+        db.openHelper.writableDatabase
         docs = DocumentRepository(db.documentDao())
         // Unique books dir per run; cleaned up in tearDown.
         booksDir = File.createTempFile("books", "").apply {
