@@ -31,9 +31,16 @@ on:
       - "gradle/**"
       - "gradlew"
       - ".github/workflows/android-ci.yaml"
+  # "Run workflow" on main releases main as it stands, no commit needed.
+  # "Push version bump + tag" below also dispatches a run this way when a
+  # merge lands while it builds.
+  workflow_dispatch:
 
-# Cancel obsolete runs on PR / branch pushes. Never cancel runs on main —
-# we want a Release for every commit that lands.
+# Cancel obsolete runs on PR / branch pushes. On main, never cancel a run in
+# flight: one cancelled between its tag push and its release job would leave
+# a public tag with no APK (issue #93). Runs queued behind it still collapse,
+# since GitHub keeps only the newest pending run in a group; that run builds
+# the newest commit, so it releases what the dropped ones would have.
 concurrency:
   group: android-ci-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
@@ -49,11 +56,17 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: write   # to push the version-bump commit and tag
+      actions: write    # to dispatch a fresh run when main moves under this one
     outputs:
       version: ${{ steps.version.outputs.version }}
+      released: ${{ steps.push.outputs.released }}
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
+          # A dispatched run builds main as it stands when the run starts, not
+          # when it was requested: it may have sat in the concurrency queue
+          # while more commits landed. Other events build their own commit.
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || '' }}
           fetch-depth: 0
           fetch-tags: true
       - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
@@ -181,7 +194,10 @@ jobs:
       # build check (issue #93). Now the tag only exists publicly if the tree it
       # points at assembled, tested and linted clean.
       - name: Push version bump + tag
+        id: push
         if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Belt and braces: "Compute version" only exports this on main, and
           # this step only runs on main, so an empty value means the two guards
@@ -196,27 +212,49 @@ jobs:
           # rejected as non-fast-forward still lets the brand-new tag through,
           # leaving a tag that points at a commit which never reached main —
           # #93 again, by a shorter route.
-          #
-          # There is deliberately no retry here. main can only move under us
-          # via a push that misses this workflow's path filters (a server- or
-          # docs-only change), because android-ci's own main runs are
-          # serialised by the concurrency group above. Rebasing onto that tip
-          # conflicts on the VERSION_NAME line, and resetting onto it would
-          # publish a tag whose tree this run never assembled or tested —
-          # trading a visible failure for a silently unverified release. A
-          # failure here strands nothing, since --atomic means nothing was
-          # pushed: re-run the job and it bumps cleanly from the new tip.
-          git push --atomic origin "HEAD:$GITHUB_REF" "v$RELEASE_VERSION_NAME"
+          if git push --atomic origin "HEAD:$GITHUB_REF" "v$RELEASE_VERSION_NAME"; then
+            echo "released=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # The push is rejected whenever anything lands on main while this
+          # run builds, Android change or not: the concurrency group queues
+          # android-ci runs, it does not hold back merges. Retrying in place
+          # is no answer. Rebasing onto the new tip conflicts on the
+          # VERSION_NAME line, and resetting onto it would publish a tag whose
+          # tree this run never assembled or tested. Re-running this run does
+          # not help either, because a re-run builds the same commit again.
+          # So when main has moved on from the commit this run tested, the run
+          # releases nothing and dispatches a fresh android-ci run, which
+          # builds the new tip (this run's changes plus whatever landed since)
+          # and releases it once it passes the same checks.
+          git fetch --quiet origin "$GITHUB_REF"
+          TIP=$(git rev-parse FETCH_HEAD)
+          if git merge-base --is-ancestor HEAD "$TIP"; then
+            # git reported a failure, yet the bump commit is on main (say, the
+            # connection dropped after the server applied the push). --atomic
+            # means the tag landed with it, so release as normal.
+            echo "released=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$TIP" = "$(git rev-parse HEAD~1)" ] || ! git merge-base --is-ancestor HEAD~1 "$TIP"; then
+            echo "::error::Push failed, and not because main moved on from the tested commit: see the git output above."
+            exit 1
+          fi
+          gh workflow run android-ci.yaml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME"
+          echo "::notice::main moved on while this run built it, so this run released nothing and started a fresh android-ci run to build and release the new tip."
       - name: Upload debug APK
-        if: github.ref == 'refs/heads/main'
+        if: steps.push.outputs.released == 'true'
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
           name: app-debug-${{ env.VERSION_NAME }}
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
-  # On main only: check out the tag the build job pushed after its checks went
-  # green, build the signed release APK from it and publish a GitHub Release.
+  # On main, once the build job's checks went green and it pushed its tag:
+  # check out that tag, build the signed release APK from it and publish a
+  # GitHub Release. A build that handed off to a fresh run pushed nothing, so
+  # this job skips and the fresh run releases instead.
   # The tag itself is already on origin by now, so the release action only ever
   # attaches a Release to an existing tag rather than creating one. If a runner
   # dies in the gap between the push and this job, the tag is public with no
@@ -224,7 +262,7 @@ jobs:
   # without cutting a new version.
   release:
     needs: build
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && needs.build.outputs.released == 'true'
     runs-on: ubuntu-latest
     # Same reasoning as the build job: cap the run well under GitHub's 6-hour
     # maximum-execution ceiling so a hung Gradle task fails instead of idling.
