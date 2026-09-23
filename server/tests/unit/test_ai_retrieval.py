@@ -1,3 +1,5 @@
+import asyncio
+import time
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -505,6 +507,133 @@ async def test_wikipedia_outage_is_not_cached(session: AsyncSession):
     assert rows == []
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [403, 429])
+async def test_wikipedia_refused_search_is_not_cached(session: AsyncSession, status: int):
+    """A 429 (rate limited) or a 403 (blocked) may pass; unlike the 404 on the
+    direct page, it stops the lookup and nothing is remembered."""
+    seen: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(req.url.path)
+        return httpx.Response(status if req.url.path.startswith("/w/rest.php") else 404)
+
+    r = Retriever(session=session, transport=httpx.MockTransport(handler), timeout_s=5.0)
+
+    assert await r.lookup_wikipedia(author="Frank Herbert", title="Dune") == []
+    assert seen == ["/api/rest_v1/page/summary/Dune", "/w/rest.php/v1/search/page"]
+    rows = (await session.execute(select(ExternalSourceCacheEntry))).scalars().all()
+    assert rows == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [400, 404])
+async def test_wikipedia_no_such_page_is_cached(session: AsyncSession, status: int):
+    calls: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        calls.append(req.url.path)
+        return httpx.Response(status)
+
+    r = Retriever(session=session, transport=httpx.MockTransport(handler), timeout_s=5.0)
+
+    assert await r.lookup_wikipedia(author=None, title="Nowhere Book") == []
+    assert await r.lookup_wikipedia(author=None, title="Nowhere Book") == []
+    assert len(calls) == 2  # the direct page and the search, once
+    rows = (await session.execute(select(ExternalSourceCacheEntry))).scalars().all()
+    assert [row.key for row in rows] == ["v2:title:nowhere book"]
+
+
+@pytest.mark.asyncio
+async def test_wikipedia_author_cache_hit_still_caches_the_title(session: AsyncSession):
+    """The author page is cached, but the title lookups must not repeat on
+    every generation of a book that has no page of its own."""
+    author_page = {"kind": "wikipedia", "title": "Mike Meyers (author)", "snippet": "Guides."}
+    session.add(
+        ExternalSourceCacheEntry(
+            source="wikipedia", key="author:mike meyers", payload={"citations": [author_page]}
+        )
+    )
+    await session.commit()
+    calls: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        calls.append(req.url.path)
+        return httpx.Response(404)
+
+    r = Retriever(session=session, transport=httpx.MockTransport(handler), timeout_s=5.0)
+
+    first = await r.lookup_wikipedia(author="Mike Meyers", title=_COMPTIA)
+    second = await r.lookup_wikipedia(author="Mike Meyers", title=_COMPTIA)
+
+    assert [c.title for c in first] == ["Mike Meyers (author)"]
+    assert second == first
+    assert len(calls) == 2  # the direct page and the search, once; never the author page
+
+
+@pytest.mark.asyncio
+async def test_wikipedia_fetches_at_most_two_hit_summaries(session: AsyncSession):
+    seen: list[str] = []
+    pages = [
+        _page("Nightfall (novel)"),
+        _page("Nightfall (1941 novel)"),
+        _page("Nightfall (2015 novel)"),
+    ]
+    r = Retriever(session=session, transport=_wiki_router({}, pages, seen), timeout_s=5.0)
+
+    assert await r.lookup_wikipedia(author=None, title="Nightfall") == []
+    assert len([p for p in seen if p.startswith("/api/rest_v1/page/summary/Nightfall_")]) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source", ["wikipedia", "openlibrary"])
+async def test_a_slow_source_is_cut_off_and_not_cached(session: AsyncSession, source: str):
+    """Every request answers, only slowly: the lookup stops at its time budget
+    (twice the per-request timeout) and caches nothing."""
+
+    async def handler(req: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(5)
+        return httpx.Response(404)
+
+    r = Retriever(session=session, transport=httpx.MockTransport(handler), timeout_s=0.05)
+    started = time.monotonic()
+    if source == "wikipedia":
+        cites = await r.lookup_wikipedia(author="Frank Herbert", title="Dune")
+    else:
+        cites = await r.lookup_openlibrary(author="Frank Herbert", title="Dune", isbn=None)
+
+    assert cites == []
+    assert time.monotonic() - started < 2
+    rows = (await session.execute(select(ExternalSourceCacheEntry))).scalars().all()
+    assert rows == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["network", "503", "not_json"])
+async def test_openlibrary_outage_is_not_cached(session: AsyncSession, failure: str):
+    calls: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        calls.append(req.url.path)
+        if failure == "network":
+            raise httpx.ConnectError("down")
+        if failure == "503":
+            return httpx.Response(503)
+        return httpx.Response(200, text="<html>Under maintenance</html>")
+
+    r = Retriever(session=session, transport=httpx.MockTransport(handler), timeout_s=5.0)
+    for _ in range(2):
+        cites = await r.lookup_openlibrary(
+            author="Frank Herbert", title="Dune", isbn="9780441172719"
+        )
+        assert cites == []
+
+    # The first request stops each attempt, and nothing is remembered.
+    assert calls == ["/search.json", "/search.json"]
+    rows = (await session.execute(select(ExternalSourceCacheEntry))).scalars().all()
+    assert rows == []
+
+
 def _ol_router(docs: list[dict], works: dict[str, dict], seen: list[str]) -> httpx.MockTransport:
     def handler(req: httpx.Request) -> httpx.Response:
         seen.append(str(req.url))
@@ -685,11 +814,11 @@ async def test_openlibrary_keeps_c_and_c_plus_plus_apart(
     assert [c.url for c in cites] == [f"https://openlibrary.org{expected}"]
 
 
-def test_openlibrary_snippet_caps_the_description():
+def test_openlibrary_snippet_is_capped():
     doc = {"title": "Dune", "author_name": ["Frank Herbert"], "first_publish_year": 1965}
-    snippet = _openlibrary_snippet(doc, {"description": "word " * 1000})
+    snippet = _openlibrary_snippet(doc, {"description": "word " * 1000, "subjects": ["Deserts"]})
     assert snippet.startswith("Dune by Frank Herbert (1965). word word")
-    assert len(snippet) <= len("Dune by Frank Herbert (1965). ") + 1200
+    assert len(snippet) == 1200
     assert _openlibrary_snippet(doc, None) == "Dune by Frank Herbert (1965)."
 
 

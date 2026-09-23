@@ -283,7 +283,7 @@ mapping. The server always listens on 8000 inside the container.
 | `QUIRE_SERVER_AI_MODEL` | unset | Model id as the provider names it, for example `gpt-oss:120b-cloud`. Empty counts as unset. |
 | `QUIRE_SERVER_AI_API_KEY` | unset | Bearer token; never logged or returned. Empty counts as unset and sends no `Authorization` header. |
 | `QUIRE_SERVER_AI_TIMEOUT_S` | `120` | Seconds to wait for one model answer. The server retries once on malformed output, so one request can take twice this. CPU-only hosts often need `300` or more. |
-| `QUIRE_SERVER_AI_RETRIEVAL_TIMEOUT_S` | `8` | Seconds for each Wikipedia / Open Library request; one lookup can make a few. |
+| `QUIRE_SERVER_AI_RETRIEVAL_TIMEOUT_S` | `8` | Seconds for each Wikipedia / Open Library request; one lookup can make a few. A lookup gives up after twice this in total. |
 | `QUIRE_SERVER_AI_SOURCES` | `wikipedia,openlibrary` | Comma-separated retrieval sources. Empty disables retrieval and shrinks the prompt to the book metadata, which is the first thing to try when a small local model keeps timing out. |
 | `QUIRE_SERVER_AI_MAX_CONCURRENCY` | `4` | Parallel model calls allowed at once. |
 | `QUIRE_SERVER_AI_RATE_PER_MIN` | `10` | Process-wide token bucket against the provider. |

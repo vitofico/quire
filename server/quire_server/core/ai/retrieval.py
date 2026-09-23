@@ -3,13 +3,15 @@
 Each public lookup function:
   1. Computes a normalized cache key.
   2. Reads `external_source_cache`. Returns immediately if found and fresh.
-  3. Otherwise issues its HTTP calls (each with a strict timeout). On any
-     failure returns []; the caller falls through to the AI without retrieval
+  3. Otherwise issues its HTTP calls (each with a strict timeout, and the
+     title lookups with a time budget for all of them). On any failure
+     returns []; the caller falls through to the AI without retrieval
      grounding. Failures are logged at info: they are not bugs, they are
      normal degraded behavior.
-  4. Persists the result and returns. A transient failure (network error,
-     429, 5xx, a body that is not JSON) is not persisted, so the next attempt
-     retries; "no such page" and "no matching book" are.
+  4. Persists the result and returns. A failure that may pass (network
+     error, a status other than 200, 400 or 404, a body that is not JSON,
+     running out of time) is not persisted, so the next attempt retries;
+     "no such page" and "no matching book" are.
 
 URL choices:
   - Wikipedia REST: /api/rest_v1/page/summary/{title}, then
@@ -20,9 +22,12 @@ URL choices:
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 import re
 import unicodedata
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from urllib.parse import quote
@@ -47,6 +52,8 @@ _OL_BASE = "https://openlibrary.org"
 # otherwise keep a book ungrounded for the rest of its 30 days.
 _LOOKUP_KEY_VERSION = "v2"
 _SNIPPET_CAP = 1200
+# Search hits whose summary is fetched before the lookup gives up.
+_MAX_HIT_SUMMARIES = 2
 _OL_SEARCH_FIELDS = "key,title,author_name,first_publish_year"
 # pr-β author-bibliography cache TTLs (coordinator §3.7).
 _BIBLIO_TTL = timedelta(days=30)
@@ -77,9 +84,10 @@ def _lookup_key(title: str, **bits: str | None) -> str:
 
 
 class _SourceDown(Exception):
-    """A lookup request failed in transit, was rate limited, hit a 5xx, or got
-    a body that is not JSON. The lookup stops and caches nothing, so the next
-    attempt retries instead of remembering an outage for 30 days."""
+    """A lookup request failed in transit, got a status other than 200, 400 or
+    404, or got a body that is not JSON, or the lookup ran out of time. The
+    lookup stops and caches nothing, so the next attempt retries instead of
+    remembering an outage for 30 days."""
 
 
 # Title cleanup (issue #102). Ebook titles carry volume, edition and exam text
@@ -327,7 +335,7 @@ def _openlibrary_snippet(doc: dict, work: dict | None) -> str:
     if isinstance(description, dict):
         description = description.get("value")
     if isinstance(description, str) and description.strip():
-        snippet += " " + " ".join(description.split())[:_SNIPPET_CAP]
+        snippet += " " + " ".join(description.split())
     # Subjects like "nyt:manga=2010-05-09" or "series:Twilight" are bookkeeping.
     subjects = [
         s
@@ -336,7 +344,7 @@ def _openlibrary_snippet(doc: dict, work: dict | None) -> str:
     ]
     if subjects:
         snippet += f" Subjects: {', '.join(subjects[:5])}."
-    return snippet
+    return snippet[:_SNIPPET_CAP]
 
 
 def _parse_openlibrary_works(entries: list[dict], *, default_author: str) -> list[BookRef]:
@@ -430,6 +438,10 @@ class Retriever:
         self._session = session
         self._transport = transport
         self._timeout_s = timeout_s
+        # A title lookup makes a few requests in a row. Together they get twice
+        # the per-request timeout, so a source that answers every request, only
+        # slowly, cannot hold a generation for long.
+        self._budget_s = 2 * timeout_s
         # When None, retrieval reachability updates are no-ops. Cache hits
         # never touch health regardless — the network wasn't called.
         self._health = health_state
@@ -437,6 +449,17 @@ class Retriever:
     async def _record_retrieval(self, *, name: str, success: bool) -> None:
         if self._health is not None:
             await self._health.record_retrieval(name=name, success=success)
+
+    @contextlib.asynccontextmanager
+    async def _within(self, deadline: float, source: str) -> AsyncIterator[None]:
+        """Run the network part of a lookup until ``deadline`` (event-loop
+        time). Running out of time is a ``_SourceDown``: nothing is cached."""
+        try:
+            async with asyncio.timeout_at(deadline):
+                yield
+        except TimeoutError as e:
+            logger.info("ai.retrieval.%s.over_budget budget_s=%s", source, self._budget_s)
+            raise _SourceDown from e
 
     # ------------------------------------------------------------------
     # pr-β author-bibliography (OpenLibrary)
@@ -618,25 +641,31 @@ class Retriever:
         if cached is not None:
             return [Citation.model_validate(c) for c in cached.get("citations", [])]
 
+        deadline = asyncio.get_running_loop().time() + self._budget_s
         try:
             async with self._http() as http:
-                found = await self._wikipedia_for_title(http, title, author=author, series=series)
+                async with self._within(deadline, "wikipedia"):
+                    found = await self._wikipedia_for_title(
+                        http, title, author=author, series=series
+                    )
                 citations = [found] if found is not None else []
                 # Fallback to author summary if title returned nothing and we have an author.
                 if not citations and author:
                     author_key = f"author:{_normalize_key(author)}"
                     cached_author = await self._read_cache("wikipedia", author_key)
                     if cached_author is not None:
-                        return [
+                        citations = [
                             Citation.model_validate(c) for c in cached_author.get("citations", [])
                         ]
-                    found = await self._wikipedia_summary(http, author)
-                    citations = [found] if found is not None else []
-                    await self._write_cache(
-                        "wikipedia",
-                        author_key,
-                        {"citations": [c.model_dump() for c in citations]},
-                    )
+                    else:
+                        async with self._within(deadline, "wikipedia"):
+                            found = await self._wikipedia_summary(http, author)
+                        citations = [found] if found is not None else []
+                        await self._write_cache(
+                            "wikipedia",
+                            author_key,
+                            {"citations": [c.model_dump() for c in citations]},
+                        )
         except _SourceDown:
             return []
 
@@ -671,8 +700,9 @@ class Retriever:
             searches.append(by_title)
 
         citations: list[Citation] = []
+        deadline = asyncio.get_running_loop().time() + self._budget_s
         try:
-            async with self._http() as http:
+            async with self._http() as http, self._within(deadline, "openlibrary"):
                 for params in searches:
                     data = await self._get_json(
                         http,
@@ -767,9 +797,8 @@ class Retriever:
             http, "wikipedia", _WIKI_SEARCH, params={"q": candidates[0], "limit": "5"}
         )
         pages = (data or {}).get("pages") or []
-        for page in _matching_wikipedia_pages(
-            pages, candidates, tried=candidates[0], author=author
-        ):
+        matches = _matching_wikipedia_pages(pages, candidates, tried=candidates[0], author=author)
+        for page in matches[:_MAX_HIT_SUMMARIES]:
             found = await self._wikipedia_summary(http, page)
             if found is not None:
                 return found
@@ -802,8 +831,10 @@ class Retriever:
     ) -> dict | None:
         """GET one JSON object from a lookup source.
 
-        None means there is nothing there: a 404, or another status that
-        retrying will not change. Anything transient raises ``_SourceDown``.
+        None means there is nothing there: a 404, or a 400, which Wikipedia
+        returns for a title no page can have. Any other status may change on
+        the next attempt (a 429, a 5xx, a 403 while the client is blocked), so
+        it raises ``_SourceDown`` and nothing is cached.
         """
         try:
             r = await http.get(url, params=params)
@@ -815,13 +846,11 @@ class Retriever:
         # the status (404 for an unknown title is normal). The reachability
         # signal is "did the network call complete?".
         await self._record_retrieval(name=source, success=True)
-        if r.status_code == 404:
+        if r.status_code in (400, 404):
             return None
         if r.status_code != 200:
             logger.info("ai.retrieval.%s.status status=%s url=%s", source, r.status_code, url)
-            if r.status_code == 429 or r.status_code >= 500:
-                raise _SourceDown
-            return None
+            raise _SourceDown
         try:
             data = r.json()
         except ValueError as e:
