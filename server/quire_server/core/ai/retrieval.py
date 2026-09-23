@@ -27,7 +27,7 @@ import contextlib
 import logging
 import re
 import unicodedata
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from urllib.parse import quote
@@ -218,11 +218,16 @@ _WORK_QUALIFIER = re.compile(
     r"|novella|books?|manga|memoir|poem)\)$",
     re.IGNORECASE,
 )
-# A search hit's short description that names another medium: "Sandbox video
-# game", "2012 film", "American television series", "Media franchise".
+# A page's short description that names another medium: "Sandbox video game",
+# "2012 film", "American television series", "Media franchise".
 _OTHER_MEDIUM = re.compile(
     r"\b(?:video game|board game|card game|films?|movie|television|tv|franchise|album|song"
     r"|musical|anime|band|podcast)\b",
+    re.IGNORECASE,
+)
+_WRITTEN_FORM = re.compile(
+    r"\b(?:novels?|novellas?|novelettes?|books?|manga|short stor(?:y|ies)|memoirs?|poems?"
+    r"|comics?)\b",
     re.IGNORECASE,
 )
 _YEAR = re.compile(r"\d{4}")
@@ -238,14 +243,41 @@ def _surname(author: str) -> str | None:
 
 
 def _by_someone_else(page: dict, qualifier: re.Match[str] | None, surname: str) -> bool:
-    """Whether a search hit names another author, in its description ("1941
-    short story by Isaac Asimov") or in its qualifier ("(Asimov novel)")."""
+    """Whether a page names another author, in its description ("1941 short
+    story by Isaac Asimov") or in its qualifier ("(Asimov novel)")."""
     by = re.search(r"\bby\s+(.+)", page.get("description") or "", re.IGNORECASE)
     if by and surname not in _match_form(by.group(1)).split():
         return True
     extra = qualifier.group("extra") if qualifier else ""
     words = [w for w in _match_form(extra).split() if not _YEAR.fullmatch(w)]
     return bool(words) and surname not in words
+
+
+def _names_another_medium(description: str) -> bool:
+    """Whether a page's short description is about a game, a film or the like
+    and not also about a written work: "2012 film" and "American science
+    fiction media franchise" are, "Japanese light novel series and anime" is
+    not."""
+    return bool(_OTHER_MEDIUM.search(description)) and not _WRITTEN_FORM.search(description)
+
+
+def _is_set_index(page: dict) -> bool:
+    """Whether a page only lists the articles that share its name. Wikipedia
+    does not mark these set-index pages as disambiguation, but their standard
+    Wikidata description gives them away, and they are about no one book."""
+    return (page.get("description") or "").casefold().startswith("index of articles")
+
+
+def _direct_page_is_another_work(page: dict, surname: str | None) -> bool:
+    """Whether the page the cleaned title names outright is about something
+    else. Wikipedia gives a bare name to its best-known topic, which is not
+    always the book: "Dune" is the sand dune, "Hill of loose sand built by
+    aeolian processes", which names no Herbert. Checked with the description
+    already in the summary, by the same rules as a search hit."""
+    title = page.get("title") or ""
+    if surname and _by_someone_else(page, _WORK_QUALIFIER.search(title), surname):
+        return True
+    return _names_another_medium(page.get("description") or "")
 
 
 def _matching_wikipedia_pages(
@@ -260,10 +292,10 @@ def _matching_wikipedia_pages(
     (novel)" matches "Emma"; "CompTIA" never matches the CompTIA exam guide.
     When the author is known, a hit that names another author is rejected.
     A bare page found only through the weaker main title is rejected when it
-    is about a game, a film or the like: "Minecraft: The Crash" is not the
-    video game. Matches on the stronger candidate come first, then qualified
-    pages over bare ones, then Wikipedia's own order. ``tried`` is the page
-    the direct summary already fetched.
+    is about a game, a film or the like and not a written work: "Minecraft:
+    The Crash" is not the video game. Matches on the stronger candidate come
+    first, then qualified pages over bare ones, then Wikipedia's own order.
+    ``tried`` is the page the direct summary already fetched.
     """
     wanted = [_match_form(c) for c in candidates]
     surname = _surname(author) if author else None
@@ -280,7 +312,7 @@ def _matching_wikipedia_pages(
         index = wanted.index(form)
         if surname and _by_someone_else(page, qualifier, surname):
             continue
-        if index > 0 and qualifier is None and _OTHER_MEDIUM.search(page.get("description") or ""):
+        if index > 0 and qualifier is None and _names_another_medium(page.get("description") or ""):
             continue
         ranked.append((index, qualifier is None, order, key))
     return [key for *_, key in sorted(ranked)]
@@ -786,12 +818,18 @@ class Retriever:
     async def _wikipedia_for_title(
         self, http: httpx.AsyncClient, title: str, *, author: str | None, series: str | None
     ) -> Citation | None:
-        """The page for this book: the direct summary of the cleaned title, else
-        a search hit that names the same work (see ``_matching_wikipedia_pages``)."""
+        """The page for this book: the direct summary of the cleaned title unless
+        it is about another work, else a search hit that names the same work
+        (see ``_matching_wikipedia_pages``)."""
         candidates = _title_candidates(title, series=series)
         if not candidates:
             return None
-        found = await self._wikipedia_summary(http, candidates[0])
+        surname = _surname(author) if author else None
+        found = await self._wikipedia_summary(
+            http,
+            candidates[0],
+            rejects=lambda page: _direct_page_is_another_work(page, surname),
+        )
         if found is not None:
             return found
         data = await self._get_json(
@@ -805,12 +843,20 @@ class Retriever:
                 return found
         return None
 
-    async def _wikipedia_summary(self, http: httpx.AsyncClient, page: str) -> Citation | None:
+    async def _wikipedia_summary(
+        self,
+        http: httpx.AsyncClient,
+        page: str,
+        *,
+        rejects: Callable[[dict], bool] | None = None,
+    ) -> Citation | None:
         # Wikipedia's REST API takes a slug; URL-encode + replace spaces.
         slug = quote(page.strip().replace(" ", "_"), safe="")
         data = await self._get_json(http, "wikipedia", f"{_WIKI_BASE}/page/summary/{slug}")
-        if data is None or data.get("type") == "disambiguation":
+        if data is None or data.get("type") == "disambiguation" or _is_set_index(data):
             return None  # skip ambiguous results to avoid grounding on the wrong entity
+        if rejects is not None and rejects(data):
+            return None
         extract = data.get("extract") or ""
         if not extract:
             return None

@@ -19,10 +19,11 @@ from quire_server.core.ai.retrieval import (
 from quire_server.db.models import ExternalSourceCacheEntry
 
 
-def _wiki_summary_response(title: str, extract: str) -> dict:
+def _wiki_summary_response(title: str, extract: str, description: str = "") -> dict:
     return {
         "type": "standard",
         "title": title,
+        "description": description,
         "extract": extract,
         "content_urls": {"desktop": {"page": f"https://en.wikipedia.org/wiki/{title}"}},
     }
@@ -503,6 +504,108 @@ async def test_wikipedia_main_title_hit_about_a_video_game_is_rejected(session: 
 
     assert cites == []
     assert "/api/rest_v1/page/summary/Minecraft" not in seen
+
+
+_SAND = "Hill of loose sand built by aeolian processes or the flow of water"
+_FRANCHISE = "American science fiction media franchise"
+_SET_INDEX = "Index of articles associated with the same name"
+
+
+@pytest.mark.asyncio
+async def test_wikipedia_direct_page_naming_no_author_of_the_book_is_rejected(
+    session: AsyncSession,
+):
+    """The page named "Dune" is the sand dune. Its description names no Herbert,
+    so the lookup searches instead and takes the novel's own page."""
+    seen: list[str] = []
+    summaries = {
+        "Dune": _wiki_summary_response("Dune", "A dune is a landform.", _SAND),
+        "Dune_%28novel%29": _wiki_summary_response(
+            "Dune (novel)", "Dune is a 1965 novel.", "1965 novel by Frank Herbert"
+        ),
+    }
+    pages = [
+        _page("Dune", _SAND),
+        _page("Dune (novel)", "1965 novel by Frank Herbert"),
+        _page("Dune (franchise)", _FRANCHISE),
+        _page("Dune (2021 film)", "2021 film by Denis Villeneuve"),
+    ]
+    r = Retriever(session=session, transport=_wiki_router(summaries, pages, seen), timeout_s=5.0)
+
+    cites = await r.lookup_wikipedia(author="Frank Herbert", title="Dune")
+
+    assert [c.title for c in cites] == ["Dune (novel)"]
+    assert seen.count("/api/rest_v1/page/summary/Dune") == 1
+
+
+@pytest.mark.asyncio
+async def test_wikipedia_direct_page_about_a_franchise_is_rejected(session: AsyncSession):
+    seen: list[str] = []
+    summaries = {
+        "The_Hunger_Games": _wiki_summary_response(
+            "The Hunger Games", "The Hunger Games is a franchise.", _FRANCHISE
+        ),
+        "The_Hunger_Games_%28novel%29": _wiki_summary_response(
+            "The Hunger Games (novel)", "A 2008 novel.", "2008 novel by Suzanne Collins"
+        ),
+    }
+    pages = [
+        _page("The Hunger Games", _FRANCHISE),
+        _page("The Hunger Games (novel)", "2008 novel by Suzanne Collins"),
+        _page("The Hunger Games (film)", "2012 film by Gary Ross"),
+    ]
+    r = Retriever(session=session, transport=_wiki_router(summaries, pages, seen), timeout_s=5.0)
+
+    cites = await r.lookup_wikipedia(author=None, title="The Hunger Games")
+
+    assert [c.title for c in cites] == ["The Hunger Games (novel)"]
+
+
+@pytest.mark.asyncio
+async def test_wikipedia_set_index_page_is_skipped(session: AsyncSession):
+    """The page only lists the novel and the two films. Wikipedia does not mark
+    it as disambiguation, so its description is what gives it away."""
+    seen: list[str] = []
+    summaries = {
+        "The_Hunger_Games%3A_Mockingjay": _wiki_summary_response(
+            "The Hunger Games: Mockingjay", "It may refer to:", _SET_INDEX
+        ),
+        "Suzanne_Collins": _wiki_summary_response("Suzanne Collins", "An American author."),
+    }
+    pages = [
+        _page("The Hunger Games: Mockingjay", _SET_INDEX),
+        _page("The Hunger Games: Mockingjay - Part 1", "2014 film by Francis Lawrence"),
+    ]
+    r = Retriever(session=session, transport=_wiki_router(summaries, pages, seen), timeout_s=5.0)
+
+    cites = await r.lookup_wikipedia(
+        author="Suzanne Collins", title="The Hunger Games: Mockingjay", series="The Hunger Games"
+    )
+
+    assert [c.title for c in cites] == ["Suzanne Collins"]
+    assert seen.count("/api/rest_v1/page/summary/The_Hunger_Games%3A_Mockingjay") == 1
+
+
+@pytest.mark.parametrize(
+    ("author", "title", "page", "description"),
+    [
+        ("Isuna Hasekura", _SPICE, "Spice and Wolf", "Japanese light novel series and anime"),
+        (None, "Mockingjay", "Mockingjay", "2010 novel by Suzanne Collins"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_wikipedia_direct_page_about_the_book_is_kept(
+    session: AsyncSession, author: str | None, title: str, page: str, description: str
+):
+    seen: list[str] = []
+    slug = page.replace(" ", "_")
+    summaries = {slug: _wiki_summary_response(page, "About the book.", description)}
+    r = Retriever(session=session, transport=_wiki_router(summaries, [], seen), timeout_s=5.0)
+
+    cites = await r.lookup_wikipedia(author=author, title=title)
+
+    assert [c.title for c in cites] == [page]
+    assert seen == [f"/api/rest_v1/page/summary/{slug}"]  # no search needed
 
 
 @pytest.mark.asyncio
