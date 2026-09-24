@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, Response, status
 from sqlalchemy import and_, case, or_, select
 from sqlalchemy import delete as sa_delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -845,7 +845,12 @@ async def get_ai_health(request: Request) -> AiHealthResponse:
       * Tri-state ``reachable``: see ``AiHealthResponse`` and
         ``RetrievalSourceHealth`` for the contract.
     """
-    state: AiHealthState | None = getattr(request.app.state, "ai_health", None)
+    return await ai_health_payload(request.app)
+
+
+async def ai_health_payload(app: FastAPI) -> AiHealthResponse:
+    """Body of ``GET /ai/v1/health``; the admin status page embeds it too."""
+    state: AiHealthState | None = getattr(app.state, "ai_health", None)
     sources_seed = _enabled_sources()
     if state is None:
         # AI router mounted but no health holder was wired (the
