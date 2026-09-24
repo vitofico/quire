@@ -103,6 +103,33 @@ class InsightDaoTest {
         assertThat(dao.latestSyncedAt()).isEqualTo(5_000L)
     }
 
+    @Test fun `deleteForBook drops the book's rows under either identity and spares others`() = runTest {
+        // Keyed by metadataId, two style variants.
+        dao.upsert(row(identityKey = "m1", metadataId = "m1", contentHash = "h1", tone = "neutral"))
+        dao.upsert(row(identityKey = "m1", metadataId = "m1", contentHash = "h1", tone = "scholarly"))
+        // Keyed by contentHash, written before the book had a metadataId.
+        dao.upsert(row(identityKey = "h1", metadataId = null, contentHash = "h1", promptVersion = "3"))
+        // An unrelated book.
+        dao.upsert(row(identityKey = "m2", metadataId = "m2", contentHash = "h2"))
+
+        dao.deleteForBook(metadataId = "m1", contentHash = "h1")
+
+        assertThat(dao.count()).isEqualTo(1)
+        assertThat(dao.findAnyForIdentity("m1")).isNull()
+        assertThat(dao.findAnyForIdentity("h1")).isNull()
+        assertThat(dao.findAnyForIdentity("m2")).isNotNull()
+    }
+
+    @Test fun `deleteForBook with a null metadataId never matches rows lacking one`() = runTest {
+        dao.upsert(row(identityKey = "h1", metadataId = null, contentHash = "h1"))
+        dao.upsert(row(identityKey = "h2", metadataId = null, contentHash = "h2"))
+
+        dao.deleteForBook(metadataId = null, contentHash = "h1")
+
+        assertThat(dao.findAnyForIdentity("h1")).isNull()
+        assertThat(dao.findAnyForIdentity("h2")).isNotNull()
+    }
+
     @Test fun `different promptVersion separates rows at same identity`() = runTest {
         dao.upsert(row(promptVersion = "4"))
         dao.upsert(row(promptVersion = "5", serverId = 99L))

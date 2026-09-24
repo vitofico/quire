@@ -36,6 +36,13 @@ class FakeInsightDao : InsightDao {
         rows.values.filter { it.identityKey == identityKey }
             .maxByOrNull { it.generatedAt }
 
+    override suspend fun deleteForBook(metadataId: String?, contentHash: String?) {
+        val ids = setOfNotNull(metadataId, contentHash)
+        rows.values.removeAll { row ->
+            row.identityKey in ids || row.metadataId in ids || row.contentHash in ids
+        }
+    }
+
     override suspend fun upsert(item: InsightEntity) {
         rows[item.key()] = item
     }

@@ -11,6 +11,7 @@ import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /**
@@ -182,6 +183,58 @@ class AiRepositoryLocalFirstTest {
         val ex = runCatching { repo.getCachedInsight(identity) }.exceptionOrNull()
         assertThat(ex).isInstanceOf(AiHttpException::class.java)
         assertThat((ex as AiHttpException).code).isEqualTo(500)
+    }
+
+    @Test fun `invalidate drops local rows so the next read asks the server`() = runTest {
+        bootstrapPrefs()
+        seedRow()
+        // A second style variant: without eviction the offline fallback could resurface it.
+        seedRow(tone = "scholarly")
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"deleted":1}"""))
+        server.enqueue(MockResponse().setResponseCode(404).setBody("""{"detail":"not_cached"}"""))
+
+        repo.invalidate(identity)
+        val resp = repo.getCachedInsight(identity)
+
+        assertThat(resp).isNull()
+        assertThat(dao.count()).isEqualTo(0)
+        assertThat(server.awaitRequest().path).isEqualTo("/ai/v1/insights/invalidate")
+        assertThat(server.awaitRequest().path).isEqualTo("/ai/v1/insights/get")
+    }
+
+    @Test fun `invalidate treats a server 404 as success and drops local rows`() = runTest {
+        bootstrapPrefs()
+        seedRow()
+        server.enqueue(MockResponse().setResponseCode(404).setBody("""{"detail":"Not Found"}"""))
+
+        repo.invalidate(identity)
+
+        assertThat(dao.count()).isEqualTo(0)
+    }
+
+    @Test fun `failed invalidate keeps the local row and rethrows`() = runTest {
+        bootstrapPrefs()
+        seedRow()
+        server.enqueue(MockResponse().setResponseCode(500))
+
+        val ex = runCatching { repo.invalidate(identity) }.exceptionOrNull()
+
+        assertThat(ex).isInstanceOf(AiHttpException::class.java)
+        assertThat((ex as AiHttpException).code).isEqualTo(500)
+        assertThat(dao.count()).isEqualTo(1)
+        assertThat(repo.getCachedInsight(identity)).isNotNull()
+    }
+
+    @Test fun `invalidate on a network failure keeps the local row and rethrows`() = runTest {
+        bootstrapPrefs()
+        seedRow()
+        // Same technique as the getCachedInsight offline test: no server, so the call fails to connect.
+        server.shutdown()
+
+        val ex = runCatching { repo.invalidate(identity) }.exceptionOrNull()
+
+        assertThat(ex).isInstanceOf(IOException::class.java)
+        assertThat(dao.count()).isEqualTo(1)
     }
 
     @Test fun `prompt-version change invalidates local cache via key`() = runTest {

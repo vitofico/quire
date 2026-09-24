@@ -132,22 +132,6 @@ class InsightAuditViewModelTest {
     }
 
     @Test
-    fun `invalidate treats 404 as success (already evicted)`() = runTest {
-        source.cached = sampleResponse
-        source.invalidateError = AiHttpException(code = 404, body = "")
-
-        val vm = InsightAuditViewModel(documentId = 1L, source = source)
-        vm.awaitLoaded()
-
-        vm.events.test {
-            vm.invalidate()
-            assertThat(awaitItem()).isEqualTo(InsightAuditViewModel.Event.Invalidated)
-            cancelAndIgnoreRemainingEvents()
-        }
-        assertThat(vm.state.value).isEqualTo(InsightAuditViewModel.State.Done)
-    }
-
-    @Test
     fun `invalidate failure stays in Loaded and emits InvalidateFailed event`() = runTest {
         source.cached = sampleResponse
         source.invalidateError = AiHttpException(code = 500, body = "boom")

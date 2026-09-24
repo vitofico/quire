@@ -68,12 +68,7 @@ class BookDetailViewModel(
         }
 
         _state.value = _state.value.copy(insight = InsightUiState.Loading)
-        val opfBytes = openOpfBytes(doc)
-        val bundle = if (opfBytes != null) {
-            OpfMetadataExtractor.extract(opfBytes, fallbackTitle = doc.title)
-        } else {
-            MetadataBundle(title = doc.title, author = doc.author)
-        }
+        val bundle = insightMetadataBundle(doc, openOpfBytes(doc))
         runCatching { ai.lookupInsight(ident, bundle) }
             .onSuccess { resp ->
                 _state.value = _state.value.copy(
@@ -89,4 +84,19 @@ class BookDetailViewModel(
     fun retry() {
         viewModelScope.launch { load() }
     }
+}
+
+/**
+ * Metadata sent with an insight lookup. The OPF wins where it has a value,
+ * but when it names no author (no `dc:creator`) the library row's author is
+ * used: that one can come from the OPDS feed or a library restore, so it may
+ * know what the EPUB does not, and the server's retrieval searches (Open
+ * Library among them) query by title and author. A blank library author
+ * counts as none, so the request never carries an empty one.
+ */
+internal fun insightMetadataBundle(doc: Document, opfBytes: ByteArray?): MetadataBundle {
+    val libraryAuthor = doc.author?.takeIf { it.isNotBlank() }
+    if (opfBytes == null) return MetadataBundle(title = doc.title, author = libraryAuthor)
+    val opf = OpfMetadataExtractor.extract(opfBytes, fallbackTitle = doc.title)
+    return if (opf.author == null) opf.copy(author = libraryAuthor) else opf
 }

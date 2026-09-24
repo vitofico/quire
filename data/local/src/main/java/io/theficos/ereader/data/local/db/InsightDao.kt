@@ -7,7 +7,8 @@ import androidx.room.Query
 
 /**
  * PR-η: DAO for the local insight cache. See [InsightEntity] for the key
- * shape. No `deleteAll()` by design — eviction policy for v1 is "none".
+ * shape. The only eviction is [deleteForBook], run when the user invalidates
+ * a book's insight; there is still no `deleteAll()`.
  */
 @Dao
 interface InsightDao {
@@ -41,6 +42,20 @@ interface InsightDao {
             "LIMIT 1"
     )
     suspend fun findAnyForIdentity(identityKey: String): InsightEntity?
+
+    /**
+     * Issue #102: drop every cached row for one book, across all models,
+     * prompt versions, tones and languages, so neither the exact read nor
+     * the [findAnyForIdentity] fallback can bring an invalidated insight
+     * back. A row may be filed under either identity, so both the key and
+     * the stored ids are matched. A null argument matches nothing.
+     */
+    @Query(
+        "DELETE FROM book_insights " +
+            "WHERE identityKey = :metadataId OR metadataId = :metadataId " +
+            "OR identityKey = :contentHash OR contentHash = :contentHash"
+    )
+    suspend fun deleteForBook(metadataId: String?, contentHash: String?)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: InsightEntity)
