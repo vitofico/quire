@@ -59,8 +59,8 @@ below pins its own calibre-web URL and starts without a `.env`.
 A Caddy front-end with path-based routing that mirrors the production
 Kubernetes ingress, so the Android app only needs to know one base URL
 (the Caddy hostname) — calibre-web's OPDS catalog AND quire-server's
-`/sync/*`, `/library/*`, `/ai/*` endpoints all live under the same
-origin.
+`/sync/*`, `/library/*`, `/ai/*` endpoints and the `/quire-admin` status
+page all live under the same origin.
 
 ```sh
 cd server
@@ -82,7 +82,7 @@ Routing inside the Caddy front-end (`caddy/Caddyfile`):
 {$QUIRE_SITE_ADDRESS:localhost} {
     tls internal
 
-    @quire path /sync/* /ai/* /library/* /health /readyz
+    @quire path /sync/* /ai/* /library/* /quire-admin /quire-admin/* /health /readyz
     handle @quire {
         reverse_proxy quire-server:8000
     }
@@ -112,6 +112,9 @@ AUTH=$(printf '%s' "$USER:$PASS" | base64)
 curl -fsSk -H "Authorization: Basic $AUTH" "https://localhost/library/v1/items"
 curl -fsSk -H "Authorization: Basic $AUTH" "https://localhost/library/v1/stats" | jq
 curl -fsSk -H "Authorization: Basic $AUTH" "https://localhost/sync/v1/progress?since=0"
+
+# Server status (needs QUIRE_SERVER_ADMIN_USERS=$USER; see "Server status page")
+curl -fsSk -H "Authorization: Basic $AUTH" "https://localhost/quire-admin/v1/status" | jq
 
 # Calibre-web root (fall-through)
 curl -fsSkI https://localhost/
@@ -231,7 +234,9 @@ for the branch-label convention. The image is published to
 | Sync only        | `true`                       | `false`                | `/sync/v1/*`, `/library/v1/*` (items + stats)           |
 | AI only          | `false`                      | `true`                 | `/ai/v1/*`                                              |
 
-`/health` and `/readyz` are mounted on the root in every mode.
+`/health` and `/readyz` are mounted on the root in every mode. The
+`/quire-admin` status page is mounted in every mode once
+`QUIRE_SERVER_ADMIN_USERS` names someone.
 
 Update the health-probe path: it moved from `/sync/v1/healthz` (pre-PR-A) to
 `/health` in PR-A. The k8s manifests in `theficos-cluster` need a one-line
@@ -274,6 +279,12 @@ mapping. The server always listens on 8000 inside the container.
 | `QUIRE_SERVER_AI_ENABLED` | `true` | Mounts `/ai/v1/*`. With no provider configured the server boots with a warning and the app reports AI as unconfigured. |
 | `QUIRE_SERVER_AUTH_BACKEND` | `calibreweb` | `calibreweb` verifies credentials against calibre-web; `native` keeps its own users and sessions (see "AI auth mode"). |
 | `QUIRE_SERVER_LOG_LEVEL` | `INFO` | Python log level: `DEBUG`, `INFO`, `WARNING`, `ERROR`. |
+
+#### Status page
+
+| Var | Default | Purpose |
+| --- | --- | --- |
+| `QUIRE_SERVER_ADMIN_USERS` | unset | Comma-separated users allowed to open the status page at `/quire-admin` (see "Server status page"): calibre-web usernames, or `native:<id>` under native auth. Case-insensitive. Empty keeps every `/quire-admin` path a 404. |
 
 #### AI provider and tuning
 
@@ -396,6 +407,54 @@ The container entrypoint runs `python /app/scripts/migrate.py`, **not**
 backbone, then `alembic upgrade <branch>@head` for each enabled+materialized
 branch (`progress`, `ai`). Branches with no migration files yet are skipped.
 See `migrations/README.md` for the splice rule and labeling convention.
+
+## Server status page
+
+`/quire-admin` is a page for whoever runs the server. Open it in a browser,
+log in with your calibre-web account, and it shows:
+
+- the build (the commit the image was made from) and which parts of the API
+  are switched on;
+- the configuration problems the server found at startup, the same list as
+  `GET /health`;
+- the AI provider: model and endpoint, whether the last model call got
+  through, and a **Test AI connection** button that sends one short request
+  and reports the outcome with the same message and hint the app would get;
+- whether the database migrations are up to date;
+- every setting with the value the server is running with, marked `set` when
+  it came from the environment or `.env` and `default` when nothing set it.
+  Keys and URL passwords show as `***`. A line you wrote in `.env` that shows
+  up as `default` never reached the container.
+
+The page is off until you name who may see it, in `.env`:
+
+```sh
+QUIRE_SERVER_ADMIN_USERS=alice
+```
+
+Restart the server and open `https://<your-host>/quire-admin`. Any other
+account gets a 403; with the variable empty, every `/quire-admin` path is a
+404. The same data is available as JSON for scripts (`-u` makes curl ask for
+the password):
+
+```sh
+curl -fsSk -u alice https://localhost/quire-admin/v1/status | jq
+curl -fsSk -u alice -X POST https://localhost/quire-admin/v1/ai/probe | jq
+```
+
+Worth knowing:
+
+- The test button waits up to `QUIRE_SERVER_AI_TIMEOUT_S`, as a real insight
+  does, so a local model that is still loading is not reported as broken. Its
+  outcome also updates `GET /ai/v1/health`.
+- The browser login needs `QUIRE_SERVER_AUTH_BACKEND=calibreweb`. Under
+  `native`, list users as `native:<id>` and call the JSON endpoints with
+  `Authorization: Bearer <session token>`.
+- The reference Caddyfile routes `/quire-admin` to quire-server. Behind any
+  other reverse proxy, forward `/quire-admin` and `/quire-admin/*` to
+  quire-server like `/ai/*`; otherwise the request lands on calibre-web.
+- Your password travels the way the app sends it, in a Basic auth header, so
+  open the page over HTTPS.
 
 ## Slow models and timeouts
 

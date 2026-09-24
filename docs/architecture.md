@@ -482,7 +482,9 @@ container image. Modes are controlled by two env-var flags:
 liveness/readiness probes work in every mode. `/health` returns liveness plus
 the active modes list. `/readyz` performs DB connectivity + an alembic-head
 check that verifies all required migration heads (per the enabled modes and
-the currently-materialized branches) are applied.
+the currently-materialized branches) are applied. The `/quire-admin` status
+page and its JSON are mounted in every mode, but only when
+`QUIRE_SERVER_ADMIN_USERS` names at least one user.
 
 The container entrypoint runs `python /app/scripts/migrate.py`, which:
 

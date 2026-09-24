@@ -22,7 +22,13 @@ from fastapi import FastAPI
 
 from quire_server.api import health
 from quire_server.api.middleware import RequestIDMiddleware, RequestSizeMiddleware
-from quire_server.config import Settings, config_warnings, get_settings, unknown_env_vars
+from quire_server.config import (
+    Settings,
+    admin_user_ids,
+    config_warnings,
+    get_settings,
+    unknown_env_vars,
+)
 from quire_server.core.auth import CalibreAuthValidator
 from quire_server.core.auth_backend import CalibreWebBasicAuth, NativeAuth
 from quire_server.core.logging_ctx import RequestIdLogFilter
@@ -272,6 +278,15 @@ def create_app() -> FastAPI:
     # remain available even when both flags are false.
     app.include_router(health.router)
 
+    # Issue #102: the status page exists only for a deploy that names its
+    # admins. No names, no routes, the same 404 as a disabled mode.
+    admin_users = admin_user_ids(settings)
+    if admin_users:
+        from quire_server.api.admin import router as admin_router
+
+        app.state.admin_users = admin_users
+        app.include_router(admin_router)
+
     # Phase 0, task S-1: ``/auth/v1/*`` exists only when NativeAuth is the
     # primary backend. A CalibreWeb deployment treats those URLs as 404 —
     # which is the correct shape for "this server doesn't speak that".
@@ -321,6 +336,9 @@ def create_app() -> FastAPI:
                 api_key=settings.ai_api_key,
                 model=settings.ai_model,
             )
+            # Issue #102: the admin status page's "test connection" button
+            # probes through this same client.
+            app.state.ai_client = ai_client
             sources_enabled = tuple(
                 s.strip() for s in (settings.ai_sources or "").split(",") if s.strip()
             )

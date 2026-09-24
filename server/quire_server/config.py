@@ -157,6 +157,12 @@ class Settings(BaseSettings):
     # at this stage (deferred per spec).
     native_session_ttl_s: int = 30 * 24 * 3600
 
+    # Issue #102: who may open the server status page (`/quire-admin`).
+    # Comma-separated user ids as the auth backend reports them: the
+    # calibre-web username, or `native:<id>` under native auth. Compared
+    # case-insensitively. Empty (the default) mounts none of the admin routes.
+    admin_users: str = ""
+
     @field_validator("ai_base_url", "ai_api_key", "ai_model", mode="before")
     @classmethod
     def _blank_means_unset(cls, value: object) -> object:
@@ -248,6 +254,13 @@ def config_warnings(settings: Settings) -> list[str]:
             "only /health and /readyz are served"
         )
     return out
+
+
+def admin_user_ids(settings: Settings) -> frozenset[str]:
+    """The lowercased entries of ``QUIRE_SERVER_ADMIN_USERS``, blanks dropped."""
+    return frozenset(
+        entry.strip().lower() for entry in settings.admin_users.split(",") if entry.strip()
+    )
 
 
 @lru_cache(maxsize=1)
