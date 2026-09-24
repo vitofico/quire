@@ -499,7 +499,7 @@ When the provider fails, the server answers with a JSON body (`detail.code`,
 | 502 `provider_rejected`, `provider_status` 404 | The provider does not know the model. | Check `QUIRE_SERVER_AI_MODEL`; `ollama pull <model>` for a local Ollama. |
 | 502 `provider_invalid_output` | The model answered, but not with the JSON structure Quire asks for. | Small models often cannot; try a larger one. |
 
-`GET /ai/v1/health` (authenticated) shows the last failure class and when
+`GET /ai/v1/health` (no login needed) shows the last failure class and when
 the provider was last reachable. `GET /health` lists boot-time
 configuration warnings.
 
