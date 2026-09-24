@@ -183,6 +183,25 @@ ships two reference docker-compose files (`docker-compose.yml` for
 "bring your own proxy"; `docker-compose.full.yml` for a Caddy-fronted
 full stack with calibre-web + quire-server + TLS behind one base URL).
 
+### "Harmful app blocked" by Play Protect
+
+On some phones, Google Play Protect blocks Quire as a harmful app, whether
+the APK comes from F-Droid or from [Releases]. It is a false positive,
+tracked in [#108](https://github.com/vitofico/quire/issues/108), and an
+appeal with Google is pending.
+
+To install anyway, tap **More details** in the dialog, then
+**Install anyway**. You do not need to turn Play Protect off.
+
+You don't have to take this on trust:
+
+- F-Droid builds every release from this repository's source code, and the
+  APK it serves is byte-for-byte the one on [Releases], signed with the same
+  release key as every earlier version.
+- The [F-Droid page][F-Droid] lists every permission Quire declares. The
+  camera, used to scan a book's ISBN barcode, is the only one Android asks
+  you to approve.
+
 ## Build from source
 
 ```sh
