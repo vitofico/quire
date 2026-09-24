@@ -44,6 +44,9 @@ class SideloadImporterTest {
         db = Room.inMemoryDatabaseBuilder(ctx, EReaderDatabase::class.java)
             .allowMainThreadQueries()
             .build()
+        // Open now, on the test thread. Left to a Room worker, the open can deadlock
+        // with tearDown's close() when the test ends first.
+        db.openHelper.writableDatabase
         documentRepository = DocumentRepository(db.documentDao())
         booksDir = tmp.newFolder("books")
         uploaderScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
