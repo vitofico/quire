@@ -251,7 +251,7 @@ jobs:
           echo "::notice::main moved on while this run built it, so this run released nothing and started a fresh android-ci run to build and release the new tip."
       - name: Upload debug APK
         if: steps.push.outputs.released == 'true'
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: app-debug-${{ env.VERSION_NAME }}
           path: app/build/outputs/apk/debug/*.apk
