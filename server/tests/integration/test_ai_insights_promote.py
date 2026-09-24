@@ -14,10 +14,9 @@ from __future__ import annotations
 
 import base64
 import logging
-from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from quire_server.db.models import (
     AIGenerationLog,
@@ -125,7 +124,9 @@ async def test_promote_copies_row_and_writes_alias(client_factory, configure_ai,
             content_hash="ch-downloaded",
         )
 
-        test_start = datetime.now(UTC)
+        # generated_at is stamped by Postgres's clock, which can run behind the
+        # host's, so the lower bound comes from the database too.
+        test_start = (await session.execute(select(func.clock_timestamp()))).scalar_one()
         r = await client.post(
             "/ai/v1/insights/promote",
             headers=_basic_header("alice"),
