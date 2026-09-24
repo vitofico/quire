@@ -192,17 +192,34 @@ jobs:
       # use (28 and 33) from Maven Central at test time, into ~/.m2, which the
       # Gradle cache does not cover. On 2026-09-24 one of those downloads was
       # reset mid-transfer, the tests failed, and that release was never cut.
-      # Keeping the jars between runs means a normal run downloads nothing. The
-      # key follows the version catalog, which pins Robolectric; after a
-      # catalog change the previous entry still restores.
-      - name: Cache Robolectric SDK jars
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # So the jars are kept between runs. Restore and save are separate steps
+      # because a run only fetches the jars its tests need, and Gradle's build
+      # cache skips unchanged test tasks entirely: one entry saved under a
+      # fixed key would freeze whatever partial set the first run fetched.
+      # Instead each entry is named after the jars it holds and saved only
+      # when that set grows, and the newest entry is the one restored here.
+      - name: Restore Robolectric SDK jars
+        id: robolectric-restore
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.m2/repository/org/robolectric
-          key: robolectric-${{ hashFiles('gradle/libs.versions.toml') }}
+          key: robolectric-${{ github.sha }}
           restore-keys: robolectric-
       - name: Unit tests
         run: ./gradlew test --stacktrace
+      - name: List Robolectric SDK jars
+        id: robolectric-jars
+        run: |
+          dir="$HOME/.m2/repository/org/robolectric"
+          if [ -d "$dir" ]; then
+            echo "key=robolectric-$(cd "$dir" && find . -name '*.jar' | sort | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Save Robolectric SDK jars
+        if: steps.robolectric-jars.outputs.key != '' && steps.robolectric-jars.outputs.key != steps.robolectric-restore.outputs.cache-matched-key
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.m2/repository/org/robolectric
+          key: ${{ steps.robolectric-jars.outputs.key }}
       - name: Lint
         run: ./gradlew lint --stacktrace
       # The bump commit and tag were created locally by "Compute version"; this
