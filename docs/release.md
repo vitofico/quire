@@ -3,11 +3,13 @@
 Push-driven. Pushes to `main` that touch Android-relevant paths
 (`app/**`, `auth/**`, `core/**`, `data/**`, `reader/**`, root Gradle
 files, or the workflow itself) trigger `android-ci.yaml`. The `build`
-job bumps `VERSION_NAME` / `VERSION_CODE` in `gradle.properties` to the
-next CalVer (`YYYY.MM.DD.<run>` / `yyMMdd*100 + run%100`), commits with
-a `[bot]` author, tags `vYYYY.MM.DD.<run>`, and pushes both before
-Gradle runs. The `release` job then builds and signs a release APK from
-the freshly-pushed tag and attaches it to a GitHub Release.
+job bumps `VERSION_NAME` in `gradle.properties` to the next CalVer
+(`YYYY.MM.DD.<run>`) and `VERSION_CODE` to one above its current
+value, or to `yyMMdd*1000` on a new day. It commits with a `[bot]`
+author, tags `vYYYY.MM.DD.<run>`, and pushes both once the debug
+build, unit tests and lint pass. The `release` job then builds and
+signs a release APK from the freshly-pushed tag and attaches it to a
+GitHub Release.
 
 Server-only PRs (everything under `server/**`) **do not cut a release**
 — the path filter excludes them. A batch of stacked server PRs that
@@ -15,23 +17,24 @@ lands without any Android-relevant change produces no APK and no tag;
 the next Android-relevant push picks up the next CalVer slot. This is
 intentional and matches CalVer's "calendar + run number" semantics.
 
-### Known limitation: version-bump race on stacked Android merges
+### Merges that land while a release is building
 
-The `build` job commits the version bump and tag, then pushes back to
-`main`. If two Android-relevant PRs merge inside one CI cycle, the
-second push from the `[bot]` author can lose the race with the first
-and the second tag is silently orphaned. Observed on 2026-05-17 when
-PR #21 (PR6 inspect-insight) and PR #22 (PR8 series shelf) merged
-within minutes: PR8's standalone tag never materialized; both PRs
-shipped in PR6's release `v2026.05.17.87`. No artifact was lost — the
-release APK contains the merged tree at the time the build ran — but
-the per-PR tag mapping degrades.
+The `build` job pushes its bump commit and tag in one atomic push,
+after the checks pass. If anything else reached `main` in the
+meantime, an Android change or a server-only one, that push is
+rejected and nothing is published, neither the commit nor the tag.
+The run then dispatches a fresh `android-ci` run on `main`, which
+builds the new tip (the rejected run's changes plus whatever landed
+since) and releases it once it passes the same checks. PRs can be
+merged back to back: a burst of merges ends up in one release rather
+than one each, because GitHub keeps only the newest pending run per
+concurrency group and that run builds the newest commit.
 
-Workaround for now: when stacking Android merges, wait for the version-
-bump push from the previous run to land before merging the next PR.
-The longer-term fix is a `git pull --rebase` step in the `build` job
-before the push back, so a lost race retries instead of orphaning a
-tag — tracked as a follow-up.
+There is no in-place retry. Rebasing the bump onto the new tip
+conflicts on the `VERSION_NAME` line, and resetting onto it would
+publish a tag whose tree the run never tested. Re-running the
+rejected run does not help either, because a re-run builds the same
+commit again.
 
 ### Mode-branched migrations on deploy
 
@@ -72,12 +75,16 @@ testers but should not be your `latest` release.
 ## Cutting a release
 
 Land a commit on `main`. The `build` job's *Compute version* step picks
-the next CalVer, writes it into `gradle.properties`, commits + tags +
-pushes, then builds. Nothing manual needed.
+the next CalVer, writes it into `gradle.properties` and commits + tags
+it locally; the job pushes both once the build, tests and lint pass.
+Nothing manual needed.
 
-To cut an out-of-band release, push a no-op commit (e.g. `git commit
---allow-empty -m ":bookmark: chore: trigger release"` followed by `git
-push`). Manually-pushed tags are not used by this workflow.
+To cut an out-of-band release, open `android-ci` in the Actions tab
+and use *Run workflow* on `main`. That run releases `main` as it
+stands, and cuts a new version even when nothing changed since the
+last release. An empty commit does not work: it changes no files, so
+it matches none of the path filters.
+Manually-pushed tags are not used by this workflow.
 
 ## Local release builds
 
