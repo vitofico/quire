@@ -244,10 +244,12 @@ class _AIClientLike(Protocol):
 
 
 class _RetrieverLike(Protocol):
-    async def lookup_wikipedia(self, *, author: str | None, title: str) -> list[Citation]: ...
+    async def lookup_wikipedia(
+        self, *, author: str | None, title: str, series: str | None = None
+    ) -> list[Citation]: ...
 
     async def lookup_openlibrary(
-        self, *, author: str | None, title: str, isbn: str | None
+        self, *, author: str | None, title: str, isbn: str | None, series: str | None = None
     ) -> list[Citation]: ...
 
     async def lookup_book_language(self, isbn: str) -> str | None: ...
@@ -863,14 +865,19 @@ class InsightOrchestrator:
             if "wikipedia" in self.sources_enabled:
                 tasks.append(
                     _run_with_own_session(
-                        lambda r: r.lookup_wikipedia(author=bundle.author, title=bundle.title)
+                        lambda r: r.lookup_wikipedia(
+                            author=bundle.author, title=bundle.title, series=bundle.series_name
+                        )
                     )
                 )
             if "openlibrary" in self.sources_enabled:
                 tasks.append(
                     _run_with_own_session(
                         lambda r: r.lookup_openlibrary(
-                            author=bundle.author, title=bundle.title, isbn=bundle.isbn
+                            author=bundle.author,
+                            title=bundle.title,
+                            isbn=bundle.isbn,
+                            series=bundle.series_name,
                         )
                     )
                 )
@@ -879,11 +886,18 @@ class InsightOrchestrator:
             # the retriever is a stub that doesn't issue concurrent DB calls.
             retriever = self.retriever_factory(session)
             if "wikipedia" in self.sources_enabled:
-                tasks.append(retriever.lookup_wikipedia(author=bundle.author, title=bundle.title))
+                tasks.append(
+                    retriever.lookup_wikipedia(
+                        author=bundle.author, title=bundle.title, series=bundle.series_name
+                    )
+                )
             if "openlibrary" in self.sources_enabled:
                 tasks.append(
                     retriever.lookup_openlibrary(
-                        author=bundle.author, title=bundle.title, isbn=bundle.isbn
+                        author=bundle.author,
+                        title=bundle.title,
+                        isbn=bundle.isbn,
+                        series=bundle.series_name,
                     )
                 )
 

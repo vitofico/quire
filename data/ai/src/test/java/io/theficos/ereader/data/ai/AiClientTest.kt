@@ -317,9 +317,15 @@ class AiClientTest {
     fun `cancelling the coroutine cancels the underlying HTTP call`() = runTest {
         // Issue #102: a long call must give up its thread and socket the
         // moment the caller stops waiting, not after the full timeout.
+        // Delay the headers, as the real server does while it generates. A
+        // delayed body would not do: its headers arrive at once, the call
+        // counts as answered, and the test then times the body read, which
+        // cancelling cannot cut short. The delay stays under the 5 s that
+        // MockWebServer.shutdown() waits for its threads, and over the 2 s
+        // bound below, so a call that ignores cancelling still fails fast.
         server.enqueue(
             MockResponse().setResponseCode(200)
-                .setBodyDelay(5, TimeUnit.SECONDS)
+                .setHeadersDelay(3, TimeUnit.SECONDS)
                 .setBody(insightBody)
         )
         val job = launch(Dispatchers.Default) {

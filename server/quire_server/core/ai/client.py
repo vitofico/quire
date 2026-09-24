@@ -70,6 +70,50 @@ def _error_count(err: json.JSONDecodeError | ValidationError) -> int:
     return err.error_count() if isinstance(err, ValidationError) else 1
 
 
+_MAX_ERROR_KINDS = 5
+
+
+def _schema_field_names(schema: type[BaseModel]) -> set[str]:
+    names: set[str] = set()
+    pending: list = [schema.model_json_schema()]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, dict):
+            if isinstance(node.get("properties"), dict):
+                names.update(node["properties"])
+            pending.extend(node.values())
+        elif isinstance(node, list):
+            pending.extend(node)
+    return names
+
+
+def _error_kinds(err: json.JSONDecodeError | ValidationError, schema: type[BaseModel]) -> str:
+    """What was wrong and where, never what the model wrote (issue #102).
+
+    Each entry is an error type at a location: ``string_too_long@analysis``,
+    ``missing@author``. A location keeps only the schema's own field names and
+    list indexes; any other part (an extra key the model invented, a key of a
+    free-form dict) reads ``*``, because it is model text. For invalid JSON the
+    parser's reason is kept, ``json_invalid@root[EOF while parsing a string at
+    line 1 column 812]``: it quotes nothing and is what tells a cut-off answer
+    apart. The error message and the input value are never used.
+    """
+    if isinstance(err, json.JSONDecodeError):
+        return f"json_invalid@root[{err.msg}: line {err.lineno} column {err.colno}]"
+    fields = _schema_field_names(schema)
+    kinds = []
+    for e in err.errors(include_url=False, include_input=False):
+        where = ".".join(str(p) if isinstance(p, int) or p in fields else "*" for p in e["loc"])
+        kind = f"{e['type']}@{where or 'root'}"
+        reason = (e.get("ctx") or {}).get("error") if e["type"] == "json_invalid" else None
+        if reason:
+            kind += f"[{reason}]"
+        kinds.append(kind)
+    if len(kinds) > _MAX_ERROR_KINDS:
+        kinds[_MAX_ERROR_KINDS:] = [f"+{len(kinds) - _MAX_ERROR_KINDS} more"]
+    return ",".join(kinds)
+
+
 class ProviderError(Exception):
     """Base for AI provider failures."""
 
@@ -163,11 +207,15 @@ class AIClient:
                 # and operator logs are no place for it (issue #102). The retry
                 # message below still carries the full error, on purpose: the
                 # model needs to see what it got wrong.
+                first_kinds = _error_kinds(first_err, schema)
                 logger.info(
-                    "ai.client.validation_retry error_class=%s errors=%d native_schema=%s",
+                    "ai.client.validation_retry error_class=%s errors=%d chars=%d "
+                    "native_schema=%s kinds=%s",
                     type(first_err).__name__,
                     _error_count(first_err),
+                    len(response_text),
                     self._native_schema,
+                    first_kinds,
                 )
                 retry_messages = list(messages)
                 retry_messages.append({"role": "assistant", "content": response_text})
@@ -185,9 +233,23 @@ class AIClient:
                 try:
                     return self._parse(retry_text, schema)
                 except (json.JSONDecodeError, ValidationError) as second_err:
+                    second_kinds = _error_kinds(second_err, schema)
+                    logger.info(
+                        "ai.client.validation_failed error_class=%s errors=%d chars=%d "
+                        "native_schema=%s kinds=%s",
+                        type(second_err).__name__,
+                        _error_count(second_err),
+                        len(retry_text),
+                        self._native_schema,
+                        second_kinds,
+                    )
+                    # `from None`: a chained ValidationError would print its
+                    # input_value in any traceback of this error.
                     raise ProviderParseError(
-                        f"Validation failed twice; first: {first_err}; second: {second_err}"
-                    ) from first_err
+                        f"Validation failed twice; first: {first_kinds} "
+                        f"({len(response_text)} chars); second: {second_kinds} "
+                        f"({len(retry_text)} chars)"
+                    ) from None
 
     def _compose_messages(self, system: str, user: str, schema: type[T]) -> list[dict]:
         if self._native_schema:

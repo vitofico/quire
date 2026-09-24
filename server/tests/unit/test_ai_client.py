@@ -366,3 +366,58 @@ async def test_validation_retry_log_carries_no_provider_output(caplog):
     assert "errors=1" in logged
     assert marker not in logged
     assert "input_value" not in logged
+
+
+@pytest.mark.asyncio
+async def test_parse_failure_names_kinds_but_never_provider_output(caplog):
+    """Both failed attempts are diagnosable from the log and the exception
+    (issue #102), and neither carries a byte of what the model wrote."""
+    marker = "LEAKED-PROVIDER-TEXT"
+    answers = [
+        # Cut off mid-string, the way a model that runs out of tokens answers.
+        '{"schema_version": 2, "intro": "' + marker,
+        # Wrong type, an invented key and a free-form dict key, all carrying the marker.
+        json.dumps(
+            {
+                "schema_version": 2,
+                "intro": {"note": marker},
+                marker: 1,
+                "theme_analysis": {marker: 5},
+            }
+        ),
+    ]
+    calls = {"n": 0}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        content = answers[calls["n"]]
+        calls["n"] += 1
+        return httpx.Response(200, json=_make_chat_response(content))
+
+    client = AIClient(
+        base_url="http://fake/v1",
+        api_key=None,
+        model="m",
+        transport=httpx.MockTransport(handler),
+    )
+    with (
+        caplog.at_level(logging.INFO, logger="quire_server.core.ai.client"),
+        pytest.raises(ProviderParseError) as exc,
+    ):
+        await client.chat_structured(system="s", user="u", schema=BookInsightPayload, timeout_s=5.0)
+
+    logged = "\n".join(r.getMessage() for r in caplog.records)
+    message = str(exc.value)
+    for text in (logged, message):
+        assert marker not in text
+        assert "input_value" not in text
+        assert "json_invalid@root[EOF while parsing a string" in text
+        assert "string_type@intro" in text
+        assert "extra_forbidden@*" in text
+        assert "string_type@theme_analysis.*" in text
+    assert "ai.client.validation_retry" in logged
+    assert "ai.client.validation_failed" in logged
+    assert f"chars={len(answers[0])}" in logged
+    assert f"chars={len(answers[1])}" in logged
+    # Nothing chained either: a traceback would print the ValidationError in full.
+    assert exc.value.__cause__ is None
+    assert exc.value.__suppress_context__ is True

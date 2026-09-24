@@ -17,9 +17,14 @@ import io.theficos.ereader.data.sync.SyncOrchestrator
 import io.theficos.ereader.domain.restore.RestoreSummary
 import io.theficos.ereader.ui.catalog.FakeAndroidKeyStore
 import io.theficos.ereader.core.model.Progress as DomainProgress
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -54,6 +59,12 @@ class LibraryViewModelTest {
         db = Room.inMemoryDatabaseBuilder(
             ApplicationProvider.getApplicationContext(), EReaderDatabase::class.java
         ).allowMainThreadQueries().build()
+        // Open the database here, on the test thread. Left to the first query, Room
+        // opens it on a worker thread, and a test that finishes before that open does
+        // leaves tearDown's close() racing it. Room's open and close take the same two
+        // locks in opposite order, so a close() that lands mid-open hangs both
+        // threads for good, and the whole test task with them.
+        db.openHelper.writableDatabase
         docs = DocumentRepository(db.documentDao())
         progress = ProgressRepository(db.progressDao())
         orchestrator = SyncOrchestrator(
@@ -161,6 +172,22 @@ class LibraryViewModelTest {
         tmp.delete()
     }
 
+    // Room answers these queries on its own executor threads, so the tests below
+    // await the state the view model settles on instead of each emission under
+    // Turbine's 3 s per-item limit. Whichever test runs first in the class pays for
+    // cold class loading and the first Room work, so that limit measured the
+    // machine, not the code. runTest's own timeout still fails a real hang.
+
+    /**
+     * Holds one subscription to [flow] open until the test ends, so its
+     * `WhileSubscribed` upstream stays live between reads. A test asserting that
+     * the view model reacts to a change needs this: without it, a later `first {}`
+     * could restart the upstream and pass on a fresh query instead of the update.
+     */
+    private fun TestScope.keepSubscribed(flow: Flow<*>) {
+        backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) { flow.collect {} }
+    }
+
     private suspend fun seed(
         contentHash: String, title: String, author: String?,
         percent: Double = 0.0, updatedAt: Long = 0L, finishedAt: Long? = null,
@@ -182,12 +209,8 @@ class LibraryViewModelTest {
         seed("h1", "Alpha", "Auth", percent = 0.2, updatedAt = 100L)
         seed("h2", "Bravo", "Auth", percent = 0.4, updatedAt = 300L)
         seed("h3", "Charlie", "Auth", percent = 0.1, updatedAt = 200L)
-        vm.items.test {
-            var final = awaitItem()
-            while (final.size < 3) final = awaitItem()
-            assertThat(final.map { it.document.title }).containsExactly("Bravo", "Charlie", "Alpha").inOrder()
-            cancelAndIgnoreRemainingEvents()
-        }
+        val final = vm.items.first { it.size >= 3 }
+        assertThat(final.map { it.document.title }).containsExactly("Bravo", "Charlie", "Alpha").inOrder()
     }
 
     @Test fun `TITLE sort orders alphabetically`() = runTest {
@@ -195,13 +218,8 @@ class LibraryViewModelTest {
         seed("h2", "Alpha", null)
         seed("h3", "Bravo", null)
         vm.setSort(LibrarySort.TITLE)
-        vm.items.test {
-            var final = awaitItem()
-            while (final.size < 3) final = awaitItem()
-            val titles = final.map { it.document.title }
-            assertThat(titles).containsExactly("Alpha", "Bravo", "Charlie").inOrder()
-            cancelAndIgnoreRemainingEvents()
-        }
+        val titles = vm.items.first { it.size >= 3 }.map { it.document.title }
+        assertThat(titles).containsExactly("Alpha", "Bravo", "Charlie").inOrder()
     }
 
     @Test fun `query filters by title case-insensitively`() = runTest {
@@ -210,14 +228,8 @@ class LibraryViewModelTest {
         seed("h3", "Charlie", "Auth")
         vm.setSort(LibrarySort.TITLE)
         vm.setQuery("bra")
-        vm.items.test {
-            var final = awaitItem()
-            while (final.size != 1 || final.firstOrNull()?.document?.title != "BRAVO") {
-                final = awaitItem()
-            }
-            assertThat(final.map { it.document.title }).containsExactly("BRAVO")
-            cancelAndIgnoreRemainingEvents()
-        }
+        val final = vm.items.first { it.size == 1 && it.first().document.title == "BRAVO" }
+        assertThat(final.map { it.document.title }).containsExactly("BRAVO")
     }
 
     @Test fun `query filters by author`() = runTest {
@@ -225,14 +237,8 @@ class LibraryViewModelTest {
         seed("h2", "Bravo", "Tolkien")
         vm.setSort(LibrarySort.TITLE)
         vm.setQuery("tolk")
-        vm.items.test {
-            var final = awaitItem()
-            while (final.size != 1 || final.firstOrNull()?.document?.title != "Bravo") {
-                final = awaitItem()
-            }
-            assertThat(final.map { it.document.title }).containsExactly("Bravo")
-            cancelAndIgnoreRemainingEvents()
-        }
+        val final = vm.items.first { it.size == 1 && it.first().document.title == "Bravo" }
+        assertThat(final.map { it.document.title }).containsExactly("Bravo")
     }
 
     @Test fun `clearing query restores full list`() = runTest {
@@ -240,30 +246,19 @@ class LibraryViewModelTest {
         seed("h2", "Bravo", null)
         vm.setSort(LibrarySort.TITLE)
         vm.setQuery("alpha")
-        vm.items.test {
-            var filtered = awaitItem()
-            while (filtered.size != 1 || filtered.firstOrNull()?.document?.title != "Alpha") {
-                filtered = awaitItem()
-            }
-            vm.setQuery("")
-            var final = awaitItem()
-            while (final.size < 2) final = awaitItem()
-            assertThat(final).hasSize(2)
-            cancelAndIgnoreRemainingEvents()
-        }
+        keepSubscribed(vm.items)
+        vm.items.first { it.size == 1 && it.first().document.title == "Alpha" }
+        vm.setQuery("")
+        assertThat(vm.items.first { it.size >= 2 }).hasSize(2)
     }
 
     @Test fun `finished books are excluded from continueReading`() = runTest {
         seed("h1", "InProgress", null, percent = 0.5, updatedAt = 100L)
         seed("h2", "Finished", null, percent = 0.99, updatedAt = 200L, finishedAt = 200L)
-        vm.continueReading.test {
-            // skip nulls until we get a value or stable null
-            var emission = awaitItem()
-            // Wait one more tick if needed
-            if (emission?.document?.title != "InProgress") emission = awaitItem()
-            assertThat(emission?.document?.title).isEqualTo("InProgress")
-            cancelAndIgnoreRemainingEvents()
-        }
+        // Null until Room delivers the rows, which carry both books at once, so the
+        // first book it surfaces is the one it settles on.
+        val emission = vm.continueReading.first { it != null }
+        assertThat(emission?.document?.title).isEqualTo("InProgress")
     }
 
     private suspend fun seedSeries(
@@ -292,12 +287,8 @@ class LibraryViewModelTest {
     @Test fun `seriesContinuationCandidates emits the unread sibling-in-series`() = runTest {
         seedSeries("h1", "Foundation 1", "Foundation", 1.0, percent = 1.0, finishedAt = 100L, updatedAt = 100L)
         val candidateId = seedSeries("h2", "Foundation 2", "Foundation", 2.0)
-        vm.seriesContinuationCandidates.test {
-            var emission = awaitItem()
-            while (emission.size != 1) emission = awaitItem()
-            assertThat(emission.map { it.id }).containsExactly(candidateId)
-            cancelAndIgnoreRemainingEvents()
-        }
+        val emission = vm.seriesContinuationCandidates.first { it.size == 1 }
+        assertThat(emission.map { it.id }).containsExactly(candidateId)
     }
 
     private fun vmWith(store: CalibreCredentialStore): LibraryViewModel = track(LibraryViewModel(
@@ -365,12 +356,7 @@ class LibraryViewModelTest {
         // row arrives, then use expectMostRecentItem() to discard transients and assert
         // the settled emission is false.
         restoreVm.canRestore.test {
-            restoreVm.items.test {
-                var list = awaitItem()
-                while (list.isEmpty()) list = awaitItem()
-                assertThat(list).hasSize(1)
-                cancelAndIgnoreRemainingEvents()
-            }
+            assertThat(restoreVm.items.first { it.isNotEmpty() }).hasSize(1)
             advanceUntilIdle()
             // expectMostRecentItem() returns the latest buffered item, discarding any
             // earlier transient true — after rows has settled to non-empty, this must be false.
@@ -382,21 +368,19 @@ class LibraryViewModelTest {
     @Test fun `seriesContinuationCandidates re-emits when a candidate is marked finished`() = runTest {
         val sibling = seedSeries("h1", "Foundation 1", "Foundation", 1.0, percent = 1.0, finishedAt = 100L, updatedAt = 100L)
         val candidate = seedSeries("h2", "Foundation 2", "Foundation", 2.0)
-        vm.seriesContinuationCandidates.test {
-            var emission = awaitItem()
-            while (emission.size != 1) emission = awaitItem()
-            assertThat(emission.map { it.id }).containsExactly(candidate)
-            // Mark the candidate finished; it should drop off the shelf.
-            progress.save(DomainProgress(
-                documentId = candidate, locator = "loc", percent = 1.0,
-                updatedAt = 999L, finishedAt = 999L,
-            ))
-            var next = awaitItem()
-            while (next.isNotEmpty()) next = awaitItem()
-            assertThat(next).isEmpty()
-            // Suppress unused-variable lint on `sibling` (kept for clarity).
-            assertThat(sibling).isGreaterThan(0L)
-            cancelAndIgnoreRemainingEvents()
-        }
+        // One subscription for the whole test, so the empty shelf below can only
+        // come from Room re-emitting after the save, not from a fresh query.
+        keepSubscribed(vm.seriesContinuationCandidates)
+        val emission = vm.seriesContinuationCandidates.first { it.size == 1 }
+        assertThat(emission.map { it.id }).containsExactly(candidate)
+        // Mark the candidate finished; it should drop off the shelf.
+        progress.save(DomainProgress(
+            documentId = candidate, locator = "loc", percent = 1.0,
+            updatedAt = 999L, finishedAt = 999L,
+        ))
+        val next = vm.seriesContinuationCandidates.first { it.isEmpty() }
+        assertThat(next).isEmpty()
+        // Suppress unused-variable lint on `sibling` (kept for clarity).
+        assertThat(sibling).isGreaterThan(0L)
     }
 }

@@ -739,14 +739,17 @@ class _SessionRecordingRetriever:
         self.health = health
         self.wiki_calls = 0
         self.ol_calls = 0
+        self.series: list[str | None] = []
 
-    async def lookup_wikipedia(self, *, author, title):
+    async def lookup_wikipedia(self, *, author, title, series=None):
         self.wiki_calls += 1
+        self.series.append(series)
         await self.health.record_retrieval(name="wikipedia", success=True)
         return []
 
-    async def lookup_openlibrary(self, *, author, title, isbn):
+    async def lookup_openlibrary(self, *, author, title, isbn, series=None):
         self.ol_calls += 1
+        self.series.append(series)
         await self.health.record_retrieval(name="openlibrary", success=True)
         return []
 
@@ -780,13 +783,15 @@ async def test_retrieve_uses_per_task_sessions_so_both_sources_run(session: Asyn
     )
 
     ident = DocumentIdentity(metadata_id=None, content_hash="ch-per-task-session")
-    await orch.generate(session, ident, MetadataBundle(title="X"), user_id="u1")
+    await orch.generate(session, ident, MetadataBundle(title="X", series_name="Saga"), user_id="u1")
 
     # Both sources observably called.
     wiki_total = sum(r.wiki_calls for r in built_retrievers)
     ol_total = sum(r.ol_calls for r in built_retrievers)
     assert wiki_total == 1, f"expected 1 wikipedia call, got {wiki_total}"
     assert ol_total == 1, f"expected 1 openlibrary call, got {ol_total}"
+    # Both lookups know the series, so neither grounds a volume on the series page.
+    assert [s for r in built_retrievers for s in r.series] == ["Saga", "Saga"]
 
     # Both record_retrieval calls landed in the health snapshot.
     snap = await health.snapshot()
@@ -819,14 +824,14 @@ class _PartialFailRetriever:
         self.wiki_called = False
         self.ol_called = False
 
-    async def lookup_wikipedia(self, *, author, title):
+    async def lookup_wikipedia(self, *, author, title, series=None):
         self.wiki_called = True
         if self.fail == "wikipedia":
             raise _httpx.ConnectError("simulated wiki outage")
         await self.health.record_retrieval(name="wikipedia", success=True)
         return []
 
-    async def lookup_openlibrary(self, *, author, title, isbn):
+    async def lookup_openlibrary(self, *, author, title, isbn, series=None):
         self.ol_called = True
         if self.fail == "openlibrary":
             raise _httpx.ConnectError("simulated ol outage")

@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.lifecycle.viewModelScope
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
-import app.cash.turbine.test
 import com.google.common.truth.Truth.assertThat
 import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.data.library.LibraryClient
@@ -15,11 +14,11 @@ import io.theficos.ereader.data.local.db.SyncStateEntity
 import io.theficos.ereader.data.opds.BookDownloader
 import io.theficos.ereader.data.opds.CLEARTEXT_BLOCKED_MESSAGE
 import io.theficos.ereader.data.opds.OpdsClient
-import io.theficos.ereader.data.opds.OpdsPublication
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -62,6 +61,9 @@ class CatalogViewModelTest {
         db = Room.inMemoryDatabaseBuilder(context, EReaderDatabase::class.java)
             .allowMainThreadQueries()
             .build()
+        // Open now, on the test thread. Left to a Room worker, the open can deadlock
+        // with tearDown's close() when the test ends first.
+        db.openHelper.writableDatabase
         docs = DocumentRepository(db.documentDao())
         // Unique books dir per run; cleaned up in tearDown.
         booksDir = File.createTempFile("books", "").apply {
@@ -119,6 +121,28 @@ class CatalogViewModelTest {
         </feed>
     """.trimIndent()
 
+    // The OPDS and EPUB fetches run on the real IO dispatcher, so these await the
+    // state the view model settles on instead of advancing a test scheduler. They
+    // set no deadline of their own: whichever test runs first in the class pays
+    // for cold class loading and the first Room open, over a second on an idle
+    // machine, so a fixed per-step timeout measured the machine, not the code.
+    // runTest's own timeout still fails a real hang.
+
+    /** The loaded feed. A load error fails at once instead of waiting out the timeout. */
+    private suspend fun awaitLoaded(vm: CatalogViewModel): CatalogUiState.Loaded {
+        val s = vm.state.first { it is CatalogUiState.Loaded || it is CatalogUiState.Error }
+        return s as? CatalogUiState.Loaded ?: error("the catalog failed to load: $s")
+    }
+
+    /** The state a download ends in. A failed download fails at once. */
+    private suspend fun awaitDownloaded(vm: CatalogViewModel): CatalogUiState.Loaded {
+        val s = vm.state.first {
+            it is CatalogUiState.Loaded && (it.lastDownloaded != null || it.error != null)
+        } as CatalogUiState.Loaded
+        check(s.error == null) { "Download failed unexpectedly: ${s.error}" }
+        return s
+    }
+
     @Test fun `successful download clears progress sync cursor and enqueues sync`() = runTest {
         // Prime the cursor; it must be wiped after the download completes.
         db.syncStateDao().set(SyncStateEntity(tableName = "progress", lastPulledAt = 12345L))
@@ -154,35 +178,16 @@ class CatalogViewModelTest {
 
         // Drive into Loaded state so download()'s state guard passes. The OPDS
         // fetch suspends on Dispatchers.IO (real), which advanceUntilIdle won't
-        // drain — Turbine awaits the real emission instead.
+        // drain, so the test awaits the real state instead.
         vm.load(server.url("/opds").toString())
-        var publication: OpdsPublication? = null
-        vm.state.test {
-            // Initial Idle, then Loading, then Loaded. Skip until Loaded.
-            var s = awaitItem()
-            while (s !is CatalogUiState.Loaded) s = awaitItem()
-            assertThat(s.feed.publications).hasSize(1)
-            publication = s.feed.publications[0]
-            cancelAndIgnoreRemainingEvents()
-        }
-        val pub = checkNotNull(publication) { "Loaded state never produced a publication" }
+        val loaded = awaitLoaded(vm)
+        assertThat(loaded.feed.publications).hasSize(1)
+        val pub = loaded.feed.publications[0]
 
         vm.download(pub, context)
-        // The success branch flips lastDownloaded; await that to know the
-        // coroutine has finished its work (including the cursor wipe + enqueue).
-        vm.state.test {
-            var s = awaitItem()
-            while (s !is CatalogUiState.Loaded || s.lastDownloaded == null) {
-                // If the failure branch runs first, surface it.
-                if (s is CatalogUiState.Loaded && s.error != null) {
-                    error("Download failed unexpectedly: ${s.error}")
-                }
-                s = awaitItem()
-            }
-            assertThat(s.lastDownloaded).isEqualTo(pub.title)
-            assertThat(s.error).isNull()
-            cancelAndIgnoreRemainingEvents()
-        }
+        // The download coroutine publishes lastDownloaded last, after the cursor
+        // wipe and the enqueue, so seeing it means that work is done.
+        assertThat(awaitDownloaded(vm).lastDownloaded).isEqualTo(pub.title)
 
         // Phase 7 invariants: cursor wiped and sync enqueued exactly once.
         assertThat(db.syncStateDao().lastPulled("progress")).isNull()
@@ -227,14 +232,7 @@ class CatalogViewModelTest {
 
         // Drive into Loaded so download() proceeds.
         vm.load(server.url("/opds").toString())
-        var pub: OpdsPublication? = null
-        vm.state.test {
-            var s = awaitItem()
-            while (s !is CatalogUiState.Loaded) s = awaitItem()
-            pub = s.feed.publications[0]
-            cancelAndIgnoreRemainingEvents()
-        }
-        val publication = checkNotNull(pub)
+        val publication = awaitLoaded(vm).feed.publications[0]
 
         // Stash a catalog identity for this href; with `aiRepository=null`
         // the promote branch short-circuits before calling the repo, so we
@@ -256,16 +254,7 @@ class CatalogViewModelTest {
         )
 
         vm.download(publication, context)
-        vm.state.test {
-            var s = awaitItem()
-            while (s !is CatalogUiState.Loaded || s.lastDownloaded == null) {
-                if (s is CatalogUiState.Loaded && s.error != null) {
-                    error("Download failed: ${s.error}")
-                }
-                s = awaitItem()
-            }
-            cancelAndIgnoreRemainingEvents()
-        }
+        awaitDownloaded(vm)
         // With aiRepository=null the stash remains untouched. This proves
         // the branch is safe in absence of the repo.
         assertThat(stash.peek("alice", publication.epubDownloadHref)).isNotNull()
@@ -370,13 +359,9 @@ class CatalogViewModelTest {
         ))
         vm.load("http://books.example.com/opds")
 
-        vm.state.test {
-            var state = awaitItem()
-            while (state !is CatalogUiState.Error) state = awaitItem()
-            assertThat(state.message).isEqualTo(CLEARTEXT_BLOCKED_MESSAGE)
-            assertThat(state.message).doesNotContain("CLEARTEXT communication")
-            cancelAndIgnoreRemainingEvents()
-        }
+        val state = vm.state.first { it is CatalogUiState.Error } as CatalogUiState.Error
+        assertThat(state.message).isEqualTo(CLEARTEXT_BLOCKED_MESSAGE)
+        assertThat(state.message).doesNotContain("CLEARTEXT communication")
     }
 
     @Test fun `no account shows a scheme-neutral error`() = runTest {
@@ -440,33 +425,17 @@ class CatalogViewModelTest {
     )
 
     /**
-     * Loads the root feed, downloads its single publication and returns once
-     * the download coroutine has run its post-download hook. The OPDS and EPUB
-     * fetches suspend on the real IO dispatcher, so this awaits the state
-     * emissions rather than advancing a test scheduler.
+     * Downloads the root feed's single publication and returns once the
+     * download coroutine has run its post-download hook.
+     *
+     * The account is saved before the view model is built, so its init has
+     * already started the root load. Calling loadRoot() again would put a
+     * second feed response in flight that can land after the download and
+     * wipe lastDownloaded.
      */
     private suspend fun downloadFirstPublication(vm: CatalogViewModel) {
-        vm.loadRoot()
-        var publication: OpdsPublication? = null
-        vm.state.test {
-            var s = awaitItem()
-            while (s !is CatalogUiState.Loaded) s = awaitItem()
-            publication = s.feed.publications[0]
-            cancelAndIgnoreRemainingEvents()
-        }
-        val pub = checkNotNull(publication) { "the feed produced no publication" }
-
-        vm.download(pub, context)
-        vm.state.test {
-            var s = awaitItem()
-            while (s !is CatalogUiState.Loaded || s.lastDownloaded == null) {
-                if (s is CatalogUiState.Loaded && s.error != null) {
-                    error("Download failed unexpectedly: ${s.error}")
-                }
-                s = awaitItem()
-            }
-            cancelAndIgnoreRemainingEvents()
-        }
+        vm.download(awaitLoaded(vm).feed.publications[0], context)
+        awaitDownloaded(vm)
     }
 
     @Test fun `download from an opds catalog does not enqueue sync or a mirror push`() = runTest {
