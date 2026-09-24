@@ -9,6 +9,7 @@ cell of the CI mode matrix.
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import httpx
@@ -73,9 +74,35 @@ def _unknown_model(request: httpx.Request) -> httpx.Response:
     return httpx.Response(404, json={"error": "model 'test-model' not found"})
 
 
+async def _hangs(request: httpx.Request) -> httpx.Response:
+    await asyncio.sleep(5)
+    return _answers_ok(request)
+
+
 # ---------------------------------------------------------------------------
 # Mounting and access
 # ---------------------------------------------------------------------------
+
+
+async def test_native_auth_admins_use_bearer_tokens(client_factory, app, session):
+    # `session` makes the autouse fixture truncate native_users first.
+    ctx = client_factory(auth_backend="native", admin_users="native:placeholder")
+    backend = app.state.auth_backend
+    admin_id = await backend.register(email="admin@example.com", password="admin-password")
+    await backend.register(email="reader@example.com", password="reader-password")
+    app.state.admin_users = frozenset({f"native:{admin_id}"})
+    admin_token, _ = await backend.login(email="admin@example.com", password="admin-password")
+    reader_token, _ = await backend.login(email="reader@example.com", password="reader-password")
+
+    async with ctx as client:
+        anonymous = await client.get(STATUS)
+        admin = await client.get(STATUS, headers={"Authorization": f"Bearer {admin_token}"})
+        reader = await client.get(STATUS, headers={"Authorization": f"Bearer {reader_token}"})
+
+    assert anonymous.status_code == 401
+    assert anonymous.headers["www-authenticate"] == "Bearer"
+    assert admin.status_code == 200
+    assert reader.status_code == 403
 
 
 async def test_no_admin_users_means_no_admin_routes(admin_client, alice):
@@ -201,6 +228,21 @@ async def test_probe_explains_a_provider_that_refuses(admin_client, app, alice):
     health = status.json()["ai"]["health"]
     assert health["provider_reachable"] is False
     assert health["last_failure_class"] == "ProviderRejected"
+
+
+async def test_probe_gives_up_at_the_configured_timeout(admin_client, app, alice):
+    ctx = admin_client(admin_users="alice", **AI_ENV, ai_timeout_s="0.3")
+    _install_provider(app, _hangs)
+    async with ctx as client:
+        r = await client.post(PROBE, headers=alice)
+        status = await client.get(STATUS, headers=alice)
+
+    body = r.json()
+    assert body["ok"] is False
+    assert body["error"]["code"] == "provider_timeout"
+    assert body["elapsed_ms"] < 3000
+    assert "QUIRE_SERVER_AI_TIMEOUT_S" in body["error"]["hint"]
+    assert status.json()["ai"]["health"]["last_failure_class"] == "ProviderTimeout"
 
 
 @pytest.mark.parametrize(

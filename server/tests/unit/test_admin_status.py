@@ -5,7 +5,13 @@ from __future__ import annotations
 import json
 import re
 
-from quire_server.api.admin import MASK, SECRET_SETTINGS, settings_view
+from quire_server.api.admin import (
+    MASK,
+    SECRET_SETTINGS,
+    UNPARSEABLE_URL,
+    URL_SETTINGS,
+    settings_view,
+)
 from quire_server.api.admin_page import render_page
 from quire_server.config import Settings, admin_user_ids
 
@@ -39,6 +45,35 @@ def test_settings_view_masks_secrets_and_url_passwords():
         assert secret not in dumped
 
 
+def test_settings_view_masks_query_values_and_fragments():
+    rows = _rows(
+        Settings(
+            ai_base_url="https://api.example/v1?key=AIzaSecret&region=eu#token=frag",
+            database_url="postgresql+asyncpg://quire@db/quire?password=hunter2",
+        )
+    )
+
+    assert (
+        rows["QUIRE_SERVER_AI_BASE_URL"]["value"] == "https://api.example/v1?key=***&region=***#***"
+    )
+    assert rows["QUIRE_SERVER_DATABASE_URL"]["value"] == (
+        "postgresql+asyncpg://quire@db/quire?password=***"
+    )
+
+
+def test_settings_view_hides_url_settings_it_cannot_parse():
+    rows = _rows(
+        Settings(
+            ai_base_url="http://[broken",
+            cwa_base_url="calibre:secret@cwa:8083",
+            database_url="//quire:hunter2@db/quire",
+        )
+    )
+
+    for name in ("AI_BASE_URL", "CWA_BASE_URL", "DATABASE_URL"):
+        assert rows[f"QUIRE_SERVER_{name}"]["value"] == UNPARSEABLE_URL, name
+
+
 def test_settings_view_masks_a_password_containing_an_at_sign():
     rows = _rows(Settings(database_url="postgresql+asyncpg://quire:hun@ter2@db/quire"))
 
@@ -68,6 +103,13 @@ def test_settings_view_lists_every_setting():
     names = [row["name"] for row in settings_view(Settings())]
 
     assert names == [f"QUIRE_SERVER_{name.upper()}" for name in Settings.model_fields]
+
+
+def test_every_url_setting_is_masked():
+    """A new ``*_url`` setting must be added to URL_SETTINGS."""
+    urls = {name for name in Settings.model_fields if name.endswith("_url")}
+
+    assert urls <= URL_SETTINGS, f"unmasked: {sorted(urls - URL_SETTINGS)}"
 
 
 def test_every_secret_looking_setting_is_masked():

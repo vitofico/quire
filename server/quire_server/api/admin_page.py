@@ -168,8 +168,8 @@ def _ai_section(status: dict, probe: dict | None) -> str:
     parts.append(
         '<form method="post" action="/quire-admin/probe">'
         '<button type="submit">Test AI connection</button>'
-        f'<p class="note">Sends one short request to the provider and waits up to '
-        f"{_e(seconds)} seconds (<code>QUIRE_SERVER_AI_TIMEOUT_S</code>).</p></form>"
+        f'<p class="note">Sends a short test request to the provider and waits up to '
+        f"{_e(seconds)} seconds in total (<code>QUIRE_SERVER_AI_TIMEOUT_S</code>).</p></form>"
     )
     parts.append("</section>")
     return "".join(parts)

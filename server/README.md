@@ -444,9 +444,9 @@ curl -fsSk -u alice -X POST https://localhost/quire-admin/v1/ai/probe | jq
 
 Worth knowing:
 
-- The test button waits up to `QUIRE_SERVER_AI_TIMEOUT_S`, as a real insight
-  does, so a local model that is still loading is not reported as broken. Its
-  outcome also updates `GET /ai/v1/health`.
+- The test gets `QUIRE_SERVER_AI_TIMEOUT_S` in total, the budget of one
+  insight model call, so a local model that is still loading is not reported
+  as broken. Its outcome also updates `GET /ai/v1/health`.
 - The browser login needs `QUIRE_SERVER_AUTH_BACKEND=calibreweb`. Under
   `native`, list users as `native:<id>` and call the JSON endpoints with
   `Authorization: Bearer <session token>`.

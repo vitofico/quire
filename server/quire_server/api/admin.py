@@ -16,10 +16,11 @@ a sync-only deploy with admin users set keeps its lazy-import boundary.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import Annotated
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -40,6 +41,12 @@ MASK = "***"
 # `test_every_secret_looking_setting_is_masked` fails if a setting named like
 # a secret is added without being listed here.
 SECRET_SETTINGS = frozenset({"ai_api_key", "ai_token_secrets"})
+
+# Settings that hold a URL, masked by `_mask_url` whatever their value looks
+# like. `test_every_url_setting_is_masked` fails if a `*_url` setting is added
+# without being listed here.
+URL_SETTINGS = frozenset({"database_url", "cwa_base_url", "ai_base_url"})
+UNPARSEABLE_URL = "(not a valid URL; hidden)"
 
 NO_STORE = {"Cache-Control": "no-store"}
 
@@ -103,6 +110,12 @@ async def require_same_origin(request: Request) -> None:
     ``Sec-Fetch-Site`` is sent by every current browser; ``Origin`` covers
     older ones. A request with neither (curl, scripts) is not a browser
     being tricked and passes.
+
+    The ``Origin`` fallback compares host and port, not scheme: behind a
+    TLS-terminating proxy the server cannot tell which scheme the browser
+    used, and a page on the same host over plain HTTP is not another site's
+    page. It only runs for browsers old enough to lack ``Sec-Fetch-Site``,
+    and at worst lets through one model call.
     """
     site = request.headers.get("sec-fetch-site")
     if site is not None:
@@ -129,18 +142,30 @@ Admin = Annotated[str, Depends(require_admin)]
 # ---------------------------------------------------------------------------
 
 
-def _mask_url_password(value: str) -> str:
-    """Replace the password in a URL's userinfo with MASK.
+def _mask_url(value: str) -> str:
+    """Hide everything in a URL that can carry a credential.
 
-    Splits on the last ``@`` so a password that itself contains ``@`` is
-    masked whole.
+    The userinfo password becomes MASK (split on the last ``@``, so a
+    password that itself contains ``@`` is masked whole), and so does every
+    query value and the fragment, since some drivers and providers accept a
+    password or key there. A value that does not parse as scheme plus host
+    is hidden whole: it is misconfigured anyway, and there is no telling
+    which part of it is secret.
     """
-    parts = urlsplit(value)
-    if parts.password is None:
-        return value
-    userinfo, _, hostport = parts.netloc.rpartition("@")
-    username = userinfo.split(":", 1)[0]
-    return parts._replace(netloc=f"{username}:{MASK}@{hostport}").geturl()
+    try:
+        parts = urlsplit(value)
+        password = parts.password
+    except ValueError:
+        return UNPARSEABLE_URL
+    if not parts.scheme or not parts.netloc:
+        return UNPARSEABLE_URL
+    netloc = parts.netloc
+    if password is not None:
+        userinfo, _, hostport = netloc.rpartition("@")
+        netloc = f"{userinfo.split(':', 1)[0]}:{MASK}@{hostport}"
+    query = "&".join(f"{key}={MASK}" for key, _ in parse_qsl(parts.query, keep_blank_values=True))
+    fragment = MASK if parts.fragment else ""
+    return parts._replace(netloc=netloc, query=query, fragment=fragment).geturl()
 
 
 def settings_view(settings: Settings) -> list[dict[str, object]]:
@@ -155,8 +180,8 @@ def settings_view(settings: Settings) -> list[dict[str, object]]:
         value = getattr(settings, name)
         if name in SECRET_SETTINGS:
             value = MASK if value else None
-        elif isinstance(value, str) and "://" in value:
-            value = _mask_url_password(value)
+        elif isinstance(value, str) and (name in URL_SETTINGS or "://" in value):
+            value = _mask_url(value)
         rows.append(
             {
                 "name": f"{ENV_PREFIX}{name.upper()}",
@@ -210,11 +235,13 @@ _PROBE_USER = 'Reply with the JSON object {"ok": true}.'
 async def run_probe(app: FastAPI) -> dict[str, object]:
     """Send one tiny structured request through the server's own AI client.
 
-    Runs under ``QUIRE_SERVER_AI_TIMEOUT_S``, the same budget as a real
-    insight call: a local model loading on its first call can take longer
-    than any shorter fixed budget, and the timeout hint then names the
-    variable that actually governs. The outcome is recorded in the AI
-    health holder, so ``GET /ai/v1/health`` reflects it too.
+    The whole probe gets ``QUIRE_SERVER_AI_TIMEOUT_S``, the budget of one
+    insight model call: a local model loading on its first call can take
+    longer than any shorter fixed budget, and the timeout hint then names
+    the variable that governs. The deadline covers the client's reshaped or
+    corrected follow-up requests too, so the wait the page promises holds.
+    The outcome is recorded in the AI health holder, so ``GET /ai/v1/health``
+    reflects it too.
     """
     settings = get_settings()
     client = getattr(app.state, "ai_client", None)
@@ -234,23 +261,30 @@ async def run_probe(app: FastAPI) -> dict[str, object]:
             },
         }
 
-    from quire_server.core.ai.client import ProviderError
+    from quire_server.core.ai.client import ProviderError, ProviderTimeout
     from quire_server.core.ai.provider_errors import describe
 
     health = getattr(app.state, "ai_health", None)
+    failure: ProviderError | None = None
     started = time.monotonic()
     try:
-        await client.chat_structured(
-            system=_PROBE_SYSTEM,
-            user=_PROBE_USER,
-            schema=_ProbeAnswer,
-            timeout_s=settings.ai_timeout_s,
-        )
+        async with asyncio.timeout(settings.ai_timeout_s):
+            await client.chat_structured(
+                system=_PROBE_SYSTEM,
+                user=_PROBE_USER,
+                schema=_ProbeAnswer,
+                timeout_s=settings.ai_timeout_s,
+            )
+    except TimeoutError:
+        failure = ProviderTimeout("probe deadline reached")
     except ProviderError as exc:
-        elapsed_ms = round((time.monotonic() - started) * 1000)
-        info = describe(exc, timeout_s=settings.ai_timeout_s, model=settings.ai_model)
+        failure = exc
+    elapsed_ms = round((time.monotonic() - started) * 1000)
+
+    if failure is not None:
+        info = describe(failure, timeout_s=settings.ai_timeout_s, model=settings.ai_model)
         if health is not None:
-            await health.record_provider_failure(error_class=type(exc).__name__)
+            await health.record_provider_failure(error_class=type(failure).__name__)
         logger.warning("event=admin.ai_probe ok=false code=%s elapsed_ms=%d", info.code, elapsed_ms)
         return {
             "ok": False,
@@ -259,7 +293,6 @@ async def run_probe(app: FastAPI) -> dict[str, object]:
             "error": info.as_detail(),
         }
 
-    elapsed_ms = round((time.monotonic() - started) * 1000)
     if health is not None:
         await health.record_provider_success(model_id=settings.ai_model)
     logger.info("event=admin.ai_probe ok=true elapsed_ms=%d", elapsed_ms)
