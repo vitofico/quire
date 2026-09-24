@@ -188,6 +188,19 @@ jobs:
           fi
       - name: Assemble debug APK
         run: ./gradlew assembleDebug --stacktrace
+      # Robolectric fetches a full Android SDK jar for each API level the tests
+      # use (28 and 33) from Maven Central at test time, into ~/.m2, which the
+      # Gradle cache does not cover. On 2026-09-24 one of those downloads was
+      # reset mid-transfer, the tests failed, and that release was never cut.
+      # Keeping the jars between runs means a normal run downloads nothing. The
+      # key follows the version catalog, which pins Robolectric; after a
+      # catalog change the previous entry still restores.
+      - name: Cache Robolectric SDK jars
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.m2/repository/org/robolectric
+          key: robolectric-${{ hashFiles('gradle/libs.versions.toml') }}
+          restore-keys: robolectric-
       - name: Unit tests
         run: ./gradlew test --stacktrace
       - name: Lint
