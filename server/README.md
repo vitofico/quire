@@ -54,6 +54,10 @@ With this file, `.env` must exist for every compose command, including
 and the compose file refuses to start without it. The full-stack compose
 below pins its own calibre-web URL and starts without a `.env`.
 
+Every setting, a minimum `.env` for each deploy mode, recipes for Ollama and
+other AI providers, and how to check that a change took effect are in
+[`docs/configuration.md`](../docs/configuration.md).
+
 ### Full-stack reference compose
 
 A Caddy front-end with path-based routing that mirrors the production
@@ -138,8 +142,9 @@ either:
 
 #### Deploy modes in the full-stack compose
 
-The same image supports three modes via env flags. The defaults below
-match the table in [Deploy modes](#deploy-modes).
+The same image supports three modes via env flags, described in
+[`docs/configuration.md`](../docs/configuration.md#deploy-modes). What each
+mode means for the Caddy front-end:
 
 | Mode       | `QUIRE_SERVER_PROGRESS_ENABLED` | `QUIRE_SERVER_AI_ENABLED` | What the Caddy front-end serves                                  |
 | ---------- | ---------------------------- | ---------------------- | ---------------------------------------------------------------- |
@@ -147,33 +152,8 @@ match the table in [Deploy modes](#deploy-modes).
 | Sync only  | `true`                       | `false`                | `/sync/v1/*` + `/library/v1/*` (items + stats) + calibre-web at `/` |
 | AI only    | `false`                      | `true`                 | `/ai/v1/*` only — drop the `calibre-web` service from the compose for a leaner stack |
 
-Set both flags in `.env`. Sync-only deploys don't need
-`QUIRE_SERVER_AI_*`; AI-only / Cloud-style deploys that don't run calibre-web
-should set `QUIRE_SERVER_AUTH_BACKEND=native`, which makes `/ai/v1/*`
-authenticate against the same NativeAuth session tokens as the rest of the
-API (no separate AI token config). The older `QUIRE_SERVER_AI_AUTH_MODE=token`
-HMAC path is **deprecated** as of Phase 0, task X-2 (removal scheduled in 2
-minor releases). See the "AI auth mode" section below.
-
-##### Mode examples
-
-**Full stack** (default — nothing to change):
-
-```dotenv
-QUIRE_SERVER_PROGRESS_ENABLED=true
-QUIRE_SERVER_AI_ENABLED=true
-QUIRE_SERVER_AI_BASE_URL=https://ollama.example.com/v1
-QUIRE_SERVER_AI_MODEL=gpt-oss:120b-cloud
-QUIRE_SERVER_AI_API_KEY=sk-...
-```
-
-**Sync only** (privacy purists; no LLM calls leave the host):
-
-```dotenv
-QUIRE_SERVER_PROGRESS_ENABLED=true
-QUIRE_SERVER_AI_ENABLED=false
-# QUIRE_SERVER_AI_* may be omitted — they're unused.
-```
+Set both flags in `.env`; the minimum `.env` for each mode is in
+[`docs/configuration.md`](../docs/configuration.md#minimum-env-per-mode).
 
 In sync-only mode:
 
@@ -201,19 +181,11 @@ stack). The full edit set for `docker-compose.full.yml` + `caddy/Caddyfile`:
    `handle { respond 404 }` so unknown paths return a clean 404
    rather than a connection failure to a missing upstream.
 
-`.env` for AI-only:
-
-```dotenv
-QUIRE_SERVER_PROGRESS_ENABLED=false
-QUIRE_SERVER_AI_ENABLED=true
-QUIRE_SERVER_AI_BASE_URL=https://...
-QUIRE_SERVER_AI_MODEL=...
-QUIRE_SERVER_AI_API_KEY=...
-QUIRE_SERVER_AI_AUTH_MODE=token
-QUIRE_SERVER_AI_TOKEN_SECRETS='{"kid-2026-05": "..."}'
-QUIRE_SERVER_AI_TOKEN_ISSUER=https://issuer.example.com
-QUIRE_SERVER_AI_TOKEN_AUDIENCE=quire-server
-```
+Without calibre-web in the stack, logins need
+`QUIRE_SERVER_AUTH_BACKEND=native`, which has no way to create accounts yet
+(see "AI auth mode" below). A self-hosted AI-only server keeps calibre-web
+for logins; its `.env` is in
+[`docs/configuration.md`](../docs/configuration.md#minimum-env-per-mode).
 
 ### Migrations
 
@@ -225,13 +197,9 @@ for the branch-label convention. The image is published to
 
 ### Deploy modes
 
-| Mode             | `QUIRE_SERVER_PROGRESS_ENABLED` | `QUIRE_SERVER_AI_ENABLED` | Mounts                                                  |
-| ---------------- | ---------------------------- | ---------------------- | ------------------------------------------------------- |
-| Full stack       | `true` (default)             | `true` (default)       | `/sync/v1/*`, `/library/v1/*` (items + stats), `/ai/v1/*` |
-| Sync only        | `true`                       | `false`                | `/sync/v1/*`, `/library/v1/*` (items + stats)           |
-| AI only          | `false`                      | `true`                 | `/ai/v1/*`                                              |
-
-`/health` and `/readyz` are mounted on the root in every mode.
+`/health` and `/readyz` are mounted on the root in every mode. The two flags
+and what each mode mounts are in
+[`docs/configuration.md`](../docs/configuration.md#deploy-modes).
 
 Update the health-probe path: it moved from `/sync/v1/healthz` (pre-PR-A) to
 `/health` in PR-A. The k8s manifests in `theficos-cluster` need a one-line
@@ -239,85 +207,17 @@ bump alongside this release.
 
 ### Environment variables
 
-Every setting is an environment variable with the `QUIRE_SERVER_` prefix,
-matched case-insensitively. Both compose files load `.env` wholesale, so a
-line in `.env` is all it takes. At boot the server logs one
-`event=config.warning` line per problem it can detect (an unknown or
-misspelled variable, set in the environment or in `.env`; AI enabled
-without a provider; a provider URL without `/v1`; or both
-`QUIRE_SERVER_PROGRESS_ENABLED` and `QUIRE_SERVER_AI_ENABLED` false) and
-repeats the same list under `warnings` in `GET /health`, so `curl
-http://localhost:8000/health` is the first thing to check when something
-does not work.
+Every setting is documented in
+[`docs/configuration.md`](../docs/configuration.md): what it does, its
+default, when to change it, and which compose file reads the variables that
+are not server settings. In short: settings live in `.env`, both compose
+files hand the whole file to the server, and
+`curl http://localhost:8000/health` lists under `warnings` any
+`QUIRE_SERVER_*` variable the server does not recognise. The server's boot
+warning for a misspelled variable points at this section.
 
-Settings live in `.env`. Compose forwards the whole file to the container;
-a variable exported only in the shell, for example
-`QUIRE_SERVER_AI_ENABLED=false docker compose up`, is not forwarded any
-more.
-
-`QUIRE_SERVER_PORT` is read by the minimal compose only, for the host port
-mapping. The server always listens on 8000 inside the container.
-
-#### Build-time
-
-| Var | Default | Purpose |
-| --- | --- | --- |
-| `QUIRE_SERVER_VERSION` | `dev` | Identifies the running build: the FastAPI `version` field and `GET /health`'s `version`. Baked into the image at build time from the commit sha (`server/Dockerfile`'s `QUIRE_VERSION` build arg, set by the `image` job in `server-ci.yaml`); not something you set by hand in `.env`. |
-
-#### Required and deploy mode
-
-| Var | Default | Purpose |
-| --- | --- | --- |
-| `QUIRE_SERVER_DATABASE_URL` | local Postgres | SQLAlchemy URL (asyncpg). Both composes pin it under `environment:`, which wins over `.env`, so a line in `.env` is ignored; edit the compose file for an external database. |
-| `QUIRE_SERVER_CWA_BASE_URL` | in-cluster Calibre | Upstream calibre-web URL for Basic auth proxying. Required in the minimal compose (it refuses to start without it); the full compose pins it to its own calibre-web. |
-| `QUIRE_SERVER_PROGRESS_ENABLED` | `true` | Mounts `/sync/v1/*` and `/library/v1/*`. Disable for AI-only mode. |
-| `QUIRE_SERVER_AI_ENABLED` | `true` | Mounts `/ai/v1/*`. With no provider configured the server boots with a warning and the app reports AI as unconfigured. |
-| `QUIRE_SERVER_AUTH_BACKEND` | `calibreweb` | `calibreweb` verifies credentials against calibre-web; `native` keeps its own users and sessions (see "AI auth mode"). |
-| `QUIRE_SERVER_LOG_LEVEL` | `INFO` | Python log level: `DEBUG`, `INFO`, `WARNING`, `ERROR`. |
-
-#### AI provider and tuning
-
-| Var | Default | Purpose |
-| --- | --- | --- |
-| `QUIRE_SERVER_AI_BASE_URL` | unset | OpenAI-compatible endpoint including `/v1`, for example `https://ollama.com/v1` or `http://host.docker.internal:11434/v1` for an Ollama on the Docker host. Empty counts as unset. |
-| `QUIRE_SERVER_AI_MODEL` | unset | Model id as the provider names it, for example `gpt-oss:120b-cloud`. Empty counts as unset. |
-| `QUIRE_SERVER_AI_API_KEY` | unset | Bearer token; never logged or returned. Empty counts as unset and sends no `Authorization` header. |
-| `QUIRE_SERVER_AI_TIMEOUT_S` | `120` | Seconds to wait for one model answer. The server retries once on malformed output, so one request can take twice this. CPU-only hosts often need `300` or more. |
-| `QUIRE_SERVER_AI_RETRIEVAL_TIMEOUT_S` | `8` | Seconds for each Wikipedia / Open Library request; one lookup can make a few. A lookup gives up after twice this in total. |
-| `QUIRE_SERVER_AI_SOURCES` | `wikipedia,openlibrary` | Comma-separated retrieval sources. Empty disables retrieval and shrinks the prompt to the book metadata, which is the first thing to try when a small local model keeps timing out. |
-| `QUIRE_SERVER_AI_MAX_CONCURRENCY` | `4` | Parallel model calls allowed at once. |
-| `QUIRE_SERVER_AI_RATE_PER_MIN` | `10` | Process-wide token bucket against the provider. |
-| `QUIRE_SERVER_AI_DAILY_BUDGET` | `200` | Per-user generations per UTC day; `0` disables. |
-| `QUIRE_SERVER_AI_REGEN_DAILY_LIMIT` | `3` | Per-user `/insights/regenerate` ceiling per UTC day. |
-| `QUIRE_SERVER_AI_PROMOTE_DAILY_LIMIT` | `100` | Per-user `/insights/promote` ceiling per UTC day; process-local counter, `0` disables. |
-| `QUIRE_SERVER_AI_PROFILE_REFRESH_DAILY_LIMIT` | `3` | Reader Profile refreshes per user per UTC day. |
-| `QUIRE_SERVER_AI_PROFILE_TIMEOUT_S` | `90` | Timeout in seconds for one Reader Profile model call. The server retries once when the model answers off-schema, so a refresh can take up to twice this. |
-
-#### Auth probes and request limits
-
-| Var | Default | Purpose |
-| --- | --- | --- |
-| `QUIRE_SERVER_CWA_PROBE_PATH` | `/opds` | Path on calibre-web hit by the auth probe. |
-| `QUIRE_SERVER_CWA_PROBE_TIMEOUT_S` | `3.0` | HTTP timeout for the auth probe. |
-| `QUIRE_SERVER_AUTH_CACHE_POSITIVE_TTL_S` | `60` | Seconds a successful probe is cached. |
-| `QUIRE_SERVER_AUTH_CACHE_NEGATIVE_TTL_S` | `10` | Seconds a rejected probe is cached. |
-| `QUIRE_SERVER_AUTH_CACHE_MAX_ENTRIES` | `1024` | Upper bound on the auth-probe cache. |
-| `QUIRE_SERVER_NATIVE_SESSION_TTL_S` | `2592000` (30 days) | Session lifetime under `QUIRE_SERVER_AUTH_BACKEND=native`. |
-| `QUIRE_SERVER_MAX_REQUEST_BYTES` | `1048576` (1 MiB) | `RequestSizeMiddleware` threshold; oversized requests get 413. |
-| `QUIRE_SERVER_LIBRARY_SYNC_MAX_ITEMS` | `500` | Cap on entries per `POST /library/v1/sync` call. |
-
-#### Advanced and deprecated
-
-Leave these alone unless a section of this README sends you here.
-
-| Var | Default | Purpose |
-| --- | --- | --- |
-| `QUIRE_SERVER_AI_PROMPT_VERSION` | `"1"` (means unset) | Pins the AI prompt version for cache-key compatibility during a model regression. `"1"` and empty fall back to the in-code constant; see PR-ε for runtime resolution. |
-| `QUIRE_SERVER_AI_AUTH_MODE` | `basic` | `basic` (default, wraps the calibre-web verifier) or `token` (HMAC-SHA256, **deprecated**; use `QUIRE_SERVER_AUTH_BACKEND=native` instead). See "AI auth mode" below. |
-| `QUIRE_SERVER_AI_TOKEN_SECRETS` | unset | Token mode: JSON `{kid: secret}`. Each secret 32 bytes or more; multiple kids enable rotation. |
-| `QUIRE_SERVER_AI_TOKEN_ISSUER` | unset | Token mode: required; validated against `iss`. |
-| `QUIRE_SERVER_AI_TOKEN_AUDIENCE` | unset | Token mode: required; validated against `aud`. |
-| `QUIRE_SERVER_AI_METADATA_SERVER_LOOKUP_ENABLED` | `false` | **Deprecated (Phase 0, 2026-05-22).** When `true`, `/ai/v1/insights/{lookup,regenerate}` rebuild a `MetadataBundle` from the caller's `library_items` row when the client omits the `bundle` block. Boots emit a `DeprecationWarning` and a `logging.warning`. Removal two minor releases after the Phase 0 release. |
+The two sections below explain the behaviour behind a few of the advanced
+settings.
 
 #### Push-model API: deprecated server-side metadata fallback (Phase 0, 2026-05-22)
 
@@ -399,50 +299,12 @@ See `migrations/README.md` for the splice rule and labeling convention.
 
 ## Slow models and timeouts
 
-One insight is one model call bounded by `QUIRE_SERVER_AI_TIMEOUT_S`
-(default 120 s), retried once when the model answers with malformed JSON,
-so a single `/ai/v1/insights/lookup` can take twice that plus a few seconds
-of Wikipedia and Open Library retrieval. The app reads
-`generation_timeout_s` from `GET /ai/v1/config` and waits twice that plus
-30 s, so raising the variable on the server is the whole fix; the app
-adapts on its next config refresh. `POST /ai/v1/profile/refresh` runs on
-its own, shorter budget, `QUIRE_SERVER_AI_PROFILE_TIMEOUT_S` (default
-90 s), advertised the same way as `profile_timeout_s` so the app sizes
-that wait separately instead of reusing the generation-sized one.
-
-A quick answer from `ollama run` proves little. That prompt is a few words;
-Quire's is a few thousand characters of metadata, retrieved snippets and the
-JSON schema, and on a CPU the prompt evaluation is most of the wall time.
-Ollama also unloads a model after five idle minutes, so the first request
-after a pause pays the load time again (`OLLAMA_KEEP_ALIVE=30m` on the Ollama
-side keeps it resident). The `event=ai.generate.error` log line carries
-`prompt_chars`, the size of what the model was given.
-
-When a small local model keeps timing out, work down this ladder:
-
-1. Set `QUIRE_SERVER_AI_TIMEOUT_S=600` and try again. If it now succeeds, the
-   model is simply slow; keep the higher value or pick a faster model.
-2. Set `QUIRE_SERVER_AI_SOURCES=` (empty). Retrieval is skipped and the prompt
-   holds only the book metadata. If that succeeds, the model cannot digest
-   the retrieved context in time; leave retrieval off or use a larger model.
-3. Point `QUIRE_SERVER_AI_BASE_URL` at a hosted model. Ollama's free tier
-   with `gpt-oss:120b-cloud` answers in seconds and needs no local GPU.
-
-When the provider fails, the server answers with a JSON body (`detail.code`,
-`detail.message`, `detail.hint`) and logs the same hint on the
-`event=ai.generate.error` line:
-
-| What you see | Meaning | What to do |
-| --- | --- | --- |
-| 504 `provider_timeout` | The model did not answer in time. Usual with any model on CPU, and on the first call after Ollama unloaded the model. | Follow the ladder above: raise `QUIRE_SERVER_AI_TIMEOUT_S`, then try `QUIRE_SERVER_AI_SOURCES=` to shrink the prompt, then a hosted model such as `gpt-oss:120b-cloud` on Ollama's free tier. |
-| 502 `provider_unreachable` | The container could not reach `QUIRE_SERVER_AI_BASE_URL` (connection refused, firewall, or no answer to the TCP connect within 10 s). | Test from inside the container: `docker compose exec quire-server python -c "import os,urllib.request;print(urllib.request.urlopen(os.environ['QUIRE_SERVER_AI_BASE_URL']+'/models').status)"`. For an Ollama on the Docker host use `http://host.docker.internal:11434/v1`. |
-| 502 `provider_rejected`, `provider_status` 401 or 403 | The provider refused the key. | Check `QUIRE_SERVER_AI_API_KEY`. |
-| 502 `provider_rejected`, `provider_status` 404 | The provider does not know the model. | Check `QUIRE_SERVER_AI_MODEL`; `ollama pull <model>` for a local Ollama. |
-| 502 `provider_invalid_output` | The model answered, but not with the JSON structure Quire asks for. | Small models often cannot; try a larger one. |
-
-`GET /ai/v1/health` (authenticated) shows the last failure class and when
-the provider was last reachable. `GET /health` lists boot-time
-configuration warnings.
+Moved to [`docs/configuration.md`](../docs/configuration.md): the recipe for
+[CPU-only local models](../docs/configuration.md#cpu-only-local-models)
+covers the timeouts and the ladder to work down, and
+[Reading AI errors](../docs/configuration.md#reading-ai-errors) explains
+every `error_class` in the `event=ai.generate.error` log line and every code
+the AI endpoints answer with.
 
 ## AI smoke test
 

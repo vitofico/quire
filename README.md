@@ -182,6 +182,8 @@ For the sync server, see [`server/README.md`](server/README.md) — it
 ships two reference docker-compose files (`docker-compose.yml` for
 "bring your own proxy"; `docker-compose.full.yml` for a Caddy-fronted
 full stack with calibre-web + quire-server + TLS behind one base URL).
+Every server setting, with a ready `.env` per deploy mode and AI provider,
+is in [`docs/configuration.md`](docs/configuration.md).
 
 ### "Harmful app blocked" by Play Protect
 
