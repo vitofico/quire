@@ -349,6 +349,9 @@ def create_app() -> FastAPI:
                 # body, so the orchestrator must run on it rather than on the
                 # constructor default.
                 profile_timeout_s=settings.ai_profile_timeout_s,
+                # The constructor default (3) used to apply whatever the
+                # operator set.
+                profile_refresh_daily_limit=settings.ai_profile_refresh_daily_limit,
                 rate_per_min=settings.ai_rate_per_min,
                 daily_budget=settings.ai_daily_budget,
                 regen_daily_limit=settings.ai_regen_daily_limit,

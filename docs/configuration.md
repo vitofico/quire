@@ -524,11 +524,16 @@ When to change it: only if readers get 429 answers from
 - Default: `3`
 - Example: `QUIRE_SERVER_AI_PROFILE_REFRESH_DAILY_LIMIT=5`
 
-Meant to set how many Reader Profile refreshes each reader may run per UTC
-day, with `0` turning the limit off. **Known issue:** the server reads this
-variable but never passes it on (`create_app` in
-`server/quire_server/main.py` builds the AI service without it), so the limit
-is 3 whatever you set.
+How many times per UTC day each reader may refresh their Reader Profile
+(`POST /ai/v1/profile/refresh`). The count is kept in the database and
+survives restarts. Over the limit, the server answers 429 with `used`,
+`limit` and `resets_at`. A reader with no finished books gets a profile of
+reading statistics only, which makes no model call and does not count.
+Refreshes do not count against `QUIRE_SERVER_AI_DAILY_BUDGET`. `0` turns the
+limit off.
+
+When to change it: raise it while you try out models; lower it on a paid
+provider to cap what each reader can spend.
 
 ### What has no setting
 

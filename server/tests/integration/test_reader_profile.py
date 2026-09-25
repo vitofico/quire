@@ -7,6 +7,8 @@ Covers:
    `(metadata_id IS NOT NULL) DESC` ordering.
  * `GET /ai/v1/profile` cache-only semantics: 404 missing, 200 present,
    200 even for opted-out callers (no opt-in gate on the read endpoint).
+ * `POST /ai/v1/profile/refresh` daily cap follows
+   `QUIRE_SERVER_AI_PROFILE_REFRESH_DAILY_LIMIT`, with 0 turning it off.
  * Terminal-state invariant: DB check constraint, push write path clears
    the opposite flag, push preserves percent on the abandon transition,
    pull defensive read drops `abandoned_at` when both are set on a
@@ -18,10 +20,12 @@ Covers:
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 
+import httpx
 import pytest
 from sqlalchemy import inspect, select, text
 from sqlalchemy.exc import DBAPIError, IntegrityError
@@ -31,8 +35,10 @@ from quire_server.api.ai_schemas import (
     ReaderProfilePayload,
     ReaderStats,
 )
+from quire_server.core.ai.client import AIClient
 from quire_server.core.ai.service import _compute_reader_stats
 from quire_server.db.models import (
+    AIUsageDaily,
     BookInsight,
     BookTheme,
     Document,
@@ -377,6 +383,78 @@ async def test_refresh_profile_returns_envelope_shape(client_factory, configure_
     # path still computes one).
     assert body["input_fingerprint"] is not None
     assert len(body["input_fingerprint"]) == 16
+
+
+# ---------------------------------------------------------------------------
+# Daily refresh cap follows QUIRE_SERVER_AI_PROFILE_REFRESH_DAILY_LIMIT
+# ---------------------------------------------------------------------------
+
+
+def _answer_profile_calls(app) -> None:
+    """Swap only the model client of the orchestrator ``create_app`` built.
+
+    ``configure_ai`` would replace the whole orchestrator, and with it the
+    daily cap these tests are about, so the one ``create_app`` wired from the
+    settings stays in place and only stops reaching for a real provider.
+    """
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        content = json.dumps({"narrative": "n", "confidence": "low"})
+        return httpx.Response(
+            200,
+            json={"choices": [{"index": 0, "message": {"role": "assistant", "content": content}}]},
+        )
+
+    app.state.ai_orchestrator.ai = AIClient(
+        base_url="http://fake/v1",
+        api_key=None,
+        model="test-model",
+        transport=httpx.MockTransport(handler),
+    )
+
+
+async def _seed_refreshes_used_today(session, *, user_id: str, used: int) -> None:
+    """An opted-in reader with one finished book and ``used`` refreshes spent
+    today. Without a finished book the route takes the low-data path, which
+    never checks the cap.
+    """
+    await _seed_library_item(
+        session, user_id=user_id, metadata_id="m-cap", content_hash="h-cap", authors=["A"]
+    )
+    doc = await _seed_document(session, user_id=user_id, metadata_id="m-cap", content_hash="h-cap")
+    await _seed_progress(session, document_pk=doc.pk, percent=1.0, finished=True)
+    session.add(UserAIPreference(user_id=user_id, ai_enabled=True))
+    session.add(AIUsageDaily(user_id=user_id, day=datetime.now(UTC).date(), profile_count=used))
+    await session.commit()
+
+
+async def test_refresh_profile_daily_cap_is_the_configured_limit(client_factory, app, session):
+    """``create_app`` used to leave the setting out, so the cap stayed at the
+    orchestrator's built-in 3 whatever the operator set.
+    """
+    async with client_factory(
+        ai_enabled=True, ai_base_url="http://x", ai_model="m", ai_profile_refresh_daily_limit=5
+    ) as client:
+        _answer_profile_calls(app)
+        await _seed_refreshes_used_today(session, user_id="alice", used=4)
+        fifth = await client.post("/ai/v1/profile/refresh", headers=_basic_header("alice"))
+        sixth = await client.post("/ai/v1/profile/refresh", headers=_basic_header("alice"))
+
+    # Four used of five: the built-in 3 refused this one.
+    assert fifth.status_code == 200, fifth.text
+    assert sixth.status_code == 429, sixth.text
+    assert sixth.json()["detail"]["limit"] == 5
+
+
+async def test_refresh_profile_daily_limit_zero_turns_the_cap_off(client_factory, app, session):
+    async with client_factory(
+        ai_enabled=True, ai_base_url="http://x", ai_model="m", ai_profile_refresh_daily_limit=0
+    ) as client:
+        _answer_profile_calls(app)
+        await _seed_refreshes_used_today(session, user_id="alice", used=50)
+        r = await client.post("/ai/v1/profile/refresh", headers=_basic_header("alice"))
+
+    assert r.status_code == 200, r.text
 
 
 async def test_get_profile_200_when_opted_out(client_factory, configure_ai, app, session):
