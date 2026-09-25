@@ -35,11 +35,26 @@ internal fun staticFaces(name: String): List<BundledFontFace> = listOf(
 )
 
 /**
+ * OpenDyslexic's italic, bold and bold italic. The regular face ships inside Readium, which
+ * declares it under the same family name after Quire's faces; a regular declared here would lose
+ * to it and never be drawn.
+ *
+ * These are the 2.001 files that match Readium's regular. OpenDyslexic 3, the maintained release,
+ * is a redesign whose letters run up to 31% wider, so its italic would read as another font
+ * mid-line.
+ */
+internal val openDyslexicStyledFaces: List<BundledFontFace> = listOf(
+    BundledFontFace("OpenDyslexic-Italic.otf", italic = true, weights = 400..400),
+    BundledFontFace("OpenDyslexic-Bold.otf", italic = false, weights = 700..700),
+    BundledFontFace("OpenDyslexic-BoldItalic.otf", italic = true, weights = 700..700),
+)
+
+/**
  * Declares every bundled reader font to Readium, under the family name the font preference emits.
  *
- * Readium only declares the fonts it ships itself (OpenDyslexic). Any other name it is handed goes
- * into the page's CSS as-is, and a web view with no `@font-face` for it silently falls back to its
- * default sans-serif. That is how every serif in the picker used to render in Roboto.
+ * Readium only declares the one font it ships itself, OpenDyslexic's regular. Any other name it is
+ * handed goes into the page's CSS as-is, and a web view with no `@font-face` for it silently falls
+ * back to its default sans-serif. That is how every serif in the picker used to render in Roboto.
  */
 @OptIn(ExperimentalReadiumApi::class)
 fun EpubNavigatorFragment.Configuration.declareReaderFonts() {

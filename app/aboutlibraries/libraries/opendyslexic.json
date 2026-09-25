@@ -2,7 +2,7 @@
   "uniqueId": "fonts:opendyslexic",
   "artifactVersion": "2.001",
   "name": "OpenDyslexic",
-  "description": "The typeface the reader offers as OpenDyslexic, regular face only. It ships inside the Readium navigator, unmodified.",
+  "description": "The typeface the reader offers as OpenDyslexic. The regular face ships inside the Readium navigator and the reader bundles the matching italic, bold and bold italic, all unmodified.",
   "website": "https://github.com/antijingoist/open-dyslexic",
   "developers": [
     {
