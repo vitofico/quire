@@ -52,13 +52,14 @@ class DocumentRepository(private val dao: DocumentDao) {
 
     /**
      * Removes the row (cascade-deletes any [progress] row via FK), then best-effort
-     * deletes the local EPUB file. The DB delete is the source of truth — if the
-     * file unlink fails (e.g. already missing), the document is still gone from
-     * the library.
+     * deletes the local EPUB file and its cover. The DB delete is the source of
+     * truth — if a file unlink fails (e.g. already missing), the document is still
+     * gone from the library.
      */
     suspend fun delete(document: Document) {
         dao.deleteById(document.id)
         runCatching { File(document.localPath).delete() }
+        document.coverPath?.let { path -> runCatching { File(path).delete() } }
     }
 
     /**
@@ -70,6 +71,13 @@ class DocumentRepository(private val dao: DocumentDao) {
         dao.deleteAll()
         runCatching { booksDir.listFiles()?.forEach { it.deleteRecursively() } }
     }
+
+    /**
+     * Gives [id] a cover when it has none yet. Returns false when the row was removed or
+     * already has a cover, so the caller can drop the file it just wrote.
+     */
+    suspend fun setCoverPathIfMissing(id: Long, coverPath: String): Boolean =
+        dao.setCoverPathIfMissing(id, coverPath) > 0
 
     suspend fun insert(
         identity: DocumentIdentity,

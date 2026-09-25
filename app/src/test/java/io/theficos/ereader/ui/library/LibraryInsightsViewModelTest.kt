@@ -49,7 +49,7 @@ class LibraryInsightsViewModelTest {
         Dispatchers.setMain(Dispatchers.Unconfined)
         server = MockWebServer()
         server.start()
-        val ok = OkHttpClient.Builder().callTimeout(5, TimeUnit.SECONDS).build()
+        val ok = OkHttpClient.Builder().callTimeout(WAIT_MS, TimeUnit.MILLISECONDS).build()
         aiClient = AiClient(
             baseUrlProvider = { server.url("").toString().trimEnd('/') },
             http = ok,
@@ -282,13 +282,13 @@ class LibraryInsightsViewModelTest {
 
     /** Wait until the VM state is terminal (anything except Loading). */
     private suspend fun awaitTerminal(vm: LibraryInsightsViewModel): LibraryInsightsUiState =
-        withTimeout(5_000) {
+        withTimeout(WAIT_MS) {
             vm.state.first { it !is LibraryInsightsUiState.Loading }
         }
 
     private suspend inline fun <reified T : LibraryInsightsUiState> awaitState(
         vm: LibraryInsightsViewModel,
-    ): T = withTimeout(5_000) {
+    ): T = withTimeout(WAIT_MS) {
         vm.state.first { it is T } as T
     }
 
@@ -310,6 +310,13 @@ class LibraryInsightsViewModelTest {
     }
 
     private companion object {
+        /**
+         * Bounds a hung test, not a slow one: a passing run settles in
+         * milliseconds. At 5 s the first network test in a JVM, still loading
+         * OkHttp and MockWebServer, timed out on a loaded machine.
+         */
+        const val WAIT_MS = 30_000L
+
         const val STATS_JSON = """
             {
                 "total_books": 12,

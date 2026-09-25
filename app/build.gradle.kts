@@ -39,6 +39,16 @@ aboutLibraries {
     registerAndroidTasks = false
 }
 
+// The plugin's task inputs do not capture the resolved dependency versions, so after a
+// version bump Gradle reused a cached or "up-to-date" dependency list: CI's drift check
+// then compared the committed file against the old graph and failed a correct file (or
+// could pass a stale one). Collecting afresh takes seconds and runs only on demand.
+tasks.matching { it.name == "collectDependencies" || it.name == "exportLibraryDefinitions" }
+    .configureEach {
+        outputs.cacheIf { false }
+        outputs.upToDateWhen { false }
+    }
+
 android {
     namespace = "io.theficos.quire"
     compileSdk = 34
