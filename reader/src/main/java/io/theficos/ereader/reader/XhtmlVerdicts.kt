@@ -31,6 +31,6 @@ internal class XhtmlVerdicts(private val dir: File) {
     private fun key(book: File) = "$RULES\t${book.absolutePath}\t${book.length()}\t${book.lastModified()}"
 
     private companion object {
-        const val RULES = "xhtml-rules-2"
+        const val RULES = "xhtml-rules-3"
     }
 }

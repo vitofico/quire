@@ -83,19 +83,18 @@ class XhtmlRelaxerTest {
         assertThat(xmlParseError(doc("<p>caf\u00e9</p>", prolog = ""))).isNull()
     }
 
-    @Test fun `the same byte is fine where the declaration says ISO-8859-1`() {
+    @Test fun `the same byte is fine where the declaration says ISO-8859-1, once served as UTF-8`() {
         val latin1 = fixture("stray-latin1-byte.xhtml").toString(Charsets.ISO_8859_1)
             .replace("encoding=\"utf-8\"", "encoding=\"ISO-8859-1\"")
             .toByteArray(Charsets.ISO_8859_1)
-        assertThat(xmlParseError(latin1)).isNull()
+        assertThat(xmlParseError(utf8Document(latin1, html = false))).isNull()
     }
 
-    @Test fun `a legacy multi-byte encoding breaks once Readium serves the chapter as UTF-8`() {
+    @Test fun `a well-formed Shift_JIS chapter stays on the XML parser once served as UTF-8`() {
         val prolog = """<?xml version="1.0" encoding="Shift_JIS"?>"""
         val japanese = doc("<p>日本語のテキスト</p>", prolog = prolog).toString(Charsets.UTF_8)
             .toByteArray(Charset.forName("Shift_JIS"))
-        assertThat(xmlParseError(japanese)).contains("Readium")
-        assertThat(xmlParseError(doc("<p>ASCII only</p>", prolog = prolog))).isNull()
+        assertThat(xmlParseError(utf8Document(japanese, html = false))).isNull()
     }
 
     @Test fun `a UTF-8 byte-order mark outranks the declared encoding`() {
@@ -134,6 +133,24 @@ class XhtmlRelaxerTest {
         assertThat(malformed).containsExactly("OEBPS/ch2.xhtml")
         assertThat(relaxed.readingOrder.map { it.mediaType }).containsExactly(MediaType.XHTML, MediaType.HTML).inOrder()
         assertThat(relaxed.resources.map { it.mediaType }).containsExactly(MediaType.XHTML, MediaType.CSS).inOrder()
+    }
+
+    @Test fun `the check reads each document as it is served, in UTF-8`() = runTest {
+        val japanese = Url("OEBPS/ja.xhtml")!!
+        val utf16 = Url("OEBPS/utf16.xhtml")!!
+        val sjis = doc("<p>日本語</p>", prolog = """<?xml version="1.0" encoding="Shift_JIS"?>""")
+            .toString(Charsets.UTF_8).toByteArray(Charset.forName("Shift_JIS"))
+        val bom = byteArrayOf(0xFF.toByte(), 0xFE.toByte())
+        val wide = bom + doc("<p>café</p>", prolog = """<?xml version="1.0" encoding="UTF-16"?>""")
+            .toString(Charsets.UTF_8).toByteArray(Charsets.UTF_16LE)
+        val container = MapContainer(mapOf(japanese to sjis, utf16 to wide))
+        val manifest = Manifest(
+            metadata = Metadata(),
+            readingOrder = listOf(Link(japanese, MediaType.XHTML), Link(utf16, MediaType.XHTML)),
+        )
+
+        assertThat(manifest.malformedXhtml(container)).containsExactly("OEBPS/ja.xhtml", "OEBPS/utf16.xhtml")
+        assertThat(manifest.malformedXhtml(container.servingDocuments(manifest))).isEmpty()
     }
 
     private class MapContainer(private val files: Map<Url, ByteArray>) : Container<Resource> {
