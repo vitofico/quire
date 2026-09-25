@@ -57,7 +57,7 @@ tasks.matching { it.name == "collectDependencies" || it.name == "exportLibraryDe
 
 android {
     namespace = "io.theficos.quire"
-    compileSdk = 34
+    compileSdk = 35
     defaultConfig {
         applicationId = "io.theficos.quire"
         minSdk = 26
