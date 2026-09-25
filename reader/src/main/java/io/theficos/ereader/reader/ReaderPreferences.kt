@@ -79,8 +79,8 @@ enum class ReaderFontFamily(
      */
     CHARIS(ReadiumFontFamily("Charis SIL"), staticFaces("CharisSIL")),
 
-    /** Readium bundles and declares this one itself. */
-    OPEN_DYSLEXIC(ReadiumFontFamily.OPEN_DYSLEXIC),
+    /** Readium bundles and declares the regular face; Quire adds [openDyslexicStyledFaces]. */
+    OPEN_DYSLEXIC(ReadiumFontFamily.OPEN_DYSLEXIC, openDyslexicStyledFaces),
     ;
 
     internal companion object {

@@ -16,6 +16,7 @@ import org.readium.r2.shared.util.Either
 import org.readium.r2.shared.util.Url
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.nio.ByteBuffer
 
 // Robolectric: a navigator Configuration and Readium's Theme both initialise through Android's
 // colour parsing, and the asset and served-path checks need a real AssetManager and PatternMatcher.
@@ -27,6 +28,7 @@ class ReaderFontsTest {
     private data class DeclaredFace(val sources: List<String>, val style: FontStyle?, val weights: IntRange?)
 
     private val config = EpubNavigatorFragment.Configuration().apply { declareReaderFonts() }
+    private val assets = ApplicationProvider.getApplicationContext<Context>().assets
 
     /**
      * The `@font-face` declarations Readium will inject into every page, by family name.
@@ -60,11 +62,19 @@ class ReaderFontsTest {
         }
     }
 
-    @Test fun `every font in the picker asks the page for a family it can draw`() {
-        assertThat(declaredFamilies().keys).containsExactly("Lora", "Literata", "Charis SIL")
+    /** The version a font file reports: the `fontRevision` field of its `head` table. */
+    private fun fontRevision(path: String): Int {
+        val font = ByteBuffer.wrap(assets.open(path).use { it.readBytes() })
+        val head = (0 until font.getShort(4).toInt()).map { 12 + 16 * it }
+            .first { font.getInt(it) == 0x68656164 } // "head"
+        return font.getInt(font.getInt(head + 8) + 4)
+    }
 
-        // Readium declares OpenDyslexic itself; every other family has to be declared by Quire.
-        val drawable = declaredFamilies().keys + ReadiumFontFamily.OPEN_DYSLEXIC.name
+    @Test fun `every font in the picker asks the page for a family it can draw`() {
+        assertThat(declaredFamilies().keys)
+            .containsExactly("Lora", "Literata", "Charis SIL", ReadiumFontFamily.OPEN_DYSLEXIC.name)
+
+        val drawable = declaredFamilies().keys
         ReaderFontFamily.entries.filter { it != ReaderFontFamily.SYSTEM }.forEach { family ->
             val requested = ReaderPreferences(fontFamily = family).toEpubPreferences().fontFamily?.name
             assertWithMessage("family $family asks the page for").that(requested).isIn(drawable)
@@ -77,6 +87,10 @@ class ReaderFontsTest {
         // Missing one, the web view fakes it by slanting or thickening the regular face.
         declaredFamilies().forEach { (family, faces) ->
             for (style in FontStyle.entries) for (weight in listOf(400, 700)) {
+                // Readium declares OpenDyslexic's regular itself; see the test below.
+                val readiumsRegular = family == ReadiumFontFamily.OPEN_DYSLEXIC.name &&
+                    style == FontStyle.NORMAL && weight == 400
+                if (readiumsRegular) continue
                 assertWithMessage("$family $style $weight")
                     .that(faces.any { it.style == style && it.weights?.contains(weight) == true })
                     .isTrue()
@@ -84,12 +98,29 @@ class ReaderFontsTest {
         }
     }
 
+    @Test fun `OpenDyslexic's own faces complete the regular Readium ships, from the same release`() {
+        // Readium appends its regular after Quire's faces and the later @font-face wins, so a
+        // regular declared here would ship in the APK and never be drawn.
+        val faces = declaredFamilies().getValue(ReadiumFontFamily.OPEN_DYSLEXIC.name)
+        assertThat(faces.map { it.style to it.weights }).containsExactly(
+            FontStyle.ITALIC to 400..400,
+            FontStyle.NORMAL to 700..700,
+            FontStyle.ITALIC to 700..700,
+        )
+
+        // OpenDyslexic 3 is a wider redesign. If a Readium upgrade swaps its regular for it, these
+        // 2.001 faces would draw a visibly different font beside it: replace them to match.
+        val regular = fontRevision("readium/fonts/OpenDyslexic-Regular.otf")
+        faces.flatMap { it.sources }.forEach { path ->
+            assertWithMessage(path).that(fontRevision(path)).isEqualTo(regular)
+        }
+    }
+
     @Test fun `every declared font file ships in the APK and is served to the page`() {
-        val assets = ApplicationProvider.getApplicationContext<Context>().assets
         val served = config.servedAssets.map { PatternMatcher(it, PatternMatcher.PATTERN_SIMPLE_GLOB) }
         val sources = declaredFamilies().values.flatten().flatMap { it.sources }
 
-        assertThat(sources).hasSize(8)
+        assertThat(sources).hasSize(11)
         sources.forEach { path ->
             assets.open(path).use { assertWithMessage("$path is empty").that(it.read()).isNotEqualTo(-1) }
             assertWithMessage("$path is not served").that(served.any { it.match(path) }).isTrue()
