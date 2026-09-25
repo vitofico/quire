@@ -330,13 +330,22 @@ def create_app() -> FastAPI:
             # retrieval calls. Exposed via GET /ai/v1/health.
             ai_health = AiHealthState()
             app.state.ai_health = ai_health
-            orch = InsightOrchestrator(
-                ai=ai_client,
-                retriever_factory=lambda s: Retriever(
+
+            def retriever_factory(s):
+                return Retriever(
                     session=s,
                     timeout_s=settings.ai_retrieval_timeout_s,
                     health_state=ai_health,
-                ),
+                )
+
+            orch = InsightOrchestrator(
+                ai=ai_client,
+                retriever_factory=retriever_factory,
+                # The Reader Profile's discovery step looks up the works of
+                # the reader's top authors on Open Library. Without it the
+                # orchestrator skips that step and every profile came back
+                # with no discovery recommendations.
+                profile_retriever_factory=retriever_factory,
                 sources_enabled=parse_ai_sources(settings.ai_sources),
                 model_id=settings.ai_model,
                 # PR-ε / coordinator §3.1 / Lock #19: the in-code constant

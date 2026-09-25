@@ -457,6 +457,112 @@ async def test_refresh_profile_daily_limit_zero_turns_the_cap_off(client_factory
     assert r.status_code == 200, r.text
 
 
+# ---------------------------------------------------------------------------
+# Discovery: the Reader Profile looks up the top authors' works on Open Library
+# ---------------------------------------------------------------------------
+
+
+def _answer_profile_with_discovery(app) -> list[httpx.Request]:
+    """Answer the profile call with one pick from the discovery candidates,
+    and serve Open Library from a fake, keeping the retriever ``create_app``
+    wired. Returns the list the fake records Open Library requests into.
+    """
+
+    def model(req: httpx.Request) -> httpx.Response:
+        content = json.dumps(
+            {
+                "narrative": "n",
+                "confidence": "low",
+                "discovery_recommendations": [{"candidate_id": "dis-001", "rationale": "why"}],
+            }
+        )
+        return httpx.Response(
+            200,
+            json={"choices": [{"index": 0, "message": {"role": "assistant", "content": content}}]},
+        )
+
+    seen: list[httpx.Request] = []
+
+    def openlibrary(req: httpx.Request) -> httpx.Response:
+        seen.append(req)
+        if req.url.path == "/search/authors.json":
+            return httpx.Response(200, json={"docs": [{"key": "OL1A"}]})
+        if req.url.path == "/authors/OL1A/works.json":
+            # The first work is the one the reader owns, so it must not be offered.
+            entries = [
+                {"title": "Owned Book", "key": "/works/OL1W"},
+                {"title": "Unread Book", "key": "/works/OL2W"},
+            ]
+            return httpx.Response(200, json={"entries": entries})
+        return httpx.Response(404)
+
+    orch = app.state.ai_orchestrator
+    orch.ai = AIClient(
+        base_url="http://fake/v1",
+        api_key=None,
+        model="test-model",
+        transport=httpx.MockTransport(model),
+    )
+    wired = orch._profile_retriever_factory
+
+    def with_fake_openlibrary(s):
+        retriever = wired(s)
+        retriever._transport = httpx.MockTransport(openlibrary)
+        return retriever
+
+    if wired is not None:
+        orch._profile_retriever_factory = with_fake_openlibrary
+    return seen
+
+
+async def _seed_finished_book_by(session, *, user_id: str, author: str) -> None:
+    await _seed_library_item(
+        session,
+        user_id=user_id,
+        metadata_id="m-dis",
+        content_hash="h-dis",
+        title="Owned Book",
+        authors=[author],
+    )
+    doc = await _seed_document(session, user_id=user_id, metadata_id="m-dis", content_hash="h-dis")
+    await _seed_progress(session, document_pk=doc.pk, percent=1.0, finished=True)
+    session.add(UserAIPreference(user_id=user_id, ai_enabled=True))
+    await session.commit()
+
+
+async def test_refresh_profile_offers_unread_works_by_top_authors(client_factory, app, session):
+    """``create_app`` used to leave the discovery retriever out, so every
+    profile came back with no discovery recommendations.
+    """
+    async with client_factory(ai_enabled=True, ai_base_url="http://x", ai_model="m") as client:
+        seen = _answer_profile_with_discovery(app)
+        await _seed_finished_book_by(session, user_id="alice", author="Ann Author")
+        r = await client.post("/ai/v1/profile/refresh", headers=_basic_header("alice"))
+
+    assert r.status_code == 200, r.text
+    assert [req.url.params.get("q") for req in seen[:1]] == ["Ann Author"]
+    recs = r.json()["payload"]["discovery_recommendations"]
+    assert [(rec["title"], rec["author"]) for rec in recs] == [("Unread Book", "Ann Author")]
+    assert recs[0]["source_type"] == "discovery_openlibrary"
+    assert recs[0]["source_url"].endswith("/works/OL2W")
+
+
+async def test_refresh_profile_skips_discovery_without_openlibrary(client_factory, app, session):
+    """``QUIRE_SERVER_AI_SOURCES`` without ``openlibrary`` keeps the profile
+    off Open Library too, as it does card retrieval.
+    """
+    async with client_factory(
+        ai_enabled=True, ai_base_url="http://x", ai_model="m", ai_sources="wikipedia"
+    ) as client:
+        seen = _answer_profile_with_discovery(app)
+        await _seed_finished_book_by(session, user_id="alice", author="Ann Author")
+        r = await client.post("/ai/v1/profile/refresh", headers=_basic_header("alice"))
+
+    assert r.status_code == 200, r.text
+    assert seen == []
+    assert r.json()["payload"]["discovery_recommendations"] == []
+
+
 async def test_get_profile_200_when_opted_out(client_factory, configure_ai, app, session):
     """No opt-in gate on GET /profile — opted-out callers can still read
     their last generation (spec line 289 / brief line 42).

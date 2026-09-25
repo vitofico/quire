@@ -407,9 +407,16 @@ hardware.
 
 Which public sites the server looks a book up on before asking the model.
 What they return goes into the prompt, which makes the card more accurate
-and the prompt longer. The lookups send the book's title, author, series and
-ISBN to those sites, and nothing about the reader. Results are cached in the
-database.
+and the prompt longer. These lookups send the book's title, author, series
+and ISBN to those sites, and nothing about the reader. Results are cached in
+the database.
+
+`openlibrary` also feeds the Reader Profile. When a reader refreshes it, the
+server asks Open Library for the works of up to five of the authors that
+appear most in that reader's library, and offers the ones the reader does not
+own as discovery picks. Each request carries only an author's name, but
+together the names reflect what the reader keeps. Results are cached for 30
+days. Without `openlibrary`, the profile has no discovery picks.
 
 An empty value, `QUIRE_SERVER_AI_SOURCES=`, turns retrieval off. The prompt
 then holds only the book's own details, which makes it much shorter and
