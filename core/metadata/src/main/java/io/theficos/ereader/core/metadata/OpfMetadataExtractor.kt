@@ -17,7 +17,9 @@ object OpfMetadataExtractor {
             val factory = DocumentBuilderFactory.newInstance().apply {
                 isNamespaceAware = true
                 isValidating = false
-                isXIncludeAware = false
+                // Android's DocumentBuilderFactory throws on this setter even for false, and
+                // unguarded that threw away every OPF (title from the file name, no author).
+                runCatching { isXIncludeAware = false }
                 isExpandEntityReferences = false
                 // Hardening: block DOCTYPE entirely, then defence-in-depth for parsers that ignore the above.
                 safeSetFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
