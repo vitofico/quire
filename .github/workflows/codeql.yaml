@@ -44,7 +44,7 @@ jobs:
       - if: matrix.language == 'java-kotlin'
         uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
         with:
-          packages: "platform-tools platforms;android-34 build-tools;34.0.0"
+          packages: "platform-tools platforms;android-35 build-tools;34.0.0"
       - if: matrix.language == 'java-kotlin'
         run: ./gradlew assembleDebug -x test --stacktrace
       - if: matrix.language == 'python'

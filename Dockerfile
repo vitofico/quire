@@ -1,7 +1,7 @@
 FROM --platform=linux/amd64 eclipse-temurin:21-jdk-jammy
 
 ARG ANDROID_CMDLINE_TOOLS_VERSION=11076708
-ARG ANDROID_PLATFORM=android-34
+ARG ANDROID_PLATFORM=android-35
 ARG ANDROID_BUILD_TOOLS=34.0.0
 
 ENV ANDROID_SDK_ROOT=/opt/android-sdk \
