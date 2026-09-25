@@ -1,0 +1,15 @@
+{
+  "uniqueId": "fonts:literata",
+  "artifactVersion": "3.103",
+  "name": "Literata",
+  "description": "The serif typeface the reader offers as Literata. Bundled unmodified from google/fonts.",
+  "website": "https://github.com/googlefonts/literata",
+  "developers": [
+    {
+      "name": "The Literata Project Authors"
+    }
+  ],
+  "licenses": [
+    "OFL-1.1-Literata"
+  ]
+}

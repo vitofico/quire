@@ -31,6 +31,7 @@ beside them in reader/src/main/assets/fonts/ as OFL-<family>.txt.
     (upstream: https://software.sil.org/charis/)
 The app's own screens use the same bundled Lora.
 
-A complete attribution list is generated at build time and shown in
-the application under Settings → About → Open-source licenses
-(see the nice-to-have plan for the in-app screen).
+A complete attribution list, the bundled fonts included, is shown in
+the application under Settings → About → Open-source licenses. It is
+generated from the release dependencies plus the entries in
+app/aboutlibraries/, which cover what ships without being one.
