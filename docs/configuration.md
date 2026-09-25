@@ -87,17 +87,17 @@ What that does depends on the setting:
 | `QUIRE_SERVER_AI_SOURCES` | Retrieval off. The default applies only when the line is missing. |
 | `QUIRE_SERVER_AI_PROMPT_VERSION` | The built-in prompt version, the same as the default. |
 | Numbers, `true`/`false` settings, fixed-choice settings, `QUIRE_SERVER_AI_TOKEN_SECRETS` | The server refuses to start. |
-| `QUIRE_SERVER_LOG_LEVEL` | The server refuses to start. |
+| `QUIRE_SERVER_LOG_LEVEL` | `INFO`, the same as the default. |
 | Other text settings | Empty text, taken literally, which breaks whatever uses it. |
 
 "Empty counts as unset" is the rule only for the three AI provider settings
-in the first row (`_blank_means_unset` in `server/quire_server/config.py`).
+in the first row (`_blank_means_unset` in `server/quire_server/config.py`)
+and for the log level.
 When the server refuses to start, its container stops and Docker restarts it
 over and over. `docker compose logs quire-server` then shows
 `validation error for Settings` followed by the setting's name in lower case
 without the prefix, for example `ai_timeout_s` for
-`QUIRE_SERVER_AI_TIMEOUT_S`, or `ValueError: Unknown level: ''` for the log
-level.
+`QUIRE_SERVER_AI_TIMEOUT_S`.
 
 ### Applying a change
 
@@ -669,16 +669,16 @@ switches.
 
 #### `QUIRE_SERVER_LOG_LEVEL`
 
-- Type: `DEBUG`, `INFO`, `WARNING`, `ERROR` or `CRITICAL`, in capitals
+- Type: `DEBUG`, `INFO`, `WARNING`, `ERROR` or `CRITICAL`, in any case
 - Default: `INFO`
 - Example: `QUIRE_SERVER_LOG_LEVEL=DEBUG`
 
 How much the server logs. At `INFO` you see each generated card
 (`ai.generate`), retries, retrieval problems and the server's outgoing HTTP
-requests; at `WARNING`, only problems. A lower-case value stops the server
-at boot (`ValueError: Unknown level: 'info'`). It does not affect the one
-line per request, such as `"GET /health HTTP/1.1" 200 OK`, that uvicorn,
-the web server inside the container, prints.
+requests; at `WARNING`, only problems. Any other word stops the server at
+boot with `validation error for Settings` naming `log_level`. It does not
+affect the one line per request, such as `"GET /health HTTP/1.1" 200 OK`,
+that uvicorn, the web server inside the container, prints.
 
 When to change it: keep `INFO` while setting up; most of the evidence in
 [Reading AI errors](#reading-ai-errors) is logged at that level.

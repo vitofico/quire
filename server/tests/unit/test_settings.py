@@ -252,3 +252,25 @@ def test_config_warnings_silent_for_recognised_or_empty_ai_sources(sources):
 
 def test_config_warnings_unrecognised_ai_source_silent_when_ai_disabled():
     assert config_warnings(Settings(ai_enabled=False, ai_sources="open_library")) == []
+
+
+# --- Log level ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [("info", "INFO"), (" debug ", "DEBUG"), ("Warning", "WARNING"), ("", "INFO"), ("  ", "INFO")],
+)
+def test_log_level_any_case_and_empty_means_default(monkeypatch, raw, expected):
+    """``logging.basicConfig`` only knows capitalised names, so a lower-case or
+    empty value used to stop the server at boot with ``Unknown level``."""
+    monkeypatch.setenv("QUIRE_SERVER_LOG_LEVEL", raw)
+    assert Settings(_env_file=None).log_level == expected
+
+
+def test_log_level_rejects_a_name_that_is_not_a_level(monkeypatch):
+    from pydantic import ValidationError
+
+    monkeypatch.setenv("QUIRE_SERVER_LOG_LEVEL", "verbose")
+    with pytest.raises(ValidationError, match="log_level"):
+        Settings(_env_file=None)

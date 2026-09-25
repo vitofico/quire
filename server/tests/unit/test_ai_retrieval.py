@@ -115,7 +115,7 @@ async def test_lookup_book_language_returns_edition_language(session: AsyncSessi
 
     def handler(req: httpx.Request) -> httpx.Response:
         # Must hit the edition-level Books API, not /search.json.
-        assert "/api/books" in str(req.url)
+        assert req.url.path == "/api/books.json"
         assert "jscmd=details" in str(req.url)
         return httpx.Response(200, json=_ol_details_response(bibkey, ["fre"]))
 
@@ -1153,6 +1153,50 @@ async def test_openlibrary_timeout_records_reachable_false(session: AsyncSession
     cites = await r.lookup_openlibrary(author="X", title="Y", isbn=None)
     assert cites == []
     snap = await health.snapshot()
+    assert snap.retrieval_sources["openlibrary"].reachable is False
+
+
+@pytest.mark.asyncio
+async def test_author_bibliography_records_health_as_openlibrary(session: AsyncSession):
+    """Profile discovery's lookups show under the ``openlibrary`` row that
+    ``/ai/v1/health`` lists, not under a name the endpoint never seeds."""
+    health = AiHealthState()
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path.endswith("/search/authors.json"):
+            return httpx.Response(200, json={"docs": [{"key": "OL1A"}]})
+        return httpx.Response(200, json={"entries": [{"title": "Foundation"}]})
+
+    r = Retriever(
+        session=session,
+        transport=httpx.MockTransport(handler),
+        timeout_s=5.0,
+        health_state=health,
+    )
+    await r.author_bibliography("Isaac Asimov")
+    snap = await health.snapshot()
+    assert set(snap.retrieval_sources) == {"openlibrary"}
+    assert snap.retrieval_sources["openlibrary"].reachable is True
+
+
+@pytest.mark.asyncio
+async def test_author_bibliography_outage_marks_openlibrary_unreachable(
+    session: AsyncSession,
+):
+    health = AiHealthState()
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(503)
+
+    r = Retriever(
+        session=session,
+        transport=httpx.MockTransport(handler),
+        timeout_s=5.0,
+        health_state=health,
+    )
+    assert await r.author_bibliography("Isaac Asimov") == []
+    snap = await health.snapshot()
+    assert set(snap.retrieval_sources) == {"openlibrary"}
     assert snap.retrieval_sources["openlibrary"].reachable is False
 
 
