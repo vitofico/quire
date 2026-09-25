@@ -154,22 +154,32 @@ class XhtmlRelaxerTest {
         assertThat(manifest.malformedXhtml(container.servingDocuments(manifest))).isEmpty()
     }
 
-    @Test fun `only the relaxed documents have their self-closing elements written out`() = runTest {
+    @Test fun `only the documents served as HTML have their self-closing elements written out`() = runTest {
         val good = Url("OEBPS/ch1.xhtml")!!
         val bad = Url("OEBPS/ch2.xhtml")!!
+        val declaredHtml = Url("OEBPS/ch3.html")!!
         val malformed = """<?xml version="1.0" encoding="utf-8"?><html><body><a id="x"/><p>a<br>b</p></body></html>"""
-        val container = MapContainer(mapOf(good to fixture("gutenberg-chapter.xhtml"), bad to malformed.toByteArray()))
+        val html = """<html><body><a id="y"/><p>c<br/>d</p></body></html>"""
+        val container = MapContainer(
+            mapOf(
+                good to fixture("gutenberg-chapter.xhtml"),
+                bad to malformed.toByteArray(),
+                declaredHtml to html.toByteArray(),
+            ),
+        )
         val manifest = Manifest(
             metadata = Metadata(),
-            readingOrder = listOf(Link(good, MediaType.XHTML), Link(bad, MediaType.XHTML)),
+            readingOrder = listOf(Link(good, MediaType.XHTML), Link(bad, MediaType.XHTML), Link(declaredHtml, MediaType.HTML)),
         )
         val relaxed = manifest.malformedXhtml(container)
 
-        val served = container.servingDocuments(manifest.relaxing(relaxed), relaxed)
+        val served = container.servingDocuments(manifest.relaxing(relaxed))
 
         assertThat(relaxed).containsExactly("OEBPS/ch2.xhtml")
         assertThat(served.read(good)).isEqualTo(fixture("gutenberg-chapter.xhtml"))
         assertThat(served.read(bad).toString(Charsets.UTF_8)).contains("""<a id="x"></a><p>a<br>b</p>""")
+        // A chapter the book itself declares HTML meets the same HTML parser.
+        assertThat(served.read(declaredHtml).toString(Charsets.UTF_8)).contains("""<a id="y"></a><p>c<br/>d</p>""")
     }
 
     private suspend fun Container<Resource>.read(url: Url): ByteArray = get(url)!!.use { it.read().getOrNull()!! }

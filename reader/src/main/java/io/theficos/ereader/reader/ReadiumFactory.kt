@@ -70,6 +70,6 @@ class ReadiumFactory(context: Context) {
         val source = if (cached != null) "cached" else "checked in ${(System.nanoTime() - started) / 1_000_000} ms"
         Log.i(TAG, "relaxXhtml: ${malformed.size} XHTML documents need the HTML parser ($source)")
         manifest = manifest.relaxing(malformed)
-        container = container.servingDocuments(manifest, relaxed = malformed)
+        container = container.servingDocuments(manifest)
     }
 }

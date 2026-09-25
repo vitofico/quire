@@ -8,7 +8,7 @@ import java.io.ByteArrayOutputStream
  * same array.
  *
  * XML reads the slash as closing the element. HTML ignores it on anything but a void element
- * (`<br/>`, `<img/>`), so in a chapter handed to the HTML parser (see [relaxing]) Project
+ * (`<br/>`, `<img/>`), so in a chapter the HTML parser reads (declared HTML, or see [relaxing]) Project
  * Gutenberg's `<a id="chap01"/>` stays open around every paragraph that follows, and the
  * stylesheet's `a:hover { color: red }` turns the chapter red on the first tap.
  *
