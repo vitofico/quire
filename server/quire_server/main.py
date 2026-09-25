@@ -22,7 +22,13 @@ from fastapi import FastAPI
 
 from quire_server.api import health
 from quire_server.api.middleware import RequestIDMiddleware, RequestSizeMiddleware
-from quire_server.config import Settings, config_warnings, get_settings, unknown_env_vars
+from quire_server.config import (
+    Settings,
+    config_warnings,
+    get_settings,
+    parse_ai_sources,
+    unknown_env_vars,
+)
 from quire_server.core.auth import CalibreAuthValidator
 from quire_server.core.auth_backend import CalibreWebBasicAuth, NativeAuth
 from quire_server.core.logging_ctx import RequestIdLogFilter
@@ -321,9 +327,6 @@ def create_app() -> FastAPI:
                 api_key=settings.ai_api_key,
                 model=settings.ai_model,
             )
-            sources_enabled = tuple(
-                s.strip() for s in (settings.ai_sources or "").split(",") if s.strip()
-            )
             # PR5: process-local reachability holder, fed by chat_structured +
             # retrieval calls. Exposed via GET /ai/v1/health.
             ai_health = AiHealthState()
@@ -335,7 +338,7 @@ def create_app() -> FastAPI:
                     timeout_s=settings.ai_retrieval_timeout_s,
                     health_state=ai_health,
                 ),
-                sources_enabled=sources_enabled,
+                sources_enabled=parse_ai_sources(settings.ai_sources),
                 model_id=settings.ai_model,
                 # PR-ε / coordinator §3.1 / Lock #19: the in-code constant
                 # ``prompts.PROMPT_VERSION`` is the source of truth. The legacy

@@ -14,6 +14,10 @@ ENV_PREFIX = "QUIRE_SERVER_"
 # the server process. Listed so the unknown-variable scan does not flag them.
 COMPOSE_ONLY_ENV_VARS: frozenset[str] = frozenset({"QUIRE_SERVER_PORT"})
 
+# The retrieval sources the AI service knows how to query, by the names
+# `QUIRE_SERVER_AI_SOURCES` uses. Anything else in that setting is ignored.
+KNOWN_AI_SOURCES: tuple[str, ...] = ("wikipedia", "openlibrary")
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix=ENV_PREFIX, env_file=".env", extra="ignore")
@@ -64,7 +68,8 @@ class Settings(BaseSettings):
     ai_model: str | None = None
     ai_timeout_s: float = 120.0
     ai_max_concurrency: int = 4
-    ai_sources: str = "wikipedia,openlibrary"  # CSV; "" disables retrieval
+    # CSV; "" disables retrieval. Read it through `parse_ai_sources`.
+    ai_sources: str = "wikipedia,openlibrary"
     ai_retrieval_timeout_s: float = 8.0
     ai_prompt_version: str = "1"
 
@@ -212,6 +217,24 @@ def unknown_env_vars(environ: Mapping[str, str] | None = None) -> list[str]:
     )
 
 
+def _ai_source_names(raw: str | None) -> list[str]:
+    """Every name in a ``QUIRE_SERVER_AI_SOURCES`` value, trimmed and lower-cased."""
+    return [name for part in (raw or "").split(",") if (name := part.strip().lower())]
+
+
+def parse_ai_sources(raw: str | None) -> tuple[str, ...]:
+    """The retrieval sources a ``QUIRE_SERVER_AI_SOURCES`` value turns on.
+
+    Retrieval matches the names in ``KNOWN_AI_SOURCES`` exactly, so this is
+    the one place that reads the setting: case and spaces do not matter,
+    unknown names are dropped (``config_warnings`` reports them), and a
+    repeated name counts once, in first-seen order. What it returns is both
+    what the orchestrator queries and what ``/ai/v1/config`` and
+    ``/ai/v1/health`` report.
+    """
+    return tuple(dict.fromkeys(n for n in _ai_source_names(raw) if n in KNOWN_AI_SOURCES))
+
+
 def config_warnings(settings: Settings) -> list[str]:
     """Semantic checks that must not crash boot but must not stay silent.
 
@@ -241,6 +264,11 @@ def config_warnings(settings: Settings) -> list[str]:
             out.append(
                 "QUIRE_SERVER_AI_BASE_URL does not end with /v1; OpenAI-compatible providers "
                 "such as Ollama expect for example http://ollama:11434/v1"
+            )
+        if any(name not in KNOWN_AI_SOURCES for name in _ai_source_names(settings.ai_sources)):
+            out.append(
+                "QUIRE_SERVER_AI_SOURCES contains a name Quire does not recognise, so that name "
+                f"is ignored; the known names are {' and '.join(KNOWN_AI_SOURCES)}"
             )
     if not settings.progress_enabled and not settings.ai_enabled:
         out.append(
