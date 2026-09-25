@@ -2150,9 +2150,11 @@ class InsightOrchestrator:
 
         Sequential by design (architect Finding #4 closes OQ 11.3) — at
         most 5 authors × ~8s comfortably fits under the 90s profile timeout
-        and avoids fan-out load on OpenLibrary's free tier.
+        and avoids fan-out load on OpenLibrary's free tier. Skipped when
+        ``openlibrary`` is not among the enabled sources, the same switch that
+        keeps card retrieval off Open Library.
         """
-        if self._profile_retriever_factory is None:
+        if self._profile_retriever_factory is None or "openlibrary" not in self.sources_enabled:
             return []
         out: list[_DiscoveryCandidate] = []
         seen_work_keys: set[str] = set()
