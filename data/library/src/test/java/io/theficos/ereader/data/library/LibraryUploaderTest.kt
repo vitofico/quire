@@ -244,6 +244,8 @@ private class FakeDocumentDao : DocumentDao {
     ): Flow<List<DocumentEntity>> = flowOf(emptyList())
     override suspend fun deleteById(id: Long): Int = throw notImplemented("deleteById")
     override suspend fun deleteAll(): Unit = throw notImplemented("deleteAll")
+    override suspend fun setCoverPathIfMissing(id: Long, coverPath: String): Int =
+        throw notImplemented("setCoverPathIfMissing")
 
     private fun notImplemented(name: String) =
         UnsupportedOperationException("FakeDocumentDao.$name not implemented for this test")

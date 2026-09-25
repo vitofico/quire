@@ -386,6 +386,8 @@ private class FakeDocumentDao : DocumentDao {
     override suspend fun deleteAll(): Unit = throw nope("deleteAll")
     override suspend fun findUnsyncedToLibrary(): List<DocumentEntity> = throw nope("findUnsyncedToLibrary")
     override suspend fun markLibrarySynced(id: Long, at: Long): Unit = throw nope("markLibrarySynced")
+    override suspend fun setCoverPathIfMissing(id: Long, coverPath: String): Int =
+        throw nope("setCoverPathIfMissing")
 
     private fun nope(name: String) =
         UnsupportedOperationException("FakeDocumentDao.$name not implemented for this test")

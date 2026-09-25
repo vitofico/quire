@@ -98,4 +98,8 @@ interface DocumentDao {
 
     @Query("UPDATE documents SET librarySyncedAt = :at WHERE id = :id")
     suspend fun markLibrarySynced(id: Long, at: Long)
+
+    /** Sets a cover on a row that has none. Returns 0 when the row is gone or already has one. */
+    @Query("UPDATE documents SET coverPath = :coverPath WHERE id = :id AND coverPath IS NULL")
+    suspend fun setCoverPathIfMissing(id: Long, coverPath: String): Int
 }

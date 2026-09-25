@@ -1,5 +1,6 @@
 package io.theficos.ereader.core.metadata
 
+import org.w3c.dom.Document
 import org.w3c.dom.Element
 import javax.xml.parsers.DocumentBuilderFactory
 
@@ -13,24 +14,7 @@ import javax.xml.parsers.DocumentBuilderFactory
 object OpfMetadataExtractor {
 
     fun extract(opfBytes: ByteArray, fallbackTitle: String): MetadataBundle {
-        val doc = try {
-            val factory = DocumentBuilderFactory.newInstance().apply {
-                isNamespaceAware = true
-                isValidating = false
-                // Android's DocumentBuilderFactory throws on this setter even for false, and
-                // unguarded that threw away every OPF (title from the file name, no author).
-                runCatching { isXIncludeAware = false }
-                isExpandEntityReferences = false
-                // Hardening: block DOCTYPE entirely, then defence-in-depth for parsers that ignore the above.
-                safeSetFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-                safeSetFeature("http://xml.org/sax/features/external-general-entities", false)
-                safeSetFeature("http://xml.org/sax/features/external-parameter-entities", false)
-                safeSetFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
-            }
-            factory.newDocumentBuilder().parse(opfBytes.inputStream())
-        } catch (_: Exception) {
-            return MetadataBundle(title = fallbackTitle)
-        }
+        val doc = parseOpfDocument(opfBytes) ?: return MetadataBundle(title = fallbackTitle)
         val metadataElems = doc.getElementsByTagNameNS("*", "metadata")
         if (metadataElems.length == 0) {
             return MetadataBundle(title = fallbackTitle)
@@ -138,12 +122,35 @@ object OpfMetadataExtractor {
         }
         return name to position
     }
+}
 
-    private fun DocumentBuilderFactory.safeSetFeature(name: String, value: Boolean) {
-        try {
-            setFeature(name, value)
-        } catch (_: Exception) {
-            // Provider doesn't recognise this feature; the other hardening features will catch it.
-        }
+/**
+ * Parses OPF bytes with a hardened, namespace-aware parser, or returns null when they are not
+ * well-formed XML. Shared by every OPF reader so the XXE hardening lives in one place.
+ */
+internal fun parseOpfDocument(opfBytes: ByteArray): Document? = try {
+    val factory = DocumentBuilderFactory.newInstance().apply {
+        isNamespaceAware = true
+        isValidating = false
+        // Android's DocumentBuilderFactory throws on this setter even for false, and
+        // unguarded that threw away every OPF (title from the file name, no author).
+        runCatching { isXIncludeAware = false }
+        isExpandEntityReferences = false
+        // Hardening: block DOCTYPE entirely, then defence-in-depth for parsers that ignore the above.
+        safeSetFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+        safeSetFeature("http://xml.org/sax/features/external-general-entities", false)
+        safeSetFeature("http://xml.org/sax/features/external-parameter-entities", false)
+        safeSetFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
+    }
+    factory.newDocumentBuilder().parse(opfBytes.inputStream())
+} catch (_: Exception) {
+    null
+}
+
+private fun DocumentBuilderFactory.safeSetFeature(name: String, value: Boolean) {
+    try {
+        setFeature(name, value)
+    } catch (_: Exception) {
+        // Provider doesn't recognise this feature; the other hardening features will catch it.
     }
 }

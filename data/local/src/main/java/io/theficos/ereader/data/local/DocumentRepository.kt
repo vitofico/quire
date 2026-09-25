@@ -71,6 +71,13 @@ class DocumentRepository(private val dao: DocumentDao) {
         runCatching { booksDir.listFiles()?.forEach { it.deleteRecursively() } }
     }
 
+    /**
+     * Gives [id] a cover when it has none yet. Returns false when the row was removed or
+     * already has a cover, so the caller can drop the file it just wrote.
+     */
+    suspend fun setCoverPathIfMissing(id: Long, coverPath: String): Boolean =
+        dao.setCoverPathIfMissing(id, coverPath) > 0
+
     suspend fun insert(
         identity: DocumentIdentity,
         title: String,
