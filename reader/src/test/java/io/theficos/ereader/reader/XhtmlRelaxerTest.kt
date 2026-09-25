@@ -12,6 +12,7 @@ import org.readium.r2.shared.util.data.Container
 import org.readium.r2.shared.util.mediatype.MediaType
 import org.readium.r2.shared.util.resource.InMemoryResource
 import org.readium.r2.shared.util.resource.Resource
+import org.readium.r2.shared.util.use
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.nio.charset.Charset
@@ -152,6 +153,26 @@ class XhtmlRelaxerTest {
         assertThat(manifest.malformedXhtml(container)).containsExactly("OEBPS/ja.xhtml", "OEBPS/utf16.xhtml")
         assertThat(manifest.malformedXhtml(container.servingDocuments(manifest))).isEmpty()
     }
+
+    @Test fun `only the relaxed documents have their self-closing elements written out`() = runTest {
+        val good = Url("OEBPS/ch1.xhtml")!!
+        val bad = Url("OEBPS/ch2.xhtml")!!
+        val malformed = """<?xml version="1.0" encoding="utf-8"?><html><body><a id="x"/><p>a<br>b</p></body></html>"""
+        val container = MapContainer(mapOf(good to fixture("gutenberg-chapter.xhtml"), bad to malformed.toByteArray()))
+        val manifest = Manifest(
+            metadata = Metadata(),
+            readingOrder = listOf(Link(good, MediaType.XHTML), Link(bad, MediaType.XHTML)),
+        )
+        val relaxed = manifest.malformedXhtml(container)
+
+        val served = container.servingDocuments(manifest.relaxing(relaxed), relaxed)
+
+        assertThat(relaxed).containsExactly("OEBPS/ch2.xhtml")
+        assertThat(served.read(good)).isEqualTo(fixture("gutenberg-chapter.xhtml"))
+        assertThat(served.read(bad).toString(Charsets.UTF_8)).contains("""<a id="x"></a><p>a<br>b</p>""")
+    }
+
+    private suspend fun Container<Resource>.read(url: Url): ByteArray = get(url)!!.use { it.read().getOrNull()!! }
 
     private class MapContainer(private val files: Map<Url, ByteArray>) : Container<Resource> {
         override val entries: Set<Url> = files.keys

@@ -58,7 +58,7 @@ class ReadiumFactory(context: Context) {
 
     /**
      * Serves every document in UTF-8, and hands the XHTML documents the WebView's XML parser
-     * would reject to its HTML parser instead.
+     * would reject to its HTML parser instead, written so HTML reads their empty elements right.
      */
     private fun Publication.Builder.prepareDocuments(book: File) {
         val started = System.nanoTime()
@@ -70,6 +70,6 @@ class ReadiumFactory(context: Context) {
         val source = if (cached != null) "cached" else "checked in ${(System.nanoTime() - started) / 1_000_000} ms"
         Log.i(TAG, "relaxXhtml: ${malformed.size} XHTML documents need the HTML parser ($source)")
         manifest = manifest.relaxing(malformed)
-        container = container.servingDocuments(manifest)
+        container = container.servingDocuments(manifest, relaxed = malformed)
     }
 }
