@@ -69,6 +69,22 @@ class DocumentRepositoryTest {
         assertThat(booksDir.listFiles()).isEmpty()
     }
 
+    @Test fun `delete removes the book's cover file along with its EPUB`() = runTest {
+        val booksDir = tmp.newFolder("books")
+        val epub = File(booksDir, "a.epub").apply { writeText("a") }
+        val cover = File(booksDir, "a.cover").apply { writeText("c") }
+        val id = db.documentDao().insert(DocumentEntity(
+            metadataId = "m1", contentHash = "h1", title = "t", author = null,
+            downloadUrl = "u", localPath = epub.path, coverPath = cover.path, downloadedAt = 0,
+        ))
+
+        repo.delete(checkNotNull(repo.findById(id)))
+
+        assertThat(db.documentDao().findById(id)).isNull()
+        assertThat(epub.exists()).isFalse()
+        assertThat(cover.exists()).isFalse()
+    }
+
     @Test fun `deleteAll tolerates a missing books dir`() = runTest {
         val missing = File(tmp.root, "does-not-exist")
         // No throw; DB delete still applies.
