@@ -31,6 +31,18 @@ beside them in reader/src/main/assets/fonts/ as OFL-<family>.txt.
     (upstream: https://software.sil.org/charis/)
 The app's own screens use the same bundled Lora.
 
-A complete attribution list is generated at build time and shown in
-the application under Settings → About → Open-source licenses
-(see the nice-to-have plan for the in-app screen).
+The reader also offers OpenDyslexic 2.001 by Abelardo Gonzalez, whose
+regular face ships unmodified inside the Readium navigator as
+readium/fonts/OpenDyslexic-Regular.otf. It is identical to
+otf/OpenDyslexic-Regular.otf in
+https://github.com/antijingoist/open-dyslexic/tree/03aa68333abaef14718091a46bff52794b34cf39
+Its glyphs derive from Bitstream Vera Sans, Copyright (c) 2003 by
+Bitstream, Inc., under the Bitstream Vera license, and OpenDyslexic's
+changes and additional glyphs are licensed under Creative Commons
+Attribution 3.0 Unported. Both are reproduced in the in-app licenses
+screen (app/aboutlibraries/licenses/OpenDyslexic-2.json).
+
+A complete attribution list, the bundled fonts included, is shown in
+the application under Settings → About → Open-source licenses. It is
+generated from the release dependencies plus the entries in
+app/aboutlibraries/, which cover what ships without being one.

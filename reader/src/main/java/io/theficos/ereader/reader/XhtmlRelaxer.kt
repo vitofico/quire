@@ -17,7 +17,6 @@ import org.xmlpull.v1.XmlPullParser
 import java.io.ByteArrayInputStream
 import java.nio.ByteBuffer
 import java.nio.charset.CharacterCodingException
-import java.nio.charset.Charset
 import java.nio.charset.CodingErrorAction
 
 private const val TAG = "XhtmlRelaxer"
@@ -77,9 +76,9 @@ private suspend fun Container<Resource>.isMalformed(url: Url): Boolean {
  *
  * Android's pull parser does most of the work. It lets through a few things Chromium treats as
  * fatal, so those are checked here: a second root element, a document that ends inside an
- * element, duplicate attributes, bytes the document's encoding cannot decode, characters XML
- * forbids, and named entities Chromium cannot resolve (the parser quietly drops any entity once
- * a DTD is referenced).
+ * element, duplicate attributes, bytes that are not valid UTF-8, characters XML forbids, and
+ * named entities Chromium cannot resolve (the parser quietly drops any entity once a DTD is
+ * referenced).
  */
 internal fun xmlParseError(bytes: ByteArray): String? {
     // Readium's HTML injector trims each document before serving it, so whitespace ahead of the
@@ -119,42 +118,18 @@ internal fun xmlParseError(bytes: ByteArray): String? {
 }
 
 /**
- * Returns why the WebView could not decode the document, or null. It decodes with the charset
- * the byte-order mark or else the XML declaration names (UTF-8 when neither does), and under XML
- * a byte sequence that charset cannot decode is fatal ("Encoding error"), where the pull parser
- * quietly substitutes U+FFFD.
- *
- * Readium 3.0.0 decodes every document as UTF-8 and re-encodes it before serving it, whatever it
- * declares, so a chapter that declares Shift_JIS reaches the WebView as UTF-8 bytes labelled
- * Shift_JIS, which fails. The book's own bytes are checked as well, which keeps the answer right
- * if a later Readium serves them unchanged.
+ * Returns why the WebView could not decode the document, or null. Every document reaches it in
+ * UTF-8 (see [utf8Document]), and under XML a byte sequence UTF-8 cannot decode is fatal
+ * ("Encoding error"), where the pull parser quietly substitutes U+FFFD.
  */
-private fun encodingError(bytes: ByteArray, start: Int): String? {
-    val charset = if (bytes.hasUtf8Bom(start)) Charsets.UTF_8 else declaredCharset(bytes, start) ?: Charsets.UTF_8
-    if (!charset.decodes(bytes, start)) return "bytes that are not valid ${charset.name()}"
-    if (charset == Charsets.UTF_8) return null
-    val served = String(bytes, start, bytes.size - start, Charsets.UTF_8).toByteArray(Charsets.UTF_8)
-    return if (charset.decodes(served, 0)) null else "Readium serves it as UTF-8, which ${charset.name()} cannot decode"
-}
-
-private fun ByteArray.hasUtf8Bom(start: Int) = size - start >= 3 &&
-    this[start] == 0xEF.toByte() && this[start + 1] == 0xBB.toByte() && this[start + 2] == 0xBF.toByte()
-
-private fun declaredCharset(bytes: ByteArray, start: Int): Charset? {
-    val prolog = String(bytes, start, minOf(bytes.size - start, 256), Charsets.ISO_8859_1)
-    val name = DECLARED_ENCODING.find(prolog)?.groupValues?.get(1) ?: return null
-    // The pull parser has already rejected an encoding Java does not know.
-    return runCatching { Charset.forName(name) }.getOrNull()
-}
-
-private fun Charset.decodes(bytes: ByteArray, start: Int): Boolean = try {
-    newDecoder()
+private fun encodingError(bytes: ByteArray, start: Int): String? = try {
+    Charsets.UTF_8.newDecoder()
         .onMalformedInput(CodingErrorAction.REPORT)
         .onUnmappableCharacter(CodingErrorAction.REPORT)
         .decode(ByteBuffer.wrap(bytes, start, bytes.size - start))
-    true
+    null
 } catch (e: CharacterCodingException) {
-    false
+    "bytes that are not valid UTF-8"
 }
 
 private fun XmlPullParser.duplicateAttribute(): String? {
@@ -219,8 +194,6 @@ private fun Byte.isReferenceChar(): Boolean {
     return c < 0 || c == '#'.code || c == '_'.code || c == '-'.code || c == '.'.code || c == ':'.code ||
         c in '0'.code..'9'.code || c in 'a'.code..'z'.code || c in 'A'.code..'Z'.code
 }
-
-private val DECLARED_ENCODING = Regex("""^<\?xml\s[^>]*?\bencoding\s*=\s*["']([^"']+)["']""")
 
 private val PUBLIC_ID = Regex("""PUBLIC\s+["']([^"']*)["']""")
 

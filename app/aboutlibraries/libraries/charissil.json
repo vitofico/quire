@@ -1,0 +1,15 @@
+{
+  "uniqueId": "fonts:charis-sil",
+  "artifactVersion": "6.101",
+  "name": "Charis SIL",
+  "description": "The serif typeface the reader offers as Charis. Bundled unmodified from google/fonts.",
+  "website": "https://software.sil.org/charis/",
+  "developers": [
+    {
+      "name": "SIL International"
+    }
+  ],
+  "licenses": [
+    "OFL-1.1-CharisSIL"
+  ]
+}

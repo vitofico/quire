@@ -39,14 +39,14 @@ class ReadiumFactory(context: Context) {
         // Readium 3.0.0 calls this per-call hook twice on the same builder (the parameter
         // shadows its constructor-level hook, which never runs), so only the first call reads
         // the book.
-        var checked = false
+        var prepared = false
         val openResult = publicationOpener.open(
             asset = readiumAsset,
             allowUserInteraction = false,
             onCreatePublication = {
-                if (!checked) {
-                    checked = true
-                    relaxMalformedXhtml(asset.file)
+                if (!prepared) {
+                    prepared = true
+                    prepareDocuments(asset.file)
                 }
             },
         )
@@ -56,13 +56,20 @@ class ReadiumFactory(context: Context) {
         publication
     }
 
-    private fun Publication.Builder.relaxMalformedXhtml(book: File) {
+    /**
+     * Serves every document in UTF-8, and hands the XHTML documents the WebView's XML parser
+     * would reject to its HTML parser instead, written so HTML reads their empty elements right.
+     */
+    private fun Publication.Builder.prepareDocuments(book: File) {
         val started = System.nanoTime()
         val cached = xhtmlVerdicts[book]
+        // The check reads each document as the WebView will get it, in UTF-8.
         val malformed = cached
-            ?: runBlocking { manifest.malformedXhtml(container) }.also { xhtmlVerdicts[book] = it }
+            ?: runBlocking { manifest.malformedXhtml(container.servingDocuments(manifest)) }
+                .also { xhtmlVerdicts[book] = it }
         val source = if (cached != null) "cached" else "checked in ${(System.nanoTime() - started) / 1_000_000} ms"
         Log.i(TAG, "relaxXhtml: ${malformed.size} XHTML documents need the HTML parser ($source)")
         manifest = manifest.relaxing(malformed)
+        container = container.servingDocuments(manifest)
     }
 }
