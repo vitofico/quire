@@ -56,7 +56,9 @@ below pins its own calibre-web URL and starts without a `.env`.
 
 Every setting, a minimum `.env` for each deploy mode, recipes for Ollama and
 other AI providers, and how to check that a change took effect are in
-[`docs/configuration.md`](../docs/configuration.md).
+[`docs/configuration.md`](../docs/configuration.md). A `QUIRE_SERVER_*` name
+the server does not recognise is listed under `warnings` in
+`curl http://localhost:8000/health`.
 
 ### Full-stack reference compose
 
@@ -205,21 +207,7 @@ Update the health-probe path: it moved from `/sync/v1/healthz` (pre-PR-A) to
 `/health` in PR-A. The k8s manifests in `theficos-cluster` need a one-line
 bump alongside this release.
 
-### Environment variables
-
-Every setting is documented in
-[`docs/configuration.md`](../docs/configuration.md): what it does, its
-default, when to change it, and which compose file reads the variables that
-are not server settings. In short: settings live in `.env`, both compose
-files hand the whole file to the server, and
-`curl http://localhost:8000/health` lists under `warnings` any
-`QUIRE_SERVER_*` variable the server does not recognise. The server's boot
-warning for a misspelled variable points at this section.
-
-The two sections below explain the behaviour behind a few of the advanced
-settings.
-
-#### Push-model API: deprecated server-side metadata fallback (Phase 0, 2026-05-22)
+### Push-model API: deprecated server-side metadata fallback (Phase 0, 2026-05-22)
 
 `POST /ai/v1/insights/{lookup,regenerate}` now require a `bundle`
 (`MetadataBundle`) block in the request body — clients are the sole source
@@ -239,7 +227,7 @@ The push-model contract (request shape, identity-hint hierarchy, alias
 resolution) is documented in `docs/sync-api.md` under `POST
 /ai/v1/insights/lookup` and `POST /ai/v1/insights/regenerate`.
 
-#### AI auth mode (PR-B, 2026-05-16)
+### AI auth mode (PR-B, 2026-05-16)
 
 `/ai/v1/*` routes go through a pluggable `AiAuthenticator` (sync routes are
 unaffected). The concrete authenticator is chosen from **both**

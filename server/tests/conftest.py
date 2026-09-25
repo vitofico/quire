@@ -32,13 +32,12 @@ def pytest_collection_modifyitems(config, items):
     can run the same suite under each mode without spurious failures from
     routers that aren't mounted).
     """
-    import os
-
-    def _flag(name: str) -> bool:
-        return os.environ.get(name, "true").strip().lower() in {"1", "true", "yes", "on"}
-
-    progress_on = _flag("QUIRE_SERVER_PROGRESS_ENABLED")
-    ai_on = _flag("QUIRE_SERVER_AI_ENABLED")
+    # Read the two switches the way the server does (names in any case,
+    # pydantic's true/false spellings), ignoring a developer's server/.env as
+    # the tests themselves do.
+    settings = Settings(_env_file=None)
+    progress_on = settings.progress_enabled
+    ai_on = settings.ai_enabled
 
     skip_progress = pytest.mark.skip(reason="QUIRE_SERVER_PROGRESS_ENABLED=false")
     skip_ai = pytest.mark.skip(reason="QUIRE_SERVER_AI_ENABLED=false")

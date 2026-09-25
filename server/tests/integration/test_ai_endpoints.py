@@ -106,6 +106,24 @@ async def test_config_prompt_version_honors_emergency_override(client_factory, m
     assert r.json()["prompt_version"] == "4"
 
 
+async def test_config_lists_the_sources_retrieval_uses(client_factory, app):
+    """Retrieval knows only the lower-case names, so ``Wikipedia`` used to turn
+    that source off while ``/config`` still listed it. Names are now read
+    without regard to case or spaces, unknown ones and repeats are dropped,
+    and ``/config`` reports exactly what the orchestrator queries.
+    """
+    async with client_factory(
+        ai_enabled=True,
+        ai_base_url="http://x/v1",
+        ai_model="m",
+        ai_sources=" OpenLibrary, open_library ,Wikipedia,openlibrary",
+    ) as client:
+        r = await client.get("/ai/v1/config", headers=_basic_header("alice"))
+    assert r.status_code == 200
+    assert r.json()["sources_enabled"] == ["openlibrary", "wikipedia"]
+    assert app.state.ai_orchestrator.sources_enabled == ("openlibrary", "wikipedia")
+
+
 async def test_lookup_blocked_when_not_opted_in(client_factory, configure_ai, app):
     async with client_factory(ai_enabled=True, ai_base_url="http://x", ai_model="m") as client:
         # Now that client_factory has populated app, install the fake AI.
