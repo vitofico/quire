@@ -551,7 +551,7 @@ PR2 (2026-05-16) split that audit into two parametrize lists:
 
 `/ai/v1/*` routes depend on `AiPrincipal{subject, tenant_id, scopes,
 auth_mode, request_id}` via an `AiAuthenticator` Protocol, not on
-`current_user_id` directly. Two implementations ship today:
+`current_user_id` directly. Three implementations ship today:
 
 - **`BasicAuthAiAuthenticator`** — wraps the existing calibre-web Basic-auth
   verifier. `tenant_id` is always `"local"`. Default.
@@ -562,6 +562,10 @@ auth_mode, request_id}` via an `AiAuthenticator` Protocol, not on
   verifies. Token-mode misconfiguration (missing `QUIRE_SERVER_AI_TOKEN_SECRETS`,
   short secret, missing issuer/audience) crashloops the process — never
   silently downgrades to basic.
+- **`BackendAiAuthenticator`**, chosen when `QUIRE_SERVER_AUTH_BACKEND=native`
+  and `AI_AUTH_MODE=basic`: accepts the same `NativeAuth` session tokens as
+  `/auth/v1`, `/sync/v1` and `/library/v1`, with `auth_mode="native"`. It
+  replaces the deprecated token mode.
 
 `AiPrincipal.tenant_id` flows ONLY into `ai_generation_log` for per-call
 audit. It MUST NOT participate in any shared-cache key. Sync routes
