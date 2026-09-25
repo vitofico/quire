@@ -7,9 +7,9 @@ repos:
     hooks:
       - id: trailing-whitespace
         # Don't modify bundled third-party text (font licenses, etc).
-        exclude: ^(app/src/main/res/raw/.*_ofl\.txt|reader/src/main/assets/fonts/.*\.txt)$
+        exclude: ^reader/src/main/assets/fonts/.*\.txt$
       - id: end-of-file-fixer
-        exclude: ^(app/src/main/res/raw/.*_ofl\.txt|reader/src/main/assets/fonts/.*\.txt)$
+        exclude: ^reader/src/main/assets/fonts/.*\.txt$
       - id: check-yaml
       - id: check-toml
       - id: check-json

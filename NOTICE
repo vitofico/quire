@@ -29,9 +29,7 @@ beside them in reader/src/main/assets/fonts/ as OFL-<family>.txt.
     -Italic.ttf, -Bold.ttf, -BoldItalic.ttf from
     https://github.com/google/fonts/tree/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/charissil
     (upstream: https://software.sil.org/charis/)
-The app's own interface also uses a Latin subset of Lora
-(app/src/main/res/font), under the same license
-(app/src/main/res/raw/lora_ofl.txt).
+The app's own screens use the same bundled Lora.
 
 A complete attribution list is generated at build time and shown in
 the application under Settings → About → Open-source licenses
