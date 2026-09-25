@@ -62,14 +62,13 @@ Put it in `.env`. When you run the server without Docker (see
 
 ### Writing values
 
-- **Names in capitals, spelled as on this page.** The server matches names in
-  any case, but the migration step that runs before it reads
-  `QUIRE_SERVER_PROGRESS_ENABLED` and `QUIRE_SERVER_AI_ENABLED` only in
-  capitals.
+- **Names spelled as on this page.** The server matches names in any case,
+  so `quire_server_ai_enabled` works too, but capitals are the convention.
 - **`true` or `false` for on/off settings.** The server also accepts `1`/`0`,
-  `yes`/`no` and `on`/`off`. The migration step understands only `1`,
-  `true`, `yes` and `on` as "on" and reads anything else, such as `y` or `t`,
-  as "off", so other spellings can leave the two disagreeing.
+  `yes`/`no`, `y`/`n`, `on`/`off` and `t`/`f`, in any case, and refuses to
+  start on anything else. The migration step that runs before it reads
+  `QUIRE_SERVER_PROGRESS_ENABLED` and `QUIRE_SERVER_AI_ENABLED` through the
+  server's own settings, so the two always agree.
 - **To go back to a default, delete the line or put `#` in front of it.** A
   line with nothing after the `=` is not the same as no line; see
   [Empty values](#empty-values).
