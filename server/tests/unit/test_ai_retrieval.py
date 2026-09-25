@@ -1157,6 +1157,50 @@ async def test_openlibrary_timeout_records_reachable_false(session: AsyncSession
 
 
 @pytest.mark.asyncio
+async def test_author_bibliography_records_health_as_openlibrary(session: AsyncSession):
+    """Profile discovery's lookups show under the ``openlibrary`` row that
+    ``/ai/v1/health`` lists, not under a name the endpoint never seeds."""
+    health = AiHealthState()
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path.endswith("/search/authors.json"):
+            return httpx.Response(200, json={"docs": [{"key": "OL1A"}]})
+        return httpx.Response(200, json={"entries": [{"title": "Foundation"}]})
+
+    r = Retriever(
+        session=session,
+        transport=httpx.MockTransport(handler),
+        timeout_s=5.0,
+        health_state=health,
+    )
+    await r.author_bibliography("Isaac Asimov")
+    snap = await health.snapshot()
+    assert set(snap.retrieval_sources) == {"openlibrary"}
+    assert snap.retrieval_sources["openlibrary"].reachable is True
+
+
+@pytest.mark.asyncio
+async def test_author_bibliography_outage_marks_openlibrary_unreachable(
+    session: AsyncSession,
+):
+    health = AiHealthState()
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(503)
+
+    r = Retriever(
+        session=session,
+        transport=httpx.MockTransport(handler),
+        timeout_s=5.0,
+        health_state=health,
+    )
+    assert await r.author_bibliography("Isaac Asimov") == []
+    snap = await health.snapshot()
+    assert set(snap.retrieval_sources) == {"openlibrary"}
+    assert snap.retrieval_sources["openlibrary"].reachable is False
+
+
+@pytest.mark.asyncio
 async def test_cache_hit_does_not_update_health(session: AsyncSession):
     """A second lookup that hits the cache must NOT call record_retrieval.
 

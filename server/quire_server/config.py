@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     auth_cache_positive_ttl_s: int = 60
     auth_cache_negative_ttl_s: int = 10
     auth_cache_max_entries: int = 1024
-    log_level: str = "INFO"
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
 
     # Deploy mode flags (PR-A). Both default true → full-stack mode. Flip to
     # `false` to disable a domain entirely (router not mounted, migration
@@ -172,6 +172,19 @@ class Settings(BaseSettings):
         """
         if isinstance(value, str) and not value.strip():
             return None
+        return value
+
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def _log_level_any_case(cls, value: object) -> object:
+        """Accept ``info`` as ``INFO``, and read an empty value as the default.
+
+        ``logging.basicConfig`` knows only the capitalised names, so ``info``
+        used to stop the server at boot with ``Unknown level``. A name that
+        is not a level still fails here, listing the ones that are.
+        """
+        if isinstance(value, str):
+            return value.strip().upper() or "INFO"
         return value
 
 
