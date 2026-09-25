@@ -76,7 +76,6 @@ import io.theficos.ereader.sideload.SideloadImporter
 import io.theficos.ereader.sideload.SideloadResult
 import io.theficos.ereader.ui.components.CoverImage
 import io.theficos.ereader.ui.components.SectionLabel
-import io.theficos.ereader.ui.theme.Lora
 import kotlinx.coroutines.launch
 
 private val sortLabels: List<Pair<LibrarySort, String>> = listOf(
@@ -570,7 +569,6 @@ private fun EmptyState(
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text = "q",
-                fontFamily = Lora,
                 style = MaterialTheme.typography.displaySmall.copy(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 ),

@@ -54,6 +54,7 @@ import androidx.lifecycle.lifecycleScope
 import io.theficos.ereader.MainActivity
 import io.theficos.ereader.data.sync.SyncEnqueuer
 import io.theficos.ereader.reader.ReaderPreferences
+import io.theficos.ereader.reader.declareReaderFonts
 import io.theficos.ereader.reader.toEpubPreferences
 import io.theficos.quire.R
 import kotlinx.coroutines.delay
@@ -383,7 +384,11 @@ private fun ReaderContent(
                 // ReaderPageArea applies both now; don't turn this back on or the page is
                 // padded twice, late, and by someone this file can't see.
                 shouldApplyInsetsPadding = false,
-            ),
+            ).apply {
+                // Without this, every font in the picker but OpenDyslexic renders in the
+                // web view's default sans-serif.
+                declareReaderFonts()
+            },
         )
         val nav = (fm.fragmentFactory.instantiate(
             activity.classLoader,

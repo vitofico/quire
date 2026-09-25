@@ -56,12 +56,40 @@ enum class ReaderTheme(
     // compilation if a new theme forgets to declare its appearance.
 }
 
-enum class ReaderFontFamily(val readium: ReadiumFontFamily?) {
+/**
+ * A reader font. [readium] is the family name the page's CSS asks for, and [bundledFaces] are the
+ * files Quire ships for it, which [declareReaderFonts] declares under that same name. A family with
+ * a name but no files has to be one Readium bundles itself, or the page falls back to the default.
+ *
+ * The constant's name is what [ReaderPreferencesStore] saves, so renaming one needs an entry in
+ * [fromStoredName], or readers who had picked it silently lose their choice.
+ */
+enum class ReaderFontFamily(
+    val readium: ReadiumFontFamily?,
+    internal val bundledFaces: List<BundledFontFace> = emptyList(),
+) {
     SYSTEM(null),
-    LORA(ReadiumFontFamily("Lora")),
-    LITERATA(ReadiumFontFamily("Literata")),
-    CHARTER(ReadiumFontFamily("Charter")),
-    OPEN_DYSLEXIC(ReadiumFontFamily("OpenDyslexic")),
+    LORA(ReadiumFontFamily("Lora"), variableFaces("Lora", weights = 400..700)),
+    LITERATA(ReadiumFontFamily("Literata"), variableFaces("Literata", weights = 200..900)),
+
+    /**
+     * Charis SIL, SIL's extension of Bitstream Charter. The picker offered "Charter" until the
+     * fonts were bundled, but Charter itself isn't published by any source Quire takes fonts from,
+     * so the label names the face the page actually draws. Saved as CHARTER before then.
+     */
+    CHARIS(ReadiumFontFamily("Charis SIL"), staticFaces("CharisSIL")),
+
+    /** Readium bundles and declares this one itself. */
+    OPEN_DYSLEXIC(ReadiumFontFamily.OPEN_DYSLEXIC),
+    ;
+
+    internal companion object {
+        /** The family saved as [name], including a renamed one's old name; unknown means SYSTEM. */
+        fun fromStoredName(name: String): ReaderFontFamily = when (name) {
+            "CHARTER" -> CHARIS
+            else -> entries.firstOrNull { it.name == name } ?: SYSTEM
+        }
+    }
 }
 
 data class ReaderPreferences(
