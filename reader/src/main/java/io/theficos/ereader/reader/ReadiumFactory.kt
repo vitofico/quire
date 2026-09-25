@@ -3,14 +3,14 @@ package io.theficos.ereader.reader
 import android.util.Log
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
-import org.readium.r2.shared.publication.Link
 import org.readium.r2.shared.publication.Publication
 import org.readium.r2.shared.util.asset.AssetRetriever
 import org.readium.r2.shared.util.http.DefaultHttpClient
-import org.readium.r2.shared.util.mediatype.MediaType
 import org.readium.r2.streamer.PublicationOpener
 import org.readium.r2.streamer.parser.DefaultPublicationParser
+import java.io.File
 
 class ReadiumFactory(context: Context) {
 
@@ -25,6 +25,7 @@ class ReadiumFactory(context: Context) {
             pdfFactory = null,
         ),
     )
+    private val xhtmlVerdicts = XhtmlVerdicts(File(appContext.cacheDir, "xhtml-verdicts"))
 
     private companion object {
         const val TAG = "ReadiumFactory"
@@ -35,13 +36,19 @@ class ReadiumFactory(context: Context) {
         val retrieveResult = assetRetriever.retrieve(asset.file)
         val readiumAsset = retrieveResult.getOrNull()
             ?: error("AssetRetriever could not open ${asset.file}: ${retrieveResult.failureOrNull()}")
-        // Pass the relaxer via open() rather than only via the constructor — the
-        // per-call hook reliably runs in Readium 3.0.0 even if the constructor
-        // default chain doesn't.
+        // Readium 3.0.0 calls this per-call hook twice on the same builder (the parameter
+        // shadows its constructor-level hook, which never runs), so only the first call reads
+        // the book.
+        var checked = false
         val openResult = publicationOpener.open(
             asset = readiumAsset,
             allowUserInteraction = false,
-            onCreatePublication = { relaxXhtml() },
+            onCreatePublication = {
+                if (!checked) {
+                    checked = true
+                    relaxMalformedXhtml(asset.file)
+                }
+            },
         )
         val publication = openResult.getOrNull()
             ?: error("PublicationOpener could not open ${asset.file}: ${openResult.failureOrNull()}")
@@ -49,22 +56,13 @@ class ReadiumFactory(context: Context) {
         publication
     }
 
-    private fun Publication.Builder.relaxXhtml() {
-        val xhtmlCount = (manifest.readingOrder + manifest.resources).count {
-            it.mediaType.toString().contains("xhtml", ignoreCase = true)
-        }
-        Log.i(TAG, "relaxXhtml: rewriting $xhtmlCount XHTML links")
-        manifest = manifest.copy(
-            readingOrder = manifest.readingOrder.map { it.relaxedHtml() },
-            resources = manifest.resources.map { it.relaxedHtml() },
-        )
-    }
-
-    private fun Link.relaxedHtml(): Link {
-        val mtString = mediaType.toString()
-        return if (mtString.contains("xhtml", ignoreCase = true)) {
-            Log.d(TAG, "relax: $href $mtString -> text/html")
-            copy(mediaType = MediaType.HTML)
-        } else this
+    private fun Publication.Builder.relaxMalformedXhtml(book: File) {
+        val started = System.nanoTime()
+        val cached = xhtmlVerdicts[book]
+        val malformed = cached
+            ?: runBlocking { manifest.malformedXhtml(container) }.also { xhtmlVerdicts[book] = it }
+        val source = if (cached != null) "cached" else "checked in ${(System.nanoTime() - started) / 1_000_000} ms"
+        Log.i(TAG, "relaxXhtml: ${malformed.size} XHTML documents need the HTML parser ($source)")
+        manifest = manifest.relaxing(malformed)
     }
 }
