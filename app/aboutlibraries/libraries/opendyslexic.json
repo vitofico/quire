@@ -1,0 +1,15 @@
+{
+  "uniqueId": "fonts:opendyslexic",
+  "artifactVersion": "2.001",
+  "name": "OpenDyslexic",
+  "description": "The typeface the reader offers as OpenDyslexic, regular face only. It ships inside the Readium navigator, unmodified.",
+  "website": "https://github.com/antijingoist/open-dyslexic",
+  "developers": [
+    {
+      "name": "Abelardo Gonzalez"
+    }
+  ],
+  "licenses": [
+    "OpenDyslexic-2"
+  ]
+}
