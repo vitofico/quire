@@ -242,8 +242,8 @@ docker-compose files matching the deploy-mode table above:
 `docker-compose.yml` (minimal: postgres + quire-server, bring your own
 proxy) and `docker-compose.full.yml` (Caddy-fronted postgres +
 calibre-web + quire-server with TLS behind one base URL, mirroring the
-k8s ingress). See `server/README.md` for env-var setup and smoke
-commands.
+k8s ingress). See `docs/configuration.md` for env-var setup and
+`server/README.md` for smoke commands.
 
 ## Conventions
 
