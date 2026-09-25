@@ -113,7 +113,7 @@ fun LibraryScreen(
     val context = LocalContext.current
     LaunchedEffect(Unit) { SyncEnqueuer.enqueue(context, expedited = true) }
 
-    val items by viewModel.items.collectAsState()
+    val loadedItems by viewModel.items.collectAsState()
     val cont by viewModel.continueReading.collectAsState()
     val seriesCandidates by viewModel.seriesContinuationCandidates.collectAsState()
     val showAbandoned by viewModel.showAbandoned.collectAsState()
@@ -171,6 +171,10 @@ fun LibraryScreen(
     val launchPicker: (() -> Unit)? = importLauncher?.let { l ->
         { l.launch(IMPORT_MIME_FILTER) }
     }
+
+    // Null until Room first answers. Drawing nothing for those few milliseconds
+    // beats flashing "Your shelf is empty." over a library that has books.
+    val items = loadedItems ?: return
 
     if (items.isEmpty() && !searchActive && query.isBlank()) {
         Box(modifier = Modifier.fillMaxSize()) {
