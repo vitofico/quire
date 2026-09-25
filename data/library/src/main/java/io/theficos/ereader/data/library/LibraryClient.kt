@@ -46,6 +46,9 @@ class LibraryClient(
         encodeDefaults = true
     }
 
+    /** False in offline-only mode and for an OPDS-only account: no quire-server to call. */
+    val isConfigured: Boolean get() = !baseUrlProvider().isNullOrBlank()
+
     private fun resolveBaseUrl(): String {
         val raw = baseUrlProvider()
         if (raw.isNullOrBlank()) {
