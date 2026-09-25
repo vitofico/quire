@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -19,7 +20,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -45,6 +45,7 @@ import io.theficos.ereader.data.ai.RetrievalSourceHealth
 import io.theficos.ereader.reader.ReaderFontFamily
 import io.theficos.ereader.reader.ReaderTheme
 import io.theficos.ereader.ui.components.QuireCard
+import io.theficos.ereader.ui.components.RadioOptionRow
 import io.theficos.ereader.ui.components.SectionLabel
 import io.theficos.ereader.ui.reader.displayLabel
 import java.time.Instant
@@ -264,29 +265,25 @@ fun SettingsScreen(
                     // A column, not a row: four themes with labels as long as "Dark sepia"
                     // overflow one line on a narrow screen, and this matches the font-family
                     // picker just below.
-                    Column {
+                    Column(Modifier.selectableGroup()) {
                         ReaderTheme.values().forEach { t ->
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(vertical = 2.dp),
-                            ) {
-                                RadioButton(selected = reader.theme == t, onClick = { viewModel.setTheme(t) })
-                                Text(t.displayLabel())
-                            }
+                            RadioOptionRow(
+                                label = t.displayLabel(),
+                                selected = reader.theme == t,
+                                onSelect = { viewModel.setTheme(t) },
+                            )
                         }
                     }
                 }
                 Column {
                     Text("Font family", style = MaterialTheme.typography.bodyMedium)
-                    Column {
+                    Column(Modifier.selectableGroup()) {
                         ReaderFontFamily.values().forEach { f ->
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(vertical = 2.dp),
-                            ) {
-                                RadioButton(selected = reader.fontFamily == f, onClick = { viewModel.setFontFamily(f) })
-                                Text(f.name.replace('_', ' ').lowercase().replaceFirstChar { it.uppercase() })
-                            }
+                            RadioOptionRow(
+                                label = f.name.replace('_', ' ').lowercase().replaceFirstChar { it.uppercase() },
+                                selected = reader.fontFamily == f,
+                                onSelect = { viewModel.setFontFamily(f) },
+                            )
                         }
                     }
                 }
