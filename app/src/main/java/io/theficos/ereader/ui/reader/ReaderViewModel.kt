@@ -67,7 +67,16 @@ class ReaderViewModel(
         _chromeVisible.value = visible
     }
 
+    /**
+     * True until the reader first shows or hides the controls. Only the reveal on opening a book
+     * hides itself on a timer: controls the reader asked for stay until their next tap, so a slow
+     * reach for the slider cannot land on the page after the bars have gone and turn it instead.
+     */
+    private val _chromeAutoHides = MutableStateFlow(true)
+    val chromeAutoHides: StateFlow<Boolean> = _chromeAutoHides.asStateFlow()
+
     fun toggleChrome() {
+        _chromeAutoHides.value = false
         _chromeVisible.value = !_chromeVisible.value
     }
 
