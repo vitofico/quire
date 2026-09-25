@@ -29,7 +29,7 @@ from quire_server.config import get_settings
 # so it never lands in a test's captured records.
 from quire_server.main import create_app
 
-UNKNOWN_HINT = "is ignored; check the spelling against server/README.md (Environment variables)"
+UNKNOWN_HINT = "is ignored; check the spelling against docs/configuration.md"
 
 
 @pytest.fixture(autouse=True)

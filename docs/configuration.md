@@ -1066,7 +1066,7 @@ curl -s http://localhost:8000/health
   "version": "dev",
   "modes": ["progress", "ai"],
   "warnings": [
-    "Unknown setting QUIRE_SERVER_AI_TIMEOUT is ignored; check the spelling against server/README.md (Environment variables)",
+    "Unknown setting QUIRE_SERVER_AI_TIMEOUT is ignored; check the spelling against docs/configuration.md",
     "AI is enabled but QUIRE_SERVER_AI_MODEL is not set; the app will report AI as unconfigured. Set it or set QUIRE_SERVER_AI_ENABLED=false"
   ]
 }

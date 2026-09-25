@@ -87,8 +87,8 @@ class Settings(BaseSettings):
     # emits both a `DeprecationWarning` (Python tooling channel) and a
     # `logging.warning` (operator channel) naming the env var and the
     # removal window. See `_warn_deprecated_ai_metadata_lookup` in
-    # `quire_server/main.py` and the "Environment variables" table in
-    # `server/README.md`. The push-model contract (clients send `bundle`
+    # `quire_server/main.py` and the entry for this variable in
+    # `docs/configuration.md`. The push-model contract (clients send `bundle`
     # in the request body) is documented in `docs/sync-api.md` under
     # POST /ai/v1/insights/lookup.
     ai_metadata_server_lookup_enabled: bool = False

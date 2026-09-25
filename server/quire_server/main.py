@@ -157,8 +157,7 @@ def _collect_config_warnings(settings: Settings) -> list[str]:
     nothing secret can leak through this path.
     """
     messages = [
-        f"Unknown setting {name} is ignored; check the spelling against "
-        "server/README.md (Environment variables)"
+        f"Unknown setting {name} is ignored; check the spelling against docs/configuration.md"
         for name in unknown_env_vars()
     ]
     messages.extend(config_warnings(settings))

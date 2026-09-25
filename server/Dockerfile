@@ -38,6 +38,5 @@ LABEL org.opencontainers.image.title="quire-server" \
 
 EXPOSE 8000
 # Entrypoint: run the migrate wrapper (per-branch, mode-aware) then start the app.
-# The wrapper reads QUIRE_SERVER_PROGRESS_ENABLED / QUIRE_SERVER_AI_ENABLED
-# (the legacy prefix is still accepted for one release cycle).
+# The wrapper reads QUIRE_SERVER_PROGRESS_ENABLED / QUIRE_SERVER_AI_ENABLED.
 CMD ["sh", "-c", "python /app/scripts/migrate.py && exec uvicorn quire_server.main:app --host 0.0.0.0 --port 8000"]

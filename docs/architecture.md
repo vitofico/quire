@@ -424,15 +424,16 @@ email change flows, refresh tokens, rate limiting, lockout, CAPTCHA,
 MFA, OAuth, CSRF, account-deletion / DSAR endpoints (Cloud-side),
 audit-log surfacing, session sweeper.
 
-### Cross-config guard
+### AI auth under `NativeAuth`
 
-`auth_backend=native + ai_enabled=true + ai_auth_mode=basic` crashloops
-at startup. Without it, AI requests in a Cloud-style deployment would
-silently route through the CalibreWeb verifier that no longer exists
-upstream. The legacy `QUIRE_SERVER_AI_AUTH_MODE=token` AI-only Bearer
-seam is **deprecated** as of 2026.05.22; new deployments needing
-session-token primary authentication should use `NativeAuth` via
-`QUIRE_SERVER_AUTH_BACKEND=native`. See
+`auth_backend=native + ai_enabled=true + ai_auth_mode=basic` starts
+normally: `_build_ai_authenticator` in `main.py` picks
+`BackendAiAuthenticator`, so `/ai/v1/*` accepts the same `NativeAuth`
+session tokens as `/auth/v1`, `/sync/v1` and `/library/v1` and never
+reaches the CalibreWeb verifier. `ai_auth_mode=token` keeps its own HMAC
+verifier whatever the primary backend. That legacy AI-only Bearer seam is
+**deprecated** as of 2026.05.22, and `NativeAuth` via
+`QUIRE_SERVER_AUTH_BACKEND=native` replaces it. See
 [`sync-api.md`](sync-api.md#compatibility-and-deprecations) for the
 removal window.
 
