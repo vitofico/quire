@@ -115,7 +115,7 @@ async def test_lookup_book_language_returns_edition_language(session: AsyncSessi
 
     def handler(req: httpx.Request) -> httpx.Response:
         # Must hit the edition-level Books API, not /search.json.
-        assert "/api/books" in str(req.url)
+        assert req.url.path == "/api/books.json"
         assert "jscmd=details" in str(req.url)
         return httpx.Response(200, json=_ol_details_response(bibkey, ["fre"]))
 

@@ -794,9 +794,11 @@ class Retriever:
         bibkey = f"ISBN:{norm_isbn}"
         try:
             async with self._http() as http:
+                # /api/books.json, not /api/books: Open Library now answers
+                # 404 to every query on the bare path.
                 r = await http.get(
-                    f"{_OL_BASE}/api/books",
-                    params={"bibkeys": bibkey, "format": "json", "jscmd": "details"},
+                    f"{_OL_BASE}/api/books.json",
+                    params={"bibkeys": bibkey, "jscmd": "details"},
                 )
                 # OpenLibrary responded — reachable regardless of status code.
                 await self._record_retrieval(name="openlibrary", success=True)
