@@ -24,8 +24,8 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -54,7 +54,12 @@ class LibraryViewModelTest {
 
     @Before fun setUp() {
         FakeAndroidKeyStore.setup()
-        Dispatchers.setMain(UnconfinedTestDispatcher())
+        // Queued, not unconfined. On an unconfined Main, a view-model collector resumes
+        // on whichever Room thread delivered the query result and keeps running there,
+        // in parallel with the test body, where advanceUntilIdle() cannot wait for it.
+        // Queued on the test scheduler, every collector runs on the test thread and
+        // advanceUntilIdle() drains them all.
+        Dispatchers.setMain(StandardTestDispatcher())
         server = MockWebServer().also { it.start() }
         db = Room.inMemoryDatabaseBuilder(
             ApplicationProvider.getApplicationContext(), EReaderDatabase::class.java
@@ -348,13 +353,13 @@ class LibraryViewModelTest {
         seed("h1", "Alpha", null)
         val restoreVm = vmWith(store)
         // Subscribe to canRestore (keeps the WhileSubscribed `rows` upstream hot).
-        // Transient emission sequence with UnconfinedTestDispatcher + connected account:
+        // Emission sequence with a connected account:
         //   1. stateIn initial → false
-        //   2. rows emits [] before Room delivers the seeded row → combine may emit true
-        //   3. rows emits [Alpha] → combine settles to false
-        // We warm `rows` by also subscribing to `items` and waiting until the seeded
-        // row arrives, then use expectMostRecentItem() to discard transients and assert
-        // the settled emission is false.
+        //   2. rows still holds its empty start value before Room delivers → may emit true
+        //   3. rows carries the seeded book → combine settles to false
+        // `items` reaching the book proves Room has delivered it. canRestore reads the
+        // same rows through its own collector, which may not have run yet, so drain
+        // the scheduler before reading its latest value.
         restoreVm.canRestore.test {
             assertThat(restoreVm.items.first { it.isNotEmpty() }).hasSize(1)
             advanceUntilIdle()
