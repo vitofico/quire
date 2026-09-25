@@ -7,9 +7,9 @@ repos:
     hooks:
       - id: trailing-whitespace
         # Don't modify bundled third-party text (font licenses, etc).
-        exclude: ^app/src/main/res/raw/.*_ofl\.txt$
+        exclude: ^(app/src/main/res/raw/.*_ofl\.txt|reader/src/main/assets/fonts/.*\.txt)$
       - id: end-of-file-fixer
-        exclude: ^app/src/main/res/raw/.*_ofl\.txt$
+        exclude: ^(app/src/main/res/raw/.*_ofl\.txt|reader/src/main/assets/fonts/.*\.txt)$
       - id: check-yaml
       - id: check-toml
       - id: check-json
@@ -19,6 +19,8 @@ repos:
       - id: detect-private-key
       - id: mixed-line-ending
         args: [--fix=lf]
+        # Charis SIL's license text ships with SIL's CRLF line endings.
+        exclude: ^reader/src/main/assets/fonts/.*\.txt$
 
   # Same checks server-ci.yaml runs. Keep this rev matching the ruff pin
   # in server/pyproject.toml, or the hook and CI format code differently.

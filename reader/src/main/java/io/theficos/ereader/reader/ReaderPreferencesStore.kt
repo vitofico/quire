@@ -34,10 +34,9 @@ class ReaderPreferencesStore(context: Context) {
         val fontScale = prefs.getFloat(KEY_FONT_SCALE, 1.0f).toDouble().coerceIn(0.5, 2.0)
         val themeName = prefs.getString(KEY_THEME, ReaderTheme.LIGHT.name) ?: ReaderTheme.LIGHT.name
         val theme = runCatching { ReaderTheme.valueOf(themeName) }.getOrDefault(ReaderTheme.LIGHT)
-        val familyName = prefs.getString(KEY_FONT_FAMILY, ReaderFontFamily.SYSTEM.name)
-            ?: ReaderFontFamily.SYSTEM.name
-        val family = runCatching { ReaderFontFamily.valueOf(familyName) }
-            .getOrDefault(ReaderFontFamily.SYSTEM)
+        val family = prefs.getString(KEY_FONT_FAMILY, null)
+            ?.let(ReaderFontFamily::fromStoredName)
+            ?: ReaderFontFamily.SYSTEM
         val lineSpacing = prefs.getFloat(KEY_LINE_SPACING, 1.4f).toDouble().coerceIn(1.0, 1.8)
         val tap = prefs.getBoolean(KEY_TAP_NAVIGATION, true)
         val pageMargins = prefs.getFloat(KEY_PAGE_MARGINS, 1.4f).toDouble().coerceIn(0.5, 2.0)
