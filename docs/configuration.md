@@ -19,6 +19,7 @@ exists.
 - [Required](#required)
 - [Deploy modes](#deploy-modes)
 - [AI provider](#ai-provider)
+- [Status page](#status-page)
 - [Docker Compose variables](#docker-compose-variables)
 - [Advanced](#advanced)
 - [Recipes](#recipes)
@@ -199,8 +200,10 @@ parts are switched on (`create_app` in `server/quire_server/main.py`):
 | Sync only | `true` | `false` | Reading progress, library |
 | AI only | `false` | `true` | AI |
 
-`/health` and `/readyz` answer in every mode. With both settings `false`,
-only those two answer and the server warns about it at boot. The mode also
+`/health` and `/readyz` answer in every mode, and so does the status page
+once [`QUIRE_SERVER_ADMIN_USERS`](#quire_server_admin_users) names someone.
+With both settings `false`, only those answer and the server warns about it
+at boot. The mode also
 decides which database tables the migration step creates when the container
 starts. Both default to `true`, so a `.env` that sets neither runs the full
 stack, and AI then needs a provider (see [AI provider](#ai-provider)).
@@ -550,6 +553,33 @@ These are fixed in the code today, so there is no variable to look for:
 - **The model server's own behaviour,** such as how long Ollama keeps a model
   loaded. Set that on the model server (see
   [CPU-only local models](#cpu-only-local-models)).
+
+## Status page
+
+`/quire-admin` shows in one browser page what the checks in
+[Did my change take effect?](#did-my-change-take-effect) show piece by
+piece: the boot warnings, whether the AI provider answered, whether the
+database is migrated, and every setting with the value the server runs
+with, marked `set` or `default`. A **Test AI connection** button sends the
+provider one short request and shows the same message and hint the app
+would get. Keys and URL passwords show as `***`. `server/README.md`
+("Server status page") covers the JSON endpoints and reverse proxies.
+
+### `QUIRE_SERVER_ADMIN_USERS`
+
+- Type: comma-separated calibre-web usernames, any case
+- Default: empty
+- Example: `QUIRE_SERVER_ADMIN_USERS=alice`
+
+Who may open the status page. Log in with the calibre-web account when the
+browser asks; anyone not on the list gets `403`. Empty, the default, keeps
+the page switched off: every `/quire-admin` path answers `404`. Under
+`QUIRE_SERVER_AUTH_BACKEND=native` the entries are `native:<id>` instead of
+usernames, and only the JSON endpoints work, with a bearer token.
+
+When to change it: set it to your own calibre-web username when you want the
+page. The full-stack compose's Caddy already routes `/quire-admin` to the
+server; behind your own reverse proxy, forward it the same way as `/ai/`.
 
 ## Docker Compose variables
 
@@ -1030,7 +1060,9 @@ each reader can spend.
 
 ## Did my change take effect?
 
-Five checks, from quickest to most detailed. The examples use
+Five checks, from quickest to most detailed. With
+[`QUIRE_SERVER_ADMIN_USERS`](#quire_server_admin_users) set, the
+[status page](#status-page) shows checks 2 to 4 on one page. The examples use
 `docker-compose.yml` on port 8000. With the full stack, add
 `-f docker-compose.full.yml` to the compose commands and use
 `https://<your-host>` in the `curl` commands (`curl -k https://localhost`
@@ -1107,7 +1139,8 @@ timeouts are rounded up, and they are what the app sizes its waits from.
 
 **4. Is the provider reachable?** `GET /ai/v1/health` needs no login. It
 reports what the server has seen since it started; it never probes on its
-own, so everything is `null` until the first card is requested:
+own, so everything is `null` until the first card is requested or the status
+page's **Test AI connection** button is pressed:
 
 ```sh
 curl -s http://localhost:8000/ai/v1/health
