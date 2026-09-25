@@ -35,6 +35,7 @@ class OpenLibraryClientTest {
         assertThat(result.author).isEqualTo("J.R.R. Tolkien")
         assertThat(result.isbn).isEqualTo("9780261103573")
         assertThat(result.subjects).contains("Fantasy")
+        assertThat(server.takeRequest().requestUrl!!.encodedPath).isEqualTo("/api/books.json")
     }
 
     @Test fun `returns null when record is absent`() {
