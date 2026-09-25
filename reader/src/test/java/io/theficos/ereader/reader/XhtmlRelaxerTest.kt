@@ -14,6 +14,7 @@ import org.readium.r2.shared.util.resource.InMemoryResource
 import org.readium.r2.shared.util.resource.Resource
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.nio.charset.Charset
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33])
@@ -68,8 +69,39 @@ class XhtmlRelaxerTest {
         assertThat(xmlParseError(doc("<p>x</p>") + "<p>y</p>".toByteArray())).contains("root")
         assertThat(xmlParseError(doc("<p>form\u000Cfeed</p>"))).contains("control character")
         assertThat(xmlParseError(doc("<p>tab&#x9;ok, bell&#7;not</p>"))).contains("&#7;")
+        assertThat(xmlParseError(doc("<p>x\uFFFFy</p>"))).contains("U+FFFF")
+        assertThat(xmlParseError(doc("<p>x\uFFFEy</p>"))).contains("U+FFFE")
+        assertThat(xmlParseError(doc("<p>x&#xD800;y</p>"))).contains("&#xD800;")
+        assertThat(xmlParseError(doc("<p>x&#xFFFE;y</p>"))).contains("&#xFFFE;")
+        assertThat(xmlParseError(doc("<p>&#x1F600; &#xFFFD; &#xE000;</p>"))).isNull()
         val truncated = doc("<p>cut short").let { it.copyOf(it.size - "</body></html>".length) }
         assertThat(xmlParseError(truncated)).contains("document ends")
+    }
+
+    @Test fun `a byte the declared encoding cannot decode is caught`() {
+        assertThat(xmlParseError(fixture("stray-latin1-byte.xhtml"))).contains("UTF-8")
+        assertThat(xmlParseError(doc("<p>caf\u00e9</p>", prolog = ""))).isNull()
+    }
+
+    @Test fun `the same byte is fine where the declaration says ISO-8859-1`() {
+        val latin1 = fixture("stray-latin1-byte.xhtml").toString(Charsets.ISO_8859_1)
+            .replace("encoding=\"utf-8\"", "encoding=\"ISO-8859-1\"")
+            .toByteArray(Charsets.ISO_8859_1)
+        assertThat(xmlParseError(latin1)).isNull()
+    }
+
+    @Test fun `a legacy multi-byte encoding breaks once Readium serves the chapter as UTF-8`() {
+        val prolog = """<?xml version="1.0" encoding="Shift_JIS"?>"""
+        val japanese = doc("<p>日本語のテキスト</p>", prolog = prolog).toString(Charsets.UTF_8)
+            .toByteArray(Charset.forName("Shift_JIS"))
+        assertThat(xmlParseError(japanese)).contains("Readium")
+        assertThat(xmlParseError(doc("<p>ASCII only</p>", prolog = prolog))).isNull()
+    }
+
+    @Test fun `a UTF-8 byte-order mark outranks the declared encoding`() {
+        val bom = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
+        val prolog = """<?xml version="1.0" encoding="ISO-8859-1"?>"""
+        assertThat(xmlParseError(bom + doc("<p>caf\u00e9</p>", prolog = prolog))).isNull()
     }
 
     @Test fun `a byte-order mark or leading blank line before the declaration is fine`() {

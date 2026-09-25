@@ -15,6 +15,10 @@ import org.readium.r2.shared.util.resource.Resource
 import org.readium.r2.shared.util.use
 import org.xmlpull.v1.XmlPullParser
 import java.io.ByteArrayInputStream
+import java.nio.ByteBuffer
+import java.nio.charset.CharacterCodingException
+import java.nio.charset.Charset
+import java.nio.charset.CodingErrorAction
 
 private const val TAG = "XhtmlRelaxer"
 
@@ -73,8 +77,9 @@ private suspend fun Container<Resource>.isMalformed(url: Url): Boolean {
  *
  * Android's pull parser does most of the work. It lets through a few things Chromium treats as
  * fatal, so those are checked here: a second root element, a document that ends inside an
- * element, duplicate attributes, characters XML forbids, and named entities Chromium cannot
- * resolve (the parser quietly drops any entity once a DTD is referenced).
+ * element, duplicate attributes, bytes the document's encoding cannot decode, characters XML
+ * forbids, and named entities Chromium cannot resolve (the parser quietly drops any entity once
+ * a DTD is referenced).
  */
 internal fun xmlParseError(bytes: ByteArray): String? {
     // Readium's HTML injector trims each document before serving it, so whitespace ahead of the
@@ -108,9 +113,48 @@ internal fun xmlParseError(bytes: ByteArray): String? {
     } catch (e: Exception) {
         return e.message ?: e.javaClass.simpleName
     }
-    return characterError(bytes, start) { name ->
+    return encodingError(bytes, start) ?: characterError(bytes, start) { name ->
         name in declaredEntities || (xhtmlDtd && name in XHTML_ENTITIES)
     }
+}
+
+/**
+ * Returns why the WebView could not decode the document, or null. It decodes with the charset
+ * the byte-order mark or else the XML declaration names (UTF-8 when neither does), and under XML
+ * a byte sequence that charset cannot decode is fatal ("Encoding error"), where the pull parser
+ * quietly substitutes U+FFFD.
+ *
+ * Readium 3.0.0 decodes every document as UTF-8 and re-encodes it before serving it, whatever it
+ * declares, so a chapter that declares Shift_JIS reaches the WebView as UTF-8 bytes labelled
+ * Shift_JIS, which fails. The book's own bytes are checked as well, which keeps the answer right
+ * if a later Readium serves them unchanged.
+ */
+private fun encodingError(bytes: ByteArray, start: Int): String? {
+    val charset = if (bytes.hasUtf8Bom(start)) Charsets.UTF_8 else declaredCharset(bytes, start) ?: Charsets.UTF_8
+    if (!charset.decodes(bytes, start)) return "bytes that are not valid ${charset.name()}"
+    if (charset == Charsets.UTF_8) return null
+    val served = String(bytes, start, bytes.size - start, Charsets.UTF_8).toByteArray(Charsets.UTF_8)
+    return if (charset.decodes(served, 0)) null else "Readium serves it as UTF-8, which ${charset.name()} cannot decode"
+}
+
+private fun ByteArray.hasUtf8Bom(start: Int) = size - start >= 3 &&
+    this[start] == 0xEF.toByte() && this[start + 1] == 0xBB.toByte() && this[start + 2] == 0xBF.toByte()
+
+private fun declaredCharset(bytes: ByteArray, start: Int): Charset? {
+    val prolog = String(bytes, start, minOf(bytes.size - start, 256), Charsets.ISO_8859_1)
+    val name = DECLARED_ENCODING.find(prolog)?.groupValues?.get(1) ?: return null
+    // The pull parser has already rejected an encoding Java does not know.
+    return runCatching { Charset.forName(name) }.getOrNull()
+}
+
+private fun Charset.decodes(bytes: ByteArray, start: Int): Boolean = try {
+    newDecoder()
+        .onMalformedInput(CodingErrorAction.REPORT)
+        .onUnmappableCharacter(CodingErrorAction.REPORT)
+        .decode(ByteBuffer.wrap(bytes, start, bytes.size - start))
+    true
+} catch (e: CharacterCodingException) {
+    false
 }
 
 private fun XmlPullParser.duplicateAttribute(): String? {
@@ -127,17 +171,23 @@ private fun XmlPullParser.duplicateAttribute(): String? {
 }
 
 /**
- * Scans the raw bytes for a control character XML forbids, as a byte or as a `&#...;`
- * reference, and for a named entity reference that is neither built into XML nor [defined].
- * An `&name;` inside a comment or CDATA section is flagged too; the cost of that is one
- * document on the HTML parser.
+ * Scans the raw bytes for a character XML forbids, as UTF-8 or as a `&#...;` reference, and for
+ * a named entity reference that is neither built into XML nor [defined]. Anything of the kind
+ * inside a comment or CDATA section is flagged too; the cost of that is one document on the
+ * HTML parser.
  */
 private fun characterError(bytes: ByteArray, start: Int, defined: (String) -> Boolean): String? {
     var i = start
     while (i < bytes.size) {
-        val b = bytes[i].toInt()
-        if (b in 0 until 0x20 && b != 0x09 && b != 0x0A && b != 0x0D) {
+        val b = bytes[i].toInt() and 0xFF
+        if (b < 0x20 && b != 0x09 && b != 0x0A && b != 0x0D) {
             return "control character 0x%02x".format(b)
+        }
+        // U+FFFE and U+FFFF are valid UTF-8 (EF BF BE, EF BF BF) but not XML characters.
+        if (b == 0xEF && i + 2 < bytes.size && bytes[i + 1] == 0xBF.toByte() &&
+            (bytes[i + 2] == 0xBE.toByte() || bytes[i + 2] == 0xBF.toByte())
+        ) {
+            return if (bytes[i + 2] == 0xBE.toByte()) "noncharacter U+FFFE" else "noncharacter U+FFFF"
         }
         if (b != '&'.code) {
             i++
@@ -149,8 +199,8 @@ private fun characterError(bytes: ByteArray, start: Int, defined: (String) -> Bo
             val name = String(bytes, i + 1, end - i - 1, Charsets.UTF_8)
             if (name.startsWith("#")) {
                 val code = if (name.startsWith("#x")) name.drop(2).toIntOrNull(16) else name.drop(1).toIntOrNull()
-                if (code != null && code < 0x20 && code != 0x09 && code != 0x0A && code != 0x0D) {
-                    return "control character reference &$name;"
+                if (code != null && !isXmlChar(code)) {
+                    return "reference to a character XML forbids, &$name;"
                 }
             } else if (name !in XML_ENTITIES && !defined(name)) {
                 return "undefined entity &$name;"
@@ -161,11 +211,16 @@ private fun characterError(bytes: ByteArray, start: Int, defined: (String) -> Bo
     return null
 }
 
+private fun isXmlChar(c: Int) = c == 0x09 || c == 0x0A || c == 0x0D ||
+    c in 0x20..0xD7FF || c in 0xE000..0xFFFD || c in 0x10000..0x10FFFF
+
 private fun Byte.isReferenceChar(): Boolean {
     val c = toInt()
     return c < 0 || c == '#'.code || c == '_'.code || c == '-'.code || c == '.'.code || c == ':'.code ||
         c in '0'.code..'9'.code || c in 'a'.code..'z'.code || c in 'A'.code..'Z'.code
 }
+
+private val DECLARED_ENCODING = Regex("""^<\?xml\s[^>]*?\bencoding\s*=\s*["']([^"']+)["']""")
 
 private val PUBLIC_ID = Regex("""PUBLIC\s+["']([^"']*)["']""")
 
