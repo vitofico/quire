@@ -169,12 +169,21 @@ Apache-2.0, calibre-web-only, **no telemetry, ever.**
 
 ## Install
 
-Install Quire from [F-Droid] or grab the latest APK from [Releases],
-then point it at your calibre-web URL on first launch.
+Install Quire from [F-Droid] or [Obtainium], or grab the latest APK from
+[Releases], then point it at your calibre-web URL on first launch.
+Obtainium installs straight from [Releases], so it offers each new version
+as soon as it is published, before F-Droid has built it. All three give
+you the same APK signed with the same key, so you can move between them
+without reinstalling.
 
 <a href="https://f-droid.org/packages/io.theficos.quire/">
   <img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png"
        alt="Get it on F-Droid"
+       height="80">
+</a>
+<a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/vitofico/quire">
+  <img src="https://raw.githubusercontent.com/ImranR98/Obtainium/main/assets/graphics/badge_obtainium.png"
+       alt="Get it on Obtainium"
        height="80">
 </a>
 
@@ -188,7 +197,7 @@ is in [`docs/configuration.md`](docs/configuration.md).
 ### "Harmful app blocked" by Play Protect
 
 On some phones, Google Play Protect blocks Quire as a harmful app, whether
-the APK comes from F-Droid or from [Releases]. It is a false positive,
+the APK comes from F-Droid, Obtainium or [Releases]. It is a false positive,
 tracked in [#108](https://github.com/vitofico/quire/issues/108), and an
 appeal with Google is pending.
 
@@ -276,4 +285,5 @@ If Quire is useful to you and you'd like to chip in, you can buy me a coffee:
 [calibre-web]: https://github.com/janeczku/calibre-web
 [Releases]: https://github.com/vitofico/quire/releases
 [F-Droid]: https://f-droid.org/packages/io.theficos.quire/
+[Obtainium]: https://obtainium.imranr.dev/
 [Kavita]: https://www.kavitareader.com/
