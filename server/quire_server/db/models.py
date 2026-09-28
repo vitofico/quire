@@ -169,6 +169,21 @@ class UserAIPreference(Base):
     )
 
 
+# Issue #102: AI settings an admin saved on the status page, one row per
+# setting, keyed by its `Settings` field name. `value` is text; parsing and
+# precedence (environment first) live in `core/runtime_settings.py`.
+# Migration `ai_008`.
+class ServerSetting(Base):
+    __tablename__ = "server_settings"
+
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    value: Mapped[str] = mapped_column(String, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_by: Mapped[str] = mapped_column(String, nullable=False)
+
+
 # Cache-integrity invariant: shared cache, MUST NOT carry tenant columns.
 # See the comment above BookInsight for the full rule.
 class ExternalSourceCacheEntry(Base):

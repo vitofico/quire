@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 
 import httpx
 import pytest
+from sqlalchemy import text
 
 from quire_server.core.ai.client import AIClient
 from quire_server.core.ai.health_state import AiHealthState
@@ -135,6 +136,32 @@ async def test_timeout_returns_504_with_structured_detail(client_factory, app, s
         "hint": "Raise QUIRE_SERVER_AI_TIMEOUT_S for slow local models, or pick a faster model.",
         "provider_status": None,
     }
+
+
+async def test_timeout_message_quotes_the_limit_saved_on_the_status_page(
+    client_factory, app, session
+):
+    # Issue #102, phase 3: the status page can change the limit while the
+    # server runs, so the message must quote the value in force, not the
+    # one the app was built with.
+    await session.execute(
+        text(
+            "INSERT INTO server_settings (key, value, updated_by) "
+            "VALUES ('ai_timeout_s', '300', 'alice')"
+        )
+    )
+    await session.commit()
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("simulated")
+
+    try:
+        r = await _opted_in_lookup(client_factory, app, fake_handler=handler)
+    finally:
+        await session.execute(text("DELETE FROM server_settings"))
+        await session.commit()
+    assert r.status_code == 504
+    assert r.json()["detail"]["message"] == "The AI provider did not answer within 300 seconds."
 
 
 async def test_unreachable_returns_502(client_factory, app, session):

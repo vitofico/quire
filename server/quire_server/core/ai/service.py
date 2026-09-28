@@ -223,6 +223,9 @@ class TokenBucket:
         self._tokens = self._capacity
         self._last = time.monotonic()
         self._lock = asyncio.Lock()
+        # Set, and replaced, by `set_rate`, so a waiter sized for the old
+        # rate recomputes its wait instead of sleeping it out.
+        self._rate_changed = asyncio.Event()
 
     async def acquire(self) -> None:
         while True:
@@ -236,7 +239,27 @@ class TokenBucket:
                     self._tokens -= 1.0
                     return
                 wait_s = (1.0 - self._tokens) / self._refill_per_s
-            await asyncio.sleep(wait_s)
+                rate_changed = self._rate_changed
+            try:
+                await asyncio.wait_for(rate_changed.wait(), timeout=wait_s)
+            except TimeoutError:
+                pass
+
+    def set_rate(self, rate_per_min: int) -> None:
+        """Change the rate in place (issue #102: the status page can change it).
+
+        Tokens earned so far are credited at the old rate, and any above the
+        new ceiling are dropped. Requests already waiting wake up and size
+        their wait again at the new rate.
+        """
+        now = time.monotonic()
+        self._tokens = min(self._capacity, self._tokens + (now - self._last) * self._refill_per_s)
+        self._last = now
+        self._capacity = float(max(rate_per_min, 1))
+        self._refill_per_s = self._capacity / 60.0
+        self._tokens = min(self._tokens, self._capacity)
+        self._rate_changed.set()
+        self._rate_changed = asyncio.Event()
 
 
 class _AIClientLike(Protocol):
@@ -330,6 +353,27 @@ class InsightOrchestrator:
         self._profile_retriever_factory = profile_retriever_factory
         self._profile_refresh_daily_limit = profile_refresh_daily_limit
         self._profile_timeout_s = profile_timeout_s
+
+    def apply_tunables(
+        self,
+        *,
+        ai_timeout_s: float,
+        profile_timeout_s: float,
+        sources_enabled: tuple[str, ...],
+        rate_per_min: int,
+        daily_budget: int,
+        regen_daily_limit: int,
+    ) -> None:
+        """Take new values for the settings the status page can change (issue #102).
+
+        Every one of them is read per call, so the next request uses them.
+        """
+        self._ai_timeout_s = ai_timeout_s
+        self._profile_timeout_s = profile_timeout_s
+        self.sources_enabled = tuple(sources_enabled)
+        self._bucket.set_rate(rate_per_min)
+        self._daily_budget = daily_budget
+        self._regen_daily_limit = regen_daily_limit
 
     # ------- public API -------
 

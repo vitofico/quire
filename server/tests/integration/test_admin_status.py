@@ -16,8 +16,6 @@ import httpx
 import pytest
 
 from quire_server.core.ai.client import AIClient
-from quire_server.core.auth import CalibreAuthValidator
-from quire_server.core.auth_backend import CalibreWebBasicAuth
 
 STATUS = "/quire-admin/v1/status"
 PROBE = "/quire-admin/v1/ai/probe"
@@ -25,27 +23,6 @@ PAGE = "/quire-admin"
 PAGE_PROBE = "/quire-admin/probe"
 
 AI_ENV = {"ai_enabled": "true", "ai_base_url": "http://fake/v1", "ai_model": "test-model"}
-
-
-@pytest.fixture
-async def admin_client(client_factory, app, cwa_transport):
-    """``client_factory`` with the real calibre-web auth backend put back."""
-    cwa_client = httpx.AsyncClient(transport=cwa_transport, base_url="http://test-cwa")
-
-    def _make(**env):
-        ctx = client_factory(**env)
-        app.state.auth_backend = CalibreWebBasicAuth(
-            CalibreAuthValidator(client=cwa_client, cwa_base_url="http://test-cwa")
-        )
-        return ctx
-
-    yield _make
-    await cwa_client.aclose()
-
-
-@pytest.fixture
-def alice(basic_header) -> dict[str, str]:
-    return {"Authorization": basic_header("alice", "alicepass")}
 
 
 def _install_provider(app, handler) -> list[httpx.Request]:
@@ -155,7 +132,7 @@ async def test_status_reports_what_the_server_runs_with(admin_client, alice):
     assert isinstance(body["modes"], list)
     assert isinstance(body["warnings"], list)
     assert body["migrations"]["missing"] == []
-    assert body["migrations"]["applied"] == ["ai_007", "auth_001", "progress_003"]
+    assert body["migrations"]["applied"] == ["ai_008", "auth_001", "progress_003"]
     rows = {row["name"]: row for row in body["settings"]}
     assert rows["QUIRE_SERVER_ADMIN_USERS"] == {
         "name": "QUIRE_SERVER_ADMIN_USERS",

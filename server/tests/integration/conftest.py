@@ -47,7 +47,9 @@ async def _truncate_ai_tables_between_tests(request, engine: AsyncEngine):
                 # Phase 0, task S-1: NativeAuth tables. Listed even when the
                 # test fixture defaults to CalibreWeb backend so opt-in
                 # NativeAuth tests start from a clean slate.
-                "native_sessions, native_users "
+                "native_sessions, native_users, "
+                # Issue #102: AI settings saved on the status page.
+                "server_settings "
                 "RESTART IDENTITY CASCADE"
             )
         )
@@ -248,3 +250,37 @@ def configure_ai():
         return orch
 
     return _apply
+
+
+# ---------------------------------------------------------------------------
+# Admin status page (issue #102)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def admin_client(client_factory, app, cwa_transport):
+    """``client_factory`` with the real calibre-web auth backend put back.
+
+    The admin routes check the login themselves (the challenge header and the
+    allowlist are the point), against the mock calibre-web in
+    ``tests/conftest.py``: alice/alicepass and bob/bobpass.
+    """
+    from quire_server.core.auth import CalibreAuthValidator
+    from quire_server.core.auth_backend import CalibreWebBasicAuth
+
+    cwa_client = httpx.AsyncClient(transport=cwa_transport, base_url="http://test-cwa")
+
+    def _make(**env):
+        ctx = client_factory(**env)
+        app.state.auth_backend = CalibreWebBasicAuth(
+            CalibreAuthValidator(client=cwa_client, cwa_base_url="http://test-cwa")
+        )
+        return ctx
+
+    yield _make
+    await cwa_client.aclose()
+
+
+@pytest.fixture
+def alice(basic_header) -> dict[str, str]:
+    return {"Authorization": basic_header("alice", "alicepass")}

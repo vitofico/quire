@@ -302,10 +302,16 @@ log in with your calibre-web account, and it shows:
   through, and a **Test AI connection** button that sends one short request
   and reports the outcome with the same message and hint the app would get;
 - whether the database migrations are up to date;
+- an **AI settings** form that changes the AI time limits, the lookup
+  sources, the rate limit and the daily quotas without a restart. A setting
+  the environment or `.env` gives is shown greyed out, because the
+  environment wins; see "Changing AI settings on the page" in
+  `docs/configuration.md`;
 - every setting with the value the server is running with, marked `set` when
-  it came from the environment or `.env` and `default` when nothing set it.
-  Keys and URL passwords show as `***`. A line you wrote in `.env` that shows
-  up as `default` never reached the container.
+  it came from the environment or `.env`, `saved` when it was saved on this
+  page, and `default` when nothing set it. Keys and URL passwords show as
+  `***`. A line you wrote in `.env` that shows up as `default` never reached
+  the container.
 
 The page is off until you name who may see it, in `.env`:
 
@@ -321,11 +327,18 @@ the password):
 ```sh
 curl -fsSk -u alice https://localhost/quire-admin/v1/status | jq
 curl -fsSk -u alice -X POST https://localhost/quire-admin/v1/ai/probe | jq
+curl -fsSk -u alice -X PUT https://localhost/quire-admin/v1/settings \
+  -H 'Content-Type: application/json' \
+  -d '{"QUIRE_SERVER_AI_TIMEOUT_S": 285, "QUIRE_SERVER_AI_DAILY_BUDGET": null}' | jq
 ```
+
+`PUT /quire-admin/v1/settings` takes variable names; `null` removes a saved
+value so the default applies again. It saves all of the changes or none, and
+a refused one comes back as a 422 naming the variable and the reason.
 
 Worth knowing:
 
-- The test gets `QUIRE_SERVER_AI_TIMEOUT_S` in total, the budget of one
+- The test gets the insight time limit in force in total, the budget of one
   insight model call, so a local model that is still loading is not reported
   as broken. Its outcome also updates `GET /ai/v1/health`.
 - The browser login needs `QUIRE_SERVER_AUTH_BACKEND=calibreweb`. Under

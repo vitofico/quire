@@ -130,7 +130,8 @@ the operator migrates. Plan cutover within the two-minor-release window.
 | `GET` | `/readyz` | none | Readiness probe; checks Postgres and that enabled-branch migrations are applied (always mounted) |
 | `GET` | `/quire-admin/v1/status` | admin | Version, modes, boot warnings, AI health, migration heads and every setting with secrets masked; mounted only when `QUIRE_SERVER_ADMIN_USERS` is set |
 | `POST` | `/quire-admin/v1/ai/probe` | admin | Sends one short structured request to the AI provider; returns `{ok, model, elapsed_ms, error}` with `error` shaped like the AI failure `detail` |
-| `GET` | `/quire-admin` | admin | The status as an HTML page with a "Test AI connection" button (`POST /quire-admin/probe`) |
+| `PUT` | `/quire-admin/v1/settings` | admin | Changes AI settings, keyed by variable name, `null` for the default; all or nothing, `422` with `detail.errors` per variable; answers `{editable}` as in the status |
+| `GET` | `/quire-admin` | admin | The status as an HTML page with a "Test AI connection" button (`POST /quire-admin/probe`) and an AI settings form (`POST /quire-admin/settings`) |
 | `POST` | `/sync/v1/progress` | yes | Push progress for one or more documents |
 | `GET` | `/sync/v1/progress` | yes | Pull progress deltas |
 | `POST` | `/sync/v1/documents/alias` | yes | Reconcile a hash-keyed record with a newly-known metadata-id (planned) |
