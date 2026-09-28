@@ -13,6 +13,46 @@ from html import escape
 
 _MODE_LABELS = {"progress": "reading progress and library sync", "ai": "AI insights"}
 
+_SOURCE_LABELS = {"wikipedia": "Wikipedia", "openlibrary": "Open Library"}
+
+# Label, unit and one line of help for each setting the page can change, in
+# the order `runtime_settings.EDITABLE` lists them. The help follows
+# docs/configuration.md.
+_EDITABLE_TEXT = {
+    "QUIRE_SERVER_AI_TIMEOUT_S": (
+        "Insight time limit",
+        "seconds",
+        "How long one insight model call may take. Raise it for a slow local model. "
+        "The app waits out up to 285 seconds in full.",
+    ),
+    "QUIRE_SERVER_AI_PROFILE_TIMEOUT_S": (
+        "Reader Profile time limit",
+        "seconds",
+        "The same for a Reader Profile refresh. Raise it together with the insight limit.",
+    ),
+    "QUIRE_SERVER_AI_SOURCES": (
+        "Look books up on",
+        None,
+        "Unticking both turns lookups off: shorter, faster prompts, but the model has only "
+        "what it already knows about the book.",
+    ),
+    "QUIRE_SERVER_AI_RATE_PER_MIN": (
+        "Generations per minute",
+        None,
+        "For the whole server. A request over the limit waits for its turn.",
+    ),
+    "QUIRE_SERVER_AI_DAILY_BUDGET": (
+        "Generations per reader per day",
+        None,
+        "Regenerations included; the day ends at midnight UTC. 0 turns the budget off.",
+    ),
+    "QUIRE_SERVER_AI_REGEN_DAILY_LIMIT": (
+        "Regenerations per reader per day",
+        None,
+        "0 blocks regeneration.",
+    ),
+}
+
 _STYLE = """
 :root { color-scheme: light dark; --bg: #fafaf7; --fg: #1d1d1b; --muted: #6b6b66;
   --line: #e2e2dc; --card: #ffffff; --ok: #1f7a3a; --bad: #b3261e; --accent: #3b5bdb;
@@ -45,6 +85,17 @@ dd { margin: 0; overflow-wrap: anywhere; }
 form { margin-top: 14px; }
 button { font: inherit; padding: 7px 14px; border-radius: 8px; border: 1px solid var(--accent);
   background: var(--accent); color: var(--on-accent); cursor: pointer; }
+button.quiet { padding: 2px 10px; font-size: 13px; background: transparent; color: var(--accent); }
+.field { padding: 12px 0; border-top: 1px solid var(--line); }
+.field:first-of-type { border-top: 0; padding-top: 0; }
+.field label, .field legend { display: block; font-weight: 600; padding: 0; }
+.field fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.field .choice { display: inline-flex; gap: 6px; align-items: center; margin: 6px 18px 0 0;
+  font-weight: 400; }
+input[type=number] { font: inherit; width: 10em; max-width: 100%; margin-top: 6px;
+  padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg);
+  color: var(--fg); }
+input:disabled { opacity: 0.6; }
 .table { overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; }
 th, td { text-align: left; padding: 6px 8px; vertical-align: top;
@@ -175,6 +226,117 @@ def _ai_section(status: dict, probe: dict | None) -> str:
     return "".join(parts)
 
 
+def _plain(value: object) -> str:
+    """A number as a person would type it: ``120.0`` as ``120``."""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+def _sources_text(value: str) -> str:
+    names = [_SOURCE_LABELS.get(n, n) for n in value.split(",") if n]
+    return " and ".join(names) or "none"
+
+
+def _settings_notice(notice: dict) -> str:
+    if not notice["ok"]:
+        items = "".join(f"<li>{_e(message)}</li>" for message in notice["errors"])
+        return f'<div class="probe bad"><strong>Nothing was saved.</strong><ul>{items}</ul></div>'
+    if not notice["changed"]:
+        return (
+            '<div class="probe ok"><strong>Nothing changed.</strong>'
+            "<p>Every value was already the one in force.</p></div>"
+        )
+    changed = ", ".join(notice["changed"])
+    return (
+        '<div class="probe ok"><strong>Saved. The next AI request uses the new '
+        f"values.</strong><p>Changed: <code>{_e(changed)}</code>.</p></div>"
+    )
+
+
+def _origin(row: dict) -> str:
+    """Where the value in force comes from, with the way to change that."""
+    name = row["name"]
+    default = row["default"]
+    shown_default = _sources_text(default) if name == "QUIRE_SERVER_AI_SOURCES" else _plain(default)
+    if row["source"] == "set":
+        return (
+            "Set in the server's environment, which takes precedence. To change it here, "
+            "remove it there and restart the server."
+        )
+    if row["source"] == "saved":
+        return (
+            f"Saved here by {_e(row['updated_by'])}, {_e(_when(row['updated_at']))}. "
+            f"Built-in default: {_e(shown_default)}. "
+            f'<button class="quiet" type="submit" form="reset-settings" name="reset" '
+            f'value="{_e(name)}">Use default</button>'
+        )
+    return "Built-in default."
+
+
+def _editable_field(row: dict) -> str:
+    name = row["name"]
+    label, unit, help_text = _EDITABLE_TEXT[name]
+    disabled = " disabled" if row["locked"] else ""
+    field_id = f"s-{name}"
+    # The value as shown, so the server can tell which fields the admin
+    # edited from the ones another admin changed since the page loaded.
+    was = (
+        ""
+        if row["locked"]
+        else f'<input type="hidden" name="{_e(name)}__was" value="{_e(_plain(row["value"]))}">'
+    )
+    meta = (
+        f'<p class="note"><code>{_e(name)}</code>. {_e(help_text)}</p>'
+        f'<p class="note">{_origin(row)}</p>'
+    )
+    if name == "QUIRE_SERVER_AI_SOURCES":
+        ticked = set(filter(None, str(row["value"]).split(",")))
+        boxes = "".join(
+            f'<label class="choice"><input type="checkbox" name="{_e(name)}" '
+            f'value="{_e(source)}"{" checked" if source in ticked else ""}{disabled}>'
+            f"{_e(text)}</label>"
+            for source, text in _SOURCE_LABELS.items()
+        )
+        # The empty hidden value tells the server the field was on the form,
+        # so no box ticked means "no lookups", not "leave it alone".
+        hidden = "" if row["locked"] else f'<input type="hidden" name="{_e(name)}" value="">'
+        return (
+            f'<div class="field"><fieldset><legend>{_e(label)}</legend>'
+            f"{hidden}{was}{boxes}</fieldset>{meta}</div>"
+        )
+    # The browser's own checks match the server's, so a value the server
+    # would accept is never blocked before it gets there.
+    step = "any" if unit == "seconds" else "1"
+    minimum = "1" if name == "QUIRE_SERVER_AI_RATE_PER_MIN" else "0"
+    shown_unit = f" ({_e(unit)})" if unit else ""
+    return (
+        f'<div class="field"><label for="{_e(field_id)}">{_e(label)}{shown_unit}</label>'
+        f'<input type="number" id="{_e(field_id)}" name="{_e(name)}" '
+        f'value="{_e(_plain(row["value"]))}" step="{step}" min="{minimum}"{disabled}>'
+        f"{was}{meta}</div>"
+    )
+
+
+def _editable_section(status: dict, notice: dict | None) -> str:
+    rows = status.get("editable")
+    if rows is None:
+        return ""
+    fields = "".join(_editable_field(row) for row in rows)
+    shown_notice = _settings_notice(notice) if notice is not None else ""
+    return (
+        '<section id="ai-settings"><h2>AI settings</h2>'
+        '<p class="note">Changes apply to the next AI request, without a restart, and are '
+        "kept in the database. A value set in the server's environment or <code>.env</code> "
+        "wins over one saved here.</p>"
+        f"{shown_notice}"
+        f'<form method="post" action="/quire-admin/settings">{fields}'
+        '<button type="submit">Save AI settings</button></form>'
+        '<form id="reset-settings" method="post" action="/quire-admin/settings"></form>'
+        "</section>"
+    )
+
+
 def _migrations_section(status: dict) -> str:
     migrations = status["migrations"]
     if "error" in migrations:
@@ -207,14 +369,17 @@ def _settings_section(status: dict) -> str:
     return (
         "<section><h2>Settings</h2>"
         '<p class="note">What this server is running with. <em>set</em> came from the '
-        "environment or <code>.env</code>; <em>default</em> means nothing set it, so the "
-        "built-in value applies. Secrets and URL passwords show as <code>***</code>.</p>"
+        "environment or <code>.env</code>; <em>saved</em> was saved under AI settings "
+        "above; <em>default</em> means nothing set it, so the built-in value applies. "
+        "Secrets and URL passwords show as <code>***</code>.</p>"
         '<div class="table"><table><thead><tr><th>Variable</th><th>Value</th><th></th></tr>'
         f"</thead><tbody>{rows}</tbody></table></div></section>"
     )
 
 
-def render_page(status: dict, probe: dict | None = None) -> str:
+def render_page(
+    status: dict, probe: dict | None = None, settings_notice: dict | None = None
+) -> str:
     serving = ", ".join(_MODE_LABELS.get(m, m) for m in status["modes"]) or "health checks only"
     return (
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
@@ -224,6 +389,7 @@ def render_page(status: dict, probe: dict | None = None) -> str:
         f'<p class="meta">Build <code>{_e(status["version"])}</code>. '
         f"Serving {_e(serving)}.</p></header>"
         f"{_warnings_section(status)}{_ai_section(status, probe)}"
+        f"{_editable_section(status, settings_notice)}"
         f"{_migrations_section(status)}{_settings_section(status)}"
         "</main></body></html>"
     )

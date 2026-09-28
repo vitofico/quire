@@ -33,13 +33,13 @@ async def test_readyz_returns_200_when_db_reachable_and_heads_applied(app_under_
     body = r.json()
     assert body["ready"] is True
     # Phase 0 branch heads, sorted alphabetically:
-    #   * ai_007 (F-1, added `book_insights.identity_hash_version`)
+    #   * ai_008 (issue #102, added `server_settings`)
     #   * auth_001 (S-1, added `native_users` + `native_sessions`; the
     #     ``auth`` branch is unconditionally upgraded — see
     #     `scripts/migrate.py` and `health._required_heads`)
     #   * progress_003 (F-1, added `identity_hash_version` to
     #     `documents` + `library_items`)
-    assert body["heads_applied"] == ["ai_007", "auth_001", "progress_003"]
+    assert body["heads_applied"] == ["ai_008", "auth_001", "progress_003"]
 
 
 async def test_old_sync_health_path_is_404(app_under_test):

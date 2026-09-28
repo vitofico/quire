@@ -18,7 +18,7 @@ import logging
 import warnings
 
 import httpx
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 
 from quire_server.api import health
 from quire_server.api.middleware import RequestIDMiddleware, RequestSizeMiddleware
@@ -27,7 +27,6 @@ from quire_server.config import (
     admin_user_ids,
     config_warnings,
     get_settings,
-    parse_ai_sources,
     unknown_env_vars,
 )
 from quire_server.core.auth import CalibreAuthValidator
@@ -318,6 +317,16 @@ def create_app() -> FastAPI:
         app.state.ai_authenticator = _build_ai_authenticator(
             settings, app.state.auth_validator, app.state.auth_backend
         )
+        # Issue #102: the AI settings an admin can change on the status page.
+        # Every AI request first brings the saved values up to date.
+        from quire_server.core.runtime_settings import (
+            RuntimeSettings,
+            refresh_runtime_settings,
+        )
+
+        runtime = RuntimeSettings(settings)
+        app.state.runtime_settings = runtime
+        ai_router_deps = [Depends(refresh_runtime_settings)]
 
         if settings.ai_base_url and settings.ai_model:
             # Lazy imports: only pull AI modules when AI mode is on AND configured.
@@ -359,7 +368,7 @@ def create_app() -> FastAPI:
                 # orchestrator skips that step and every profile came back
                 # with no discovery recommendations.
                 profile_retriever_factory=retriever_factory,
-                sources_enabled=parse_ai_sources(settings.ai_sources),
+                sources_enabled=runtime.sources,
                 model_id=settings.ai_model,
                 # PR-ε / coordinator §3.1 / Lock #19: the in-code constant
                 # ``prompts.PROMPT_VERSION`` is the source of truth. The legacy
@@ -386,14 +395,22 @@ def create_app() -> FastAPI:
                 session_factory=session_factory,
             )
             app.state.ai_orchestrator = orch
+            runtime.on_change(
+                lambda: orch.apply_tunables(
+                    ai_timeout_s=runtime.get("ai_timeout_s"),
+                    profile_timeout_s=runtime.get("ai_profile_timeout_s"),
+                    sources_enabled=runtime.sources,
+                    rate_per_min=runtime.get("ai_rate_per_min"),
+                    daily_budget=runtime.get("ai_daily_budget"),
+                    regen_daily_limit=runtime.get("ai_regen_daily_limit"),
+                )
+            )
             # Issue #102: a provider failure used to escape as a bare 500.
             # Now it is a 502/504 with a code, a sentence and a hint.
             from quire_server.api.ai_errors import register_provider_error_handler
 
-            register_provider_error_handler(
-                app, timeout_s=settings.ai_timeout_s, model=settings.ai_model
-            )
-            app.include_router(ai_router, prefix="/ai/v1")
+            register_provider_error_handler(app, model=settings.ai_model)
+            app.include_router(ai_router, prefix="/ai/v1", dependencies=ai_router_deps)
         else:
             # AI enabled but missing base_url/model — still mount the router
             # so the /ai/v1/config endpoint can report `configured: false`.
@@ -405,7 +422,7 @@ def create_app() -> FastAPI:
             # Attach an empty holder so GET /ai/v1/health returns an all-null
             # snapshot rather than the "defensive empty body" branch.
             app.state.ai_health = AiHealthState()
-            app.include_router(ai_router, prefix="/ai/v1")
+            app.include_router(ai_router, prefix="/ai/v1", dependencies=ai_router_deps)
 
     # Middleware: registered LAST is OUTERMOST in ASGI execution order.
     # We want RequestID outermost so it can attach X-Request-ID to ANY

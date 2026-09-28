@@ -385,6 +385,9 @@ When to change it: raise it for slow local models, above all on a CPU
 without a GPU, where a prompt of a few thousand characters can take minutes.
 Hosted models usually answer well within the default.
 
+You can also change it on the [status page](#changing-ai-settings-on-the-page),
+without a restart, unless the environment sets it.
+
 #### `QUIRE_SERVER_AI_PROFILE_TIMEOUT_S`
 
 - Type: seconds, decimals allowed
@@ -398,6 +401,9 @@ here names this variable in its hint.
 
 When to change it: together with `QUIRE_SERVER_AI_TIMEOUT_S` on slow
 hardware.
+
+You can also change it on the [status page](#changing-ai-settings-on-the-page),
+without a restart, unless the environment sets it.
 
 ### Retrieval sources
 
@@ -439,6 +445,9 @@ actually contributed to a card (`sources=-` for none).
 
 When to change it: turn retrieval off to test whether a slow model copes
 without the extra context, or drop a site you do not want contacted.
+
+You can also change it on the [status page](#changing-ai-settings-on-the-page),
+without a restart, unless the environment sets it.
 
 #### `QUIRE_SERVER_AI_RETRIEVAL_TIMEOUT_S`
 
@@ -488,6 +497,9 @@ anything below 1 behaves as 1 per minute.
 When to change it: raise it for a household that opens many new books at
 once; lower it to stay under a provider's per-minute quota.
 
+You can also change it on the [status page](#changing-ai-settings-on-the-page),
+without a restart, unless the environment sets it.
+
 #### `QUIRE_SERVER_AI_DAILY_BUDGET`
 
 - Type: whole number
@@ -504,6 +516,9 @@ budget off.
 When to change it: lower it on a paid provider to cap what each reader can
 spend.
 
+You can also change it on the [status page](#changing-ai-settings-on-the-page),
+without a restart, unless the environment sets it.
+
 #### `QUIRE_SERVER_AI_REGEN_DAILY_LIMIT`
 
 - Type: whole number
@@ -516,6 +531,9 @@ against `QUIRE_SERVER_AI_DAILY_BUDGET`. Unlike the other limits, `0` does
 not turn it off: it blocks regeneration completely.
 
 When to change it: raise it while you try out models or styles.
+
+You can also change it on the [status page](#changing-ai-settings-on-the-page),
+without a restart, unless the environment sets it.
 
 #### `QUIRE_SERVER_AI_PROMOTE_DAILY_LIMIT`
 
@@ -575,10 +593,43 @@ These are fixed in the code today, so there is no variable to look for:
 [Did my change take effect?](#did-my-change-take-effect) show piece by
 piece: the boot warnings, whether the AI provider answered, whether the
 database is migrated, and every setting with the value the server runs
-with, marked `set` or `default`. A **Test AI connection** button sends the
-provider one short request and shows the same message and hint the app
-would get. Keys and URL passwords show as `***`. `server/README.md`
+with, marked `set`, `saved` or `default`. A **Test AI connection** button
+sends the provider one short request and shows the same message and hint
+the app would get. Keys and URL passwords show as `***`. `server/README.md`
 ("Server status page") covers the JSON endpoints and reverse proxies.
+
+### Changing AI settings on the page
+
+The page's **AI settings** section changes six settings without editing
+`.env` or restarting:
+[`QUIRE_SERVER_AI_TIMEOUT_S`](#quire_server_ai_timeout_s),
+[`QUIRE_SERVER_AI_PROFILE_TIMEOUT_S`](#quire_server_ai_profile_timeout_s),
+[`QUIRE_SERVER_AI_SOURCES`](#quire_server_ai_sources),
+[`QUIRE_SERVER_AI_RATE_PER_MIN`](#quire_server_ai_rate_per_min),
+[`QUIRE_SERVER_AI_DAILY_BUDGET`](#quire_server_ai_daily_budget) and
+[`QUIRE_SERVER_AI_REGEN_DAILY_LIMIT`](#quire_server_ai_regen_daily_limit).
+The next AI request uses the new value, and the app picks up the time
+limits the next time it reads `GET /ai/v1/config`.
+
+For each of them, the value in force is the first of:
+
+1. the environment, `.env` included. The page shows such a setting greyed
+   out, because a value saved on the page would silently disagree with the
+   file you manage the server from. To change it on the page, delete the
+   line from `.env` and recreate the container;
+2. a value saved on the page, which is kept in the database and survives
+   restarts. The page says who saved it and when, and **Use default** removes
+   it;
+3. the built-in default.
+
+In the settings table a saved value is marked `saved`. The page accepts
+time limits up to 3600 seconds and the other numbers up to 1000000, which
+only keeps out typos; the environment has no such ceiling. Saving changes
+only the fields you edited, so a page left open while another admin saved
+does not undo their change. The model, the provider address and the API key
+stay in `.env`: the server decides at startup whether AI is configured from
+them. With more than one server process, the others pick up a saved value
+within 30 seconds.
 
 ### `QUIRE_SERVER_ADMIN_USERS`
 

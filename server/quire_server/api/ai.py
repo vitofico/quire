@@ -46,7 +46,7 @@ from quire_server.api.ai_schemas import (
     ReaderProfileResponse,
     RetrievalSourceHealth,
 )
-from quire_server.config import get_settings, parse_ai_sources
+from quire_server.config import get_settings
 from quire_server.core.ai.client import ProviderError, ProviderTimeout
 from quire_server.core.ai.health_state import AiHealthState
 from quire_server.core.ai.provider_errors import describe
@@ -57,6 +57,7 @@ from quire_server.core.ai.service import (
     PromoteOwnershipError,
     QuotaExceeded,
 )
+from quire_server.core.runtime_settings import runtime_settings
 from quire_server.db.models import BookInsight, LibraryItem, ReaderProfile, UserAIPreference
 from quire_server.db.session import get_session
 
@@ -67,9 +68,9 @@ def _orchestrator(request: Request) -> InsightOrchestrator | None:
     return getattr(request.app.state, "ai_orchestrator", None)
 
 
-def _enabled_sources() -> list[str]:
-    """The sources retrieval queries, the same list ``create_app`` hands the orchestrator."""
-    return list(parse_ai_sources(get_settings().ai_sources))
+def _enabled_sources(app: FastAPI) -> list[str]:
+    """The sources retrieval queries, the same list the orchestrator uses."""
+    return list(runtime_settings(app).sources)
 
 
 def _base_url_host() -> str | None:
@@ -264,10 +265,13 @@ def _quota_http_exception(exc: QuotaExceeded) -> HTTPException:
 
 @router.get("/config", response_model=ConfigResponse)
 async def get_config(
+    request: Request,
     principal: Annotated[AiPrincipal, Depends(get_ai_principal)],
 ) -> ConfigResponse:
     """Public to authed users; the app needs this to render the AI toggle."""
     settings = get_settings()
+    # Issue #102: the status page can change these, so report the values in force.
+    runtime = runtime_settings(request.app)
     _ = principal  # auth gate only; config is non-personalized.
     # PR-η / Lock #24: expose the runtime-resolved PROMPT_VERSION so the
     # Android client can key its local-cache PK on the same value the
@@ -280,15 +284,19 @@ async def get_config(
         configured=bool(settings.ai_enabled and settings.ai_base_url and settings.ai_model),
         base_url_host=_base_url_host() if settings.ai_enabled else None,
         model_id=settings.ai_model if settings.ai_enabled else None,
-        sources_enabled=_enabled_sources() if settings.ai_enabled else [],
-        daily_budget=settings.ai_daily_budget,
-        regen_daily_limit=settings.ai_regen_daily_limit,
+        sources_enabled=_enabled_sources(request.app) if settings.ai_enabled else [],
+        daily_budget=runtime.get("ai_daily_budget"),
+        regen_daily_limit=runtime.get("ai_regen_daily_limit"),
         prompt_version=_resolve_prompt_version(settings.ai_prompt_version),
         # pr-β / Lock #15 / coordinator §3.5: surfaces PROGRESS_ENABLED so
         # AI-only deploys can suppress the reader profile UI on Android.
         progress_supported=settings.progress_enabled,
-        generation_timeout_s=math.ceil(settings.ai_timeout_s) if settings.ai_enabled else None,
-        profile_timeout_s=math.ceil(settings.ai_profile_timeout_s) if settings.ai_enabled else None,
+        generation_timeout_s=(
+            math.ceil(runtime.get("ai_timeout_s")) if settings.ai_enabled else None
+        ),
+        profile_timeout_s=(
+            math.ceil(runtime.get("ai_profile_timeout_s")) if settings.ai_enabled else None
+        ),
     )
 
 
@@ -758,7 +766,7 @@ async def refresh_profile(
         if isinstance(cause, ProviderError):
             info = describe(
                 cause,
-                timeout_s=settings.ai_profile_timeout_s,
+                timeout_s=runtime_settings(request.app).get("ai_profile_timeout_s"),
                 model=settings.ai_model,
                 timeout_var="QUIRE_SERVER_AI_PROFILE_TIMEOUT_S",
             )
@@ -849,7 +857,7 @@ async def get_ai_health(request: Request) -> AiHealthResponse:
 async def ai_health_payload(app: FastAPI) -> AiHealthResponse:
     """Body of ``GET /ai/v1/health``; the admin status page embeds it too."""
     state: AiHealthState | None = getattr(app.state, "ai_health", None)
-    sources_seed = _enabled_sources()
+    sources_seed = _enabled_sources(app)
     if state is None:
         # AI router mounted but no health holder was wired (the
         # "enabled-but-unconfigured" branch of main.py before this PR ran;

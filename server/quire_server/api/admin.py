@@ -7,8 +7,10 @@ claim to calibre-web, which serves its own admin pages under ``/admin``.
 
 GET  /quire-admin/v1/status     what the server runs with, as JSON
 POST /quire-admin/v1/ai/probe   one tiny model call: the "test connection" button
+PUT  /quire-admin/v1/settings   change the AI settings listed in `runtime_settings`
 GET  /quire-admin               the status as an HTML page
 POST /quire-admin/probe         the page's button: probe, then render the page
+POST /quire-admin/settings      the page's settings form: save, then render the page
 
 The AI provider modules are imported inside the functions that need them, so
 a sync-only deploy with admin users set keeps its lazy-import boundary.
@@ -19,10 +21,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Annotated
+from typing import Annotated, Any
 from urllib.parse import parse_qsl, urlsplit
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
+from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
@@ -30,6 +32,15 @@ from quire_server.api.admin_page import render_page
 from quire_server.api.health import _enabled_modes, migration_state
 from quire_server.config import ENV_PREFIX, Settings, get_settings
 from quire_server.core.auth import get_auth_backend
+from quire_server.core.runtime_settings import (
+    EDITABLE,
+    InvalidSetting,
+    RuntimeSettings,
+    SettingsRejected,
+    env_name,
+    parse_value,
+    runtime_settings,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -168,15 +179,28 @@ def _mask_url(value: str) -> str:
     return parts._replace(netloc=netloc, query=query, fragment=fragment).geturl()
 
 
-def settings_view(settings: Settings) -> list[dict[str, object]]:
+def settings_view(
+    settings: Settings, runtime: RuntimeSettings | None = None
+) -> list[dict[str, object]]:
     """Every setting by its environment variable name, secrets masked.
 
     ``source`` is ``set`` when the value came from the environment or
     ``.env`` and ``default`` when the code default applies, which answers
-    "did my line in .env reach the container?" (issue #104).
+    "did my line in .env reach the container?" (issue #104). With
+    ``runtime``, the settings the page can change show the value in force,
+    and ``saved`` when it was saved on the page.
     """
     rows: list[dict[str, object]] = []
     for name in Settings.model_fields:
+        if runtime is not None and name in EDITABLE:
+            rows.append(
+                {
+                    "name": env_name(name),
+                    "value": runtime.get(name),
+                    "source": runtime.source(name),
+                }
+            )
+            continue
         value = getattr(settings, name)
         if name in SECRET_SETTINGS:
             value = MASK if value else None
@@ -192,8 +216,31 @@ def settings_view(settings: Settings) -> list[dict[str, object]]:
     return rows
 
 
+def editable_view(runtime: RuntimeSettings) -> list[dict[str, object]]:
+    """The settings the page can change, with where each value in force comes from."""
+    rows: list[dict[str, object]] = []
+    for key in EDITABLE:
+        saved = runtime.saved(key)
+        rows.append(
+            {
+                "name": env_name(key),
+                "value": runtime.get(key),
+                "default": runtime.default(key),
+                "source": runtime.source(key),
+                "locked": runtime.locked(key),
+                "updated_at": saved.updated_at.isoformat() if saved else None,
+                "updated_by": saved.updated_by if saved else None,
+            }
+        )
+    return rows
+
+
 async def build_status(app: FastAPI) -> dict[str, object]:
     settings = get_settings()
+    # Set whenever AI is on; the saved values live on the `ai` migration branch.
+    runtime: RuntimeSettings | None = getattr(app.state, "runtime_settings", None)
+    if runtime is not None:
+        await runtime.refresh()
     try:
         migrations: dict[str, object] = await migration_state(settings)
     except Exception as exc:  # noqa: BLE001 — shown on the page, never raised
@@ -215,7 +262,8 @@ async def build_status(app: FastAPI) -> dict[str, object]:
         "warnings": list(getattr(app.state, "config_warnings", [])),
         "ai": ai,
         "migrations": migrations,
-        "settings": settings_view(settings),
+        "editable": editable_view(runtime) if runtime is not None else None,
+        "settings": settings_view(settings, runtime),
     }
 
 
@@ -235,7 +283,8 @@ _PROBE_USER = 'Reply with the JSON object {"ok": true}.'
 async def run_probe(app: FastAPI) -> dict[str, object]:
     """Send one tiny structured request through the server's own AI client.
 
-    The whole probe gets ``QUIRE_SERVER_AI_TIMEOUT_S``, the budget of one
+    The whole probe gets ``QUIRE_SERVER_AI_TIMEOUT_S`` (the value in force,
+    which the page can change), the budget of one
     insight model call: a local model loading on its first call can take
     longer than any shorter fixed budget, and the timeout hint then names
     the variable that governs. The deadline covers the client's reshaped or
@@ -244,6 +293,7 @@ async def run_probe(app: FastAPI) -> dict[str, object]:
     reflects it too.
     """
     settings = get_settings()
+    timeout_s = runtime_settings(app).get("ai_timeout_s")
     client = getattr(app.state, "ai_client", None)
     if client is None:
         return {
@@ -268,12 +318,12 @@ async def run_probe(app: FastAPI) -> dict[str, object]:
     failure: ProviderError | None = None
     started = time.monotonic()
     try:
-        async with asyncio.timeout(settings.ai_timeout_s):
+        async with asyncio.timeout(timeout_s):
             await client.chat_structured(
                 system=_PROBE_SYSTEM,
                 user=_PROBE_USER,
                 schema=_ProbeAnswer,
-                timeout_s=settings.ai_timeout_s,
+                timeout_s=timeout_s,
             )
     except TimeoutError:
         failure = ProviderTimeout("probe deadline reached")
@@ -282,7 +332,7 @@ async def run_probe(app: FastAPI) -> dict[str, object]:
     elapsed_ms = round((time.monotonic() - started) * 1000)
 
     if failure is not None:
-        info = describe(failure, timeout_s=settings.ai_timeout_s, model=settings.ai_model)
+        info = describe(failure, timeout_s=timeout_s, model=settings.ai_model)
         if health is not None:
             await health.record_provider_failure(error_class=type(failure).__name__)
         logger.warning("event=admin.ai_probe ok=false code=%s elapsed_ms=%d", info.code, elapsed_ms)
@@ -300,6 +350,76 @@ async def run_probe(app: FastAPI) -> dict[str, object]:
 
 
 # ---------------------------------------------------------------------------
+# Changing settings
+# ---------------------------------------------------------------------------
+
+
+def _runtime_or_404(app: FastAPI) -> RuntimeSettings:
+    runtime: RuntimeSettings | None = getattr(app.state, "runtime_settings", None)
+    if runtime is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="AI insights are switched off, so there are no AI settings to change.",
+        )
+    return runtime
+
+
+def _by_env_name(errors: dict[str, str]) -> dict[str, str]:
+    return {env_name(key): message for key, message in errors.items()}
+
+
+def form_changes(runtime: RuntimeSettings, pairs: list[tuple[str, str]]) -> dict[str, Any]:
+    """What the page's settings form asks to change, as ``RuntimeSettings.save`` takes it.
+
+    A "Use default" button sends ``reset=<variable>`` and removes that saved
+    value, nothing else. Otherwise a field is a change only when the admin
+    edited it: the page sends each value it showed as ``<variable>__was``,
+    and a field still equal to that is left alone, so submitting a page
+    loaded before another admin's save does not undo that save. (Without
+    ``__was``, the value in force stands in.) An emptied number field
+    removes the saved value, and the source checkboxes save the ticked set,
+    none meaning retrieval off. A field the form did not carry (locked by
+    the environment, so rendered disabled) is left alone.
+    """
+    fields: dict[str, list[str]] = {}
+    for name, value in pairs:
+        fields.setdefault(name, []).append(value)
+    keys = {env_name(key): key for key in EDITABLE}
+
+    if "reset" in fields:
+        return {keys[name]: None for name in fields["reset"] if name in keys}
+
+    def _parsed(key: str, raw: object) -> object:
+        value = parse_value(key, raw)
+        return set(filter(None, value.split(","))) if key == "ai_sources" else value
+
+    changes: dict[str, Any] = {}
+    for key in EDITABLE:
+        name = env_name(key)
+        if name not in fields or runtime.locked(key):
+            continue
+        if key == "ai_sources":
+            raw = ",".join(value for value in fields[name] if value)
+        else:
+            raw = fields[name][-1].strip()
+            if not raw:
+                if runtime.source(key) == "saved":
+                    changes[key] = None
+                continue
+        try:
+            shown = _parsed(key, fields[f"{name}__was"][-1])
+        except (KeyError, InvalidSetting):
+            shown = _parsed(key, runtime.get(key))
+        try:
+            unchanged = _parsed(key, raw) == shown
+        except InvalidSetting:
+            unchanged = False
+        if not unchanged:
+            changes[key] = raw
+    return changes
+
+
+# ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 
@@ -314,6 +434,45 @@ async def post_probe(request: Request, _: Admin) -> JSONResponse:
     return JSONResponse(await run_probe(request.app), headers=NO_STORE)
 
 
+@router.put("/v1/settings", dependencies=[Depends(require_same_origin)])
+async def put_settings(
+    request: Request,
+    admin: Admin,
+    changes: Annotated[dict[str, Any], Body()],
+) -> JSONResponse:
+    """Save AI settings, keyed by variable name; ``null`` brings back the default.
+
+    All or nothing: one refused change and nothing is written. The answer
+    lists every setting the page can change, as ``editable`` in the status.
+    """
+    runtime = _runtime_or_404(request.app)
+    keys = {env_name(key): key for key in EDITABLE}
+    unknown = [name for name in changes if name.upper() not in keys]
+    if unknown:
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={
+                "detail": {
+                    "errors": {
+                        name: f"{name} cannot be changed on the status page." for name in unknown
+                    }
+                }
+            },
+            headers=NO_STORE,
+        )
+    try:
+        await runtime.save(
+            {keys[name.upper()]: value for name, value in changes.items()}, user=admin
+        )
+    except SettingsRejected as exc:
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"detail": {"errors": _by_env_name(exc.errors)}},
+            headers=NO_STORE,
+        )
+    return JSONResponse({"editable": editable_view(runtime)}, headers=NO_STORE)
+
+
 @router.get("", response_class=HTMLResponse)
 async def get_page(request: Request, _: Admin) -> HTMLResponse:
     return HTMLResponse(render_page(await build_status(request.app)), headers=PAGE_HEADERS)
@@ -325,4 +484,25 @@ async def post_page_probe(request: Request, _: Admin) -> HTMLResponse:
     probe = await run_probe(request.app)
     return HTMLResponse(
         render_page(await build_status(request.app), probe=probe), headers=PAGE_HEADERS
+    )
+
+
+@router.post("/settings", response_class=HTMLResponse, dependencies=[Depends(require_same_origin)])
+async def post_page_settings(request: Request, admin: Admin) -> HTMLResponse:
+    runtime = _runtime_or_404(request.app)
+    # Compare against what is saved now, not against a read up to 30 s old.
+    await runtime.refresh(force=True)
+    pairs = parse_qsl((await request.body()).decode("utf-8", "replace"), keep_blank_values=True)
+    changes = form_changes(runtime, pairs)
+    code = status.HTTP_200_OK
+    try:
+        await runtime.save(changes, user=admin)
+        notice: dict[str, object] = {"ok": True, "changed": [env_name(key) for key in changes]}
+    except SettingsRejected as exc:
+        code = status.HTTP_422_UNPROCESSABLE_ENTITY
+        notice = {"ok": False, "errors": list(exc.errors.values())}
+    return HTMLResponse(
+        render_page(await build_status(request.app), settings_notice=notice),
+        status_code=code,
+        headers=PAGE_HEADERS,
     )
