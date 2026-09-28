@@ -23,10 +23,13 @@ if [ -t 0 ] && [ -t 1 ]; then
   TTY_FLAGS+=(-t)
 fi
 
+# Robolectric fetches its android-all jars into ~/.m2 on first use; without a
+# volume every run downloads them again, and a network blip fails the tests.
 exec docker run --rm "${TTY_FLAGS[@]}" \
   --platform linux/amd64 \
   -v "$ROOT":/workspace \
   -v quire-gradle-cache:/root/.gradle \
   -v quire-android-cache:/root/.android \
+  -v quire-m2-cache:/root/.m2 \
   "$IMAGE" \
   ./gradlew "$@"

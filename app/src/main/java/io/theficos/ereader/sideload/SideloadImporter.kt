@@ -1,6 +1,7 @@
 package io.theficos.ereader.sideload
 
 import android.content.ContentResolver
+import android.content.SharedPreferences
 import android.database.sqlite.SQLiteConstraintException
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -13,6 +14,7 @@ import io.theficos.ereader.data.library.LibraryUploader
 import io.theficos.ereader.data.local.DocumentRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -45,6 +47,10 @@ import org.xml.sax.SAXException
  *      `SQLiteConstraintException` from the unique index on `contentHash`
  *      (the schema-level uniqueness is the actual correctness boundary).
  *   5. Stamp [CURRENT_IDENTITY_HASH_VERSION] on insert — F-2 wiring.
+ *   6. Store the EPUB's own cover image as `<uuid>.cover` beside the book,
+ *      exactly where the catalog download path puts the cover it fetches
+ *      ([EpubCoverWriter]). A cover failure only costs the cover, never
+ *      the import.
  *
  * Failures clean up the staged `.part` file and any renamed `.epub` file we
  * created but failed to commit, so process-death recovery only has to sweep
@@ -132,6 +138,7 @@ class SideloadImporter(
 
             val bundle = readOpfBundle(finalFile, fallbackTitle = displayNameHint?.takeIf { it.isNotBlank() }
                 ?: finalFile.nameWithoutExtension)
+            val coverFile = writeCoverOrNull(finalFile, File(booksDir, "$baseName.cover"))
 
             val insertedId = try {
                 documentRepository.insert(
@@ -150,7 +157,7 @@ class SideloadImporter(
                     // a "this is a sideload" filter without a schema column.
                     downloadUrl = "sideload://v1/${identity.contentHash}",
                     localPath = finalFile.absolutePath,
-                    coverPath = null,
+                    coverPath = coverFile?.absolutePath,
                     downloadedAt = nowMillis(),
                     seriesName = bundle.seriesName,
                     seriesIndex = bundle.seriesPosition?.toDouble(),
@@ -160,6 +167,7 @@ class SideloadImporter(
                 // Race: a parallel import won the insert. Treat as duplicate.
                 Log.d(TAG, "constraint hit on sideload insert (race against parallel import)", e)
                 finalFile.delete()
+                coverFile?.delete()
                 val existing = documentRepository.findByIdentity(identity)
                 return@withContext if (existing != null) {
                     SideloadResult.AlreadyImported(existing.id, existing.title)
@@ -183,15 +191,49 @@ class SideloadImporter(
         }
 
     /**
-     * Removes any leaked `*.epub.part` files in [booksDir]. Called at app
-     * startup so process death mid-import doesn't leak storage. Best-effort;
-     * failures are silent (the next sweep will retry).
+     * Removes any leaked `*.epub.part` and `*.cover.part` files in [booksDir].
+     * Called at app startup so process death mid-import doesn't leak storage.
+     * Best-effort; failures are silent (the next sweep will retry).
      */
     suspend fun sweepStaleParts() = withContext(Dispatchers.IO) {
         runCatching {
-            booksDir.listFiles { f -> f.isFile && f.name.endsWith(".epub.part") }
+            booksDir.listFiles { f -> f.isFile && (f.name.endsWith(".epub.part") || f.name.endsWith(".cover.part")) }
                 ?.forEach { it.delete() }
         }
+    }
+
+    /**
+     * Gives books imported before covers were extracted their cover, from the
+     * EPUB already on disk. Runs once per install: [prefs] remembers that the
+     * pass finished, so books that have no cover are not reopened on every
+     * start. Only sideloaded rows without a cover are touched; catalog books
+     * keep whatever their download stored. Returns how many covers it added.
+     */
+    suspend fun backfillCoversOnce(prefs: SharedPreferences): Int = importMutex.withLock {
+        withContext(Dispatchers.IO) {
+            if (prefs.getBoolean(KEY_COVER_BACKFILL_DONE, false)) return@withContext 0
+            val candidates = documentRepository.observeLibrary().first()
+                .filter { it.coverPath == null && it.downloadUrl.startsWith(SIDELOAD_URL_PREFIX) }
+            var added = 0
+            for (doc in candidates) {
+                val epub = File(doc.localPath)
+                if (!epub.isFile) continue
+                val cover = writeCoverOrNull(epub, File(booksDir, "${epub.nameWithoutExtension}.cover")) ?: continue
+                if (documentRepository.setCoverPathIfMissing(doc.id, cover.absolutePath)) added++ else cover.delete()
+            }
+            prefs.edit().putBoolean(KEY_COVER_BACKFILL_DONE, true).apply()
+            Log.i(TAG, "cover backfill: ${candidates.size} sideloaded books without a cover, $added covers added")
+            added
+        }
+    }
+
+    /** [EpubCoverWriter.write], except that a failure is logged and yields no cover. */
+    private fun writeCoverOrNull(epub: File, dest: File): File? = try {
+        EpubCoverWriter.write(epub, dest)
+    } catch (t: Throwable) {
+        Log.w(TAG, "cover extraction failed for ${epub.name}; keeping the book without a cover", t)
+        dest.delete()
+        null
     }
 
     /**
@@ -242,6 +284,8 @@ class SideloadImporter(
 
     companion object {
         private const val TAG = "SideloadImporter"
+        private const val SIDELOAD_URL_PREFIX = "sideload://"
+        private const val KEY_COVER_BACKFILL_DONE = "sideload.cover_backfill_done"
         private const val CONTAINER_NS = "urn:oasis:names:tc:opendocument:xmlns:container"
 
         /**

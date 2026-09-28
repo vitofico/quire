@@ -24,7 +24,9 @@ class OpenLibraryClient(
     private val baseUrl: String = "https://openlibrary.org",
 ) {
     fun lookupByIsbn(isbn13: String): MetadataBundle? {
-        val url = "$baseUrl/api/books?bibkeys=ISBN:$isbn13&format=json&jscmd=data"
+        // /api/books.json, not /api/books: Open Library now answers 404 to every
+        // query on the bare path, which made every scan end in "No book found".
+        val url = "$baseUrl/api/books.json?bibkeys=ISBN:$isbn13&jscmd=data"
         val req = Request.Builder().url(url)
             .header("User-Agent", "QuireAndroid (book-scan)")
             .header("Accept", "application/json")

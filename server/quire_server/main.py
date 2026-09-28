@@ -22,7 +22,13 @@ from fastapi import FastAPI
 
 from quire_server.api import health
 from quire_server.api.middleware import RequestIDMiddleware, RequestSizeMiddleware
-from quire_server.config import Settings, config_warnings, get_settings, unknown_env_vars
+from quire_server.config import (
+    Settings,
+    config_warnings,
+    get_settings,
+    parse_ai_sources,
+    unknown_env_vars,
+)
 from quire_server.core.auth import CalibreAuthValidator
 from quire_server.core.auth_backend import CalibreWebBasicAuth, NativeAuth
 from quire_server.core.logging_ctx import RequestIdLogFilter
@@ -151,8 +157,7 @@ def _collect_config_warnings(settings: Settings) -> list[str]:
     nothing secret can leak through this path.
     """
     messages = [
-        f"Unknown setting {name} is ignored; check the spelling against "
-        "server/README.md (Environment variables)"
+        f"Unknown setting {name} is ignored; check the spelling against docs/configuration.md"
         for name in unknown_env_vars()
     ]
     messages.extend(config_warnings(settings))
@@ -321,21 +326,27 @@ def create_app() -> FastAPI:
                 api_key=settings.ai_api_key,
                 model=settings.ai_model,
             )
-            sources_enabled = tuple(
-                s.strip() for s in (settings.ai_sources or "").split(",") if s.strip()
-            )
             # PR5: process-local reachability holder, fed by chat_structured +
             # retrieval calls. Exposed via GET /ai/v1/health.
             ai_health = AiHealthState()
             app.state.ai_health = ai_health
-            orch = InsightOrchestrator(
-                ai=ai_client,
-                retriever_factory=lambda s: Retriever(
+
+            def retriever_factory(s):
+                return Retriever(
                     session=s,
                     timeout_s=settings.ai_retrieval_timeout_s,
                     health_state=ai_health,
-                ),
-                sources_enabled=sources_enabled,
+                )
+
+            orch = InsightOrchestrator(
+                ai=ai_client,
+                retriever_factory=retriever_factory,
+                # The Reader Profile's discovery step looks up the works of
+                # the reader's top authors on Open Library. Without it the
+                # orchestrator skips that step and every profile came back
+                # with no discovery recommendations.
+                profile_retriever_factory=retriever_factory,
+                sources_enabled=parse_ai_sources(settings.ai_sources),
                 model_id=settings.ai_model,
                 # PR-ε / coordinator §3.1 / Lock #19: the in-code constant
                 # ``prompts.PROMPT_VERSION`` is the source of truth. The legacy
@@ -349,6 +360,9 @@ def create_app() -> FastAPI:
                 # body, so the orchestrator must run on it rather than on the
                 # constructor default.
                 profile_timeout_s=settings.ai_profile_timeout_s,
+                # The constructor default (3) used to apply whatever the
+                # operator set.
+                profile_refresh_daily_limit=settings.ai_profile_refresh_daily_limit,
                 rate_per_min=settings.ai_rate_per_min,
                 daily_budget=settings.ai_daily_budget,
                 regen_daily_limit=settings.ai_regen_daily_limit,

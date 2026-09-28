@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Forward-only deploy migrator (PR-A).
 
-Reads QUIRE_SERVER_PROGRESS_ENABLED / QUIRE_SERVER_AI_ENABLED, then:
+Reads QUIRE_SERVER_PROGRESS_ENABLED / QUIRE_SERVER_AI_ENABLED through the
+server's own settings (``read_modes``), then:
   1. Always upgrades the unlabeled backbone to its tip (e.g. 0004 today).
   2. Per enabled+materialized branch: runs `alembic upgrade <branch>@head`.
 
@@ -28,15 +29,27 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
+from pydantic import ValidationError
+
+from quire_server.config import get_settings
 
 logging.basicConfig(level=logging.INFO, format="[migrate] %(message)s")
 logger = logging.getLogger("migrate")
 
 
-def _is_truthy(val: str | None, default: bool = True) -> bool:
-    if val is None:
-        return default
-    return val.strip().lower() in {"1", "true", "yes", "on"}
+def read_modes() -> tuple[bool, bool]:
+    """Return ``(progress_enabled, ai_enabled)`` exactly as the server reads them.
+
+    Goes through the server's cached ``get_settings()``, so the two switches
+    get the server's accepted spellings, case-insensitive names and ``.env``
+    handling, and a value the server would refuse raises the same pydantic
+    ``ValidationError`` instead of being read as "off". ``migrations/env.py``
+    already calls ``get_settings()`` for the database URL whenever
+    alembic.ini holds its default, as it does in the image, so this adds no
+    new failure mode and the settings object is still built once per run.
+    """
+    settings = get_settings()
+    return settings.progress_enabled, settings.ai_enabled
 
 
 def _declared_labels(rev) -> tuple[str, ...]:
@@ -121,8 +134,11 @@ def main() -> int:
         return 2
 
     cfg = Config(str(cfg_path))
-    progress_enabled = _is_truthy(os.environ.get("QUIRE_SERVER_PROGRESS_ENABLED"))
-    ai_enabled = _is_truthy(os.environ.get("QUIRE_SERVER_AI_ENABLED"))
+    try:
+        progress_enabled, ai_enabled = read_modes()
+    except ValidationError as exc:
+        logger.error("invalid server settings; the server refuses to start with them too:\n%s", exc)
+        return 2
     logger.info("modes: progress=%s ai=%s", progress_enabled, ai_enabled)
 
     run_migrations(cfg, progress_enabled=progress_enabled, ai_enabled=ai_enabled)

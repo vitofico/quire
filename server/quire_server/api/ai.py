@@ -46,7 +46,7 @@ from quire_server.api.ai_schemas import (
     ReaderProfileResponse,
     RetrievalSourceHealth,
 )
-from quire_server.config import get_settings
+from quire_server.config import get_settings, parse_ai_sources
 from quire_server.core.ai.client import ProviderError, ProviderTimeout
 from quire_server.core.ai.health_state import AiHealthState
 from quire_server.core.ai.provider_errors import describe
@@ -68,10 +68,8 @@ def _orchestrator(request: Request) -> InsightOrchestrator | None:
 
 
 def _enabled_sources() -> list[str]:
-    raw = (get_settings().ai_sources or "").strip()
-    if not raw:
-        return []
-    return [s.strip() for s in raw.split(",") if s.strip()]
+    """The sources retrieval queries, the same list ``create_app`` hands the orchestrator."""
+    return list(parse_ai_sources(get_settings().ai_sources))
 
 
 def _base_url_host() -> str | None:

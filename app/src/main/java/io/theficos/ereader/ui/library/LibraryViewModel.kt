@@ -66,7 +66,8 @@ class LibraryViewModel(
 
     fun setQuery(next: String) { _query.value = next }
 
-    private val rows: StateFlow<List<LibraryRow>> =
+    /** Null until Room first answers, so nothing mistakes "not loaded yet" for an empty shelf. */
+    private val rows: StateFlow<List<LibraryRow>?> =
         docs.observeLibrary()
             .flatMapLatest { docList ->
                 if (docList.isEmpty()) flowOf(emptyList())
@@ -83,10 +84,16 @@ class LibraryViewModel(
                     )
                 }
             }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    val items: StateFlow<List<LibraryRow>> =
+    /**
+     * The shelf as shown: sorted, filtered and searched. Null while the library
+     * is still loading, which the screen draws as nothing rather than as the
+     * empty-shelf message.
+     */
+    val items: StateFlow<List<LibraryRow>?> =
         combine(rows, libraryPreferencesStore.flow, _query) { list, prefs, q ->
+            if (list == null) return@combine null
             val sorted = applySort(list, prefs.sort)
             if (q.isBlank()) {
                 // pr-δ: hide abandoned by default; the filter toggle reveals them.
@@ -100,11 +107,11 @@ class LibraryViewModel(
                         (row.document.author?.lowercase()?.contains(needle) == true)
                 }
             }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val continueReading: StateFlow<LibraryRow?> = rows
         .map { list ->
-            list
+            list.orEmpty()
                 // pr-δ: abandoned books never re-surface on Continue Reading.
                 .filter { it.percent > 0.0001 && it.finishedAt == null && it.abandonedAt == null }
                 .maxByOrNull { it.progressUpdatedAt }
@@ -147,7 +154,7 @@ class LibraryViewModel(
      * is worth surfacing (reconnected on a new/wiped device).
      */
     val canRestore: StateFlow<Boolean> =
-        combine(rows, connected) { r, conn -> conn && r.isEmpty() }
+        combine(rows, connected) { r, conn -> conn && r != null && r.isEmpty() }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     private val _restoreRunning = kotlinx.coroutines.flow.MutableStateFlow(false)

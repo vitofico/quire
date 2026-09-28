@@ -13,6 +13,7 @@ from quire_server.config import (
     Settings,
     config_warnings,
     get_settings,
+    parse_ai_sources,
     unknown_env_vars,
 )
 
@@ -204,3 +205,72 @@ def test_config_warnings_both_modes_off():
         "QUIRE_SERVER_PROGRESS_ENABLED and QUIRE_SERVER_AI_ENABLED are both false; "
         "only /health and /readyz are served"
     ]
+
+
+# --- AI retrieval source names ----------------------------------------------
+
+UNKNOWN_SOURCE_WARNING = (
+    "QUIRE_SERVER_AI_SOURCES contains a name Quire does not recognise, so that name is "
+    "ignored; the known names are wikipedia and openlibrary"
+)
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("wikipedia,openlibrary", ("wikipedia", "openlibrary")),
+        ("Wikipedia, OpenLibrary", ("wikipedia", "openlibrary")),
+        ("  OPENLIBRARY ,wikipedia  ", ("openlibrary", "wikipedia")),
+        ("wikipedia,open_library,Open-Library", ("wikipedia",)),
+        ("openlibrary,Wikipedia,OpenLibrary,wikipedia", ("openlibrary", "wikipedia")),
+        ("", ()),
+        (" , ,", ()),
+        (None, ()),
+    ],
+)
+def test_parse_ai_sources(raw, expected):
+    assert parse_ai_sources(raw) == expected
+
+
+def _ai_configured(**overrides) -> Settings:
+    return Settings(
+        ai_enabled=True, ai_base_url="http://ollama:11434/v1", ai_model="m", **overrides
+    )
+
+
+def test_config_warnings_unrecognised_ai_source_is_named_by_variable_only():
+    assert config_warnings(_ai_configured(ai_sources="Wikipedia,open_library")) == [
+        UNKNOWN_SOURCE_WARNING
+    ]
+
+
+@pytest.mark.parametrize("sources", ["wikipedia,openlibrary", " OpenLibrary , ", ""])
+def test_config_warnings_silent_for_recognised_or_empty_ai_sources(sources):
+    # The default value is covered by test_config_warnings_silent_when_ai_configured.
+    assert config_warnings(_ai_configured(ai_sources=sources)) == []
+
+
+def test_config_warnings_unrecognised_ai_source_silent_when_ai_disabled():
+    assert config_warnings(Settings(ai_enabled=False, ai_sources="open_library")) == []
+
+
+# --- Log level ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [("info", "INFO"), (" debug ", "DEBUG"), ("Warning", "WARNING"), ("", "INFO"), ("  ", "INFO")],
+)
+def test_log_level_any_case_and_empty_means_default(monkeypatch, raw, expected):
+    """``logging.basicConfig`` only knows capitalised names, so a lower-case or
+    empty value used to stop the server at boot with ``Unknown level``."""
+    monkeypatch.setenv("QUIRE_SERVER_LOG_LEVEL", raw)
+    assert Settings(_env_file=None).log_level == expected
+
+
+def test_log_level_rejects_a_name_that_is_not_a_level(monkeypatch):
+    from pydantic import ValidationError
+
+    monkeypatch.setenv("QUIRE_SERVER_LOG_LEVEL", "verbose")
+    with pytest.raises(ValidationError, match="log_level"):
+        Settings(_env_file=None)

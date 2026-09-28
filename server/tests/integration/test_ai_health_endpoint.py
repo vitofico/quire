@@ -138,6 +138,20 @@ async def test_health_seeds_configured_sources(client_factory):
     assert names["openlibrary"]["reachable"] is None
 
 
+async def test_health_seeds_only_sources_retrieval_uses(client_factory):
+    """An unrecognised name is never queried, so a row for it would stay null
+    forever; a recognised one counts whatever its case."""
+    async with client_factory(
+        ai_enabled=True,
+        ai_base_url="http://x",
+        ai_model="m",
+        ai_sources="Wikipedia,open_library",
+    ) as client:
+        r = await client.get("/ai/v1/health")
+    assert r.status_code == 200
+    assert [s["name"] for s in r.json()["retrieval_sources"]] == ["wikipedia"]
+
+
 async def test_health_provider_success(client_factory, app, session):
     """A successful chat_structured call flips provider_reachable to True."""
 

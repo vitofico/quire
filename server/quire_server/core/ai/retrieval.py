@@ -553,12 +553,12 @@ class Retriever:
                 if author_resp.status_code != 200:
                     # 4xx other than 429: treat as "no such author".
                     await self._write_cache(negative_source, key, {"reason": "no_match"})
-                    await self._record_retrieval(name=positive_source, success=True)
+                    await self._record_retrieval(name="openlibrary", success=True)
                     return []
                 docs = (author_resp.json() or {}).get("docs") or []
                 if not docs:
                     await self._write_cache(negative_source, key, {"reason": "no_match"})
-                    await self._record_retrieval(name=positive_source, success=True)
+                    await self._record_retrieval(name="openlibrary", success=True)
                     return []
                 author_key = docs[0].get("key") or ""
                 # Normalize to bare key form ("OL...A"). search returns
@@ -568,7 +568,7 @@ class Retriever:
                     author_key = author_key.removeprefix("/authors/")
                 if not author_key:
                     await self._write_cache(negative_source, key, {"reason": "no_key"})
-                    await self._record_retrieval(name=positive_source, success=True)
+                    await self._record_retrieval(name="openlibrary", success=True)
                     return []
 
                 # 3b. Works fetch.
@@ -588,14 +588,14 @@ class Retriever:
                     return await self._biblio_stale_or_empty(positive_source, key, name)
                 if works_resp.status_code != 200:
                     await self._write_cache(negative_source, key, {"reason": "no_works"})
-                    await self._record_retrieval(name=positive_source, success=True)
+                    await self._record_retrieval(name="openlibrary", success=True)
                     return []
 
                 entries = (works_resp.json() or {}).get("entries") or []
                 refs = _parse_openlibrary_works(entries, default_author=name)
                 payload = {"books": [_serialize_book_ref(b) for b in refs]}
                 await self._write_cache(positive_source, key, payload)
-                await self._record_retrieval(name=positive_source, success=True)
+                await self._record_retrieval(name="openlibrary", success=True)
                 return refs
         except httpx.HTTPError as e:
             logger.info("retrieval.openlibrary_error author=%s err=%s", name, type(e).__name__)
@@ -665,7 +665,7 @@ class Retriever:
                 author,
             )
             return _deserialize_book_refs((row.payload or {}).get("books", []))
-        await self._record_retrieval(name=positive_source, success=False)
+        await self._record_retrieval(name="openlibrary", success=False)
         return []
 
     async def lookup_wikipedia(
@@ -794,9 +794,11 @@ class Retriever:
         bibkey = f"ISBN:{norm_isbn}"
         try:
             async with self._http() as http:
+                # /api/books.json, not /api/books: Open Library now answers
+                # 404 to every query on the bare path.
                 r = await http.get(
-                    f"{_OL_BASE}/api/books",
-                    params={"bibkeys": bibkey, "format": "json", "jscmd": "details"},
+                    f"{_OL_BASE}/api/books.json",
+                    params={"bibkeys": bibkey, "jscmd": "details"},
                 )
                 # OpenLibrary responded — reachable regardless of status code.
                 await self._record_retrieval(name="openlibrary", success=True)

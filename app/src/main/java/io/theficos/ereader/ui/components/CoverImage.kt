@@ -21,7 +21,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.SubcomposeAsyncImage
-import io.theficos.ereader.ui.theme.Lora
 
 private val FallbackPalettes = listOf(
     Color(0xFF7A2E2A) to Color(0xFF4A1A18),  // oxblood
@@ -80,7 +79,6 @@ private fun Fallback(initials: String, palette: Pair<Color, Color>) {
             text = initials,
             color = MaterialTheme.colorScheme.onPrimary,
             style = MaterialTheme.typography.displaySmall,
-            fontFamily = Lora,
             fontWeight = FontWeight.SemiBold,
             fontSize = 36.sp,
             textAlign = TextAlign.Center,

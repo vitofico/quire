@@ -389,7 +389,16 @@ class AppContainer(context: Context) {
         // Phase-0 / A-3: clean up any `*.epub.part` files leaked by an
         // import that was killed mid-copy (process death between
         // openInputStream and renameTo). Cheap, best-effort, silent.
-        libraryUploaderScope.launch { sideloadImporter.sweepStaleParts() }
+        // Then, once per install, give books imported before covers were
+        // extracted their cover from the EPUB already on disk (no network).
+        libraryUploaderScope.launch {
+            sideloadImporter.sweepStaleParts()
+            runCatching {
+                sideloadImporter.backfillCoversOnce(
+                    appContext.getSharedPreferences("sideload_prefs", Context.MODE_PRIVATE),
+                )
+            }.onFailure { android.util.Log.w("AppContainer", "sideload cover backfill failed", it) }
+        }
         // Phase 0 / A-4: wire the library-mirror push worker's DI before
         // any WorkManager run can fire. Same pattern as SyncDependencies
         // above. The `CredentialsProvider` indirection keeps the worker

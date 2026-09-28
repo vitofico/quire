@@ -41,6 +41,6 @@ include = ["quire_server*"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
-    "requires_progress: test exercises the /sync/v1 progress router and must skip when QUIRE_SERVER_PROGRESS_ENABLED=false (the legacy prefix is also accepted for one cycle)",
-    "requires_ai: test exercises the /ai/v1 router and must skip when QUIRE_SERVER_AI_ENABLED=false (the legacy prefix is also accepted for one cycle)",
+    "requires_progress: test exercises the /sync/v1 progress router and must skip when QUIRE_SERVER_PROGRESS_ENABLED=false",
+    "requires_ai: test exercises the /ai/v1 router and must skip when QUIRE_SERVER_AI_ENABLED=false",
 ]

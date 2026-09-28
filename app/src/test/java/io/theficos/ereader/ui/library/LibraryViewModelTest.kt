@@ -3,6 +3,7 @@ package io.theficos.ereader.ui.library
 import androidx.lifecycle.viewModelScope
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import app.cash.turbine.Event
 import app.cash.turbine.test
 import com.google.common.truth.Truth.assertThat
 import io.theficos.ereader.core.model.Document
@@ -22,10 +23,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -54,7 +56,12 @@ class LibraryViewModelTest {
 
     @Before fun setUp() {
         FakeAndroidKeyStore.setup()
-        Dispatchers.setMain(UnconfinedTestDispatcher())
+        // Queued, not unconfined. On an unconfined Main, a view-model collector resumes
+        // on whichever Room thread delivered the query result and keeps running there,
+        // in parallel with the test body, where advanceUntilIdle() cannot wait for it.
+        // Queued on the test scheduler, every collector runs on the test thread and
+        // advanceUntilIdle() drains them all.
+        Dispatchers.setMain(StandardTestDispatcher())
         server = MockWebServer().also { it.start() }
         db = Room.inMemoryDatabaseBuilder(
             ApplicationProvider.getApplicationContext(), EReaderDatabase::class.java
@@ -209,7 +216,7 @@ class LibraryViewModelTest {
         seed("h1", "Alpha", "Auth", percent = 0.2, updatedAt = 100L)
         seed("h2", "Bravo", "Auth", percent = 0.4, updatedAt = 300L)
         seed("h3", "Charlie", "Auth", percent = 0.1, updatedAt = 200L)
-        val final = vm.items.first { it.size >= 3 }
+        val final = vm.items.filterNotNull().first { it.size >= 3 }
         assertThat(final.map { it.document.title }).containsExactly("Bravo", "Charlie", "Alpha").inOrder()
     }
 
@@ -218,7 +225,7 @@ class LibraryViewModelTest {
         seed("h2", "Alpha", null)
         seed("h3", "Bravo", null)
         vm.setSort(LibrarySort.TITLE)
-        val titles = vm.items.first { it.size >= 3 }.map { it.document.title }
+        val titles = vm.items.filterNotNull().first { it.size >= 3 }.map { it.document.title }
         assertThat(titles).containsExactly("Alpha", "Bravo", "Charlie").inOrder()
     }
 
@@ -228,7 +235,7 @@ class LibraryViewModelTest {
         seed("h3", "Charlie", "Auth")
         vm.setSort(LibrarySort.TITLE)
         vm.setQuery("bra")
-        val final = vm.items.first { it.size == 1 && it.first().document.title == "BRAVO" }
+        val final = vm.items.filterNotNull().first { it.size == 1 && it.first().document.title == "BRAVO" }
         assertThat(final.map { it.document.title }).containsExactly("BRAVO")
     }
 
@@ -237,7 +244,7 @@ class LibraryViewModelTest {
         seed("h2", "Bravo", "Tolkien")
         vm.setSort(LibrarySort.TITLE)
         vm.setQuery("tolk")
-        val final = vm.items.first { it.size == 1 && it.first().document.title == "Bravo" }
+        val final = vm.items.filterNotNull().first { it.size == 1 && it.first().document.title == "Bravo" }
         assertThat(final.map { it.document.title }).containsExactly("Bravo")
     }
 
@@ -247,9 +254,9 @@ class LibraryViewModelTest {
         vm.setSort(LibrarySort.TITLE)
         vm.setQuery("alpha")
         keepSubscribed(vm.items)
-        vm.items.first { it.size == 1 && it.first().document.title == "Alpha" }
+        vm.items.filterNotNull().first { it.size == 1 && it.first().document.title == "Alpha" }
         vm.setQuery("")
-        assertThat(vm.items.first { it.size >= 2 }).hasSize(2)
+        assertThat(vm.items.filterNotNull().first { it.size >= 2 }).hasSize(2)
     }
 
     @Test fun `finished books are excluded from continueReading`() = runTest {
@@ -302,6 +309,13 @@ class LibraryViewModelTest {
         restoreInProgress = { _ -> RestoreSummary(0, 0, 0, 0, 0) },
     ))
 
+    @Test fun `items is null until the library loads, then an empty shelf is an empty list`() = runTest {
+        // The screen shows "Your shelf is empty." only for an empty list, so the
+        // loading state must not look like one.
+        assertThat(vm.items.value).isNull()
+        assertThat(vm.items.filterNotNull().first()).isEmpty()
+    }
+
     @Test fun `canRestore is true when connected and library empty`() = runTest {
         val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
         store.saveBasicAccount("http://host", "u", "p")
@@ -348,20 +362,16 @@ class LibraryViewModelTest {
         seed("h1", "Alpha", null)
         val restoreVm = vmWith(store)
         // Subscribe to canRestore (keeps the WhileSubscribed `rows` upstream hot).
-        // Transient emission sequence with UnconfinedTestDispatcher + connected account:
-        //   1. stateIn initial → false
-        //   2. rows emits [] before Room delivers the seeded row → combine may emit true
-        //   3. rows emits [Alpha] → combine settles to false
-        // We warm `rows` by also subscribing to `items` and waiting until the seeded
-        // row arrives, then use expectMostRecentItem() to discard transients and assert
-        // the settled emission is false.
+        // `items` reaching the book proves Room has delivered it. canRestore reads the
+        // same rows through its own collector, which may not have run yet, so drain
+        // the scheduler before reading what it emitted.
         restoreVm.canRestore.test {
-            assertThat(restoreVm.items.first { it.isNotEmpty() }).hasSize(1)
+            assertThat(restoreVm.items.filterNotNull().first { it.isNotEmpty() }).hasSize(1)
             advanceUntilIdle()
-            // expectMostRecentItem() returns the latest buffered item, discarding any
-            // earlier transient true — after rows has settled to non-empty, this must be false.
-            assertThat(expectMostRecentItem()).isFalse()
-            cancelAndIgnoreRemainingEvents()
+            // Rows are null, not empty, until Room answers, so the prompt never
+            // flickers on while a non-empty library loads: every emission is false.
+            val seen = cancelAndConsumeRemainingEvents().filterIsInstance<Event.Item<Boolean>>()
+            assertThat(seen.map { it.value }).containsExactly(false)
         }
     }
 
