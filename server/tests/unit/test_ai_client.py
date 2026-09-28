@@ -338,6 +338,104 @@ async def test_malformed_output_retries_in_place_without_downgrading():
     assert modes == ["json_schema", "json_schema"]
 
 
+def _schema_in_prompt(body: dict) -> bool:
+    return "properties" in body["messages"][0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_a_provider_that_ignores_the_schema_gets_it_in_the_prompt(caplog):
+    """Ollama's cloud models accept json_schema mode, answer 200 and never apply it.
+
+    The model then invents its own shape, which a provider that enforced the
+    schema could not have produced. The retry spells the schema out in the
+    prompt and still asks in json_schema mode.
+    """
+    seen: list[httpx.Request] = []
+    invented = {"title": "Dune", "author": {"name": "Frank Herbert"}}
+    good = {"schema_version": 2, "intro": "ok", "confidence": "low"}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(req)
+        content = json.dumps(invented if len(seen) == 1 else good)
+        return httpx.Response(200, json=_make_chat_response(content))
+
+    client = AIClient(
+        base_url="http://fake/v1",
+        api_key=None,
+        model="m",
+        transport=httpx.MockTransport(handler),
+    )
+    with caplog.at_level(logging.INFO, logger="quire_server.core.ai.client"):
+        out = await client.chat_structured(
+            system="s", user="u", schema=BookInsightPayload, timeout_s=5.0
+        )
+
+    assert out.intro == "ok"
+    bodies = _bodies(seen)
+    assert [b["response_format"]["type"] for b in bodies] == ["json_schema", "json_schema"]
+    assert [_schema_in_prompt(b) for b in bodies] == [False, True]
+    assert "ai.client.schema_in_prompt" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_once_the_schema_was_ignored_every_later_call_spells_it_out():
+    seen: list[httpx.Request] = []
+    good = {"schema_version": 2, "intro": "ok", "confidence": "low"}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(req)
+        content = json.dumps({"title": "Dune"} if len(seen) == 1 else good)
+        return httpx.Response(200, json=_make_chat_response(content))
+
+    client = AIClient(
+        base_url="http://fake/v1",
+        api_key=None,
+        model="m",
+        transport=httpx.MockTransport(handler),
+    )
+    for _ in range(2):
+        await client.chat_structured(system="s", user="u", schema=BookInsightPayload, timeout_s=5.0)
+
+    assert [_schema_in_prompt(b) for b in _bodies(seen)] == [False, True, True]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "first_answer",
+    [
+        json.dumps({"schema_version": 2, "intro": 42}),
+        '{"schema_version": 2, "intro": "cut off in the middle of a sent',
+    ],
+    ids=["wrong-value", "cut-off"],
+)
+async def test_a_slip_inside_the_schema_keeps_the_prompt_short(first_answer):
+    """Only a missing key or a key the schema forbids proves it was ignored.
+
+    Those are the two things any enforcing runtime rules out. A wrong value or a
+    cut-off answer is left to the retry's error message, because spelling the
+    schema out roughly triples every later prompt, and a CPU-only model pays
+    for that in seconds.
+    """
+    seen: list[httpx.Request] = []
+    good = {"schema_version": 2, "intro": "ok", "confidence": "low"}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(req)
+        content = first_answer if len(seen) == 1 else json.dumps(good)
+        return httpx.Response(200, json=_make_chat_response(content))
+
+    client = AIClient(
+        base_url="http://fake/v1",
+        api_key=None,
+        model="m",
+        transport=httpx.MockTransport(handler),
+    )
+    for _ in range(2):
+        await client.chat_structured(system="s", user="u", schema=BookInsightPayload, timeout_s=5.0)
+
+    assert [_schema_in_prompt(b) for b in _bodies(seen)] == [False, False, False]
+
+
 @pytest.mark.asyncio
 async def test_validation_retry_log_carries_no_provider_output(caplog):
     """The operator log gets facts, not the model's answer (issue #102)."""

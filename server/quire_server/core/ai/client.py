@@ -18,7 +18,10 @@ Strategy:
 3. Parse the assistant message as JSON, then validate against the Pydantic
    schema.
 4. On ValidationError, retry once with the validation error appended to the
-   user message.
+   user message. If the answer left out a required key or added one the schema
+   forbids, the provider accepted `json_schema` mode without applying it
+   (Ollama's cloud models do exactly that), so the retry and every later call
+   also spell the schema out in the prompt.
 5. On second failure or non-JSON output, raise ProviderParseError.
 """
 
@@ -63,6 +66,19 @@ _MODE_REJECTION_MARKERS = (
     "extra inputs are not permitted",
     "extra fields not permitted",
 )
+
+# A provider that applied the schema cannot produce these: every runtime that
+# enforces `json_schema` keeps required keys and refuses the ones the schema
+# forbids. Wrong values and cut-off answers are left out on purpose, since they
+# can slip past enforcement and the retry's error message is enough for them.
+_SCHEMA_IGNORED_ERRORS = frozenset({"missing", "extra_forbidden"})
+
+
+def _schema_was_ignored(err: json.JSONDecodeError | ValidationError) -> bool:
+    return isinstance(err, ValidationError) and any(
+        e["type"] in _SCHEMA_IGNORED_ERRORS
+        for e in err.errors(include_url=False, include_input=False)
+    )
 
 
 def _error_count(err: json.JSONDecodeError | ValidationError) -> int:
@@ -180,6 +196,10 @@ class AIClient:
         # process (see main.create_app), so the probe is paid once per deploy,
         # not once per insight.
         self._native_schema = True
+        # Goes True with the downgrade above, or the first time a provider shows
+        # it accepted `json_schema` mode and ignored it, and stays there. Not
+        # from the start: the schema text roughly triples the prompt.
+        self._schema_in_prompt = False
 
     async def chat_structured(
         self,
@@ -197,6 +217,7 @@ class AIClient:
                 # The provider cannot enforce the schema itself, so go back to
                 # asking for any JSON object and paste the schema in the prompt.
                 self._native_schema = False
+                self._schema_in_prompt = True
                 messages = self._compose_messages(system, user, schema)
                 response_text = await self._do_call(http, messages, schema)
             try:
@@ -210,13 +231,21 @@ class AIClient:
                 first_kinds = _error_kinds(first_err, schema)
                 logger.info(
                     "ai.client.validation_retry error_class=%s errors=%d chars=%d "
-                    "native_schema=%s kinds=%s",
+                    "native_schema=%s schema_in_prompt=%s kinds=%s",
                     type(first_err).__name__,
                     _error_count(first_err),
                     len(response_text),
                     self._native_schema,
+                    self._schema_in_prompt,
                     first_kinds,
                 )
+                if not self._schema_in_prompt and _schema_was_ignored(first_err):
+                    self._schema_in_prompt = True
+                    logger.info(
+                        "ai.client.schema_in_prompt model=%s reason=provider_ignored_json_schema",
+                        self._model,
+                    )
+                    messages = self._compose_messages(system, user, schema)
                 retry_messages = list(messages)
                 retry_messages.append({"role": "assistant", "content": response_text})
                 retry_messages.append(
@@ -236,11 +265,12 @@ class AIClient:
                     second_kinds = _error_kinds(second_err, schema)
                     logger.info(
                         "ai.client.validation_failed error_class=%s errors=%d chars=%d "
-                        "native_schema=%s kinds=%s",
+                        "native_schema=%s schema_in_prompt=%s kinds=%s",
                         type(second_err).__name__,
                         _error_count(second_err),
                         len(retry_text),
                         self._native_schema,
+                        self._schema_in_prompt,
                         second_kinds,
                     )
                     # `from None`: a chained ValidationError would print its
@@ -252,7 +282,7 @@ class AIClient:
                     ) from None
 
     def _compose_messages(self, system: str, user: str, schema: type[T]) -> list[dict]:
-        if self._native_schema:
+        if not self._schema_in_prompt:
             # The schema rides in `response_format` (see `_response_format`), so
             # the prompt only has to rule out the wrapping that json_schema mode
             # does not already rule out.

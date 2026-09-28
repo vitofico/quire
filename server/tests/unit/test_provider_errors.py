@@ -113,6 +113,14 @@ def test_parse_error_without_a_model_name():
     )
 
 
+def test_parse_error_on_the_recommended_model_does_not_recommend_it():
+    info = describe(ProviderParseError("x"), timeout_s=1.0, model="gpt-oss:120b-cloud")
+    assert info.hint == (
+        "The model gpt-oss:120b-cloud normally handles structured JSON output, "
+        "so the server log around this request says what went wrong."
+    )
+
+
 def test_unknown_provider_error_falls_back():
     info = describe(ProviderError("something new"), timeout_s=1.0, model="m")
     assert info == ProviderErrorInfo(
