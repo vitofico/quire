@@ -26,6 +26,20 @@ class OpfMetadataExtractorTest {
     }
 
     @Test
+    fun `reads the opf with a parser that rejects setXIncludeAware, as Android's does`() {
+        val key = "javax.xml.parsers.DocumentBuilderFactory"
+        System.setProperty(key, AndroidLikeDocumentBuilderFactory::class.java.name)
+        val bundle = try {
+            OpfMetadataExtractor.extract(loadFixture("foundation.opf"), fallbackTitle = "fallback")
+        } finally {
+            System.clearProperty(key)
+        }
+        assertThat(bundle.title).isEqualTo("Foundation")
+        assertThat(bundle.author).isEqualTo("Isaac Asimov")
+        assertThat(bundle.isbn).isEqualTo("9780553293357")
+    }
+
+    @Test
     fun `falls back to title when opf is malformed`() {
         val bundle = OpfMetadataExtractor.extract(byteArrayOf(0x00, 0x01), fallbackTitle = "Untitled")
         assertThat(bundle.title).isEqualTo("Untitled")

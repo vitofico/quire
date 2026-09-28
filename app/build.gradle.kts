@@ -33,15 +33,31 @@ val appVersionCode: Int = (project.property("VERSION_CODE") as String).toInt()
 // `excludeFields=["generated"]` drops the build timestamp (default in
 // AboutLibraries 14+; explicit on 11.x); `filterVariants` keeps the
 // regenerated file release-only.
+//
+// `configPath` adds what ships in the APK without being a Gradle dependency:
+// the reader fonts, one libraries/*.json per font and one licenses/*.json per
+// license text. It is absolute because 11.x resolves a relative path against
+// the root project, not this module.
 aboutLibraries {
+    configPath = file("aboutlibraries").path
     excludeFields = arrayOf("generated")
     filterVariants = arrayOf("release")
     registerAndroidTasks = false
 }
 
+// The plugin's task inputs do not capture the resolved dependency versions, so after a
+// version bump Gradle reused a cached or "up-to-date" dependency list: CI's drift check
+// then compared the committed file against the old graph and failed a correct file (or
+// could pass a stale one). Collecting afresh takes seconds and runs only on demand.
+tasks.matching { it.name == "collectDependencies" || it.name == "exportLibraryDefinitions" }
+    .configureEach {
+        outputs.cacheIf { false }
+        outputs.upToDateWhen { false }
+    }
+
 android {
     namespace = "io.theficos.quire"
-    compileSdk = 34
+    compileSdk = 35
     defaultConfig {
         applicationId = "io.theficos.quire"
         minSdk = 26

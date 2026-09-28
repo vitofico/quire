@@ -104,6 +104,28 @@ class ReaderPreferencesStoreTest {
         assertThat(store.flow.value.theme).isEqualTo(ReaderTheme.LIGHT)
     }
 
+    @Test fun `font family round-trips through update and reload`() {
+        freshStore().update { it.copy(fontFamily = ReaderFontFamily.LITERATA) }
+
+        val store = ReaderPreferencesStore(context())
+        assertThat(store.flow.value.fontFamily).isEqualTo(ReaderFontFamily.LITERATA)
+    }
+
+    @Test fun `a reader who had picked Charter gets Charis, the face that replaced it`() {
+        // CHARIS was saved as CHARTER until the fonts were bundled; the old name must keep working.
+        rawPrefs().edit().putString("font_family", "CHARTER").apply()
+
+        val store = ReaderPreferencesStore(context())
+        assertThat(store.flow.value.fontFamily).isEqualTo(ReaderFontFamily.CHARIS)
+    }
+
+    @Test fun `an unknown stored font family falls back to the system font`() {
+        rawPrefs().edit().putString("font_family", "NOT_A_FONT").apply()
+
+        val store = ReaderPreferencesStore(context())
+        assertThat(store.flow.value.fontFamily).isEqualTo(ReaderFontFamily.SYSTEM)
+    }
+
     @Test fun `out-of-range stored paragraph values are clamped on load, never throw`() {
         rawPrefs().edit()
             .putFloat("paragraph_indent", 9.0f)

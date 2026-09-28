@@ -1,8 +1,8 @@
 [versions]
-agp = "8.5.2"
+agp = "8.6.1"
 kotlin = "2.0.20"
 ksp = "2.0.20-1.0.25"
-compose-bom = "2024.09.02"
+compose-bom = "2025.07.00"
 nav-compose = "2.8.1"
 lifecycle = "2.8.6"
 activity-compose = "1.9.2"
@@ -25,7 +25,7 @@ espresso = "3.6.1"
 coil = "2.7.0"
 aboutlibraries = "11.2.3"
 zxing-core = "3.5.3"
-camerax = "1.3.4"
+camerax = "1.4.0"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version = "1.13.1" }

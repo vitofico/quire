@@ -1,0 +1,15 @@
+{
+  "uniqueId": "fonts:lora",
+  "artifactVersion": "3.008",
+  "name": "Lora",
+  "description": "The serif typeface the reader offers as Lora, also used for the app's own screens. Bundled unmodified from google/fonts.",
+  "website": "https://github.com/cyrealtype/Lora-Cyrillic",
+  "developers": [
+    {
+      "name": "The Lora Project Authors"
+    }
+  ],
+  "licenses": [
+    "OFL-1.1-Lora"
+  ]
+}

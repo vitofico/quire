@@ -49,6 +49,12 @@ class LibraryUploader(
      * its own pass. This avoids redundant PUTs without complex coordination.
      */
     suspend fun runOnce(): UploadResult = singleFlight.withLock {
+        // No server, nothing to send. Without this every import in offline-only
+        // mode logged a "baseUrl not configured" stack trace per unsynced book.
+        // The rows stay unsynced, so connecting a server later uploads them.
+        if (!client.isConfigured) {
+            return@withLock UploadResult(attempted = 0, succeeded = 0, abortedOnAuth = false)
+        }
         val unsynced = dao.findUnsyncedToLibrary()
         if (unsynced.isEmpty()) {
             return@withLock UploadResult(attempted = 0, succeeded = 0, abortedOnAuth = false)

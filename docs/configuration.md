@@ -63,14 +63,13 @@ Put it in `.env`. When you run the server without Docker (see
 
 ### Writing values
 
-- **Names in capitals, spelled as on this page.** The server matches names in
-  any case, but the migration step that runs before it reads
-  `QUIRE_SERVER_PROGRESS_ENABLED` and `QUIRE_SERVER_AI_ENABLED` only in
-  capitals.
+- **Names spelled as on this page.** The server matches names in any case,
+  so `quire_server_ai_enabled` works too, but capitals are the convention.
 - **`true` or `false` for on/off settings.** The server also accepts `1`/`0`,
-  `yes`/`no` and `on`/`off`. The migration step understands only `1`,
-  `true`, `yes` and `on` as "on" and reads anything else, such as `y` or `t`,
-  as "off", so other spellings can leave the two disagreeing.
+  `yes`/`no`, `y`/`n`, `on`/`off` and `t`/`f`, in any case, and refuses to
+  start on anything else. The migration step that runs before it reads
+  `QUIRE_SERVER_PROGRESS_ENABLED` and `QUIRE_SERVER_AI_ENABLED` through the
+  server's own settings, so the two always agree.
 - **To go back to a default, delete the line or put `#` in front of it.** A
   line with nothing after the `=` is not the same as no line; see
   [Empty values](#empty-values).
@@ -89,17 +88,17 @@ What that does depends on the setting:
 | `QUIRE_SERVER_AI_SOURCES` | Retrieval off. The default applies only when the line is missing. |
 | `QUIRE_SERVER_AI_PROMPT_VERSION` | The built-in prompt version, the same as the default. |
 | Numbers, `true`/`false` settings, fixed-choice settings, `QUIRE_SERVER_AI_TOKEN_SECRETS` | The server refuses to start. |
-| `QUIRE_SERVER_LOG_LEVEL` | The server refuses to start. |
+| `QUIRE_SERVER_LOG_LEVEL` | `INFO`, the same as the default. |
 | Other text settings | Empty text, taken literally, which breaks whatever uses it. |
 
 "Empty counts as unset" is the rule only for the three AI provider settings
-in the first row (`_blank_means_unset` in `server/quire_server/config.py`).
+in the first row (`_blank_means_unset` in `server/quire_server/config.py`)
+and for the log level.
 When the server refuses to start, its container stops and Docker restarts it
 over and over. `docker compose logs quire-server` then shows
 `validation error for Settings` followed by the setting's name in lower case
 without the prefix, for example `ai_timeout_s` for
-`QUIRE_SERVER_AI_TIMEOUT_S`, or `ValueError: Unknown level: ''` for the log
-level.
+`QUIRE_SERVER_AI_TIMEOUT_S`.
 
 ### Applying a change
 
@@ -405,15 +404,22 @@ hardware.
 #### `QUIRE_SERVER_AI_SOURCES`
 
 - Type: comma-separated list. The recognised names are `wikipedia` and
-  `openlibrary`, in lower case
+  `openlibrary`; case and spaces around them do not matter
 - Default: `wikipedia,openlibrary`
 - Example: `QUIRE_SERVER_AI_SOURCES=openlibrary`
 
 Which public sites the server looks a book up on before asking the model.
 What they return goes into the prompt, which makes the card more accurate
-and the prompt longer. The lookups send the book's title, author, series and
-ISBN to those sites, and nothing about the reader. Results are cached in the
-database.
+and the prompt longer. These lookups send the book's title, author, series
+and ISBN to those sites, and nothing about the reader. Results are cached in
+the database.
+
+`openlibrary` also feeds the Reader Profile. When a reader refreshes it, the
+server asks Open Library for the works of up to five of the authors that
+appear most in that reader's library, and offers the ones the reader does not
+own as discovery picks. Each request carries only an author's name, but
+together the names reflect what the reader keeps. Results are cached for 30
+days. Without `openlibrary`, the profile has no discovery picks.
 
 An empty value, `QUIRE_SERVER_AI_SOURCES=`, turns retrieval off. The prompt
 then holds only the book's own details, which makes it much shorter and
@@ -421,11 +427,15 @@ faster on slow hardware. The cost is accuracy: the model has only what it
 already knows about the book, and small models make things up more often.
 Deleting the line is different: it brings back the default.
 
-Names are matched exactly, so `Wikipedia` or `open-library` turns that
-source off without a warning. `GET /ai/v1/config` lists what you set under
-`sources_enabled`, unrecognised names included, and the `ai.generate` log
-line lists the sources that actually contributed to a card (`sources=-` for
-none).
+`Wikipedia, OpenLibrary` works the same as the default. A name the server
+does not recognise, such as `open-library`, is ignored, and the server
+reports it among its configuration warnings at boot and in `GET /health`
+(see [Did my change take effect?](#did-my-change-take-effect)). The warning
+names the variable, not the value, so check the spelling against the two
+names above. If no name is recognised, retrieval is off, as with an empty
+value. `GET /ai/v1/config` lists the sources in use under
+`sources_enabled`, and the `ai.generate` log line lists the sources that
+actually contributed to a card (`sources=-` for none).
 
 When to change it: turn retrieval off to test whether a slow model copes
 without the extra context, or drop a site you do not want contacted.
@@ -527,11 +537,16 @@ When to change it: only if readers get 429 answers from
 - Default: `3`
 - Example: `QUIRE_SERVER_AI_PROFILE_REFRESH_DAILY_LIMIT=5`
 
-Meant to set how many Reader Profile refreshes each reader may run per UTC
-day, with `0` turning the limit off. **Known issue:** the server reads this
-variable but never passes it on (`create_app` in
-`server/quire_server/main.py` builds the AI service without it), so the limit
-is 3 whatever you set.
+How many times per UTC day each reader may refresh their Reader Profile
+(`POST /ai/v1/profile/refresh`). The count is kept in the database and
+survives restarts. Over the limit, the server answers 429 with `used`,
+`limit` and `resets_at`. A reader with no finished books gets a profile of
+reading statistics only, which makes no model call and does not count.
+Refreshes do not count against `QUIRE_SERVER_AI_DAILY_BUDGET`. `0` turns the
+limit off.
+
+When to change it: raise it while you try out models; lower it on a paid
+provider to cap what each reader can spend.
 
 ### What has no setting
 
@@ -684,16 +699,16 @@ switches.
 
 #### `QUIRE_SERVER_LOG_LEVEL`
 
-- Type: `DEBUG`, `INFO`, `WARNING`, `ERROR` or `CRITICAL`, in capitals
+- Type: `DEBUG`, `INFO`, `WARNING`, `ERROR` or `CRITICAL`, in any case
 - Default: `INFO`
 - Example: `QUIRE_SERVER_LOG_LEVEL=DEBUG`
 
 How much the server logs. At `INFO` you see each generated card
 (`ai.generate`), retries, retrieval problems and the server's outgoing HTTP
-requests; at `WARNING`, only problems. A lower-case value stops the server
-at boot (`ValueError: Unknown level: 'info'`). It does not affect the one
-line per request, such as `"GET /health HTTP/1.1" 200 OK`, that uvicorn,
-the web server inside the container, prints.
+requests; at `WARNING`, only problems. Any other word stops the server at
+boot with `validation error for Settings` naming `log_level`. It does not
+affect the one line per request, such as `"GET /health HTTP/1.1" 200 OK`,
+that uvicorn, the web server inside the container, prints.
 
 When to change it: keep `INFO` while setting up; most of the evidence in
 [Reading AI errors](#reading-ai-errors) is logged at that level.
@@ -1090,7 +1105,7 @@ curl -s http://localhost:8000/health
   "version": "dev",
   "modes": ["progress", "ai"],
   "warnings": [
-    "Unknown setting QUIRE_SERVER_AI_TIMEOUT is ignored; check the spelling against server/README.md (Environment variables)",
+    "Unknown setting QUIRE_SERVER_AI_TIMEOUT is ignored; check the spelling against docs/configuration.md",
     "AI is enabled but QUIRE_SERVER_AI_MODEL is not set; the app will report AI as unconfigured. Set it or set QUIRE_SERVER_AI_ENABLED=false"
   ]
 }
@@ -1098,10 +1113,11 @@ curl -s http://localhost:8000/health
 
 - `modes` lists the parts that are on: `progress`, `ai`, or both.
 - `warnings` is empty when the configuration is clean. The server warns
-  about four things (`config_warnings` and `unknown_env_vars` in
+  about five things (`config_warnings` and `unknown_env_vars` in
   `server/quire_server/config.py`): a `QUIRE_SERVER_*` name it does not know,
   AI enabled without a base URL or model, a base URL that does not end in
-  `/v1`, and both modes off. The warnings name variables and never show
+  `/v1`, a retrieval source name in `QUIRE_SERVER_AI_SOURCES` it does not
+  recognise, and both modes off. The warnings name variables and never show
   values, because `/health` is public.
 - `version` is the build you run; see
   [Which releases change the server](#which-releases-change-the-server).
@@ -1134,8 +1150,10 @@ curl -s -u your-calibre-username http://localhost:8000/ai/v1/config
 ```
 
 `configured` is `true` when AI is on and both base URL and model are set.
-`base_url_host` is only the host part of `QUIRE_SERVER_AI_BASE_URL`. The two
-timeouts are rounded up, and they are what the app sizes its waits from.
+`base_url_host` is only the host part of `QUIRE_SERVER_AI_BASE_URL`.
+`sources_enabled` lists the retrieval sources in use, without names the
+server does not recognise. The two timeouts are rounded up, and they are what
+the app sizes its waits from.
 
 **4. Is the provider reachable?** `GET /ai/v1/health` needs no login. It
 reports what the server has seen since it started; it never probes on its

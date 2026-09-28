@@ -7,12 +7,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import io.theficos.ereader.reader.ReaderFontFamily
 import io.theficos.ereader.reader.ReaderPreferences
 import io.theficos.ereader.reader.ReaderTheme
+import io.theficos.ereader.ui.components.RadioOptionRow
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -127,33 +128,23 @@ fun FontSettingsSheet(
             Text("Theme", style = MaterialTheme.typography.bodyMedium)
             // A column, not a row: four themes with labels as long as "Dark sepia" overflow one
             // line on a narrow screen, and this matches the font-family picker just below.
-            Column {
+            Column(Modifier.selectableGroup()) {
                 ReaderTheme.values().forEach { t ->
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(vertical = 2.dp),
-                    ) {
-                        RadioButton(
-                            selected = prefs.theme == t,
-                            onClick = { onChange(prefs.copy(theme = t)) },
-                        )
-                        Text(t.displayLabel())
-                    }
+                    RadioOptionRow(
+                        label = t.displayLabel(),
+                        selected = prefs.theme == t,
+                        onSelect = { onChange(prefs.copy(theme = t)) },
+                    )
                 }
             }
             Text("Font family", style = MaterialTheme.typography.bodyMedium)
-            Column {
+            Column(Modifier.selectableGroup()) {
                 ReaderFontFamily.values().forEach { f ->
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(vertical = 2.dp),
-                    ) {
-                        RadioButton(
-                            selected = prefs.fontFamily == f,
-                            onClick = { onChange(prefs.copy(fontFamily = f)) },
-                        )
-                        Text(f.name.replace('_', ' ').lowercase().replaceFirstChar { it.uppercase() })
-                    }
+                    RadioOptionRow(
+                        label = f.name.replace('_', ' ').lowercase().replaceFirstChar { it.uppercase() },
+                        selected = prefs.fontFamily == f,
+                        onSelect = { onChange(prefs.copy(fontFamily = f)) },
+                    )
                 }
             }
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))

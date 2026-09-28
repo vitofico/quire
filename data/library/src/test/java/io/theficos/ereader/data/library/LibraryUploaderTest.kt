@@ -61,6 +61,21 @@ class LibraryUploaderTest {
     """.trimIndent()
 
     @Test
+    fun `runOnce sends nothing and keeps rows unsynced when no server is configured`() = runTest {
+        dao.rows.add(docEntity(id = 1, contentHash = "h1"))
+        val offline = LibraryClient(
+            baseUrlProvider = { null },
+            http = OkHttpClient.Builder().callTimeout(5, TimeUnit.SECONDS).build(),
+        )
+
+        val result = LibraryUploader(client = offline, dao = dao, scope = scope).runOnce()
+
+        assertThat(result).isEqualTo(UploadResult(attempted = 0, succeeded = 0, abortedOnAuth = false))
+        assertThat(server.requestCount).isEqualTo(0)
+        assertThat(dao.findUnsyncedToLibrary().map { it.id }).containsExactly(1L)
+    }
+
+    @Test
     fun `runOnce puts every unsynced doc and marks each synced`() = runTest {
         dao.rows.addAll(
             listOf(
@@ -244,6 +259,8 @@ private class FakeDocumentDao : DocumentDao {
     ): Flow<List<DocumentEntity>> = flowOf(emptyList())
     override suspend fun deleteById(id: Long): Int = throw notImplemented("deleteById")
     override suspend fun deleteAll(): Unit = throw notImplemented("deleteAll")
+    override suspend fun setCoverPathIfMissing(id: Long, coverPath: String): Int =
+        throw notImplemented("setCoverPathIfMissing")
 
     private fun notImplemented(name: String) =
         UnsupportedOperationException("FakeDocumentDao.$name not implemented for this test")

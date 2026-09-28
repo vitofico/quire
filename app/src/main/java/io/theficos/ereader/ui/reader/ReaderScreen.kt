@@ -54,6 +54,7 @@ import androidx.lifecycle.lifecycleScope
 import io.theficos.ereader.MainActivity
 import io.theficos.ereader.data.sync.SyncEnqueuer
 import io.theficos.ereader.reader.ReaderPreferences
+import io.theficos.ereader.reader.declareReaderFonts
 import io.theficos.ereader.reader.toEpubPreferences
 import io.theficos.quire.R
 import kotlinx.coroutines.delay
@@ -68,6 +69,7 @@ fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
     val state by viewModel.state.collectAsState()
     val preferences by viewModel.preferences.collectAsState()
     val chromeVisible by viewModel.chromeVisible.collectAsState()
+    val chromeAutoHides by viewModel.chromeAutoHides.collectAsState()
     val liveLocator by viewModel.currentLocator.collectAsState()
     val positions by viewModel.positions.collectAsState()
     var dragPercent by remember { mutableStateOf<Double?>(null) }
@@ -119,13 +121,16 @@ fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
 
     LaunchedEffect(Unit) { viewModel.load() }
 
-    LaunchedEffect(chromeVisible, isDragging, showFontSheet) {
-        // Don't auto-hide while the settings sheet is open (bars would slide out from under
-        // the modal), nor while a screen reader is exploring (immersive also hides the OS
-        // navigation bar, which a TalkBack user cannot re-summon on a 2.5s timer).
+    val bookOpen = state is ReaderUiState.Open
+    LaunchedEffect(chromeVisible, chromeAutoHides, bookOpen, isDragging, showFontSheet) {
+        // Only the reveal on opening the book hides itself (see chromeAutoHides), and its clock
+        // starts once the book has opened: a book that takes seconds to parse otherwise lost its
+        // bars before its first page appeared. Nor while the settings sheet is open (bars would
+        // slide out from under the modal), nor while a screen reader is exploring (immersive also
+        // hides the OS navigation bar, which a TalkBack user cannot re-summon on a 2.5s timer).
         val touchExploring = (context.getSystemService(Context.ACCESSIBILITY_SERVICE)
             as? AccessibilityManager)?.isTouchExplorationEnabled == true
-        if (chromeVisible && !isDragging && !showFontSheet && !touchExploring) {
+        if (chromeVisible && chromeAutoHides && bookOpen && !isDragging && !showFontSheet && !touchExploring) {
             delay(2_500)
             viewModel.setChromeVisible(false)
         }
@@ -199,6 +204,7 @@ fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
                             onPrev = viewModel::pageBackward,
                             onNext = viewModel::pageForward,
                             onToggleChrome = viewModel::toggleChrome,
+                            chromeVisible = chromeVisible,
                             onPageLoaded = viewModel::reanchorViewport,
                         )
                     }
@@ -306,6 +312,7 @@ private fun ReaderContent(
     onPrev: () -> Unit,
     onNext: () -> Unit,
     onToggleChrome: () -> Unit,
+    chromeVisible: Boolean,
     onPageLoaded: () -> Unit,
 ) {
     val activity = LocalContext.current as FragmentActivity
@@ -337,6 +344,7 @@ private fun ReaderContent(
             wrapper.onPrev = onPrev
             wrapper.onNext = onNext
             wrapper.onToggleChrome = onToggleChrome
+            wrapper.chromeVisible = chromeVisible
             wrapper.tapNavigationEnabled = preferences.tapNavigationEnabled
         },
     )
@@ -383,7 +391,11 @@ private fun ReaderContent(
                 // ReaderPageArea applies both now; don't turn this back on or the page is
                 // padded twice, late, and by someone this file can't see.
                 shouldApplyInsetsPadding = false,
-            ),
+            ).apply {
+                // Without this, every font in the picker but OpenDyslexic renders in the
+                // web view's default sans-serif.
+                declareReaderFonts()
+            },
         )
         val nav = (fm.fragmentFactory.instantiate(
             activity.classLoader,
@@ -593,6 +605,7 @@ private class ReaderTapDispatcher(context: Context) : FrameLayout(context) {
     var onPrev: () -> Unit = {}
     var onNext: () -> Unit = {}
     var onToggleChrome: () -> Unit = {}
+    var chromeVisible: Boolean = false
     var tapNavigationEnabled: Boolean = true
 
     private val gesture = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
@@ -600,7 +613,11 @@ private class ReaderTapDispatcher(context: Context) : FrameLayout(context) {
             val w = width.toFloat()
             if (w <= 0f) return false
             val frac = e.x / w
-            if (tapNavigationEnabled) {
+            // While the controls show, a tap on the page puts them away rather than turning it:
+            // it is most likely a reach for a control that missed.
+            if (chromeVisible) {
+                onToggleChrome()
+            } else if (tapNavigationEnabled) {
                 when {
                     frac < 0.33f -> onPrev()
                     frac > 0.67f -> onNext()

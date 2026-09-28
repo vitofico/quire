@@ -76,7 +76,6 @@ import io.theficos.ereader.sideload.SideloadImporter
 import io.theficos.ereader.sideload.SideloadResult
 import io.theficos.ereader.ui.components.CoverImage
 import io.theficos.ereader.ui.components.SectionLabel
-import io.theficos.ereader.ui.theme.Lora
 import kotlinx.coroutines.launch
 
 private val sortLabels: List<Pair<LibrarySort, String>> = listOf(
@@ -114,7 +113,7 @@ fun LibraryScreen(
     val context = LocalContext.current
     LaunchedEffect(Unit) { SyncEnqueuer.enqueue(context, expedited = true) }
 
-    val items by viewModel.items.collectAsState()
+    val loadedItems by viewModel.items.collectAsState()
     val cont by viewModel.continueReading.collectAsState()
     val seriesCandidates by viewModel.seriesContinuationCandidates.collectAsState()
     val showAbandoned by viewModel.showAbandoned.collectAsState()
@@ -172,6 +171,10 @@ fun LibraryScreen(
     val launchPicker: (() -> Unit)? = importLauncher?.let { l ->
         { l.launch(IMPORT_MIME_FILTER) }
     }
+
+    // Null until Room first answers. Drawing nothing for those few milliseconds
+    // beats flashing "Your shelf is empty." over a library that has books.
+    val items = loadedItems ?: return
 
     if (items.isEmpty() && !searchActive && query.isBlank()) {
         Box(modifier = Modifier.fillMaxSize()) {
@@ -570,7 +573,6 @@ private fun EmptyState(
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text = "q",
-                fontFamily = Lora,
                 style = MaterialTheme.typography.displaySmall.copy(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 ),

@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "io.theficos.ereader.reader"
-    compileSdk = 34
+    compileSdk = 35
     defaultConfig {
         minSdk = 26
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
