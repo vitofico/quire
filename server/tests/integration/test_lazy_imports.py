@@ -90,6 +90,21 @@ def test_sync_only_does_not_import_ai_modules(postgres_url: str):
         assert forbidden not in loaded, f"sync-only mode loaded forbidden module: {forbidden}"
 
 
+def test_sync_only_with_admin_users_does_not_import_ai_modules(postgres_url: str):
+    """Issue #102: the status page must not drag the AI modules into sync-only."""
+    loaded = _run_in_subprocess(
+        {
+            "QUIRE_SERVER_PROGRESS_ENABLED": "true",
+            "QUIRE_SERVER_AI_ENABLED": "false",
+            "QUIRE_SERVER_ADMIN_USERS": "alice",
+        },
+        postgres_url,
+    )
+    assert "quire_server.api.admin" in loaded
+    for forbidden in SYNC_ONLY_FORBIDDEN:
+        assert forbidden not in loaded, f"sync-only mode loaded forbidden module: {forbidden}"
+
+
 def test_ai_only_does_not_import_progress_router(postgres_url: str):
     loaded = _run_in_subprocess(
         {

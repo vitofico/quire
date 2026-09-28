@@ -18,7 +18,7 @@ from fastapi import APIRouter, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
-from quire_server.config import get_settings
+from quire_server.config import Settings, get_settings
 from quire_server.db.session import session_scope
 
 router = APIRouter(tags=["health"])
@@ -167,6 +167,26 @@ async def _db_alembic_heads() -> set[str]:
         return {row[0] for row in result.fetchall()}
 
 
+async def migration_state(settings: Settings) -> dict[str, list[str]]:
+    """Applied, required and missing migration heads for the enabled modes.
+
+    Shared by ``/readyz`` and the admin status page. Raises when the
+    database or the migration scripts cannot be read; callers decide what
+    that looks like on the wire.
+    """
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    script = ScriptDirectory.from_config(Config(str(_alembic_ini_path())))
+    required = _required_heads(script, settings.progress_enabled, settings.ai_enabled)
+    current = await _db_alembic_heads()
+    return {
+        "applied": sorted(current),
+        "required": sorted(required),
+        "missing": sorted(_missing(script, required, current)),
+    }
+
+
 @router.get("/health")
 async def health(request: Request) -> dict:
     settings = get_settings()
@@ -198,13 +218,7 @@ async def readyz():
 
     # Heads check.
     try:
-        from alembic.config import Config
-        from alembic.script import ScriptDirectory
-
-        cfg = Config(str(_alembic_ini_path()))
-        script = ScriptDirectory.from_config(cfg)
-        required = _required_heads(script, settings.progress_enabled, settings.ai_enabled)
-        current = await _db_alembic_heads()
+        heads = await migration_state(settings)
     except Exception as e:  # noqa: BLE001
         logger.warning("readyz: heads check failed: %s", e)
         return JSONResponse(
@@ -212,21 +226,20 @@ async def readyz():
             content={"ready": False, "detail": "alembic state unreadable", "modes": modes},
         )
 
-    missing = _missing(script, required, current)
-    if missing:
+    if heads["missing"]:
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content={
                 "ready": False,
                 "detail": "migrations behind",
                 "modes": modes,
-                "missing": sorted(missing),
-                "current": sorted(current),
+                "missing": heads["missing"],
+                "current": heads["applied"],
             },
         )
 
     return {
         "ready": True,
         "modes": modes,
-        "heads_applied": sorted(current),
+        "heads_applied": heads["applied"],
     }
