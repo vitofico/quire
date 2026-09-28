@@ -23,6 +23,8 @@ from quire_server.core.ai.client import (
     ProviderUnreachable,
 )
 
+_KNOWN_GOOD_MODEL = "gpt-oss:120b-cloud"
+
 
 @dataclass(frozen=True, slots=True)
 class ProviderErrorInfo:
@@ -98,15 +100,24 @@ def describe(
             provider_status=status,
         )
     if isinstance(exc, ProviderParseError):
-        subject = f"The model {model}" if model else "The configured model"
+        if model == _KNOWN_GOOD_MODEL:
+            # Recommending the model that just failed would send the operator
+            # in a circle; the log has the facts instead.
+            hint = (
+                f"The model {model} normally handles structured JSON output, "
+                "so the server log around this request says what went wrong."
+            )
+        else:
+            subject = f"The model {model}" if model else "The configured model"
+            hint = (
+                f"{subject} may be too small for structured JSON output; "
+                f"{_KNOWN_GOOD_MODEL} on Ollama is known to work."
+            )
         return ProviderErrorInfo(
             code="provider_invalid_output",
             http_status=502,
             message="The AI provider answered, but not in the structured format Quire needs.",
-            hint=(
-                f"{subject} may be too small for structured JSON output; "
-                "gpt-oss:120b-cloud on Ollama is known to work."
-            ),
+            hint=hint,
             provider_status=None,
         )
     return ProviderErrorInfo(
