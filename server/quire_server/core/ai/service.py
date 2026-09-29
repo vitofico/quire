@@ -47,6 +47,7 @@ from quire_server.api.ai_schemas import (
     BookInsightResponse,
     BookRec,
     Citation,
+    ComparativeAnchor,
     DocumentIdentity,
     MetadataBundle,
     ReaderProfilePayload,
@@ -276,6 +277,8 @@ class _RetrieverLike(Protocol):
     ) -> list[Citation]: ...
 
     async def lookup_book_language(self, isbn: str) -> str | None: ...
+
+    async def work_exists(self, *, title: str, author: str) -> bool | None: ...
 
 
 class _ProfileRetrieverLike(Protocol):
@@ -632,6 +635,44 @@ class InsightOrchestrator:
             )
         )
 
+    async def _checked_anchors(
+        self, session: AsyncSession, anchors: list[ComparativeAnchor] | None
+    ) -> list[ComparativeAnchor] | None:
+        """Drop the comparative anchors Open Library cannot find.
+
+        The model names these books from memory and gets some wrong: probing
+        gpt-oss:120b on 2026-09-29 credited Asimov's The End of Eternity to
+        Heinlein. An anchor Open Library does not list, by that title and that
+        author, is dropped. One it cannot check (Open Library unreachable) is
+        kept, so an outage never empties the card, and nothing is checked when
+        the admin turned Open Library off.
+        """
+        if not anchors or "openlibrary" not in self.sources_enabled:
+            return anchors
+
+        async def exists(anchor: ComparativeAnchor) -> bool | None:
+            try:
+                if self._session_factory is None:
+                    retriever = self.retriever_factory(session)
+                    return await retriever.work_exists(title=anchor.book, author=anchor.author)
+                async with self._session_factory() as s:
+                    retriever = self.retriever_factory(s)
+                    return await retriever.work_exists(title=anchor.book, author=anchor.author)
+            except Exception as e:
+                logger.info("ai.anchors.check_failed book=%s err=%s", anchor.book, e)
+                return None
+
+        if self._session_factory is None:
+            # One shared session cannot run queries concurrently.
+            found = [await exists(a) for a in anchors]
+        else:
+            found = await asyncio.gather(*(exists(a) for a in anchors))
+        dropped = [a.book for a, ok in zip(anchors, found, strict=True) if ok is False]
+        if dropped:
+            logger.info("ai.anchors.dropped books=%s", dropped)
+        kept = [a for a, ok in zip(anchors, found, strict=True) if ok is not False]
+        return kept or None
+
     async def _do_generate(
         self,
         session: AsyncSession,
@@ -700,11 +741,11 @@ class InsightOrchestrator:
             # PR5: chat_structured succeeded → provider is reachable now.
             if self._health is not None:
                 await self._health.record_provider_success(model_id=self.model_id)
-            # PR-ε (schema v4): pin schema_version server-side. The model may
-            # emit ``2`` or ``3`` by mistake (or copy it from cached examples);
-            # the cache row must always reflect the schema we generated under,
-            # not whatever the model guessed.
-            payload.schema_version = 4
+            # Pin schema_version server-side (v5 since curiosities). The model
+            # may emit an older value by mistake (or copy it from cached
+            # examples); the cache row must always reflect the schema we
+            # generated under, not whatever the model guessed.
+            payload.schema_version = 5
             latency_ms = int((time.monotonic() - t0) * 1000)
             logger.info(
                 "ai.generate content_hash=%s model=%s latency_ms=%d sources=%s regen=%s",
@@ -713,6 +754,9 @@ class InsightOrchestrator:
                 latency_ms,
                 ",".join(sorted({c.kind for c in citations})) or "-",
                 bool(feedback),
+            )
+            payload.comparative_anchors = await self._checked_anchors(
+                session, payload.comparative_anchors
             )
 
         if bundle.series_name:

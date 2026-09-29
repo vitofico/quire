@@ -828,8 +828,9 @@ Response: a `BookInsight` with `payload`, `sources`, `model_id`,
 `prompt_version`, `generated_at`. See `quire_server/api/ai_schemas.py` for
 the full payload schema.
 
-`payload` is the structured `BookInsightPayload` (schema v4 since PR-ε on
-2026-05-19; old cached v3 and v2 rows remain valid). The model generates keys
+`payload` is the structured `BookInsightPayload` (schema v5 since
+2026-09-29, which added `curiosities`; schema v4 since PR-ε on 2026-05-19;
+old cached v4, v3 and v2 rows remain valid). The model generates keys
 in this order:
 
 ```json
@@ -853,9 +854,10 @@ in this order:
     { "book": "Dune", "author": "Frank Herbert", "similar_in": "Both build a future political theology", "different_in": "Dune foregrounds religion" }
   ],
   "distinctive_take": "1-2 sentences on what this book does that others in its themes don't.",
+  "curiosities": ["A short, well-documented fact about the book or its author."],
   "discussion_prompts": ["Open-ended question 1?", "Open-ended question 2?"],
   "confidence": "high|medium|low",
-  "schema_version": 4
+  "schema_version": 5
 }
 ```
 
@@ -872,7 +874,7 @@ so future vocabulary evolution doesn't lose data. The payload field is the
 source of truth for the client; `book_themes` is the SQL-queryable mirror
 that PR9 library stats reads. Old cached v2 payloads (no `themes` key)
 deserialize cleanly with `themes=null`; they contribute zero rows to
-`book_themes` until regenerated. The server pins `schema_version=4` after
+`book_themes` until regenerated. The server pins `schema_version=5` after
 model return so cache rows never reflect a model's accidental version
 emission.
 
@@ -882,12 +884,29 @@ THIS specific book. The server REJECTS payloads with more than two keys via
 a Pydantic `model_validator`. `craft_notes` is 3-5 sentences combining POV /
 pacing / structure with prose qualities (null for ordinary-craft books or
 nonfiction). `comparative_anchors` is a list of `{book, author, similar_in,
-different_in?}` entries sanitized server-side (blank-field drop, cap at 4);
-display-only — the server cannot verify the referenced books exist.
+different_in?}` entries sanitized server-side (blank-field drop, cap at 4)
+and display-only. When the `openlibrary` source is enabled, the server looks
+each one up on Open Library by title and author surname and drops the ones it
+cannot find, which catches invented titles and real books credited to the
+wrong author. When Open Library is unreachable the anchors are kept unchecked.
 `distinctive_take` is 1-2 sentences differentiating the book from others in
 its themes. `discussion_prompts` is 3-5 book-club-style questions (no plot
 reveals past the inciting incident, per Lock #7 soft mitigation). All v4
 fields are optional; old cached v3 rows (no v4 keys) deserialize cleanly.
+
+`curiosities` (schema v5) is a small "Curiosities" section: 1-3 one-sentence
+facts about the book or its author (awards, sales, translations, adaptations,
+first publication, the author's life), taken from the external sources first.
+From its own knowledge the model may add only widely known, checkable facts,
+never where the idea came from or what inspired the book unless a source says
+so, and it returns `null` when it has none.
+
+For a work the model does not recognise, when neither the sources nor the
+publisher description say what it is about, the prompt asks for an `intro`
+built from the metadata alone, `null` for every other content field, and
+`confidence: "low"`, rather than a description of a book the model knows
+nothing about. Sanitized server-side (blank-entry drop, cap at 3); old v4 rows
+deserialize with `curiosities=null`.
 
 `prompt_version` on the response reflects the runtime resolution of
 `core/ai/prompts.py::PROMPT_VERSION` via
@@ -1167,11 +1186,11 @@ Response body:
     {
       "id": 42,
       "identity": {"metadata_id": "...", "content_hash": "..."},
-      "payload":  { ... BookInsightPayload at schema_version 4 ... },
+      "payload":  { ... BookInsightPayload at schema_version 5 ... },
       "sources":  [ ... Citations ... ],
       "model_id": "...",
-      "prompt_version": "5",
-      "schema_version": 4,
+      "prompt_version": "9",
+      "schema_version": 5,
       "tone": "neutral",
       "language": "auto",
       "generated_at": "2026-05-19T00:00:00+00:00"

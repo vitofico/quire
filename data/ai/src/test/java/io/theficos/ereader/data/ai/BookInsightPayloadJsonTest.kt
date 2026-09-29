@@ -5,7 +5,8 @@ import kotlinx.serialization.json.Json
 import org.junit.Test
 
 /**
- * PR-ε / corrections.md REJECT (g): Android DTO catch-up from schema v2 → v3 → v4.
+ * PR-ε / corrections.md REJECT (g): Android DTO catch-up from schema v2 → v3 → v4,
+ * then v5 (curiosities).
  *
  * Forward-compat invariant: payloads at every prior schema_version MUST
  * continue to deserialize cleanly because the server keeps stale rows in
@@ -62,6 +63,19 @@ class BookInsightPayloadJsonTest {
         assertThat(p.comparativeAnchors!![0].differentIn).isNull()
         assertThat(p.distinctiveTake).isEqualTo("Apart.")
         assertThat(p.discussionPrompts).containsExactly("Q1?", "Q2?")
+        assertThat(p.curiosities).isNull()
+    }
+
+    @Test
+    fun deserializes_v5_payload_with_curiosities() {
+        val raw = """
+            {"intro":"i",
+             "curiosities":["Written in six weeks.","Banned in 1960."],
+             "confidence":"medium","schema_version":5}
+        """.trimIndent()
+        val p = json.decodeFromString(BookInsightPayload.serializer(), raw)
+        assertThat(p.schemaVersion).isEqualTo(5)
+        assertThat(p.curiosities).containsExactly("Written in six weeks.", "Banned in 1960.").inOrder()
     }
 
     @Test
@@ -82,8 +96,8 @@ class BookInsightPayloadJsonTest {
     }
 
     @Test
-    fun default_schema_version_is_4() {
-        assertThat(BookInsightPayload().schemaVersion).isEqualTo(4)
+    fun default_schema_version_is_5() {
+        assertThat(BookInsightPayload().schemaVersion).isEqualTo(5)
     }
 
     @Test

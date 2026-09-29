@@ -34,6 +34,11 @@ class FakeRetriever:
     def __init__(self) -> None:
         self.wiki_calls: int = 0
         self.ol_calls: int = 0
+        # (title, author) pairs Open Library does not know, and whether it is
+        # unreachable, for the comparative-anchor check.
+        self.missing_works: set[tuple[str, str]] = set()
+        self.open_library_down = False
+        self.works_checked: list[tuple[str, str]] = []
 
     async def lookup_wikipedia(self, **kw):
         self.wiki_calls += 1
@@ -46,6 +51,12 @@ class FakeRetriever:
     async def lookup_book_language(self, isbn: str):
         # Default stub: no edition language. Subclasses override.
         return None
+
+    async def work_exists(self, *, title: str, author: str):
+        self.works_checked.append((title, author))
+        if self.open_library_down:
+            return None
+        return (title, author) not in self.missing_works
 
 
 @pytest.fixture
@@ -423,9 +434,9 @@ async def test_invalidate_does_not_touch_old_prompt_version_rows(
 
 
 @pytest.mark.asyncio
-async def test_do_generate_pins_schema_version_to_4(session: AsyncSession, make_orchestrator):
+async def test_do_generate_pins_schema_version_to_5(session: AsyncSession, make_orchestrator):
     """REJECT (a) safety net: even when the fake model emits schema_version=2,
-    the persisted payload is pinned to 4 server-side. Mirrors the v2->v3 pin
+    the persisted payload is pinned to 5 server-side. Mirrors the v2->v3 pin
     pattern from PR3."""
     orch = make_orchestrator()
     orch.ai.next_payload = {
@@ -436,7 +447,7 @@ async def test_do_generate_pins_schema_version_to_4(session: AsyncSession, make_
     ident = DocumentIdentity(metadata_id="m-pin", content_hash="ch-pin")
     bundle = MetadataBundle(title="T", author="A")
     out = await orch.generate(session, ident, bundle, user_id="u1")
-    assert out.payload.schema_version == 4
+    assert out.payload.schema_version == 5
     # And persisted JSONB carries the pinned value too.
     rows = (
         (await session.execute(select(BookInsight).where(BookInsight.content_hash == "ch-pin")))
@@ -444,7 +455,7 @@ async def test_do_generate_pins_schema_version_to_4(session: AsyncSession, make_
         .all()
     )
     assert len(rows) == 1
-    assert rows[0].payload["schema_version"] == 4
+    assert rows[0].payload["schema_version"] == 5
 
 
 @pytest.mark.asyncio
@@ -477,7 +488,7 @@ async def test_cache_coexistence_for_prompt_versions_1_4_5(
     ident = DocumentIdentity(metadata_id="m-coex", content_hash="ch-coex")
     bundle = MetadataBundle(title="T", author="A")
     fresh = await orch.generate(session, ident, bundle, user_id="u1")
-    assert fresh.payload.schema_version == 4  # server-pinned
+    assert fresh.payload.schema_version == 5  # server-pinned
 
     # All three rows coexist (no unique-constraint conflict).
     rows = (
@@ -975,3 +986,67 @@ async def test_auto_backfill_skipped_when_openlibrary_source_disabled(session: A
     assert retriever.lang_calls == []
     # Backfill is gated off, but `auto` still emits the infer directive.
     assert "OUTPUT LANGUAGE" in orch.ai.calls[0]["user"]
+
+
+_ANCHORS = [
+    {"book": "Dune", "author": "Frank Herbert", "similar_in": "Both build a galactic empire."},
+    {
+        "book": "The End of Eternity",
+        "author": "Robert A. Heinlein",
+        "similar_in": "Both use predictive science.",
+    },
+]
+
+
+async def _generate_with_anchors(session: AsyncSession, orch, key: str):
+    orch.ai.next_payload = {"intro": "ok", "confidence": "high", "comparative_anchors": _ANCHORS}
+    ident = DocumentIdentity(metadata_id=f"m-{key}", content_hash=f"ch-{key}")
+    bundle = MetadataBundle(title="Foundation", author="Isaac Asimov")
+    return await orch.generate(session, ident, bundle, user_id="u1")
+
+
+@pytest.mark.asyncio
+async def test_generate_drops_anchors_open_library_cannot_find(
+    session: AsyncSession, make_orchestrator
+):
+    """The model credited The End of Eternity to Heinlein; Open Library finds
+    no such work, so the anchor never reaches the reader or the cache."""
+    orch = make_orchestrator()
+    orch.retriever.missing_works = {("The End of Eternity", "Robert A. Heinlein")}
+    out = await _generate_with_anchors(session, orch, "anc-drop")
+    assert [a.book for a in out.payload.comparative_anchors] == ["Dune"]
+    row = (
+        await session.execute(select(BookInsight).where(BookInsight.content_hash == "ch-anc-drop"))
+    ).scalar_one()
+    assert [a["book"] for a in row.payload["comparative_anchors"]] == ["Dune"]
+
+
+@pytest.mark.asyncio
+async def test_generate_clears_anchors_when_none_exist(session: AsyncSession, make_orchestrator):
+    orch = make_orchestrator()
+    orch.retriever.missing_works = {(a["book"], a["author"]) for a in _ANCHORS}
+    out = await _generate_with_anchors(session, orch, "anc-none")
+    assert out.payload.comparative_anchors is None
+
+
+@pytest.mark.asyncio
+async def test_generate_keeps_anchors_when_open_library_is_down(
+    session: AsyncSession, make_orchestrator
+):
+    """An outage keeps what could not be checked rather than emptying the card."""
+    orch = make_orchestrator()
+    orch.retriever.open_library_down = True
+    out = await _generate_with_anchors(session, orch, "anc-down")
+    assert [a.book for a in out.payload.comparative_anchors] == ["Dune", "The End of Eternity"]
+
+
+@pytest.mark.asyncio
+async def test_generate_skips_anchor_check_when_open_library_is_disabled(
+    session: AsyncSession, make_orchestrator
+):
+    """An admin who turned Open Library off gets no calls to it."""
+    orch = make_orchestrator(sources_enabled=("wikipedia",))
+    orch.retriever.missing_works = {("The End of Eternity", "Robert A. Heinlein")}
+    out = await _generate_with_anchors(session, orch, "anc-off")
+    assert len(out.payload.comparative_anchors) == 2
+    assert orch.retriever.works_checked == []

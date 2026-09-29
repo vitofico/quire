@@ -53,6 +53,10 @@ fun InsightSection(state: InsightUiState, onRetry: () -> Unit) {
                 ?.takeIf { it.isNotEmpty() }
                 ?.let { ComparativeAnchorsCard(it.take(4)) }
             state.payload.distinctiveTake?.takeIf { it.isNotBlank() }?.let { DistinctiveTakeCard(it) }
+            state.payload.curiosities
+                ?.filter { it.isNotBlank() }
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { CuriositiesCard(it) }
             state.payload.discussionPrompts
                 ?.filter { it.isNotBlank() }
                 ?.takeIf { it.isNotEmpty() }
@@ -195,8 +199,9 @@ private fun CraftCard(notes: String) {
 
 @Composable
 private fun ComparativeAnchorsCard(anchors: List<ComparativeAnchor>) {
-    // Display-only: no hyperlink, no "Open in browser". Model may fabricate
-    // the referenced titles; we cannot verify them.
+    // Display-only: no hyperlink, no "Open in browser". The server drops
+    // titles Open Library cannot find, but keeps them unchecked when it
+    // cannot reach Open Library.
     QuireCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
         Column {
             Text("If you liked…", style = MaterialTheme.typography.titleSmall)
@@ -220,6 +225,21 @@ private fun DistinctiveTakeCard(take: String) {
             Text("What sets this apart", style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(4.dp))
             Text(take, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
+// Schema v5.
+@Composable
+private fun CuriositiesCard(curiosities: List<String>) {
+    QuireCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+        Column {
+            Text("Curiosities", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(4.dp))
+            curiosities.forEachIndexed { i, c ->
+                if (i > 0) Spacer(Modifier.height(4.dp))
+                Text("• $c", style = MaterialTheme.typography.bodyMedium)
+            }
         }
     }
 }

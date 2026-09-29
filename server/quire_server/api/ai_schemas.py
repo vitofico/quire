@@ -352,8 +352,13 @@ class BookInsightPayload(BaseModel):
     deserialize unchanged. The model emits all schema-v4 keys in a single
     structured call. ``theme_analysis`` is hard-capped at 2 keys (validator
     REJECTS >2); ``comparative_anchors`` are sanitized (blank-entry drop,
-    cap-at-4) and treated as display-only — the server cannot verify the
-    referenced books exist.
+    cap-at-4) and display-only. After generation the orchestrator drops the
+    ones Open Library does not list (``InsightOrchestrator._checked_anchors``).
+
+    ``curiosities`` (schema v5): a small "Curiosities" section of trivia
+    about the book or its author. Optional and null by default, so v4 and
+    older rows deserialize unchanged. Sanitized like ``comparative_anchors``
+    (blank-entry drop, cap-at-3).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -371,12 +376,14 @@ class BookInsightPayload(BaseModel):
     craft_notes: str | None = None
     comparative_anchors: list[ComparativeAnchor] | None = None
     distinctive_take: str | None = None
+    # v5: trivia about the book or its author.
+    curiosities: list[str] | None = None
     discussion_prompts: list[str] | None = None
     confidence: Literal["high", "medium", "low"] = "low"
-    schema_version: int = 4
+    schema_version: int = 5
 
     @model_validator(mode="after")
-    def _enforce_v4_caps_and_sanitize(self) -> "BookInsightPayload":
+    def _enforce_caps_and_sanitize(self) -> "BookInsightPayload":
         # theme_analysis: REJECT >2 keys. We reject (not truncate) so a
         # prompt regression that lets the model emit 3+ keys surfaces in
         # tests instead of being silently masked.
@@ -393,6 +400,10 @@ class BookInsightPayload(BaseModel):
                 if a.book.strip() and a.author.strip() and a.similar_in.strip()
             ]
             self.comparative_anchors = cleaned[:4] if cleaned else None
+        # curiosities: same sanitizing, capped at 3 to keep the section small.
+        if self.curiosities is not None:
+            kept = [c for c in self.curiosities if c.strip()]
+            self.curiosities = kept[:3] if kept else None
         return self
 
 

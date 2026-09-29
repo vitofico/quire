@@ -27,7 +27,11 @@ from quire_server.core.ai.themes import CONTROLLED_THEMES
 # original language from the work itself (title/author/knowledge), which fixes
 # absent/incorrect metadata. Verified against gpt-oss:120b across missing,
 # wrong, and correct metadata. Materially changes output → cache bumps.
-PROMPT_VERSION = "8"
+# v9 (2026-09-29): adds the `curiosities` section (schema v5), and tells the
+# model not to describe a work it does not recognise (gpt-oss:120b wrote a full
+# analysis of a made-up book). Cached v8 rows have no curiosities, so they
+# regenerate.
+PROMPT_VERSION = "9"
 
 # pr-β (Bundle 3, coordinator §3.1 / §3.2). Separate cache namespace from
 # ``PROMPT_VERSION`` (which is keyed on the per-book ``book_insights`` PK);
@@ -95,7 +99,7 @@ SYSTEM_PROMPT = (
     "\n"
     "JSON key order matters. Generate keys in this order: intro, author, series, analysis,"
     " content_warnings, themes, theme_analysis, craft_notes, comparative_anchors,"
-    " distinctive_take, discussion_prompts, confidence.\n"
+    " distinctive_take, curiosities, discussion_prompts, confidence.\n"
     "\n"
     "Rules:\n"
     "- Use the supplied EPUB metadata as the work's identity. If metadata names a series,"
@@ -105,6 +109,12 @@ SYSTEM_PROMPT = (
     "- Be conservative with author identity. Fill `author` only when you have high confidence"
     " the supplied author matches the cited sources or a well-known author. Otherwise leave"
     " it null.\n"
+    "- Be just as conservative with the work itself. If you do not recognise this book and"
+    " neither the external sources nor the publisher description say what it is about, do"
+    " not guess at its content: write `intro` from the supplied metadata alone, set"
+    " `analysis`, `theme_analysis`, `craft_notes`, `comparative_anchors`, `distinctive_take`,"
+    ' `curiosities` and `discussion_prompts` to null, and set `confidence` to "low". A'
+    " plausible title is not knowledge of the book.\n"
     "- `intro`: 1-2 sentences saying what the book is and why a reader might care. No spoilers"
     " past the inciting incident.\n"
     "- `analysis`: one compact paragraph, ~80-130 words, weaving together a short synopsis,"
@@ -119,7 +129,7 @@ SYSTEM_PROMPT = (
     ' emit the literal string "other".\n'
     '- `confidence`: "high" only when at least one external citation grounds the central'
     ' book claims; "medium" when metadata plus reliable training knowledge is enough;'
-    ' "low" otherwise.\n'
+    ' "low" otherwise, and always for a work you do not recognise.\n'
     "- `theme_analysis`: pick the TWO themes most central to this book (NOT all"
     " themes in `themes`; pick by centrality, not list order). For each, write"
     " 2-4 sentences on how that theme manifests in THIS specific book — cite a"
@@ -135,9 +145,19 @@ SYSTEM_PROMPT = (
     " exist as published works. The `similar_in` line must be specific (NOT"
     " 'both are dystopias' — instead 'both use the boarding school as a closed"
     " society where adults are absent'). `different_in` is optional; include"
-    " only when the contrast is non-trivial. Never invent titles.\n"
+    " only when the contrast is non-trivial. Never invent titles, and give each"
+    " book's real author: the server drops entries Open Library cannot find.\n"
     "- `distinctive_take`: 1-2 sentences on what THIS book does that other"
     " books in its themes don't. NOT a recap; a differentiator.\n"
+    "- `curiosities`: 1-3 short, surprising facts about the book or its author."
+    " Take them from the external sources when those contain any (awards, sales,"
+    " translations, adaptations, first publication, the author's life). From your"
+    " own knowledge add only widely known, checkable facts such as an award, a film"
+    " or TV adaptation, or a first-publication date. Never say where the idea came"
+    " from, what inspired it, or why it was written unless a source says so. One"
+    " sentence each. Never invent or embellish: one solid fact beats three shaky"
+    " ones. No plot reveals past the inciting incident. Null when you have no such"
+    " facts.\n"
     "- `discussion_prompts`: 3-5 probing questions about theme, character, or"
     " structure (e.g. \"How does the protagonist's relationship to language"
     ' shift after chapter 12?"). DO NOT reveal plot beats past the inciting'
@@ -332,7 +352,7 @@ def _output_language_directive_lines(style: AiStyle, book_language: str | None) 
         (
             "Apply that language to the prose fields: intro, analysis, the text "
             "values in theme_analysis, craft_notes, distinctive_take, "
-            "discussion_prompts, content_warnings, and the author bio."
+            "curiosities, discussion_prompts, content_warnings, and the author bio."
         ),
         (
             "Do NOT translate — keep these exactly as specified: `themes` (the "
