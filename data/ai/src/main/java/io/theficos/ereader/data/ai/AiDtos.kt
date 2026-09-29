@@ -96,9 +96,11 @@ data class BookInsightPayload(
     @SerialName("craft_notes") val craftNotes: String? = null,
     @SerialName("comparative_anchors") val comparativeAnchors: List<ComparativeAnchor>? = null,
     @SerialName("distinctive_take") val distinctiveTake: String? = null,
+    // Schema v5: trivia about the book or its author. Optional, default null.
+    val curiosities: List<String>? = null,
     @SerialName("discussion_prompts") val discussionPrompts: List<String>? = null,
     val confidence: String = "low",
-    @SerialName("schema_version") val schemaVersion: Int = 4,
+    @SerialName("schema_version") val schemaVersion: Int = 5,
 )
 
 @Serializable

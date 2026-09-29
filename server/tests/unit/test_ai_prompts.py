@@ -7,12 +7,11 @@ from quire_server.core.ai.prompts import (
 )
 
 
-def test_prompt_version_is_v8():
-    """v8: for `auto`, the model determines the book's own language from the work
-    itself rather than the (often missing/wrong) metadata tag. Materially changes
-    output, so the cache key must regenerate.
+def test_prompt_version_is_v9():
+    """v9: the insight gains a `curiosities` section. Existing cached insights
+    have none, so the cache key must regenerate.
     """
-    assert PROMPT_VERSION == "8"
+    assert PROMPT_VERSION == "9"
 
 
 def test_system_prompt_includes_themes_vocab():
@@ -111,6 +110,46 @@ def test_system_prompt_forbids_discussion_prompt_spoilers():
     assert "DO NOT reveal plot beats" in SYSTEM_PROMPT
 
 
+def test_system_prompt_orders_curiosities_before_discussion_prompts():
+    """Schema v5: the key-order line must match the payload's field order."""
+    assert "distinctive_take, curiosities, discussion_prompts" in SYSTEM_PROMPT
+
+
+def test_system_prompt_keeps_curiosities_factual():
+    """Trivia is where models invent most readily: the rule must forbid
+    invention, allow null when the model knows nothing, and forbid spoilers."""
+    rule = next(line for line in SYSTEM_PROMPT.splitlines() if line.startswith("- `curiosities`"))
+    assert "never invent" in rule.lower()
+    assert "null" in rule.lower()
+    assert "plot" in rule.lower()
+
+
+def test_system_prompt_bans_unsourced_origin_stories_in_curiosities():
+    """Probing gpt-oss:120b showed the invented curiosities were stories of how
+    a book came about ("based on a real case"), so those need a source."""
+    rule = next(line for line in SYSTEM_PROMPT.splitlines() if line.startswith("- `curiosities`"))
+    assert "where the idea came from" in rule
+    assert "unless a source says so" in rule
+
+
+def test_system_prompt_forbids_describing_unrecognised_works():
+    """Given a made-up title and no sources, gpt-oss:120b wrote a full analysis
+    of a book that does not exist. An unrecognised work gets no content fields
+    and low confidence."""
+    rule = next(line for line in SYSTEM_PROMPT.splitlines() if "do not recognise" in line)
+    for field in (
+        "analysis",
+        "theme_analysis",
+        "craft_notes",
+        "comparative_anchors",
+        "distinctive_take",
+        "curiosities",
+        "discussion_prompts",
+    ):
+        assert f"`{field}`" in rule
+    assert '"low"' in rule
+
+
 def test_tone_hint_emitted_when_non_default():
     bundle = MetadataBundle(title="Foundation")
     text = compose_user_prompt(bundle, citations=[], style=AiStyle(tone="scholarly"))
@@ -200,6 +239,14 @@ def test_language_directive_protects_controlled_fields():
     assert "Do NOT translate" in text
     assert "themes" in text
     assert "confidence" in text
+
+
+def test_language_directive_covers_curiosities():
+    """Curiosities are prose, so they follow the output language like the bio."""
+    bundle = MetadataBundle(title="Il nome della rosa", author="Umberto Eco")
+    text = compose_user_prompt(bundle, citations=[], style=AiStyle(language="auto"))
+    prose_line = next(line for line in text.splitlines() if line.startswith("Apply that language"))
+    assert "curiosities" in prose_line
 
 
 def test_language_directive_leads_the_prompt():

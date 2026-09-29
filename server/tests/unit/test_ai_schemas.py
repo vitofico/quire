@@ -16,7 +16,7 @@ def test_payload_round_trip_minimal():
     p = BookInsightPayload(confidence="high")
     again = BookInsightPayload.model_validate_json(p.model_dump_json())
     assert again.confidence == "high"
-    assert again.schema_version == 4
+    assert again.schema_version == 5
     assert again.intro is None
     assert again.analysis is None
     assert again.themes is None
@@ -70,6 +70,8 @@ def test_payload_key_order_matches_reading_order():
         "craft_notes",
         "comparative_anchors",
         "distinctive_take",
+        # Schema v5.
+        "curiosities",
         "discussion_prompts",
         "confidence",
         "schema_version",
@@ -82,7 +84,7 @@ def test_payload_key_order_matches_reading_order():
 # ---------------------------------------------------------------------------
 
 
-def test_book_insight_payload_v4_round_trip():
+def test_book_insight_payload_v5_round_trip():
     p = BookInsightPayload(
         intro="i",
         analysis="a",
@@ -93,12 +95,14 @@ def test_book_insight_payload_v4_round_trip():
             ComparativeAnchor(book="X", author="Y", similar_in="Both ...", different_in="X is ...")
         ],
         distinctive_take="What sets it apart ...",
+        curiosities=["The author wrote it in six weeks."],
         discussion_prompts=["Q1?", "Q2?"],
         confidence="medium",
     )
     j = p.model_dump_json()
     p2 = BookInsightPayload.model_validate_json(j)
-    assert p2.schema_version == 4
+    assert p2.schema_version == 5
+    assert p2.curiosities == ["The author wrote it in six weeks."]
     assert p2.theme_analysis == {"mystery": "Manifests through ..."}
     assert p2.comparative_anchors is not None
     assert p2.comparative_anchors[0].different_in == "X is ..."
@@ -117,6 +121,7 @@ def test_book_insight_payload_v3_payload_deserializes():
     assert p.schema_version == 3
     assert p.theme_analysis is None
     assert p.discussion_prompts is None
+    assert p.curiosities is None
 
 
 def test_book_insight_payload_v2_payload_deserializes():
@@ -213,6 +218,25 @@ def test_comparative_anchors_all_blank_becomes_none():
         }
     )
     assert p.comparative_anchors is None
+
+
+def test_curiosities_blank_entries_dropped_and_capped_at_three():
+    """The section is meant to stay small: blanks go, and only the first three
+    survive."""
+    p = BookInsightPayload.model_validate(
+        {
+            "curiosities": ["  ", "One.", "", "Two.", "Three.", "Four."],
+            "confidence": "low",
+        }
+    )
+    assert p.curiosities == ["One.", "Two.", "Three."]
+
+
+def test_curiosities_all_blank_becomes_none():
+    """If filtering removes everything, the field collapses to None so the
+    client hides the section."""
+    p = BookInsightPayload.model_validate({"curiosities": [" ", ""], "confidence": "low"})
+    assert p.curiosities is None
 
 
 def test_series_insight_accepts_context():

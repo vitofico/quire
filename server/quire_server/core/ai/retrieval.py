@@ -771,6 +771,40 @@ class Retriever:
         )
         return citations
 
+    async def work_exists(self, *, title: str, author: str) -> bool | None:
+        """Whether Open Library lists a work with this title by this author.
+
+        Checks a comparative anchor the model named from memory. The author is
+        matched on surname alone, so "Frank Herbert Jr." still finds Dune, and
+        the title goes in the general query, which also searches edition
+        titles, so a translation such as "Cent'anni di solitudine" is found. A
+        title credited to the wrong author, or an invented one, finds nothing.
+        None means Open Library could not be reached, which is not cached.
+        """
+        surname = _surname(author)
+        if surname is None:
+            return False
+        key = "exists:" + _lookup_key(title, author=surname)
+        cached = await self._read_cache("openlibrary", key)
+        if cached is not None:
+            return bool(cached.get("exists"))
+
+        deadline = asyncio.get_running_loop().time() + self._budget_s
+        try:
+            async with self._http() as http, self._within(deadline, "openlibrary"):
+                data = await self._get_json(
+                    http,
+                    "openlibrary",
+                    f"{_OL_BASE}/search.json",
+                    params={"q": title, "author": surname, "limit": "1", "fields": "key"},
+                )
+        except _SourceDown:
+            return None
+
+        exists = bool((data or {}).get("numFound"))
+        await self._write_cache("openlibrary", key, {"exists": exists})
+        return exists
+
     async def lookup_book_language(self, isbn: str) -> str | None:
         """Best-effort edition-level language for an ISBN as an OpenLibrary
         language code (e.g. ``"eng"``, ``"fre"``), or ``None``.

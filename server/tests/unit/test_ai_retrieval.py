@@ -1232,3 +1232,71 @@ async def test_cache_hit_does_not_update_health(session: AsyncSession):
     snap2 = await health.snapshot()
     # Timestamp unchanged because the second call didn't touch the network.
     assert snap2.retrieval_sources["wikipedia"].last_checked_at == first_ts
+
+
+def _ol_count_handler(num_found: int, seen: list[dict[str, str]] | None = None):
+    def handler(req: httpx.Request) -> httpx.Response:
+        if seen is not None:
+            seen.append(dict(req.url.params))
+        return httpx.Response(200, json={"numFound": num_found, "docs": []})
+
+    return handler
+
+
+@pytest.mark.asyncio
+async def test_work_exists_searches_title_and_author_surname(session: AsyncSession):
+    """The author is matched on surname alone, so "Frank Herbert Jr." still
+    finds Dune, and the title goes in the general query so translated edition
+    titles ("Cent'anni di solitudine") are found too."""
+    seen: list[dict[str, str]] = []
+    r = Retriever(
+        session=session, transport=httpx.MockTransport(_ol_count_handler(3, seen)), timeout_s=5.0
+    )
+    assert await r.work_exists(title="Dune", author="Frank Herbert Jr.") is True
+    assert seen[0]["q"] == "Dune"
+    assert seen[0]["author"] == "herbert"
+
+
+@pytest.mark.asyncio
+async def test_work_exists_false_when_open_library_finds_nothing(session: AsyncSession):
+    """The End of Eternity credited to Heinlein: Open Library has no such work."""
+    r = Retriever(
+        session=session, transport=httpx.MockTransport(_ol_count_handler(0)), timeout_s=5.0
+    )
+    assert await r.work_exists(title="The End of Eternity", author="Robert A. Heinlein") is False
+
+
+@pytest.mark.asyncio
+async def test_work_exists_none_and_uncached_when_open_library_is_down(session: AsyncSession):
+    """An outage must not read as "this book does not exist", and must not be
+    remembered for 30 days."""
+    r = Retriever(
+        session=session,
+        transport=httpx.MockTransport(lambda req: httpx.Response(503)),
+        timeout_s=5.0,
+    )
+    assert await r.work_exists(title="Dune", author="Frank Herbert") is None
+    rows = (await session.execute(select(ExternalSourceCacheEntry))).scalars().all()
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_work_exists_caches_the_answer(session: AsyncSession):
+    seen: list[dict[str, str]] = []
+    r = Retriever(
+        session=session, transport=httpx.MockTransport(_ol_count_handler(0, seen)), timeout_s=5.0
+    )
+    await r.work_exists(title="The End of Eternity", author="Robert A. Heinlein")
+    assert await r.work_exists(title="The End of Eternity", author="Robert A. Heinlein") is False
+    assert len(seen) == 1
+
+
+@pytest.mark.asyncio
+async def test_work_exists_false_for_an_author_with_no_name(session: AsyncSession):
+    """An author with no letters cannot be a real attribution; no call is made."""
+    seen: list[dict[str, str]] = []
+    r = Retriever(
+        session=session, transport=httpx.MockTransport(_ol_count_handler(9, seen)), timeout_s=5.0
+    )
+    assert await r.work_exists(title="Dune", author="—") is False
+    assert seen == []

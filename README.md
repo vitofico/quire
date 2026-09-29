@@ -95,7 +95,8 @@ citations** from Wikipedia and OpenLibrary — not hallucinated blurbs:
 - intro · author context · series placement
 - themes & **craft notes** (how the book is *made*, not just what it's about)
 - **comparative anchors** ("if you liked…")
-- a distinctive take · discussion prompts · content advisory · cited sources
+- a distinctive take · curiosities about the book and its author · discussion prompts ·
+  content advisory · cited sources
 
 Insights show up **on catalog tiles before you download** (tap the info
 icon), so you can size up a book before it ever touches your device.

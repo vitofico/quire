@@ -279,8 +279,8 @@ async def test_schema_version_pinned_to_4_server_side(session_factory):
             await s.execute(select(BookInsight).where(BookInsight.content_hash == "ch-sv"))
         ).scalar_one()
         # payload is JSON-stored; the dict's schema_version must be the
-        # server-pinned 4, not the model's emitted 2.
-        assert insight.payload["schema_version"] == 4
+        # server-pinned 5, not the model's emitted 2.
+        assert insight.payload["schema_version"] == 5
 
 
 @pytest.mark.requires_ai
