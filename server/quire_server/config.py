@@ -1,4 +1,5 @@
 import os
+import re
 from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
@@ -13,6 +14,16 @@ ENV_PREFIX = "QUIRE_SERVER_"
 # Variables that share the prefix but are consumed by docker compose, never by
 # the server process. Listed so the unknown-variable scan does not flag them.
 COMPOSE_ONLY_ENV_VARS: frozenset[str] = frozenset({"QUIRE_SERVER_PORT"})
+
+# Kubernetes gives every pod variables describing each Service in its
+# namespace, named after the Service. One called `quire-server` produces
+# QUIRE_SERVER_SERVICE_HOST, QUIRE_SERVER_PORT_80_TCP and the like, plus the
+# bare QUIRE_SERVER_PORT listed above. They share the prefix but are not
+# settings, so the unknown-variable scan skips them.
+_K8S_SERVICE_LINK = re.compile(
+    re.escape(ENV_PREFIX)
+    + r"(?:SERVICE_HOST|SERVICE_PORT(?:_\w+)?|PORT_\d+_(?:TCP|UDP|SCTP)(?:_(?:PROTO|PORT|ADDR))?)"
+)
 
 # The retrieval sources the AI service knows how to query, by the names
 # `QUIRE_SERVER_AI_SOURCES` uses. Anything else in that setting is ignored.
@@ -233,6 +244,7 @@ def unknown_env_vars(environ: Mapping[str, str] | None = None) -> list[str]:
         if name.upper().startswith(ENV_PREFIX)
         and name.upper() not in known
         and name.upper() not in COMPOSE_ONLY_ENV_VARS
+        and not _K8S_SERVICE_LINK.fullmatch(name.upper())
     )
 
 

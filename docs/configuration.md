@@ -1165,8 +1165,9 @@ curl -s http://localhost:8000/health
 - `modes` lists the parts that are on: `progress`, `ai`, or both.
 - `warnings` is empty when the configuration is clean. The server warns
   about five things (`config_warnings` and `unknown_env_vars` in
-  `server/quire_server/config.py`): a `QUIRE_SERVER_*` name it does not know,
-  AI enabled without a base URL or model, a base URL that does not end in
+  `server/quire_server/config.py`): a `QUIRE_SERVER_*` name it does not know
+  (except the variables Kubernetes adds for a Service named `quire-server`,
+  such as `…_SERVICE_HOST` and `…_PORT_80_TCP`), AI enabled without a base URL or model, a base URL that does not end in
   `/v1`, a retrieval source name in `QUIRE_SERVER_AI_SOURCES` it does not
   recognise, and both modes off. The warnings name variables and never show
   values, because `/health` is public.
