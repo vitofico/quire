@@ -106,6 +106,24 @@ def test_unknown_env_vars_flags_only_unread_prefixed_names():
     assert unknown_env_vars(env) == ["QUIRE_SERVER_AI_MODLE", "QUIRE_SERVER_AI_PROVIDER"]
 
 
+def test_unknown_env_vars_ignores_kubernetes_service_links():
+    """Kubernetes gives every pod variables for each Service in its namespace.
+    One named quire-server produces these, and the 2026-09-29 production
+    rollout logged all of them as typos. Near misses are still flagged."""
+    service_links = (
+        "QUIRE_SERVER_SERVICE_HOST",
+        "QUIRE_SERVER_SERVICE_PORT",
+        "QUIRE_SERVER_SERVICE_PORT_HTTP",
+        "QUIRE_SERVER_PORT_80_TCP",
+        "QUIRE_SERVER_PORT_80_TCP_ADDR",
+        "QUIRE_SERVER_PORT_80_TCP_PORT",
+        "QUIRE_SERVER_PORT_80_TCP_PROTO",
+    )
+    env = dict.fromkeys(service_links, "x")
+    env |= {"QUIRE_SERVER_AI_MODLE": "typo", "QUIRE_SERVER_SERVICE_HOSTNAME": "x"}
+    assert unknown_env_vars(env) == ["QUIRE_SERVER_AI_MODLE", "QUIRE_SERVER_SERVICE_HOSTNAME"]
+
+
 def test_unknown_env_vars_matches_case_insensitively_like_pydantic_settings():
     assert unknown_env_vars({"quire_server_ai_model": "m"}) == []
     assert unknown_env_vars({"quire_server_ai_modle": "x"}) == ["quire_server_ai_modle"]
