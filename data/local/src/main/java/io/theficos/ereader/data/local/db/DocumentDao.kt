@@ -35,8 +35,9 @@ interface DocumentDao {
      *
      * A candidate is any book where:
      *   - the book itself has a non-empty `seriesName`,
-     *   - the user has neither finished nor meaningfully started it
-     *     (no progress row, or `percent < startedThreshold` and `finishedAt IS NULL`),
+     *   - the user has neither finished, abandoned nor meaningfully started it
+     *     (no progress row, or `percent < startedThreshold` with `finishedAt` and
+     *     `abandonedAt` both NULL),
      *   - at least one other book in the same `seriesName` (case-insensitive)
      *     has a `progress.finishedAt` set.
      *
@@ -65,7 +66,9 @@ interface DocumentDao {
           AND NOT EXISTS (
               SELECT 1 FROM progress AS p
               WHERE p.documentId = d.id
-                AND (p.finishedAt IS NOT NULL OR p.percent >= :startedThreshold)
+                AND (p.finishedAt IS NOT NULL
+                     OR p.abandonedAt IS NOT NULL
+                     OR p.percent >= :startedThreshold)
           )
         ORDER BY
           fs.lastFinishedAt DESC,

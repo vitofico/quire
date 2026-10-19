@@ -297,6 +297,15 @@ class LibraryViewModelTest {
         assertThat(shelf.books).isEmpty()
     }
 
+    @Test fun `abandoning a book never opened hides it from the shelf`() = runTest {
+        seed("h1", "Unopened", null)
+        keepSubscribed(vm.shelf)
+        val book = vm.books().first { it.size == 1 }.single()
+        vm.markAbandoned(book.document)
+        val shelf = vm.shelf.filterNotNull().first { it.hiddenCount == 1 }
+        assertThat(shelf.books).isEmpty()
+    }
+
     @Test fun `finished books are excluded from continueReading`() = runTest {
         seed("h1", "InProgress", null, percent = 0.5, updatedAt = 100L)
         seed("h2", "Finished", null, percent = 0.99, updatedAt = 200L, finishedAt = 200L)

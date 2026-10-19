@@ -108,6 +108,19 @@ class ProgressDaoTest {
         assertThat(found?.percent).isEqualTo(0.6)
     }
 
+    @Test fun `markAbandoned creates an abandoned row for a book never opened`() = runTest {
+        // An unopened book has no progress row; abandoning it used to update
+        // nothing, so the book never left the library.
+        val docId = newDoc()
+        dao.markAbandoned(docId, now = 200)
+        val found = dao.findByDocument(docId)
+        assertThat(found?.abandonedAt).isEqualTo(200L)
+        assertThat(found?.percent).isEqualTo(0.0)
+        assertThat(found?.locator).isEmpty()
+        assertThat(found?.updatedAt).isEqualTo(200L)
+        assertThat(dao.dirty().map { it.documentId }).containsExactly(docId)
+    }
+
     @Test fun `unmarkAbandoned clears abandonedAt without touching percent`() = runTest {
         val docId = newDoc()
         dao.upsert(ProgressEntity(

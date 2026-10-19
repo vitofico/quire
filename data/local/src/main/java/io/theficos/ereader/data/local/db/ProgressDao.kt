@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -42,7 +43,23 @@ interface ProgressDao {
      * accepts the row when `client_updated_at` is strictly newer than the
      * stored value. Updating only `localUpdatedAt` would make the row
      * "dirty" locally but the server would silently reject the abandon.
+     *
+     * A book that was never opened has no row for the update to touch, so one
+     * is created first at 0% with an empty locator, the shape a restart
+     * writes; the reader opens an empty locator at the start of the book.
      */
+    @Transaction
+    suspend fun markAbandoned(documentId: Long, now: Long) {
+        insertIfAbsent(ProgressEntity(
+            documentId = documentId, locator = "", percent = 0.0,
+            updatedAt = now, localUpdatedAt = now, syncedAt = 0L,
+        ))
+        setAbandoned(documentId, now)
+    }
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertIfAbsent(progress: ProgressEntity)
+
     @Query(
         """
         UPDATE progress
@@ -53,7 +70,7 @@ interface ProgressDao {
         WHERE documentId = :documentId
         """
     )
-    suspend fun markAbandoned(documentId: Long, now: Long)
+    suspend fun setAbandoned(documentId: Long, now: Long)
 
     /**
      * Inverse of [markAbandoned]: clears `abandonedAt`. `percent` and
