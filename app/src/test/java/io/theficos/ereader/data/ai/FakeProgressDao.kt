@@ -36,7 +36,11 @@ class FakeProgressDao : ProgressDao {
 
     override suspend fun maxUpdatedAt(): Long? = rows.values.maxOfOrNull { it.updatedAt }
 
-    override suspend fun markAbandoned(documentId: Long, now: Long) {
+    override suspend fun insertIfAbsent(progress: ProgressEntity) {
+        rows.putIfAbsent(progress.documentId, progress)
+    }
+
+    override suspend fun setAbandoned(documentId: Long, now: Long) {
         rows[documentId]?.let {
             rows[documentId] = it.copy(
                 abandonedAt = now,

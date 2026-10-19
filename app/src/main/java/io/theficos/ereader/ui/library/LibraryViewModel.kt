@@ -56,10 +56,21 @@ class LibraryViewModel(
             libraryPreferencesStore.flow.value.showAbandoned,
         )
 
+    val showFinished: StateFlow<Boolean> = libraryPreferencesStore.flow
+        .map { it.showFinished }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.Eagerly,
+            libraryPreferencesStore.flow.value.showFinished,
+        )
+
     fun setSort(next: LibrarySort) = libraryPreferencesStore.updateSort(next)
 
     fun toggleShowAbandoned() =
         libraryPreferencesStore.updateShowAbandoned(!libraryPreferencesStore.flow.value.showAbandoned)
+
+    fun toggleShowFinished() =
+        libraryPreferencesStore.updateShowFinished(!libraryPreferencesStore.flow.value.showFinished)
 
     private val _query = kotlinx.coroutines.flow.MutableStateFlow("")
     val query: StateFlow<String> = _query.asStateFlow()
@@ -91,21 +102,29 @@ class LibraryViewModel(
      * is still loading, which the screen draws as nothing rather than as the
      * empty-shelf message.
      */
-    val items: StateFlow<List<LibraryRow>?> =
+    val shelf: StateFlow<LibraryShelf?> =
         combine(rows, libraryPreferencesStore.flow, _query) { list, prefs, q ->
             if (list == null) return@combine null
             val sorted = applySort(list, prefs.sort)
             if (q.isBlank()) {
                 // pr-δ: hide abandoned by default; the filter toggle reveals them.
-                if (prefs.showAbandoned) sorted else sorted.filter { it.abandonedAt == null }
+                // Finished books are hidden only on request (issue #141).
+                val visible = sorted.filter { row ->
+                    (prefs.showAbandoned || row.abandonedAt == null) &&
+                        (prefs.showFinished || row.finishedAt == null)
+                }
+                LibraryShelf(books = visible, hiddenCount = sorted.size - visible.size)
             } else {
-                // pr-δ: search bypasses the abandoned filter — a user explicitly
+                // pr-δ: search bypasses the filters — a user explicitly
                 // searching for a title should always be able to find it.
                 val needle = q.trim().lowercase()
-                sorted.filter { row ->
-                    row.document.title.lowercase().contains(needle) ||
-                        (row.document.author?.lowercase()?.contains(needle) == true)
-                }
+                LibraryShelf(
+                    books = sorted.filter { row ->
+                        row.document.title.lowercase().contains(needle) ||
+                            (row.document.author?.lowercase()?.contains(needle) == true)
+                    },
+                    hiddenCount = 0,
+                )
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
@@ -245,6 +264,16 @@ class LibraryViewModel(
         )
     }
 }
+
+/**
+ * [hiddenCount] is how many books the filters left out, so the screen can tell
+ * "every book is filtered out" from an empty library and keep the filter menu
+ * reachable.
+ */
+data class LibraryShelf(
+    val books: List<LibraryRow>,
+    val hiddenCount: Int,
+)
 
 data class LibraryRow(
     val document: Document,

@@ -152,6 +152,16 @@ class DocumentDaoTest {
         assertThat(shelf()).isEmpty()
     }
 
+    @Test fun `shelf excludes a candidate the user abandoned`() = runTest {
+        val finished = insertBook("h1", "Foundation", seriesName = "Foundation", seriesIndex = 1.0)
+        val dropped = insertBook("h2", "Foundation and Empire", seriesName = "Foundation", seriesIndex = 2.0)
+        setProgress(finished, percent = 1.0, finishedAt = 100L)
+        // Abandoned without ever being opened: 0%, below the started threshold.
+        progressDao.markAbandoned(dropped, now = 150L)
+
+        assertThat(shelf()).isEmpty()
+    }
+
     @Test fun `shelf includes a candidate barely below the started threshold`() = runTest {
         val finished = insertBook("h1", "Foundation", seriesName = "Foundation", seriesIndex = 1.0)
         val barely = insertBook("h2", "Foundation and Empire", seriesName = "Foundation", seriesIndex = 2.0)

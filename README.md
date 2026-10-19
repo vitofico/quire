@@ -121,7 +121,8 @@ your taste (refresh on demand) that powers three flavors of suggestions:
 
 Plus **Library Stats** (finished / in-progress / abandoned counts, top
 authors, top themes) and an **abandoned-book** status that quietly drops
-DNFs out of your library view until you ask for them.
+DNFs out of your library view until you ask for them. Finished books can
+be tucked away the same way from the library's filter menu.
 
 ### 🔧 Built for self-hosters
 
