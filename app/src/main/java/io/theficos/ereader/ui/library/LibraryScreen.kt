@@ -113,10 +113,11 @@ fun LibraryScreen(
     val context = LocalContext.current
     LaunchedEffect(Unit) { SyncEnqueuer.enqueue(context, expedited = true) }
 
-    val loadedItems by viewModel.items.collectAsState()
+    val loadedShelf by viewModel.shelf.collectAsState()
     val cont by viewModel.continueReading.collectAsState()
     val seriesCandidates by viewModel.seriesContinuationCandidates.collectAsState()
     val showAbandoned by viewModel.showAbandoned.collectAsState()
+    val showFinished by viewModel.showFinished.collectAsState()
     var menuFor by remember { mutableStateOf<LibraryRow?>(null) }
     var pendingDelete by remember { mutableStateOf<Document?>(null) }
     var pendingRestart by remember { mutableStateOf<Document?>(null) }
@@ -174,9 +175,12 @@ fun LibraryScreen(
 
     // Null until Room first answers. Drawing nothing for those few milliseconds
     // beats flashing "Your shelf is empty." over a library that has books.
-    val items = loadedItems ?: return
+    val shelf = loadedShelf ?: return
+    val items = shelf.books
 
-    if (items.isEmpty() && !searchActive && query.isBlank()) {
+    // Only a truly empty library gets the empty state, which has no top bar:
+    // when the filters hide every book, the filter menu must stay reachable.
+    if (items.isEmpty() && shelf.hiddenCount == 0 && !searchActive && query.isBlank()) {
         Box(modifier = Modifier.fillMaxSize()) {
             EmptyState(
                 modifier = Modifier.padding(contentPadding),
@@ -247,22 +251,24 @@ fun LibraryScreen(
                     }
                     // pr-δ: filter icon — abandoned books hidden by default. The
                     // OUTLINED + primary-tinted icon communicates "items hidden";
-                    // the FILLED icon communicates "abandoned visible."
+                    // the FILLED icon communicates "every book visible."
                     var filterMenuOpen by rememberSaveable { mutableStateOf(false) }
+                    val anyHidden = !showAbandoned || !showFinished
                     Box {
                         IconButton(onClick = { filterMenuOpen = true }) {
                             Icon(
-                                imageVector = if (showAbandoned) {
-                                    Icons.Filled.FilterAlt
-                                } else {
+                                imageVector = if (anyHidden) {
                                     Icons.Outlined.FilterAlt
-                                },
-                                contentDescription = if (showAbandoned) {
-                                    "Abandoned books visible"
                                 } else {
-                                    "Abandoned books hidden"
+                                    Icons.Filled.FilterAlt
                                 },
-                                tint = if (!showAbandoned) {
+                                contentDescription = when {
+                                    !showAbandoned && !showFinished -> "Abandoned and finished books hidden"
+                                    !showAbandoned -> "Abandoned books hidden"
+                                    !showFinished -> "Finished books hidden"
+                                    else -> "All books visible"
+                                },
+                                tint = if (anyHidden) {
                                     MaterialTheme.colorScheme.primary
                                 } else {
                                     LocalContentColor.current
@@ -280,6 +286,16 @@ fun LibraryScreen(
                                 },
                                 onClick = {
                                     viewModel.toggleShowAbandoned()
+                                    filterMenuOpen = false
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Show finished") },
+                                leadingIcon = {
+                                    Checkbox(checked = showFinished, onCheckedChange = null)
+                                },
+                                onClick = {
+                                    viewModel.toggleShowFinished()
                                     filterMenuOpen = false
                                 },
                             )
@@ -428,6 +444,20 @@ fun LibraryScreen(
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
+            }
+            if (items.isEmpty() && shelf.hiddenCount > 0) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Text(
+                        text = if (shelf.hiddenCount == 1) {
+                            "The filter is hiding your only book."
+                        } else {
+                            "The filter is hiding all ${shelf.hiddenCount} of your books."
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(16.dp),
                     )
                 }
             }

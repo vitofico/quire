@@ -22,6 +22,16 @@ class LibraryPreferencesStoreTest {
         val store = LibraryPreferencesStore(ctx)
         assertThat(store.flow.value.sort).isEqualTo(LibrarySort.RECENTLY_READ)
         assertThat(store.flow.value.showAbandoned).isFalse()
+        assertThat(store.flow.value.showFinished).isTrue()
+    }
+
+    @Test fun `show finished round-trips through update and reload`() {
+        val store1 = fresh()
+        store1.updateShowFinished(false)
+        assertThat(store1.flow.value.showFinished).isFalse()
+
+        val store2 = LibraryPreferencesStore(ApplicationProvider.getApplicationContext())
+        assertThat(store2.flow.value.showFinished).isFalse()
     }
 
     @Test fun `sort round-trips through update and reload`() {

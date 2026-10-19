@@ -25,6 +25,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -195,6 +196,9 @@ class LibraryViewModelTest {
         backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) { flow.collect {} }
     }
 
+    /** The books on the shelf as shown, once the library has loaded. */
+    private fun LibraryViewModel.books(): Flow<List<LibraryRow>> = shelf.filterNotNull().map { it.books }
+
     private suspend fun seed(
         contentHash: String, title: String, author: String?,
         percent: Double = 0.0, updatedAt: Long = 0L, finishedAt: Long? = null,
@@ -216,7 +220,7 @@ class LibraryViewModelTest {
         seed("h1", "Alpha", "Auth", percent = 0.2, updatedAt = 100L)
         seed("h2", "Bravo", "Auth", percent = 0.4, updatedAt = 300L)
         seed("h3", "Charlie", "Auth", percent = 0.1, updatedAt = 200L)
-        val final = vm.items.filterNotNull().first { it.size >= 3 }
+        val final = vm.books().first { it.size >= 3 }
         assertThat(final.map { it.document.title }).containsExactly("Bravo", "Charlie", "Alpha").inOrder()
     }
 
@@ -225,7 +229,7 @@ class LibraryViewModelTest {
         seed("h2", "Alpha", null)
         seed("h3", "Bravo", null)
         vm.setSort(LibrarySort.TITLE)
-        val titles = vm.items.filterNotNull().first { it.size >= 3 }.map { it.document.title }
+        val titles = vm.books().first { it.size >= 3 }.map { it.document.title }
         assertThat(titles).containsExactly("Alpha", "Bravo", "Charlie").inOrder()
     }
 
@@ -235,7 +239,7 @@ class LibraryViewModelTest {
         seed("h3", "Charlie", "Auth")
         vm.setSort(LibrarySort.TITLE)
         vm.setQuery("bra")
-        val final = vm.items.filterNotNull().first { it.size == 1 && it.first().document.title == "BRAVO" }
+        val final = vm.books().first { it.size == 1 && it.first().document.title == "BRAVO" }
         assertThat(final.map { it.document.title }).containsExactly("BRAVO")
     }
 
@@ -244,7 +248,7 @@ class LibraryViewModelTest {
         seed("h2", "Bravo", "Tolkien")
         vm.setSort(LibrarySort.TITLE)
         vm.setQuery("tolk")
-        val final = vm.items.filterNotNull().first { it.size == 1 && it.first().document.title == "Bravo" }
+        val final = vm.books().first { it.size == 1 && it.first().document.title == "Bravo" }
         assertThat(final.map { it.document.title }).containsExactly("Bravo")
     }
 
@@ -253,10 +257,44 @@ class LibraryViewModelTest {
         seed("h2", "Bravo", null)
         vm.setSort(LibrarySort.TITLE)
         vm.setQuery("alpha")
-        keepSubscribed(vm.items)
-        vm.items.filterNotNull().first { it.size == 1 && it.first().document.title == "Alpha" }
+        keepSubscribed(vm.shelf)
+        vm.books().first { it.size == 1 && it.first().document.title == "Alpha" }
         vm.setQuery("")
-        assertThat(vm.items.filterNotNull().first { it.size >= 2 }).hasSize(2)
+        assertThat(vm.books().first { it.size >= 2 }).hasSize(2)
+    }
+
+    @Test fun `finished books show by default and hide when show finished is off`() = runTest {
+        seed("h1", "Reading", null, percent = 0.5, updatedAt = 100L)
+        seed("h2", "Done", null, percent = 1.0, updatedAt = 200L, finishedAt = 200L)
+        vm.setSort(LibrarySort.TITLE)
+        keepSubscribed(vm.shelf)
+        assertThat(vm.books().first { it.size >= 2 }.map { it.document.title })
+            .containsExactly("Done", "Reading").inOrder()
+
+        vm.toggleShowFinished()
+        val shelf = vm.shelf.filterNotNull().first { it.books.size == 1 }
+        assertThat(shelf.books.single().document.title).isEqualTo("Reading")
+        assertThat(shelf.hiddenCount).isEqualTo(1)
+    }
+
+    @Test fun `search finds finished books even when they are hidden`() = runTest {
+        seed("h1", "Reading", null, percent = 0.5, updatedAt = 100L)
+        seed("h2", "Done", null, percent = 1.0, updatedAt = 200L, finishedAt = 200L)
+        vm.toggleShowFinished()
+        vm.setQuery("done")
+        val shelf = vm.shelf.filterNotNull().first { it.books.map { r -> r.document.title } == listOf("Done") }
+        assertThat(shelf.hiddenCount).isEqualTo(0)
+    }
+
+    @Test fun `shelf counts hidden books when the filters hide every one`() = runTest {
+        // The screen keeps its top bar (and so the filter menu) for this case
+        // instead of claiming the shelf is empty.
+        val droppedId = seed("h1", "Dropped", null, percent = 0.3, updatedAt = 100L)
+        progress.markAbandoned(droppedId, now = 150L)
+        seed("h2", "Done", null, percent = 1.0, updatedAt = 200L, finishedAt = 200L)
+        vm.toggleShowFinished()
+        val shelf = vm.shelf.filterNotNull().first { it.hiddenCount == 2 }
+        assertThat(shelf.books).isEmpty()
     }
 
     @Test fun `finished books are excluded from continueReading`() = runTest {
@@ -312,8 +350,8 @@ class LibraryViewModelTest {
     @Test fun `items is null until the library loads, then an empty shelf is an empty list`() = runTest {
         // The screen shows "Your shelf is empty." only for an empty list, so the
         // loading state must not look like one.
-        assertThat(vm.items.value).isNull()
-        assertThat(vm.items.filterNotNull().first()).isEmpty()
+        assertThat(vm.shelf.value).isNull()
+        assertThat(vm.books().first()).isEmpty()
     }
 
     @Test fun `canRestore is true when connected and library empty`() = runTest {
@@ -366,7 +404,7 @@ class LibraryViewModelTest {
         // same rows through its own collector, which may not have run yet, so drain
         // the scheduler before reading what it emitted.
         restoreVm.canRestore.test {
-            assertThat(restoreVm.items.filterNotNull().first { it.isNotEmpty() }).hasSize(1)
+            assertThat(restoreVm.books().first { it.isNotEmpty() }).hasSize(1)
             advanceUntilIdle()
             // Rows are null, not empty, until Room answers, so the prompt never
             // flickers on while a non-empty library loads: every emission is false.
