@@ -1,13 +1,13 @@
 # Quire Contributor License Agreement
 
-**Version:** 1.0
-**Effective:** 2026-05-22
+**Version:** 2.0
+**Effective:** 2026-10-20
 
 Thank you for contributing to Quire. This Contributor License Agreement
 ("Agreement") documents the rights You grant to the maintainer of Quire so that
-Your contributions can be accepted, maintained, distributed, and — if needed in
-the future — licensed under AGPL-3.0-or-later for all or part of the Project,
-including the `server/` subtree.
+Your contributions can be accepted, maintained, and distributed under the
+Project's open-source licenses, and also under other terms, including
+proprietary or commercial ones, as described in Section 4.
 
 By signing this Agreement as described in Section 8, You agree to its terms for
 every Contribution You Submit to the Project, now and in the future, unless and
@@ -60,22 +60,27 @@ This patent license applies only to patent claims necessarily infringed by
 Your Contribution alone or by Your Contribution combined with the Project to
 which it was Submitted.
 
-## 4. Allowed Outbound Licenses
+## 4. Outbound Licenses
 
 We may license Your Contributions, and Project material containing Your
-Contributions, under either or both of:
+Contributions, under any license or licenses, including:
 
-- the license or licenses that apply to the relevant Project material on the
-  date You Submit the Contribution — currently Apache License 2.0 for the
-  entire Project; and
-- GNU Affero General Public License version 3.0, or GNU Affero General Public
-  License version 3.0 or any later version published by the Free Software
-  Foundation ("AGPL-3.0-or-later"), for all or any part of the Project,
-  including the `server/` subtree.
+- the licenses that apply to the relevant Project material, currently the
+  Apache License 2.0 for the Android application and the other client code,
+  and the GNU Affero General Public License version 3.0 only
+  ("AGPL-3.0-only") for the `server/` subtree;
+- any other open-source license; and
+- proprietary or commercial licenses, including for a hosted Quire service
+  that combines the Project with components that are not published.
 
-This Agreement does not by itself change the Project's outbound license. Quire
-remains Apache-2.0 unless a file, subtree, or future release states otherwise.
-Section 4 only preserves Our option to relicense.
+This Agreement does not by itself change the Project's outbound licenses. Each
+Contribution We publish in the Project stays available to You and to everyone
+under the open-source license of the Project material it is part of.
+
+The reason for this clause: Quire is open-core. The public repository stays
+open source, and the Maintainer may offer a hosted version that adds closed
+components. This grant is what keeps that possible after outside contributions
+land.
 
 ## 5. Your Representations
 
@@ -89,8 +94,7 @@ You represent that:
   and to bind that entity to it.
 - Your Contribution does not knowingly include third-party material unless
   that material is clearly identified and is provided under a license
-  compatible with the Project's then-current licensing and with the outbound
-  licenses listed in Section 4.
+  compatible with the license of the Project material it is part of.
 
 ## 6. No Obligation
 
@@ -108,7 +112,7 @@ You sign this Agreement by commenting **exactly** the following text on a
 Quire pull request, in plain text (no quotes, no Markdown formatting):
 
 ```
-I have read the Quire Contributor License Agreement and I hereby sign the CLA
+I have read version 2.0 of the Quire Contributor License Agreement and I hereby sign the CLA
 ```
 
 Your signature is recorded by the Maintainer — currently via manual review of
@@ -119,8 +123,9 @@ comment itself.
 
 ## 9. Versioning
 
-This is version 1.0 of the Quire CLA. If the Maintainer changes the CLA text
+This is version 2.0 of the Quire CLA. Version 1.0 (effective 2026-05-22)
+allowed only Apache-2.0 and AGPL-3.0 as outbound licenses; a signature given
+under it stays attached to version 1.0. If the Maintainer changes the CLA text
 materially, the version number will be incremented and a correspondingly
-versioned signature phrase will be adopted (e.g., "…version 2.0 of the Quire
-Contributor License Agreement…"), so previous signatures remain attached to
-the version of the CLA that was in force when they were given.
+versioned signature phrase will be adopted, so previous signatures remain
+attached to the version of the CLA that was in force when they were given.
