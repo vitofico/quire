@@ -34,7 +34,8 @@ COPY alembic.ini ./
 
 LABEL org.opencontainers.image.title="quire-server" \
       org.opencontainers.image.source="https://github.com/vitofico/quire" \
-      org.opencontainers.image.description="Quire Server"
+      org.opencontainers.image.description="Quire Server" \
+      org.opencontainers.image.licenses="AGPL-3.0-only"
 
 EXPOSE 8000
 # Entrypoint: run the migrate wrapper (per-branch, mode-aware) then start the app.

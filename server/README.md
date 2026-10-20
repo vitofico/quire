@@ -483,3 +483,11 @@ tombstone semantics). The `/stats` response includes `total_books`,
 `finished_count`, `in_progress_count`, `top_authors`, `top_themes`, and
 a constant `themes_caveat` string — see `docs/sync-api.md` for the
 schema and the load-bearing DISTINCT-ON CTE rationale.
+
+## License
+
+Quire Server is licensed under the GNU Affero General Public License,
+version 3 only ([`LICENSE`](LICENSE)). If you run a modified version as a
+network service, the AGPL requires you to offer its users the corresponding
+source. The Quire Android app is licensed separately under Apache-2.0 (see
+the [root `LICENSE`](../LICENSE)).

@@ -17,7 +17,8 @@
 <p align="center">
   <a href="https://github.com/vitofico/quire/actions/workflows/android-ci.yaml"><img src="https://github.com/vitofico/quire/actions/workflows/android-ci.yaml/badge.svg" alt="android-ci"></a>
   <a href="https://github.com/vitofico/quire/actions/workflows/server-ci.yaml"><img src="https://github.com/vitofico/quire/actions/workflows/server-ci.yaml/badge.svg" alt="server-ci"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/app-Apache_2.0-blue.svg" alt="App license: Apache 2.0"></a>
+  <a href="server/LICENSE"><img src="https://img.shields.io/badge/server-AGPL--3.0--only-blue.svg" alt="Server license: AGPL-3.0-only"></a>
 </p>
 
 <p align="center">
@@ -155,7 +156,7 @@ nothing in the server design is Quire-specific.
 
 ## Privacy
 
-Apache-2.0, calibre-web-only, **no telemetry, ever.**
+Open source, calibre-web-only, **no telemetry, ever.**
 
 - No analytics, no crash reporting, no third-party SDKs.
 - Network calls go to your calibre-web instance and your Quire Server.
@@ -276,7 +277,12 @@ rather than opening a public issue.
 
 ## License
 
-Apache-2.0. See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
+The Android app is licensed under Apache-2.0: see [`LICENSE`](LICENSE) and
+[`NOTICE`](NOTICE). Quire Server, everything under [`server/`](server/), is
+licensed under AGPL-3.0-only: see [`server/LICENSE`](server/LICENSE). Server
+code published before 2026-10-20 remains available under Apache-2.0, the
+license it was released with. Contributions are accepted under the
+[contributor agreement](CLA.md).
 
 ## Support
 

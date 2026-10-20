@@ -2,6 +2,7 @@
 name = "quire-server"
 version = "0.1.0"
 description = "Quire Server: progress + library + AI APIs"
+license = "AGPL-3.0-only"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
