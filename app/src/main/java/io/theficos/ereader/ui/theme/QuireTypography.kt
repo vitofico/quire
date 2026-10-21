@@ -34,39 +34,57 @@ private fun lora(assets: AssetManager, weight: FontWeight) = Font(
     variationSettings = FontVariation.Settings(FontVariation.weight(weight.weight)),
 )
 
-internal fun quireTypography(lora: FontFamily) = Typography(
-    displaySmall = TextStyle(
-        fontFamily = lora,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 28.sp,
-        letterSpacing = (-0.01).em,
-    ),
-    titleMedium = TextStyle(
-        fontFamily = lora,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 16.sp,
-        lineHeight = 20.sp,
-    ),
-    titleSmall = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 14.sp,
-    ),
-    labelSmall = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Bold,
-        fontSize = 11.sp,
-        letterSpacing = 0.14.em,
-    ),
-    bodyMedium = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Normal,
-        fontSize = 14.sp,
-        lineHeight = 20.sp,
-    ),
-    bodySmall = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Medium,
-        fontSize = 12.sp,
-    ),
-)
+/**
+ * The full type scale, so no style falls back to Material's Roboto default: headings and book
+ * titles (display, headline, titleLarge, titleMedium) are Lora SemiBold, everything else is the
+ * system sans. Sizes and line heights are Material's unless tuned here.
+ */
+internal fun quireTypography(lora: FontFamily) = Typography().run {
+    fun TextStyle.lora() = copy(fontFamily = lora, fontWeight = FontWeight.SemiBold)
+    fun TextStyle.sans(weight: FontWeight) = copy(fontFamily = FontFamily.SansSerif, fontWeight = weight)
+    copy(
+        displayLarge = displayLarge.lora(),
+        displayMedium = displayMedium.lora(),
+        displaySmall = TextStyle(
+            fontFamily = lora,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 28.sp,
+            letterSpacing = (-0.01).em,
+        ),
+        headlineLarge = headlineLarge.lora(),
+        headlineMedium = headlineMedium.lora(),
+        headlineSmall = headlineSmall.lora(),
+        titleLarge = titleLarge.lora(),
+        titleMedium = TextStyle(
+            fontFamily = lora,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 16.sp,
+            lineHeight = 20.sp,
+        ),
+        titleSmall = TextStyle(
+            fontFamily = FontFamily.SansSerif,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 14.sp,
+        ),
+        bodyLarge = bodyLarge.sans(FontWeight.Normal),
+        bodyMedium = TextStyle(
+            fontFamily = FontFamily.SansSerif,
+            fontWeight = FontWeight.Normal,
+            fontSize = 14.sp,
+            lineHeight = 20.sp,
+        ),
+        bodySmall = TextStyle(
+            fontFamily = FontFamily.SansSerif,
+            fontWeight = FontWeight.Medium,
+            fontSize = 12.sp,
+        ),
+        labelLarge = labelLarge.sans(FontWeight.Medium),
+        labelMedium = labelMedium.sans(FontWeight.Medium),
+        labelSmall = TextStyle(
+            fontFamily = FontFamily.SansSerif,
+            fontWeight = FontWeight.Bold,
+            fontSize = 11.sp,
+            letterSpacing = 0.14.em,
+        ),
+    )
+}

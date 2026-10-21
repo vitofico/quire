@@ -137,7 +137,7 @@ private fun CountCard(label: String, value: Int, modifier: Modifier = Modifier) 
     Card(
         modifier = modifier,
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),

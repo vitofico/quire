@@ -7,12 +7,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -29,11 +27,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.theficos.ereader.ui.bookdetail.InsightSection
 import io.theficos.ereader.ui.bookdetail.InsightUiState
-import io.theficos.ereader.ui.components.CoverImage
+import io.theficos.ereader.ui.components.BookDescription
+import io.theficos.ereader.ui.components.BookHeader
+import io.theficos.ereader.ui.components.SectionLabel
 
 /**
  * Pre-download book detail. Shows cover + title + author, the catalog entry's
@@ -73,59 +72,30 @@ fun CatalogDetailScreen(
                 }
             }
 
-            // Header: cover + title + author
-            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-                Box(modifier = Modifier.width(120.dp).aspectRatio(2f / 3f)) {
-                    CoverImage(
-                        source = pub.coverUrl,
-                        title = pub.title,
-                        author = pub.author,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
-                Spacer(Modifier.width(16.dp))
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        text = pub.title,
-                        style = MaterialTheme.typography.headlineSmall,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    pub.author?.let {
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = it,
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-            }
+            BookHeader(
+                coverSource = pub.coverUrl,
+                title = pub.title,
+                author = pub.author,
+                series = null,
+                modifier = Modifier.padding(vertical = 8.dp),
+            )
 
             Spacer(Modifier.height(16.dp))
-            HorizontalDivider()
-            Spacer(Modifier.height(16.dp))
 
-            // The catalog's own blurb. On a reader-only account this is the
-            // whole page below the divider — the insight section stays hidden
-            // without a quire-server behind it, and issue #101's tester was
-            // shown nothing at all (issue #101).
-            pub.description?.let { description ->
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+            if (!pub.description.isNullOrBlank()) {
+                BookDescription(pub.description)
                 Spacer(Modifier.height(16.dp))
             }
 
-            // AI insight section — same composable as BookDetailScreen.
-            InsightSection(state = state.insight, onRetry = viewModel::retry)
+            if (state.insight !is InsightUiState.Hidden) {
+                SectionLabel("AI insights")
+                Spacer(Modifier.height(8.dp))
+                InsightSection(state = state.insight, onRetry = viewModel::retry)
+            }
 
             // Say why the page is bare rather than leaving the reader to guess
             // whether something failed to load.
-            if (pub.description == null && state.insight is InsightUiState.Hidden) {
+            if (pub.description.isNullOrBlank() && state.insight is InsightUiState.Hidden) {
                 Text(
                     text = "This catalog didn't include a description for this book.",
                     style = MaterialTheme.typography.bodyMedium,

@@ -3,58 +3,91 @@ package io.theficos.ereader.ui.theme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import com.google.common.truth.Truth.assertThat
+import com.google.common.truth.Truth.assertWithMessage
+import io.theficos.ereader.reader.ReaderTheme
 import kotlin.math.max
 import kotlin.math.min
 import org.junit.Test
 
 class AppThemeTest {
-    @Test fun `system appearance retains the original palettes`() {
-        assertThat(AppTheme.SYSTEM.colorScheme(systemDark = false)).isSameInstanceAs(QuireLightColors)
-        assertThat(AppTheme.SYSTEM.colorScheme(systemDark = true)).isSameInstanceAs(QuireDarkColors)
-        assertThat(AppTheme.SYSTEM.isDark(systemDark = false)).isFalse()
-        assertThat(AppTheme.SYSTEM.isDark(systemDark = true)).isTrue()
+    @Test fun `system mode follows the system between the light and the dark palette`() {
+        val theme = AppTheme(light = Palette.SAGE, dark = Palette.MIDNIGHT)
+        assertThat(theme.palette(systemDark = false)).isEqualTo(Palette.SAGE)
+        assertThat(theme.palette(systemDark = true)).isEqualTo(Palette.MIDNIGHT)
+        assertThat(theme.isDark(systemDark = false)).isFalse()
+        assertThat(theme.isDark(systemDark = true)).isTrue()
     }
 
-    @Test fun `explicit app themes ignore system appearance`() {
+    @Test fun `light and dark modes ignore the system`() {
         listOf(false, true).forEach { systemDark ->
-            assertThat(AppTheme.LIGHT.colorScheme(systemDark)).isSameInstanceAs(QuireLightColors)
-            assertThat(AppTheme.DARK.colorScheme(systemDark)).isSameInstanceAs(QuireDarkColors)
-            assertThat(AppTheme.SAGE.colorScheme(systemDark)).isSameInstanceAs(QuireSageColors)
-            assertThat(AppTheme.MIDNIGHT.colorScheme(systemDark)).isSameInstanceAs(QuireMidnightColors)
-            assertThat(AppTheme.LIGHT.isDark(systemDark)).isFalse()
-            assertThat(AppTheme.SAGE.isDark(systemDark)).isFalse()
-            assertThat(AppTheme.DARK.isDark(systemDark)).isTrue()
-            assertThat(AppTheme.MIDNIGHT.isDark(systemDark)).isTrue()
+            val light = AppTheme(mode = ThemeMode.LIGHT, light = Palette.SAGE)
+            val dark = AppTheme(mode = ThemeMode.DARK, dark = Palette.MIDNIGHT)
+            assertThat(light.palette(systemDark)).isEqualTo(Palette.SAGE)
+            assertThat(light.isDark(systemDark)).isFalse()
+            assertThat(dark.palette(systemDark)).isEqualTo(Palette.MIDNIGHT)
+            assertThat(dark.isDark(systemDark)).isTrue()
         }
     }
 
-    @Test fun `new palettes keep text readable on app surfaces and controls`() {
-        listOf(QuireSageColors, QuireMidnightColors).forEach { colors ->
-            val pairs = listOf(
-                colors.onBackground to colors.background,
-                colors.onSurface to colors.surface,
-                colors.onSurfaceVariant to colors.surfaceVariant,
-                colors.onPrimary to colors.primary,
-                colors.onPrimaryContainer to colors.primaryContainer,
-                colors.onSecondary to colors.secondary,
-                colors.onSecondaryContainer to colors.secondaryContainer,
-                colors.onTertiary to colors.tertiary,
-                colors.onTertiaryContainer to colors.tertiaryContainer,
-                colors.inverseOnSurface to colors.inverseSurface,
-                colors.primary to colors.surface,
-            ) + listOf(
+    @Test fun `the defaults are Quire's own palettes, following the system`() {
+        assertThat(AppTheme()).isEqualTo(AppTheme(ThemeMode.SYSTEM, Palette.PAPER, Palette.INK))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `a dark palette can't be the light one`() {
+        AppTheme(light = Palette.MIDNIGHT)
+    }
+
+    @Test fun `the reader's chrome takes the page colour and the palette of its brightness`() {
+        val theme = AppTheme(light = Palette.SAGE, dark = Palette.MIDNIGHT)
+        ReaderTheme.entries.forEach { page ->
+            val colors = theme.readerColors(page)
+            val palette = if (page.isDark) Palette.MIDNIGHT else Palette.SAGE
+            assertWithMessage("$page surface").that(colors.surface).isEqualTo(Color(page.pageBackground))
+            assertWithMessage("$page background").that(colors.background).isEqualTo(Color(page.pageBackground))
+            assertWithMessage("$page primary").that(colors.primary).isEqualTo(palette.colors.primary)
+        }
+    }
+
+    @Test fun `every palette declares its brightness truthfully`() {
+        Palette.entries.forEach { palette ->
+            assertWithMessage("$palette").that(palette.colors.surface.luminance() < 0.5f).isEqualTo(palette.isDark)
+        }
+    }
+
+    @Test fun `every palette keeps text readable on its surfaces and controls`() {
+        Palette.entries.forEach { palette ->
+            val colors = palette.colors
+            val surfaces = listOf(
+                colors.surface,
                 colors.surfaceDim,
                 colors.surfaceBright,
                 colors.surfaceContainerLowest,
                 colors.surfaceContainerLow,
                 colors.surfaceContainer,
                 colors.surfaceContainerHigh,
-                colors.surfaceContainerHighest,
-            ).map { colors.onSurface to it }
+            )
+            val pairs = listOf(
+                "onBackground" to (colors.onBackground to colors.background),
+                "onPrimary" to (colors.onPrimary to colors.primary),
+                "onPrimaryContainer" to (colors.onPrimaryContainer to colors.primaryContainer),
+                "onSecondary" to (colors.onSecondary to colors.secondary),
+                "onSecondaryContainer" to (colors.onSecondaryContainer to colors.secondaryContainer),
+                "onTertiary" to (colors.onTertiary to colors.tertiary),
+                "onTertiaryContainer" to (colors.onTertiaryContainer to colors.tertiaryContainer),
+                "inverseOnSurface" to (colors.inverseOnSurface to colors.inverseSurface),
+            ) + (surfaces + colors.surfaceContainerHighest).flatMap { surface ->
+                listOf(
+                    "onSurface" to (colors.onSurface to surface),
+                    "onSurfaceVariant" to (colors.onSurfaceVariant to surface),
+                )
+            } + surfaces.map { "primary as text" to (colors.primary to it) }
 
-            pairs.forEach { (text, background) ->
-                assertThat(contrastRatio(text, background)).isAtLeast(4.5)
+            pairs.forEach { (name, pair) ->
+                assertWithMessage("$palette $name").that(contrastRatio(pair.first, pair.second)).isAtLeast(4.5)
             }
+            // A text field's border has to be seen to be found.
+            assertWithMessage("$palette outline").that(contrastRatio(colors.outline, colors.surface)).isAtLeast(3.0)
         }
     }
 

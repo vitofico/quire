@@ -2,7 +2,6 @@ package io.theficos.ereader.ui.reader
 
 import android.app.Activity
 import android.content.Context
-import android.graphics.Color as AndroidColor
 import android.os.Build
 import android.view.GestureDetector
 import android.view.MotionEvent
@@ -22,6 +21,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -56,6 +57,7 @@ import io.theficos.ereader.data.sync.SyncEnqueuer
 import io.theficos.ereader.reader.ReaderPreferences
 import io.theficos.ereader.reader.declareReaderFonts
 import io.theficos.ereader.reader.toEpubPreferences
+import io.theficos.ereader.ui.theme.AppTheme
 import io.theficos.quire.R
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -64,8 +66,34 @@ import org.readium.r2.navigator.epub.EpubNavigatorFragment
 import org.readium.r2.shared.publication.Locator
 import org.readium.r2.shared.publication.Publication
 
+/**
+ * [detailsSheet] is the book-details sheet, supplied by the caller so the reader doesn't build
+ * view models of its own; it is shown over the open book rather than navigated to, because
+ * leaving this screen tears the Readium fragment down and reloads the book.
+ */
 @Composable
-fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
+fun ReaderScreen(
+    viewModel: ReaderViewModel,
+    appTheme: AppTheme,
+    onClose: () -> Unit,
+    detailsSheet: @Composable (onDismiss: () -> Unit) -> Unit,
+) {
+    val preferences by viewModel.preferences.collectAsState()
+    // The reader's chrome, sheets and loading text take the page's colours, and the root paints
+    // the page colour behind the system bars, so nothing app-coloured frames the book.
+    MaterialTheme(colorScheme = appTheme.readerColors(preferences.theme)) {
+        Surface(Modifier.fillMaxSize()) {
+            ReaderScreenContent(viewModel, onClose, detailsSheet)
+        }
+    }
+}
+
+@Composable
+private fun ReaderScreenContent(
+    viewModel: ReaderViewModel,
+    onClose: () -> Unit,
+    detailsSheet: @Composable (onDismiss: () -> Unit) -> Unit,
+) {
     val state by viewModel.state.collectAsState()
     val preferences by viewModel.preferences.collectAsState()
     val chromeVisible by viewModel.chromeVisible.collectAsState()
@@ -76,6 +104,7 @@ fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
     var dragPreview by remember { mutableStateOf<Locator?>(null) }
     val isDragging = dragPercent != null
     var showFontSheet by remember { mutableStateOf(false) }
+    var showDetails by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -122,15 +151,17 @@ fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
     LaunchedEffect(Unit) { viewModel.load() }
 
     val bookOpen = state is ReaderUiState.Open
-    LaunchedEffect(chromeVisible, chromeAutoHides, bookOpen, isDragging, showFontSheet) {
+    LaunchedEffect(chromeVisible, chromeAutoHides, bookOpen, isDragging, showFontSheet, showDetails) {
         // Only the reveal on opening the book hides itself (see chromeAutoHides), and its clock
         // starts once the book has opened: a book that takes seconds to parse otherwise lost its
-        // bars before its first page appeared. Nor while the settings sheet is open (bars would
+        // bars before its first page appeared. Nor while a sheet is open (bars would
         // slide out from under the modal), nor while a screen reader is exploring (immersive also
         // hides the OS navigation bar, which a TalkBack user cannot re-summon on a 2.5s timer).
         val touchExploring = (context.getSystemService(Context.ACCESSIBILITY_SERVICE)
             as? AccessibilityManager)?.isTouchExplorationEnabled == true
-        if (chromeVisible && chromeAutoHides && bookOpen && !isDragging && !showFontSheet && !touchExploring) {
+        if (chromeVisible && chromeAutoHides && bookOpen && !isDragging && !showFontSheet && !showDetails &&
+            !touchExploring
+        ) {
             delay(2_500)
             viewModel.setChromeVisible(false)
         }
@@ -144,7 +175,7 @@ fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
                 // Scoped to the Open state so Loading/Error keep normal, themed system bars.
                 ImmersiveWindowEffects(
                     immersive = preferences.immersiveReading,
-                    lightBarsForTheme = !preferences.theme.isDark,
+                    lightBars = !preferences.theme.isDark,
                     chromeVisible = chromeVisible,
                     onBeforeResize = viewModel::beginViewportResize,
                     onResizeSettled = viewModel::completeViewportResize,
@@ -213,7 +244,8 @@ fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
                         visible = chromeVisible,
                         title = s.document.title,
                         onBack = leaveReader,
-                        onOverflow = { showFontSheet = true },
+                        onDetails = { showDetails = true },
+                        onTypeSettings = { showFontSheet = true },
                         modifier = Modifier.align(Alignment.TopCenter),
                         edgeToEdge = immersive,
                     )
@@ -255,6 +287,9 @@ fun ReaderScreen(viewModel: ReaderViewModel, onClose: () -> Unit) {
                             onChange = { next -> viewModel.updatePreferences(next) },
                             onDismiss = { showFontSheet = false },
                         )
+                    }
+                    if (showDetails) {
+                        detailsSheet { showDetails = false }
                     }
                 }
             }
@@ -435,13 +470,14 @@ private const val RESIZE_SETTLE_MS = 600L
 
 /**
  * Drives immersive full-screen: binds the OS status + navigation bars to the reader
- * chrome. Every window mutation is snapshotted once and reverted on exit so the rest of
- * the single-Activity app keeps its normal, themed bars.
+ * chrome. The bars themselves are transparent app-wide (styleSystemBars), so this only
+ * touches their icons, visibility and the cutout mode; each is snapshotted once and
+ * reverted on exit so the rest of the single-Activity app gets its own back.
  */
 @Composable
 private fun ImmersiveWindowEffects(
     immersive: Boolean,
-    lightBarsForTheme: Boolean,
+    lightBars: Boolean,
     chromeVisible: Boolean,
     onBeforeResize: () -> Unit,
     onResizeSettled: () -> Unit,
@@ -452,18 +488,11 @@ private fun ImmersiveWindowEffects(
     val controller = remember(window, view) { WindowCompat.getInsetsController(window, view) }
 
     // Snapshot the pre-reader system-bar state ONCE, so re-runs restore the true originals
-    // rather than a previously-applied transparent/immersive value.
+    // rather than a previously-applied immersive value.
     val original = remember {
         OriginalBarState(
-            statusColor = window.statusBarColor,
-            navColor = window.navigationBarColor,
             lightStatus = controller.isAppearanceLightStatusBars,
             lightNav = controller.isAppearanceLightNavigationBars,
-            contrastEnforced = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                window.isNavigationBarContrastEnforced
-            } else {
-                true
-            },
             cutoutMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 window.attributes.layoutInDisplayCutoutMode
             } else {
@@ -483,7 +512,7 @@ private fun ImmersiveWindowEffects(
     // at the final geometry, so no resize occurs.
     DisposableEffect(immersive) {
         if (!firstRun[0]) onBeforeResize()
-        if (immersive) applyImmersive(window, controller) else restoreBars(window, controller, original)
+        if (immersive) applyImmersive(window, controller) else leaveImmersive(window, controller, original)
         onDispose { }
     }
 
@@ -509,13 +538,11 @@ private fun ImmersiveWindowEffects(
         }
     }
 
-    // Bar-icon appearance follows the reader theme, but only while immersive. Kept separate
-    // from the mode effect so a theme change never cycles decor-fits (which would re-paginate).
-    LaunchedEffect(immersive, lightBarsForTheme) {
-        if (immersive) {
-            controller.isAppearanceLightStatusBars = lightBarsForTheme
-            controller.isAppearanceLightNavigationBars = lightBarsForTheme
-        }
+    // Bar icons suit the page, which the reader paints behind the bars in both modes. Kept
+    // separate from the mode effect so a theme change never re-runs the immersive switch.
+    LaunchedEffect(lightBars) {
+        controller.isAppearanceLightStatusBars = lightBars
+        controller.isAppearanceLightNavigationBars = lightBars
     }
 
     // Bind system-bar visibility to the reader chrome.
@@ -544,23 +571,15 @@ private fun ImmersiveWindowEffects(
 }
 
 private data class OriginalBarState(
-    val statusColor: Int,
-    val navColor: Int,
     val lightStatus: Boolean,
     val lightNav: Boolean,
-    val contrastEnforced: Boolean,
     val cutoutMode: Int,
 )
 
 private fun applyImmersive(window: Window, controller: WindowInsetsControllerCompat) {
     // NB: decorFitsSystemWindows is set false once, app-wide, in MainActivity — never
     // toggled here. Toggling it on the shared single-Activity window resized the window
-    // on reader exit and showed a visible jump. This only tweaks bar cosmetics/behavior.
-    window.statusBarColor = AndroidColor.TRANSPARENT
-    window.navigationBarColor = AndroidColor.TRANSPARENT
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-        window.isNavigationBarContrastEnforced = false
-    }
+    // on reader exit and showed a visible jump. This only tweaks bar behaviour.
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
         window.attributes = window.attributes.apply {
             layoutInDisplayCutoutMode =
@@ -571,26 +590,31 @@ private fun applyImmersive(window: Window, controller: WindowInsetsControllerCom
         WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 }
 
-private fun restoreBars(
+/** Back to normal bars while the book stays open; the icons keep following the page. */
+private fun leaveImmersive(
     window: Window,
     controller: WindowInsetsControllerCompat,
     original: OriginalBarState,
 ) {
-    // Colors/appearance/contrast/cutout only — decorFitsSystemWindows stays false
-    // (owned by MainActivity), so restoring bars never resizes the window.
-    window.statusBarColor = original.statusColor
-    window.navigationBarColor = original.navColor
-    controller.isAppearanceLightStatusBars = original.lightStatus
-    controller.isAppearanceLightNavigationBars = original.lightNav
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-        window.isNavigationBarContrastEnforced = original.contrastEnforced
-    }
+    // Cutout and visibility only — decorFitsSystemWindows stays false (owned by
+    // MainActivity), so this never resizes the window.
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
         window.attributes = window.attributes.apply {
             layoutInDisplayCutoutMode = original.cutoutMode
         }
     }
     controller.show(WindowInsetsCompat.Type.systemBars())
+}
+
+/** Hands the bars back to the app as the reader found them. */
+private fun restoreBars(
+    window: Window,
+    controller: WindowInsetsControllerCompat,
+    original: OriginalBarState,
+) {
+    controller.isAppearanceLightStatusBars = original.lightStatus
+    controller.isAppearanceLightNavigationBars = original.lightNav
+    leaveImmersive(window, controller, original)
 }
 
 /**

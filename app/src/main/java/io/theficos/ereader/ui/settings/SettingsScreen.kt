@@ -1,25 +1,36 @@
 package io.theficos.ereader.ui.settings
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -36,7 +47,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -49,6 +64,8 @@ import io.theficos.ereader.ui.components.RadioOptionRow
 import io.theficos.ereader.ui.components.SectionLabel
 import io.theficos.ereader.ui.reader.displayLabel
 import io.theficos.ereader.ui.theme.AppTheme
+import io.theficos.ereader.ui.theme.Palette
+import io.theficos.ereader.ui.theme.ThemeMode
 import java.time.Instant
 import java.time.format.DateTimeParseException
 
@@ -131,20 +148,9 @@ fun SettingsScreen(
     ) {
         Text("Settings", style = MaterialTheme.typography.displaySmall)
 
-        SectionLabel("appearance")
+        SectionLabel("Appearance")
         QuireCard(modifier = Modifier.fillMaxWidth()) {
-            Column {
-                Text("App theme", style = MaterialTheme.typography.titleSmall)
-                Column(Modifier.selectableGroup()) {
-                    AppTheme.entries.forEach { theme ->
-                        RadioOptionRow(
-                            label = theme.label,
-                            selected = appTheme == theme,
-                            onSelect = { viewModel.setAppTheme(theme) },
-                        )
-                    }
-                }
-            }
+            AppearanceSettings(theme = appTheme, onChange = viewModel::setAppTheme)
         }
 
         SectionLabel("calibre-web")
@@ -279,7 +285,7 @@ fun SettingsScreen(
                     )
                 }
                 Column {
-                    Text("Theme", style = MaterialTheme.typography.bodyMedium)
+                    Text("Page theme", style = MaterialTheme.typography.bodyMedium)
                     // A column, not a row: four themes with labels as long as "Dark sepia"
                     // overflow one line on a narrow screen, and this matches the font-family
                     // picker just below.
@@ -697,5 +703,121 @@ private fun formatRetrievalSource(source: RetrievalSourceHealth): Pair<String, a
             val whenSuffix = checkedMs?.let { ", ${formatRelative(it)}" } ?: ""
             "$label: unreachable$whenSuffix" to MaterialTheme.colorScheme.error
         }
+    }
+}
+
+/**
+ * Mode, then a light and a dark palette. The row the current mode can never show is dimmed
+ * rather than hidden, so switching mode doesn't make the layout jump.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AppearanceSettings(theme: AppTheme, onChange: (AppTheme) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Mode", style = MaterialTheme.typography.titleSmall)
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                ThemeMode.entries.forEachIndexed { i, mode ->
+                    SegmentedButton(
+                        selected = theme.mode == mode,
+                        onClick = { onChange(theme.copy(mode = mode)) },
+                        shape = SegmentedButtonDefaults.itemShape(i, ThemeMode.entries.size),
+                    ) { Text(mode.label) }
+                }
+            }
+        }
+        PaletteRow(
+            title = "Light theme",
+            palettes = Palette.entries.filterNot { it.isDark },
+            selected = theme.light,
+            enabled = theme.mode != ThemeMode.DARK,
+            onSelect = { onChange(theme.copy(light = it)) },
+        )
+        PaletteRow(
+            title = "Dark theme",
+            palettes = Palette.entries.filter { it.isDark },
+            selected = theme.dark,
+            enabled = theme.mode != ThemeMode.LIGHT,
+            onSelect = { onChange(theme.copy(dark = it)) },
+        )
+    }
+}
+
+@Composable
+private fun PaletteRow(
+    title: String,
+    palettes: List<Palette>,
+    selected: Palette,
+    enabled: Boolean,
+    onSelect: (Palette) -> Unit,
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.alpha(if (enabled) 1f else 0.38f),
+    ) {
+        Text(title, style = MaterialTheme.typography.titleSmall)
+        Row(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            palettes.forEach { palette ->
+                ThemeSwatch(
+                    palette = palette,
+                    selected = palette == selected,
+                    enabled = enabled,
+                    onSelect = { onSelect(palette) },
+                )
+            }
+        }
+    }
+}
+
+/** A thumbnail of a palette: its page, a card strip, its accent and its type. */
+@Composable
+private fun ThemeSwatch(palette: Palette, selected: Boolean, enabled: Boolean, onSelect: () -> Unit) {
+    val colors = palette.colors
+    val shape = MaterialTheme.shapes.medium
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onSelect)
+            .padding(4.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(width = 96.dp, height = 64.dp)
+                .clip(shape)
+                .background(colors.surface)
+                .border(
+                    width = if (selected) 2.dp else 1.dp,
+                    color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                    shape = shape,
+                ),
+        ) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(14.dp)
+                    .background(colors.surfaceContainer),
+            )
+            Text(
+                text = "Aa",
+                style = MaterialTheme.typography.titleMedium,
+                color = colors.onSurface,
+                modifier = Modifier.align(Alignment.TopStart).padding(10.dp),
+            )
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(10.dp)
+                    .size(14.dp)
+                    .background(colors.primary, CircleShape),
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = palette.label,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = if (selected) FontWeight.SemiBold else null,
+            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+        )
     }
 }

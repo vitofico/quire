@@ -36,9 +36,7 @@ fun MainScaffold(
     var current by rememberSaveable { mutableStateOf(initial) }
     Scaffold(
         bottomBar = {
-            NavigationBar(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-            ) {
+            NavigationBar {
                 Tab.values().forEach { tab ->
                     NavigationBarItem(
                         selected = current == tab,
@@ -50,7 +48,6 @@ fun MainScaffold(
                             selectedTextColor = MaterialTheme.colorScheme.primary,
                             unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                             unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            indicatorColor = MaterialTheme.colorScheme.surface,
                         ),
                     )
                 }

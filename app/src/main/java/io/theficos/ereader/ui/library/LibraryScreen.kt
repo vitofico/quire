@@ -32,7 +32,6 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.Button
 import androidx.compose.material.icons.outlined.FilterAlt
-import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
@@ -75,6 +74,7 @@ import io.theficos.ereader.sideload.SideloadFailure
 import io.theficos.ereader.sideload.SideloadImporter
 import io.theficos.ereader.sideload.SideloadResult
 import io.theficos.ereader.ui.components.CoverImage
+import io.theficos.ereader.ui.components.CoverInfoButton
 import io.theficos.ereader.ui.components.SectionLabel
 import kotlinx.coroutines.launch
 
@@ -106,7 +106,6 @@ fun LibraryScreen(
     onShowDetails: (documentId: Long) -> Unit = {},
     onShowStats: () -> Unit = {},
     onShowInsights: () -> Unit = {},
-    aiConfigured: Boolean = false,
     sideloadImporter: SideloadImporter? = null,
     contentPadding: PaddingValues,
 ) {
@@ -384,21 +383,13 @@ fun LibraryScreen(
                                 .fillMaxWidth()
                                 .aspectRatio(2f / 3f),
                         )
-                        // Info icon: top-left, tap target for AI insights. Only when
-                        // AI is configured server-side; suppressed otherwise to keep
-                        // tiles clean.
-                        if (aiConfigured) {
-                            IconButton(
-                                onClick = { onShowDetails(row.document.id) },
-                                modifier = Modifier.align(Alignment.TopStart),
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.Info,
-                                    contentDescription = "Book details and AI insights",
-                                    tint = MaterialTheme.colorScheme.onSurface,
-                                )
-                            }
-                        }
+                        // Top-left, like the catalog's: the book's details, whether or not
+                        // there is a server behind them to add AI insights.
+                        CoverInfoButton(
+                            onClick = { onShowDetails(row.document.id) },
+                            contentDescription = "Book details",
+                            modifier = Modifier.align(Alignment.TopStart),
+                        )
                         // Finished badge: top-right, passive marker.
                         if (row.finishedAt != null) {
                             Surface(
@@ -424,7 +415,7 @@ fun LibraryScreen(
                             // guarantees the two terminal states never coexist).
                             Surface(
                                 shape = MaterialTheme.shapes.small,
-                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                color = MaterialTheme.colorScheme.surfaceContainerHighest,
                                 contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
@@ -490,6 +481,15 @@ fun LibraryScreen(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
                 )
+                TextButton(
+                    onClick = {
+                        onShowDetails(doc.id)
+                        menuFor = null
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                ) {
+                    Text("Book details", modifier = Modifier.fillMaxWidth())
+                }
                 TextButton(
                     onClick = {
                         pendingRestart = doc

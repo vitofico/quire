@@ -22,7 +22,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import io.theficos.ereader.ui.theme.EReaderTheme
+import io.theficos.ereader.ui.theme.QuireTheme
 
 /**
  * First-launch landing screen. Three paths, in the order specified by the
@@ -101,7 +101,7 @@ fun WelcomeScreen(
 @Preview(showBackground = true)
 @Composable
 private fun WelcomeScreenPreview() {
-    EReaderTheme {
+    QuireTheme {
         WelcomeScreen(
             onConnectServer = {},
             onCloudSignIn = {},

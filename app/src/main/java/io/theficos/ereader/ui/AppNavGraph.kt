@@ -1,7 +1,5 @@
 package io.theficos.ereader.ui
 
-import android.app.Activity
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,6 +34,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import io.theficos.ereader.di.AppContainer
 import io.theficos.ereader.ui.bookdetail.BookDetailScreen
+import io.theficos.ereader.ui.bookdetail.BookDetailSheet
+import io.theficos.ereader.ui.bookdetail.BookDetailViewModel
 import io.theficos.ereader.ui.bookdetail.InsightAuditScreen
 import io.theficos.ereader.ui.catalog.CatalogScreen
 import io.theficos.ereader.ui.catalog.CatalogViewModel
@@ -61,23 +61,10 @@ import io.theficos.ereader.ui.settings.LicensesScreen
 import io.theficos.ereader.ui.settings.SettingsScreen
 import io.theficos.ereader.ui.settings.SettingsViewModel
 import io.theficos.ereader.ui.theme.AppTheme
-import io.theficos.ereader.ui.theme.applyAppSystemBars
 
 @Composable
 fun AppNavGraph(container: AppContainer, appTheme: AppTheme) {
     val nav = rememberNavController()
-    val visibleEntries by nav.visibleEntries.collectAsState()
-    val readerOpen = visibleEntries.any { it.destination.route == "reader/{docId}" }
-    val dark = appTheme.isDark(isSystemInDarkTheme())
-    val colors = MaterialTheme.colorScheme
-    val window = (LocalContext.current as Activity).window
-    // The EPUB reader owns its bars. Apply the app appearance after leaving it, including
-    // when the system appearance changed while a book was open.
-    LaunchedEffect(colors, dark, readerOpen) {
-        if (!readerOpen) {
-            applyAppSystemBars(window, colors, dark)
-        }
-    }
     // First-launch gating (A-2). Computed once per composition — the
     // navgraph rebuilds when the configured account or welcome marker
     // changes (via Compose recomposition driven by AppContainer state), and
@@ -190,7 +177,6 @@ fun AppNavGraph(container: AppContainer, appTheme: AppTheme) {
                     restoreInProgress = { onProgress -> container.runRestoreInProgress(onProgress) },
                 )
             }
-            val aiConfig by container.aiRepository.config.collectAsState()
             MainScaffold { tab, padding ->
                 when (tab) {
                     Tab.LIBRARY -> LibraryScreen(
@@ -199,7 +185,6 @@ fun AppNavGraph(container: AppContainer, appTheme: AppTheme) {
                         onShowDetails = { id -> nav.navigate("book/$id") },
                         onShowStats = { nav.navigate("library/stats") },
                         onShowInsights = { nav.navigate("library/insights") },
-                        aiConfigured = aiConfig?.configured == true,
                         sideloadImporter = container.sideloadImporter,
                         contentPadding = padding,
                     )
@@ -234,16 +219,24 @@ fun AppNavGraph(container: AppContainer, appTheme: AppTheme) {
                     preferencesStore = container.readerPreferencesStore,
                 )
             }
-            ReaderScreen(viewModel = vm, onClose = { nav.popBackStack() })
+            ReaderScreen(
+                viewModel = vm,
+                appTheme = appTheme,
+                onClose = { nav.popBackStack() },
+                detailsSheet = { onDismiss ->
+                    // Scoped to the reader's back-stack entry: built the first time the sheet
+                    // opens (so no insight lookup runs for a book nobody asked about), kept
+                    // while the book is open, and cleared with it.
+                    BookDetailSheet(viewModel = bookDetailViewModel(container, docId), onDismiss = onDismiss)
+                },
+            )
         }
         composable(
             "book/{id}",
             arguments = listOf(navArgument("id") { type = NavType.LongType }),
         ) { backStack ->
             val id = backStack.arguments!!.getLong("id")
-            val vm = remember(id) {
-                container.bookDetailViewModelFactory.create(id)
-            }
+            val vm = bookDetailViewModel(container, id)
             // Re-run load() after the audit screen invalidates the cached row,
             // so the book detail naturally regenerates (or shows nothing) on
             // return.
@@ -259,7 +252,10 @@ fun AppNavGraph(container: AppContainer, appTheme: AppTheme) {
             }
             BookDetailScreen(
                 viewModel = vm,
-                onOpenReader = { docId -> nav.navigate("reader/$docId") },
+                // Back from the book returns to wherever the details were opened from.
+                onOpenReader = { docId ->
+                    nav.navigate("reader/$docId") { popUpTo("book/{id}") { inclusive = true } }
+                },
                 onInspectInsight = { docId -> nav.navigate("book/$docId/inspect-insight") },
                 onBack = { nav.popBackStack() },
             )
@@ -399,3 +395,12 @@ private fun CatalogDetailUnavailable(onBack: () -> Unit) {
         }
     }
 }
+
+/** A book-details view model owned by the current back-stack entry, so it is cleared with it. */
+@Composable
+private fun bookDetailViewModel(container: AppContainer, documentId: Long): BookDetailViewModel =
+    viewModel(
+        factory = viewModelFactory {
+            initializer { container.bookDetailViewModelFactory.create(documentId) }
+        },
+    )

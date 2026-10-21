@@ -268,6 +268,7 @@ class AppContainer(context: Context) {
 
     val bookDetailViewModelFactory: BookDetailViewModelFactory = BookDetailViewModelFactory(
         documents = documentRepository,
+        progress = progressRepository,
         ai = aiRepository,
         openOpfBytes = ::readOpfBytes,
     )
@@ -431,12 +432,14 @@ class AppContainer(context: Context) {
 
 class BookDetailViewModelFactory(
     private val documents: DocumentRepository,
+    private val progress: ProgressRepository,
     private val ai: AiRepository,
     private val openOpfBytes: suspend (Document) -> ByteArray?,
 ) {
     fun create(documentId: Long) = BookDetailViewModel(
         documentId = documentId,
         documents = documents,
+        progress = progress,
         ai = ai,
         openOpfBytes = openOpfBytes,
     )

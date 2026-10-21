@@ -125,7 +125,7 @@ fun FontSettingsSheet(
                 )
             }
 
-            Text("Theme", style = MaterialTheme.typography.bodyMedium)
+            Text("Page theme", style = MaterialTheme.typography.bodyMedium)
             // A column, not a row: four themes with labels as long as "Dark sepia" overflow one
             // line on a narrow screen, and this matches the font-family picker just below.
             Column(Modifier.selectableGroup()) {
