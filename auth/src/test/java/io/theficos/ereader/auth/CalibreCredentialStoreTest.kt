@@ -485,4 +485,24 @@ class CalibreCredentialStoreTest {
         store.notifyUnauthorized()
         assertThat(store.needsReauth.value).isFalse()
     }
+
+    // ---------- Restored from a backup without its Keystore key ----------
+
+    @Test fun `a store that can't be decrypted starts over signed out instead of crashing`() {
+        val ctx = ApplicationProvider.getApplicationContext<android.content.Context>()
+        // An empty keyset fails Tink's checks, unreadable hex fails its parser: the security and
+        // the I/O side of what a restored file encrypted under a lost Keystore key can throw.
+        listOf("", "not a keyset").forEach { keyset ->
+            CalibreCredentialStore(ctx).saveBasicAccount("https://lib.example", "alice", "s3cret")
+            ctx.getSharedPreferences("calibre_creds", android.content.Context.MODE_PRIVATE).edit()
+                .putString("__androidx_security_crypto_encrypted_prefs_key_keyset__", keyset)
+                .commit()
+
+            val store = CalibreCredentialStore(ctx)
+            assertThat(store.getAccount()).isNull()
+            // And it works again, across a reload.
+            store.saveBasicAccount("https://lib.example", "alice", "s3cret")
+            assertThat(CalibreCredentialStore(ctx).getAccount()).isInstanceOf(AccountCredentials.Basic::class.java)
+        }
+    }
 }

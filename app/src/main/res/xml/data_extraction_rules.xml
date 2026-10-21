@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Cloud backup and device transfer on Android 12 and newer; see backup_rules.xml for why the
+     credentials stay behind. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="calibre_creds.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="calibre_creds.xml" />
+    </device-transfer>
+</data-extraction-rules>
