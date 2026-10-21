@@ -7,8 +7,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 
 @Composable
-fun EReaderTheme(content: @Composable () -> Unit) {
-    val colors = if (isSystemInDarkTheme()) QuireDarkColors else QuireLightColors
+fun EReaderTheme(theme: AppTheme = AppTheme.SYSTEM, content: @Composable () -> Unit) {
+    val colors = theme.colorScheme(isSystemInDarkTheme())
     // Lora loads from assets, which needs the context; build it once, not per recomposition.
     val assets = LocalContext.current.assets
     val typography = remember(assets) { quireTypography(loraFontFamily(assets)) }

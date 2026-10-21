@@ -22,6 +22,8 @@ import io.theficos.ereader.reader.ReaderFontFamily
 import io.theficos.ereader.reader.ReaderPreferences
 import io.theficos.ereader.reader.ReaderPreferencesStore
 import io.theficos.ereader.reader.ReaderTheme
+import io.theficos.ereader.ui.theme.AppTheme
+import io.theficos.ereader.ui.theme.AppThemePreferencesStore
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -74,6 +76,7 @@ class SettingsViewModel(
     private val documentRepo: DocumentRepository,
     private val booksDir: File,
     private val aiRepository: AiRepository,
+    private val appThemeStore: AppThemePreferencesStore,
     private val insightSyncRepository: InsightSyncRepository? = null,
     private val insightDao: InsightDao? = null,
     private val syncEnqueuer: (Context) -> Unit = { SyncEnqueuer.enqueue(it, expedited = true, replaceExisting = true) },
@@ -86,6 +89,7 @@ class SettingsViewModel(
     val opds: StateFlow<OpdsUiState> = _opds.asStateFlow()
 
     val readerPreferences: StateFlow<ReaderPreferences> = readerStore.flow
+    val appTheme: StateFlow<AppTheme> = appThemeStore.flow
 
     private val _sync = MutableStateFlow(
         SyncUiState(
@@ -262,6 +266,7 @@ class SettingsViewModel(
         }
     }
 
+    fun setAppTheme(theme: AppTheme) { appThemeStore.update(theme) }
     fun setFontScale(value: Double) { readerStore.update { it.copy(fontScale = value.coerceIn(0.5, 2.0)) } }
     fun setTheme(theme: ReaderTheme) { readerStore.update { it.copy(theme = theme) } }
     fun setFontFamily(family: ReaderFontFamily) { readerStore.update { it.copy(fontFamily = family) } }

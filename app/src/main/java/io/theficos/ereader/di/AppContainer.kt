@@ -47,6 +47,7 @@ import io.theficos.ereader.ui.library.LibraryStatsCache
 import io.theficos.ereader.ui.library.LibraryStatsViewModel
 import io.theficos.ereader.ui.onboarding.WelcomePreferencesStore
 import io.theficos.ereader.ui.scan.ScanResultRegistry
+import io.theficos.ereader.ui.theme.AppThemePreferencesStore
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -95,6 +96,7 @@ class AppContainer(context: Context) {
     val syncStateDao = db.syncStateDao()
     val readiumFactory = ReadiumFactory(appContext)
     val readerPreferencesStore = ReaderPreferencesStore(appContext)
+    val appThemePreferencesStore = AppThemePreferencesStore(appContext)
     val libraryPreferencesStore = LibraryPreferencesStore(appContext)
     val catalogPreferencesStore = CatalogPreferencesStore(appContext)
     /**

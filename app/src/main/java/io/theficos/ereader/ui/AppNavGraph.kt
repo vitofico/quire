@@ -1,5 +1,7 @@
 package io.theficos.ereader.ui
 
+import android.app.Activity
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -58,10 +60,24 @@ import io.theficos.ereader.ui.scan.ScanViewModel
 import io.theficos.ereader.ui.settings.LicensesScreen
 import io.theficos.ereader.ui.settings.SettingsScreen
 import io.theficos.ereader.ui.settings.SettingsViewModel
+import io.theficos.ereader.ui.theme.AppTheme
+import io.theficos.ereader.ui.theme.applyAppSystemBars
 
 @Composable
-fun AppNavGraph(container: AppContainer) {
+fun AppNavGraph(container: AppContainer, appTheme: AppTheme) {
     val nav = rememberNavController()
+    val visibleEntries by nav.visibleEntries.collectAsState()
+    val readerOpen = visibleEntries.any { it.destination.route == "reader/{docId}" }
+    val dark = appTheme.isDark(isSystemInDarkTheme())
+    val colors = MaterialTheme.colorScheme
+    val window = (LocalContext.current as Activity).window
+    // The EPUB reader owns its bars. Apply the app appearance after leaving it, including
+    // when the system appearance changed while a book was open.
+    LaunchedEffect(colors, dark, readerOpen) {
+        if (!readerOpen) {
+            applyAppSystemBars(window, colors, dark)
+        }
+    }
     // First-launch gating (A-2). Computed once per composition — the
     // navgraph rebuilds when the configured account or welcome marker
     // changes (via Compose recomposition driven by AppContainer state), and
@@ -164,6 +180,7 @@ fun AppNavGraph(container: AppContainer) {
                 SettingsViewModel(
                     store = container.credentialStore,
                     readerStore = container.readerPreferencesStore,
+                    appThemeStore = container.appThemePreferencesStore,
                     syncStateDao = container.syncStateDao,
                     documentRepo = container.documentRepository,
                     booksDir = container.booksDir,
