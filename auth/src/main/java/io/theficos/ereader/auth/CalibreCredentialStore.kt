@@ -1,12 +1,15 @@
 package io.theficos.ereader.auth
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.io.IOException
+import java.security.GeneralSecurityException
 
 /**
  * On-device credential store.
@@ -30,13 +33,7 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 class CalibreCredentialStore(context: Context) {
 
-    private val prefs = EncryptedSharedPreferences.create(
-        context,
-        "calibre_creds",
-        MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
-        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-    )
+    private val prefs = openPrefs(context)
 
     /**
      * Single lock guarding every prefs mutation. Without this, two concurrent
@@ -387,6 +384,7 @@ class CalibreCredentialStore(context: Context) {
 
     private companion object {
         const val TAG = "CalibreCredentialStore"
+        const val PREFS_FILE = "calibre_creds"
         const val KEY_BASE_URL = "base_url"
         const val KEY_SCHEME = "scheme"
         const val KEY_USER = "username"
@@ -395,5 +393,29 @@ class CalibreCredentialStore(context: Context) {
         const val KEY_TOKEN = "token"
         const val KEY_EXPIRES_AT = "expires_at_epoch_ms"
         const val KEY_QUIRE_SERVER_URL = "quire_server_url"
+
+        /**
+         * Opens the encrypted prefs, starting them over empty when they can't be decrypted. That
+         * happens when a backup restore or a device transfer brings the file back without the
+         * Keystore key that encrypted it, since Keystore keys never leave the device. The user is
+         * then signed out and connects again, instead of the app crashing on every launch.
+         */
+        fun openPrefs(context: Context): SharedPreferences {
+            fun open() = EncryptedSharedPreferences.create(
+                context,
+                PREFS_FILE,
+                MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+            )
+            return try {
+                open()
+            } catch (e: Exception) {
+                if (e !is GeneralSecurityException && e !is IOException) throw e
+                Log.w(TAG, "Stored credentials can't be decrypted; starting over signed out", e)
+                context.deleteSharedPreferences(PREFS_FILE)
+                open()
+            }
+        }
     }
 }
