@@ -3,6 +3,8 @@ package io.theficos.ereader
 import android.content.res.Configuration
 import android.os.Bundle
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.core.view.WindowCompat
 import androidx.fragment.app.FragmentActivity
 import io.theficos.ereader.ui.AppNavGraph
@@ -23,8 +25,10 @@ class MainActivity : FragmentActivity() {
         // AppNavGraph. Android 15 forces this anyway.
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContent {
-            EReaderTheme {
-                AppNavGraph(container = (application as EReaderApp).container)
+            val container = (application as EReaderApp).container
+            val theme by container.appThemePreferencesStore.flow.collectAsState()
+            EReaderTheme(theme = theme) {
+                AppNavGraph(container = container, appTheme = theme)
             }
         }
     }

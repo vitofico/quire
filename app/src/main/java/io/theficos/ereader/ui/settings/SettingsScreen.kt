@@ -48,6 +48,7 @@ import io.theficos.ereader.ui.components.QuireCard
 import io.theficos.ereader.ui.components.RadioOptionRow
 import io.theficos.ereader.ui.components.SectionLabel
 import io.theficos.ereader.ui.reader.displayLabel
+import io.theficos.ereader.ui.theme.AppTheme
 import java.time.Instant
 import java.time.format.DateTimeParseException
 
@@ -95,6 +96,7 @@ fun SettingsScreen(
     val calibre by viewModel.calibre.collectAsState()
     val opds by viewModel.opds.collectAsState()
     val reader by viewModel.readerPreferences.collectAsState()
+    val appTheme by viewModel.appTheme.collectAsState()
     val aiState by viewModel.ai.collectAsState()
     val deleteInFlight by viewModel.deleteProfileInFlight.collectAsState()
     val isConnected by viewModel.isConnected.collectAsState()
@@ -128,6 +130,22 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         Text("Settings", style = MaterialTheme.typography.displaySmall)
+
+        SectionLabel("appearance")
+        QuireCard(modifier = Modifier.fillMaxWidth()) {
+            Column {
+                Text("App theme", style = MaterialTheme.typography.titleSmall)
+                Column(Modifier.selectableGroup()) {
+                    AppTheme.entries.forEach { theme ->
+                        RadioOptionRow(
+                            label = theme.label,
+                            selected = appTheme == theme,
+                            onSelect = { viewModel.setAppTheme(theme) },
+                        )
+                    }
+                }
+            }
+        }
 
         SectionLabel("calibre-web")
         QuireCard(modifier = Modifier.fillMaxWidth()) {

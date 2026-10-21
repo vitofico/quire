@@ -13,6 +13,8 @@ import io.theficos.ereader.data.local.db.EReaderDatabase
 import io.theficos.ereader.domain.restore.RestoreSummary
 import io.theficos.ereader.reader.ReaderPreferencesStore
 import io.theficos.ereader.ui.catalog.FakeAndroidKeyStore
+import io.theficos.ereader.ui.theme.AppTheme
+import io.theficos.ereader.ui.theme.AppThemePreferencesStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
@@ -73,6 +75,7 @@ class SettingsViewModelTest {
         SettingsViewModel(
             store = store,
             readerStore = ReaderPreferencesStore(context),
+            appThemeStore = AppThemePreferencesStore(context),
             syncStateDao = db.syncStateDao(),
             documentRepo = docs,
             booksDir = booksDir,
@@ -84,6 +87,18 @@ class SettingsViewModelTest {
 
     /** A view model with no restore hook, for tests that don't exercise restore. */
     private fun newViewModel(): SettingsViewModel = buildVm(restoreInProgress = null)
+
+    @Test fun `app theme changes persist without changing reader preferences`() = runTest {
+        val readerStore = ReaderPreferencesStore(context)
+        val before = readerStore.flow.value
+        val vm = newViewModel()
+
+        vm.setAppTheme(AppTheme.MIDNIGHT)
+
+        assertThat(vm.appTheme.value).isEqualTo(AppTheme.MIDNIGHT)
+        assertThat(AppThemePreferencesStore(context).flow.value).isEqualTo(AppTheme.MIDNIGHT)
+        assertThat(ReaderPreferencesStore(context).flow.value).isEqualTo(before)
+    }
 
     @Test fun `restoreInProgressBooks emits RestoreFinished with summary`() = runTest {
         store.saveBasicAccount(baseUrl = "https://books.example.com", username = "alice", password = "pw")
