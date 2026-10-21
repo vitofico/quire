@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="fastlane/metadata/android/en-US/images/icon.png" alt="Quire" width="128" height="128">
+  <img src="docs/assets/readme-cover.svg" alt="Quire. Lose yourself. Keep your place. Your books, on a server you own." width="100%">
 </p>
 
 <h1 align="center">Quire</h1>
