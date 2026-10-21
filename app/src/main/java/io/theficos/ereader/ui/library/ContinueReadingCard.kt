@@ -64,7 +64,7 @@ fun ContinueReadingCard(row: LibraryRow, onClick: () -> Unit) {
                             .height(3.dp)
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(2.dp))
-                            .background(MaterialTheme.colorScheme.outline),
+                            .background(MaterialTheme.colorScheme.outlineVariant),
                     ) {
                         Box(
                             modifier = Modifier

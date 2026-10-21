@@ -68,7 +68,7 @@ fun InsightSection(state: InsightUiState, onRetry: () -> Unit) {
 
 @Composable
 private fun LoadingCard() {
-    QuireCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+    QuireCard(modifier = Modifier.fillMaxWidth()) {
         Column {
             Text("Generating insights…", style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(8.dp))
@@ -79,7 +79,7 @@ private fun LoadingCard() {
 
 @Composable
 private fun ErrorCard(message: String, onRetry: () -> Unit) {
-    QuireCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+    QuireCard(modifier = Modifier.fillMaxWidth()) {
         Column {
             Text(message, style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(8.dp))
@@ -90,7 +90,7 @@ private fun ErrorCard(message: String, onRetry: () -> Unit) {
 
 @Composable
 private fun IntroCard(intro: String) {
-    QuireCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+    QuireCard(modifier = Modifier.fillMaxWidth()) {
         Column {
             Text("About this book", style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(4.dp))
@@ -102,7 +102,7 @@ private fun IntroCard(intro: String) {
 @Composable
 private fun AuthorCard(a: AuthorInsight) {
     if (a.bio.isNullOrBlank() && a.notableWorks.isNullOrEmpty()) return
-    QuireCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+    QuireCard(modifier = Modifier.fillMaxWidth()) {
         Column {
             Text("About the author", style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(4.dp))
@@ -117,7 +117,7 @@ private fun AuthorCard(a: AuthorInsight) {
 
 @Composable
 private fun SeriesCard(s: SeriesInsight) {
-    QuireCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+    QuireCard(modifier = Modifier.fillMaxWidth()) {
         Column {
             Text("Series", style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(4.dp))
@@ -136,7 +136,7 @@ private fun SeriesCard(s: SeriesInsight) {
 
 @Composable
 private fun AnalysisCard(analysis: String) {
-    QuireCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+    QuireCard(modifier = Modifier.fillMaxWidth()) {
         Column {
             Text("Themes & analysis", style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(4.dp))
@@ -147,7 +147,7 @@ private fun AnalysisCard(analysis: String) {
 
 @Composable
 private fun ContentWarningsCard(warnings: List<String>) {
-    QuireCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+    QuireCard(modifier = Modifier.fillMaxWidth()) {
         Column {
             Text("Content warnings", style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(4.dp))
@@ -163,7 +163,7 @@ private fun ContentWarningsCard(warnings: List<String>) {
 @Composable
 private fun ThemeAnalysisCard(entries: List<Map.Entry<String, String>>) {
     var expanded by rememberSaveable { mutableStateOf(false) }
-    QuireCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+    QuireCard(modifier = Modifier.fillMaxWidth()) {
         Column {
             Text("How these themes show up", style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(4.dp))
@@ -188,7 +188,7 @@ private fun ThemeAnalysisCard(entries: List<Map.Entry<String, String>>) {
 
 @Composable
 private fun CraftCard(notes: String) {
-    QuireCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+    QuireCard(modifier = Modifier.fillMaxWidth()) {
         Column {
             Text("Craft", style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(4.dp))
@@ -202,7 +202,7 @@ private fun ComparativeAnchorsCard(anchors: List<ComparativeAnchor>) {
     // Display-only: no hyperlink, no "Open in browser". The server drops
     // titles Open Library cannot find, but keeps them unchecked when it
     // cannot reach Open Library.
-    QuireCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+    QuireCard(modifier = Modifier.fillMaxWidth()) {
         Column {
             Text("If you liked…", style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(4.dp))
@@ -220,7 +220,7 @@ private fun ComparativeAnchorsCard(anchors: List<ComparativeAnchor>) {
 
 @Composable
 private fun DistinctiveTakeCard(take: String) {
-    QuireCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+    QuireCard(modifier = Modifier.fillMaxWidth()) {
         Column {
             Text("What sets this apart", style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(4.dp))
@@ -232,7 +232,7 @@ private fun DistinctiveTakeCard(take: String) {
 // Schema v5.
 @Composable
 private fun CuriositiesCard(curiosities: List<String>) {
-    QuireCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+    QuireCard(modifier = Modifier.fillMaxWidth()) {
         Column {
             Text("Curiosities", style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(4.dp))
@@ -247,7 +247,7 @@ private fun CuriositiesCard(curiosities: List<String>) {
 @Composable
 private fun DiscussionPromptsCard(prompts: List<String>) {
     var expanded by rememberSaveable { mutableStateOf(false) }
-    QuireCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+    QuireCard(modifier = Modifier.fillMaxWidth()) {
         Column {
             Text("Discussion prompts", style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(4.dp))
@@ -293,7 +293,7 @@ private fun SourcesFooter(sources: List<Citation>) {
     }
     ClickableText(
         text = text,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        modifier = Modifier.padding(vertical = 8.dp),
         style = MaterialTheme.typography.bodySmall,
         onClick = { offset ->
             text.getStringAnnotations("URL", offset, offset).firstOrNull()?.let {

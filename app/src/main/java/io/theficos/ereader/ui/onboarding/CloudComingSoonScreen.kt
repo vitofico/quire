@@ -18,7 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import io.theficos.ereader.ui.theme.EReaderTheme
+import io.theficos.ereader.ui.theme.QuireTheme
 
 /**
  * Placeholder for the deferred "Sign in to Quire Cloud" path.
@@ -73,7 +73,7 @@ fun CloudComingSoonScreen(onBack: () -> Unit) {
 @Preview(showBackground = true)
 @Composable
 private fun CloudComingSoonPreview() {
-    EReaderTheme {
+    QuireTheme {
         CloudComingSoonScreen(onBack = {})
     }
 }

@@ -1,8 +1,10 @@
 package io.theficos.ereader.ui.theme
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
+import com.google.common.truth.Truth.assertWithMessage
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -13,27 +15,56 @@ import org.robolectric.annotation.Config
 @Config(sdk = [33], application = android.app.Application::class)
 class AppThemePreferencesStoreTest {
     private val context: Context get() = ApplicationProvider.getApplicationContext()
+    private val prefs: SharedPreferences
+        get() = context.getSharedPreferences("app_theme_prefs", Context.MODE_PRIVATE)
 
     @Before fun clearPreferences() {
-        context.getSharedPreferences("app_theme_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+        prefs.edit().clear().commit()
     }
 
-    @Test fun `existing installs continue to follow the system`() {
-        assertThat(AppThemePreferencesStore(context).flow.value).isEqualTo(AppTheme.SYSTEM)
+    @Test fun `a fresh install follows the system with Quire's palettes`() {
+        assertThat(AppThemePreferencesStore(context).flow.value).isEqualTo(AppTheme())
     }
 
-    @Test fun `every app theme updates immediately and survives a reload`() {
+    @Test fun `a change applies immediately and survives a reload`() {
         val store = AppThemePreferencesStore(context)
-        AppTheme.entries.forEach { theme ->
-            store.update(theme)
-            assertThat(store.flow.value).isEqualTo(theme)
-            assertThat(AppThemePreferencesStore(context).flow.value).isEqualTo(theme)
+        val theme = AppTheme(mode = ThemeMode.DARK, light = Palette.SAGE, dark = Palette.MIDNIGHT)
+        store.update(theme)
+        assertThat(store.flow.value).isEqualTo(theme)
+        assertThat(AppThemePreferencesStore(context).flow.value).isEqualTo(theme)
+    }
+
+    @Test fun `each old single choice migrates to the appearance it gave`() {
+        mapOf(
+            "SYSTEM" to AppTheme(),
+            "LIGHT" to AppTheme(mode = ThemeMode.LIGHT),
+            "DARK" to AppTheme(mode = ThemeMode.DARK),
+            "SAGE" to AppTheme(mode = ThemeMode.LIGHT, light = Palette.SAGE),
+            "MIDNIGHT" to AppTheme(mode = ThemeMode.DARK, dark = Palette.MIDNIGHT),
+            "UNKNOWN_THEME" to AppTheme(),
+        ).forEach { (legacy, expected) ->
+            prefs.edit().clear().putString("theme", legacy).commit()
+            assertWithMessage(legacy).that(AppThemePreferencesStore(context).flow.value).isEqualTo(expected)
+            // Migrated once: the old key is gone and the new ones read back the same.
+            assertWithMessage(legacy).that(prefs.contains("theme")).isFalse()
+            assertWithMessage(legacy).that(AppThemePreferencesStore(context).flow.value).isEqualTo(expected)
         }
     }
 
-    @Test fun `unknown stored themes fall back to the system`() {
-        context.getSharedPreferences("app_theme_prefs", Context.MODE_PRIVATE)
-            .edit().putString("theme", "UNKNOWN_THEME").commit()
-        assertThat(AppThemePreferencesStore(context).flow.value).isEqualTo(AppTheme.SYSTEM)
+    @Test fun `unknown or mismatched saved values fall back one by one`() {
+        prefs.edit()
+            .putString("mode", "SOMETIMES")
+            .putString("light", "MIDNIGHT")
+            .putString("dark", "SAGE")
+            .commit()
+        assertThat(AppThemePreferencesStore(context).flow.value).isEqualTo(AppTheme())
+
+        prefs.edit()
+            .putString("mode", "DARK")
+            .putString("light", "SAGE")
+            .putString("dark", "NOPE")
+            .commit()
+        assertThat(AppThemePreferencesStore(context).flow.value)
+            .isEqualTo(AppTheme(mode = ThemeMode.DARK, light = Palette.SAGE))
     }
 }

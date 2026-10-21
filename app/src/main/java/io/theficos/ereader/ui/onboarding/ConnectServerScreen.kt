@@ -43,7 +43,7 @@ import androidx.compose.ui.unit.dp
 import io.theficos.ereader.data.opds.ServerProbeResult
 import io.theficos.ereader.ui.components.QuireCard
 import io.theficos.ereader.ui.components.SectionLabel
-import io.theficos.ereader.ui.theme.EReaderTheme
+import io.theficos.ereader.ui.theme.QuireTheme
 
 /**
  * URL-input + auto-probe + credential-entry screen.
@@ -490,7 +490,7 @@ private enum class AmbiguousChoice { Basic, Bearer }
 @Preview(showBackground = true)
 @Composable
 private fun ConnectServerScreenIdlePreview() {
-    EReaderTheme {
+    QuireTheme {
         Box(
             modifier = Modifier
                 .padding(8.dp)
@@ -512,7 +512,7 @@ private fun ConnectServerScreenIdlePreview() {
 @Preview(showBackground = true, name = "Result — calibre-web")
 @Composable
 private fun ConnectServerScreenCalibrePreview() {
-    EReaderTheme {
+    QuireTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
             Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 BasicCredentialCard(
@@ -528,7 +528,7 @@ private fun ConnectServerScreenCalibrePreview() {
 @Preview(showBackground = true, name = "Result — Quire server")
 @Composable
 private fun ConnectServerScreenBearerPreview() {
-    EReaderTheme {
+    QuireTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
             Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 BearerCredentialCard(
@@ -544,7 +544,7 @@ private fun ConnectServerScreenBearerPreview() {
 @Preview(showBackground = true, name = "Result - OPDS catalog")
 @Composable
 private fun ConnectServerScreenGenericOpdsPreview() {
-    EReaderTheme {
+    QuireTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
             Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 GenericOpdsCard(

@@ -32,7 +32,6 @@ import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
-import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -61,6 +60,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.theficos.ereader.data.opds.OpdsPublication
 import io.theficos.ereader.ui.components.CoverImage
+import io.theficos.ereader.ui.components.CoverInfoButton
 import io.theficos.ereader.ui.components.SectionLabel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -238,27 +238,11 @@ private fun Loaded(
                         // without competing with the cover-tap download target
                         // (positioned at TopStart while the download badge sits
                         // at TopEnd).
-                        IconButton(
+                        CoverInfoButton(
                             onClick = { onShowDetails(pub) },
-                            modifier = Modifier
-                                .align(Alignment.TopStart)
-                                .padding(2.dp)
-                                .size(32.dp),
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)),
-                            ) {
-                                Icon(
-                                    Icons.Outlined.Info,
-                                    contentDescription = "Details",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.align(Alignment.Center).size(18.dp),
-                                )
-                            }
-                        }
+                            contentDescription = "Details",
+                            modifier = Modifier.align(Alignment.TopStart),
+                        )
                     }
                     Text(
                         text = pub.title,
@@ -406,7 +390,7 @@ private fun LazyGridScope.navigationItems(
                     modifier = Modifier.align(Alignment.CenterEnd),
                 )
             }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+            HorizontalDivider()
         }
     }
 }

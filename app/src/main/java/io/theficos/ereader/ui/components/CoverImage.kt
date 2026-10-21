@@ -29,6 +29,9 @@ private val FallbackPalettes = listOf(
     Color(0xFF6A4A2A) to Color(0xFF3F2A18),  // tobacco
 )
 
+/** Paper-coloured initials: the gradients above are dark in every app theme, unlike onPrimary. */
+private val FallbackInitials = Color(0xFFF5EFE3)
+
 @Composable
 fun CoverImage(
     source: Any?,
@@ -77,7 +80,7 @@ private fun Fallback(initials: String, palette: Pair<Color, Color>) {
     ) {
         Text(
             text = initials,
-            color = MaterialTheme.colorScheme.onPrimary,
+            color = FallbackInitials,
             style = MaterialTheme.typography.displaySmall,
             fontWeight = FontWeight.SemiBold,
             fontSize = 36.sp,

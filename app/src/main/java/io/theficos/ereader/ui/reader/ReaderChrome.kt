@@ -24,7 +24,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -39,6 +39,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -51,7 +54,8 @@ fun ReaderTopBar(
     visible: Boolean,
     title: String,
     onBack: () -> Unit,
-    onOverflow: () -> Unit,
+    onDetails: () -> Unit,
+    onTypeSettings: () -> Unit,
     modifier: Modifier = Modifier,
     edgeToEdge: Boolean = false,
 ) {
@@ -65,7 +69,7 @@ fun ReaderTopBar(
         // otherwise the icons/title fall back to the Compose default (black) and vanish
         // against the dark bar in dark mode.
         Surface(
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+            color = MaterialTheme.colorScheme.surface,
             contentColor = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -95,8 +99,20 @@ fun ReaderTopBar(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
                 )
-                IconButton(onClick = onOverflow) {
-                    Icon(Icons.Default.MoreVert, contentDescription = "Menu")
+                IconButton(onClick = onDetails) {
+                    Icon(Icons.Outlined.Info, contentDescription = "Book details")
+                }
+                // "Aa" is how reading apps label their type settings; it is the most used action
+                // here, so it gets a button of its own rather than a slot in an overflow menu.
+                IconButton(
+                    onClick = onTypeSettings,
+                    modifier = Modifier.semantics { contentDescription = "Type and theme" },
+                ) {
+                    Text(
+                        text = "Aa",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.clearAndSetSemantics { },
+                    )
                 }
             }
         }
@@ -130,7 +146,7 @@ fun ReaderBottomBar(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.96f))
+                .background(MaterialTheme.colorScheme.surface)
                 .then(
                     if (edgeToEdge) {
                         Modifier.windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.displayCutout))
@@ -227,7 +243,7 @@ fun ReaderBottomBar(
                 Text(
                     text = "$pct%",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }

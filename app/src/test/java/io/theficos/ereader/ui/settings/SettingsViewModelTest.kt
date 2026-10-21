@@ -15,6 +15,8 @@ import io.theficos.ereader.reader.ReaderPreferencesStore
 import io.theficos.ereader.ui.catalog.FakeAndroidKeyStore
 import io.theficos.ereader.ui.theme.AppTheme
 import io.theficos.ereader.ui.theme.AppThemePreferencesStore
+import io.theficos.ereader.ui.theme.Palette
+import io.theficos.ereader.ui.theme.ThemeMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
@@ -93,10 +95,11 @@ class SettingsViewModelTest {
         val before = readerStore.flow.value
         val vm = newViewModel()
 
-        vm.setAppTheme(AppTheme.MIDNIGHT)
+        val midnight = AppTheme(mode = ThemeMode.DARK, dark = Palette.MIDNIGHT)
+        vm.setAppTheme(midnight)
 
-        assertThat(vm.appTheme.value).isEqualTo(AppTheme.MIDNIGHT)
-        assertThat(AppThemePreferencesStore(context).flow.value).isEqualTo(AppTheme.MIDNIGHT)
+        assertThat(vm.appTheme.value).isEqualTo(midnight)
+        assertThat(AppThemePreferencesStore(context).flow.value).isEqualTo(midnight)
         assertThat(ReaderPreferencesStore(context).flow.value).isEqualTo(before)
     }
 

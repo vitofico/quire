@@ -4,55 +4,85 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 
-private val Surface          = Color(0xFFF8F4EC)
-private val SurfaceContainer = Color(0xFFFEFBF4)
-private val Outline          = Color(0xFFEFE5D2)
-private val OnSurface        = Color(0xFF1F1A14)
-private val OnSurfaceMuted   = Color(0xFF8A7355)
-private val Accent           = Color(0xFF7A2E2A)
-private val AccentDeep       = Color(0xFF4A1A18)
-private val OnAccent         = Color(0xFFF5EFE3)
+// Every palette sets every Material role except error*: an unset role falls back to Material's
+// baseline purple, which is how the default theme once ended up with lilac sheets and menus.
+// The baseline error red is kept on purpose; it reads on all four surfaces.
+//
+// Roles the app leans on: cards sit on surfaceContainer with an outlineVariant hairline, text
+// fields draw their border in outline, and secondary text is onSurfaceVariant. surfaceVariant is
+// never used as a container colour.
 
-private val DarkSurface          = Color(0xFF1A1612)
-private val DarkSurfaceContainer = Color(0xFF241F18)
-private val DarkOutline          = Color(0xFF3A322A)
-private val DarkOnSurface        = Color(0xFFEDE5D5)
-private val DarkOnSurfaceMuted   = Color(0xFF9A8B72)
-private val DarkAccent           = Color(0xFFC26A66)
-private val DarkAccentDeep       = Color(0xFFA04846)
-private val DarkOnAccent         = Color(0xFF1A1612)
-
-internal val QuireLightColors = lightColorScheme(
-    primary = Accent,
-    onPrimary = OnAccent,
-    primaryContainer = AccentDeep,
-    onPrimaryContainer = OnAccent,
-    background = Surface,
-    onBackground = OnSurface,
-    surface = Surface,
-    onSurface = OnSurface,
-    surfaceVariant = SurfaceContainer,
-    onSurfaceVariant = OnSurfaceMuted,
-    outline = Outline,
-    outlineVariant = Outline,
+/** Warm paper with an oxblood accent: Quire's own light palette. */
+internal val PaperColors = lightColorScheme(
+    primary = Color(0xFF7A2E2A),
+    onPrimary = Color(0xFFF5EFE3),
+    primaryContainer = Color(0xFFF4DCD5),
+    onPrimaryContainer = Color(0xFF3E1412),
+    secondary = Color(0xFF6B5843),
+    onSecondary = Color.White,
+    secondaryContainer = Color(0xFFECE0CC),
+    onSecondaryContainer = Color(0xFF2A2016),
+    tertiary = Color(0xFF6A5A2C),
+    onTertiary = Color.White,
+    tertiaryContainer = Color(0xFFF0E2B6),
+    onTertiaryContainer = Color(0xFF3A2F0C),
+    background = Color(0xFFF8F4EC),
+    onBackground = Color(0xFF1F1A14),
+    surface = Color(0xFFF8F4EC),
+    onSurface = Color(0xFF1F1A14),
+    surfaceVariant = Color(0xFFE7DED0),
+    onSurfaceVariant = Color(0xFF725D45),
+    surfaceTint = Color(0xFF7A2E2A),
+    surfaceDim = Color(0xFFE5DDD1),
+    surfaceBright = Color(0xFFFDFAF3),
+    surfaceContainerLowest = Color(0xFFFFFDF8),
+    surfaceContainerLow = Color(0xFFF6F0E7),
+    surfaceContainer = Color(0xFFF2EBE0),
+    surfaceContainerHigh = Color(0xFFEDE5D8),
+    surfaceContainerHighest = Color(0xFFE7DED0),
+    outline = Color(0xFF8E7D68),
+    outlineVariant = Color(0xFFDED1BF),
+    inverseSurface = Color(0xFF352F28),
+    inverseOnSurface = Color(0xFFF7F0E4),
+    inversePrimary = Color(0xFFF2B6AE),
 )
 
-internal val QuireDarkColors = darkColorScheme(
-    primary = DarkAccent,
-    onPrimary = DarkOnAccent,
-    primaryContainer = DarkAccentDeep,
-    onPrimaryContainer = DarkOnAccent,
-    background = DarkSurface,
-    onBackground = DarkOnSurface,
-    surface = DarkSurface,
-    onSurface = DarkOnSurface,
-    surfaceVariant = DarkSurfaceContainer,
-    onSurfaceVariant = DarkOnSurfaceMuted,
-    outline = DarkOutline,
-    outlineVariant = DarkOutline,
+/** Paper's dark counterpart: warm near-black with a muted rose accent. */
+internal val InkColors = darkColorScheme(
+    primary = Color(0xFFCC7873),
+    onPrimary = Color(0xFF1A1612),
+    primaryContainer = Color(0xFF5C2724),
+    onPrimaryContainer = Color(0xFFFFDAD5),
+    secondary = Color(0xFFD7C3A8),
+    onSecondary = Color(0xFF3A2E1F),
+    secondaryContainer = Color(0xFF433829),
+    onSecondaryContainer = Color(0xFFF1E1C8),
+    tertiary = Color(0xFFDCC68C),
+    onTertiary = Color(0xFF3A2F0C),
+    tertiaryContainer = Color(0xFF52451F),
+    onTertiaryContainer = Color(0xFFF2E3B4),
+    background = Color(0xFF1A1612),
+    onBackground = Color(0xFFEDE5D5),
+    surface = Color(0xFF1A1612),
+    onSurface = Color(0xFFEDE5D5),
+    surfaceVariant = Color(0xFF363027),
+    onSurfaceVariant = Color(0xFFAB9881),
+    surfaceTint = Color(0xFFCC7873),
+    surfaceDim = Color(0xFF1A1612),
+    surfaceBright = Color(0xFF2D271F),  // no lighter: the rose accent must stay AA on it
+    surfaceContainerLowest = Color(0xFF140F0A),
+    surfaceContainerLow = Color(0xFF1F1A15),
+    surfaceContainer = Color(0xFF241F18),
+    surfaceContainerHigh = Color(0xFF2D271F),
+    surfaceContainerHighest = Color(0xFF363027),
+    outline = Color(0xFF908271),
+    outlineVariant = Color(0xFF3A322A),
+    inverseSurface = Color(0xFFEDE5D5),
+    inverseOnSurface = Color(0xFF2E2820),
+    inversePrimary = Color(0xFF7A2E2A),
 )
 
-internal val QuireSageColors = lightColorScheme(
+internal val SageColors = lightColorScheme(
     primary = Color(0xFF355E43),
     onPrimary = Color.White,
     primaryContainer = Color(0xFFD2E8CE),
@@ -86,7 +116,7 @@ internal val QuireSageColors = lightColorScheme(
     inversePrimary = Color(0xFFAED2A6),
 )
 
-internal val QuireMidnightColors = darkColorScheme(
+internal val MidnightColors = darkColorScheme(
     primary = Color(0xFFABC7FF),
     onPrimary = Color(0xFF142F59),
     primaryContainer = Color(0xFF28466D),

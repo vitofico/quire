@@ -61,10 +61,14 @@ source of truth for reading state. Quire reconciles both on the device.
                                          [Postgres]
 ```
 
-Choose an app theme under **Settings → Appearance**: follow the system, use the
-original Light or Dark palette, or try Sage (soft greens) and Midnight (deep blues).
-Changes apply immediately and are saved for your next launch. EPUB page colours
-remain a separate reader setting.
+Choose how the app looks under **Settings → Appearance**: follow the system or
+stay light or dark, and pick a light theme (Paper or Sage) and a dark theme (Ink or
+Midnight) to go with it. While you read, the bars and menus take the page's colours,
+which stay a separate reader setting.
+
+Tap the info icon on any book in your library, or long-press it, for its details:
+description, series, publisher, language, subjects, ISBN, reading progress and file
+size, read from the EPUB itself. The same details are a tap away in the reader.
 
 ## AI, on your terms
 
