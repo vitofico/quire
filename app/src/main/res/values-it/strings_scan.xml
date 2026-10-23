@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="scan_not_enough_history_yet_to_score_this">"La cronologia non è ancora sufficiente per calcolare l’affinità."</string>
+    <string name="scan_affinity_scoring_isn_t_available_on_this">"Il calcolo dell’affinità non è disponibile su questo server."</string>
+    <string name="scan_camera_permission_denied_enter_the_isbn_below">"Permesso fotocamera negato. Inserisci l’ISBN qui sotto o consenti l’accesso alla fotocamera nelle Impostazioni per scansionare il codice a barre."</string>
+    <string name="scan_camera_unavailable_enter_the_isbn_below">"Fotocamera non disponibile. Inserisci l’ISBN qui sotto."</string>
+    <string name="scan_that_doesn_t_look_like_a_valid">"Questo ISBN non sembra valido."</string>
+    <string name="scan_no_book_found_for_that_isbn_try">"Nessun libro trovato per questo ISBN. Riprova con il codice a barre o controlla le cifre."</string>
+    <string name="scan_your_session_expired_sign_in_again_then">"La sessione è scaduta. Accedi di nuovo e ripeti la scansione."</string>
+</resources>

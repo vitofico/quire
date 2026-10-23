@@ -39,11 +39,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.theficos.ereader.core.model.DocumentIdentity
 import io.theficos.ereader.data.ai.BookRecDto
 import io.theficos.ereader.data.ai.ReaderProfileResponseDto
+import io.theficos.quire.R
 import java.time.Duration
 import java.time.Instant
 import java.time.format.DateTimeParseException
@@ -89,10 +92,10 @@ internal fun LibraryInsightsScreenContent(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Library insights") },
+                title = { Text(stringResource(R.string.common_library_insights)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }
                 },
             )
@@ -143,8 +146,8 @@ private fun DisabledScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(state.message, style = MaterialTheme.typography.bodyLarge)
-                TextButton(onClick = onOpenSettings) { Text("Open AI settings") }
+                Text(state.message.asString(), style = MaterialTheme.typography.bodyLarge)
+                TextButton(onClick = onOpenSettings) { Text(stringResource(R.string.common_open_ai_settings)) }
             }
         }
     }
@@ -165,14 +168,13 @@ private fun EmptyScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item {
-            Text("Generate your reader profile", style = MaterialTheme.typography.headlineSmall)
+            Text(stringResource(R.string.library_generate_your_reader_profile), style = MaterialTheme.typography.headlineSmall)
         }
         item {
-            val host = state.configHostLabel.ifBlank { "your AI host" }
-            val model = state.modelId.ifBlank { "the configured model" }
+            val host = state.configHostLabel.ifBlank { stringResource(R.string.common_your_ai_host) }
+            val model = state.modelId.ifBlank { stringResource(R.string.common_the_configured_model) }
             Text(
-                "We'll send a summary of your library to $host using $model. " +
-                    "Your reading data stays under your control.",
+                stringResource(R.string.library_we_ll_send_a_summary_of_your, host, model),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -188,17 +190,17 @@ private fun EmptyScreen(
                     modifier = Modifier.fillMaxWidth().padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text("We'll consider:", style = MaterialTheme.typography.titleMedium)
-                    DisclosureBullet("${preview?.totalBooks?.toString() ?: "—"} books in your library")
-                    DisclosureBullet("${preview?.finished?.toString() ?: "—"} finished")
-                    DisclosureBullet("${preview?.inProgress?.toString() ?: "—"} in progress")
+                    Text(stringResource(R.string.common_we_ll_consider), style = MaterialTheme.typography.titleMedium)
+                    DisclosureBullet(pluralStringResource(R.plurals.library_books_in_your_library, preview?.totalBooks ?: 0, preview?.totalBooks?.toString() ?: "—"))
+                    DisclosureBullet(pluralStringResource(R.plurals.common_finished, preview?.finished ?: 0, preview?.finished?.toString() ?: "—"))
+                    DisclosureBullet(stringResource(R.string.common_in_progress, preview?.inProgress?.toString() ?: "—"))
                     val authors = preview?.topAuthors?.takeIf { it.isNotEmpty() }?.joinToString(" · ")
-                    DisclosureBullet("Top authors: ${authors ?: "—"}")
+                    DisclosureBullet(stringResource(R.string.common_top_authors, authors ?: "—"))
                 }
             }
         }
         item {
-            OutlinedButton(onClick = onGenerate) { Text("Generate insights") }
+            OutlinedButton(onClick = onGenerate) { Text(stringResource(R.string.common_generate_insights)) }
         }
     }
 }
@@ -218,8 +220,8 @@ private fun DisclosureBullet(text: String) {
 @Composable
 private fun LoadingScreen(padding: PaddingValues, state: LibraryInsightsUiState.Loading) {
     val label = when (state) {
-        LibraryInsightsUiState.Loading.PreflightSyncing -> "Syncing your library…"
-        LibraryInsightsUiState.Loading.Generating -> "Generating your profile… (~30s)"
+        LibraryInsightsUiState.Loading.PreflightSyncing -> stringResource(R.string.common_syncing_your_library)
+        LibraryInsightsUiState.Loading.Generating -> stringResource(R.string.library_generating_your_profile_30s)
     }
     Box(
         modifier = Modifier.fillMaxSize().padding(padding),
@@ -258,7 +260,7 @@ private fun LoadedScreen(
         if (loaded.stale) {
             item {
                 Text(
-                    "Profile may be out of date",
+                    stringResource(R.string.library_profile_may_be_out_of_date),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -267,8 +269,7 @@ private fun LoadedScreen(
         if (loaded.preflightFailed) {
             item {
                 Text(
-                    "Latest changes could not sync — recommendations may not " +
-                        "reflect your most recent reading.",
+                    stringResource(R.string.library_latest_changes_could_not_sync_recommendations_may),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -281,7 +282,7 @@ private fun LoadedScreen(
         }
         val inLibrary = loaded.profile.payload.inLibraryRecommendations
         if (inLibrary.isNotEmpty()) {
-            item { Text("From your library", style = MaterialTheme.typography.titleMedium) }
+            item { Text(stringResource(R.string.common_from_your_library), style = MaterialTheme.typography.titleMedium) }
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(inLibrary) { rec ->
@@ -296,7 +297,7 @@ private fun LoadedScreen(
         }
         val discovery = loaded.profile.payload.discoveryRecommendations
         if (discovery.isNotEmpty()) {
-            item { Text("Discovery", style = MaterialTheme.typography.titleMedium) }
+            item { Text(stringResource(R.string.common_discovery), style = MaterialTheme.typography.titleMedium) }
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(discovery) { rec ->
@@ -311,7 +312,7 @@ private fun LoadedScreen(
         }
         val aiSuggested = loaded.profile.payload.aiSuggestedRecommendations
         if (aiSuggested.isNotEmpty()) {
-            item { Text("Suggested by AI", style = MaterialTheme.typography.titleMedium) }
+            item { Text(stringResource(R.string.common_suggested_by_ai), style = MaterialTheme.typography.titleMedium) }
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(aiSuggested) { rec ->
@@ -340,16 +341,16 @@ private fun HeaderRow(
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(
-                "Last generated ${relativeTime(loaded.profile.generatedAt)} • ${loaded.profile.modelId}",
+                stringResource(R.string.library_last_generated, relativeTime(loaded.profile.generatedAt), loaded.profile.modelId),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
             )
-            TextButton(onClick = onRefresh, enabled = !loaded.refreshing) { Text("Refresh") }
+            TextButton(onClick = onRefresh, enabled = !loaded.refreshing) { Text(stringResource(R.string.common_refresh)) }
         }
         loaded.refreshedAt?.let {
             Text(
-                "Profile refreshed ${relativeFromNow(it)}",
+                stringResource(R.string.common_profile_refreshed, relativeFromNow(it)),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -369,15 +370,15 @@ private fun ReadingStatsCard(profile: ReaderProfileResponseDto) {
             modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("Your reading", style = MaterialTheme.typography.titleMedium)
-            StatRow("Books", stats.totalBooks.toString())
-            StatRow("Finished", stats.finishedCount.toString())
-            StatRow("In progress", stats.inProgressCount.toString())
-            StatRow("Abandoned", stats.abandonedCount.toString())
+            Text(stringResource(R.string.common_your_reading), style = MaterialTheme.typography.titleMedium)
+            StatRow(stringResource(R.string.common_books_2), stats.totalBooks.toString())
+            StatRow(stringResource(R.string.common_finished_2), stats.finishedCount.toString())
+            StatRow(stringResource(R.string.common_in_progress_2), stats.inProgressCount.toString())
+            StatRow(stringResource(R.string.common_abandoned), stats.abandonedCount.toString())
             val authors = stats.mostReadAuthors.take(5).joinToString(" · ") { it.name }
             if (authors.isNotBlank()) {
                 Text(
-                    "Top authors: $authors",
+                    stringResource(R.string.common_top_authors, authors),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -388,7 +389,7 @@ private fun ReadingStatsCard(profile: ReaderProfileResponseDto) {
                 .joinToString(" · ") { it.key.replace('_', ' ') }
             if (themes.isNotBlank()) {
                 Text(
-                    "Top themes: $themes",
+                    stringResource(R.string.common_top_themes, themes),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -408,7 +409,7 @@ private fun CoverageMeter(profile: ReaderProfileResponseDto) {
             modifier = Modifier.fillMaxWidth(),
         )
         Text(
-            "Themes available for $with of ${profile.payload.stats.totalBooks} books",
+            pluralStringResource(R.plurals.library_themes_available_for_of_books, profile.payload.stats.totalBooks, with, profile.payload.stats.totalBooks),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -426,7 +427,7 @@ private fun NarrativeCard(text: String) {
             modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("About your reading", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.common_about_your_reading), style = MaterialTheme.typography.titleMedium)
             Text(text, style = MaterialTheme.typography.bodyMedium)
         }
     }
@@ -484,7 +485,7 @@ private fun BookRecCard(
                     rec.sourceType == "in_library" && rec.identity != null -> {
                         OutlinedButton(
                             onClick = { onOpenBook(rec.identity!!) },
-                        ) { Text("Open in library") }
+                        ) { Text(stringResource(R.string.common_open_in_library)) }
                     }
                     rec.sourceType == "discovery_openlibrary" &&
                         rec.sourceUrl?.startsWith("https://") == true -> {
@@ -495,7 +496,7 @@ private fun BookRecCard(
                                 modifier = Modifier.width(16.dp).height(16.dp),
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Open in browser")
+                            Text(stringResource(R.string.common_open_in_browser))
                         }
                         Text(
                             extractHost(rec.sourceUrl!!),
@@ -514,7 +515,7 @@ private fun BookRecCard(
 @Composable
 private fun FooterAttribution(profile: ReaderProfileResponseDto) {
     Text(
-        "Generated ${profile.generatedAt} by ${profile.modelId}",
+        stringResource(R.string.common_generated_by, profile.generatedAt, profile.modelId),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -532,15 +533,15 @@ private fun ErrorScreen(
 ) {
     val (title, body) = when (error) {
         is LibraryInsightsUiState.Error.Network ->
-            "Couldn't reach the server" to error.detail
+            stringResource(R.string.library_couldn_t_reach_the_server) to error.detail
         LibraryInsightsUiState.Error.Timeout ->
-            "The server took too long to answer" to "It may still be generating; try again in a minute."
+            stringResource(R.string.library_the_server_took_too_long_to_answer) to stringResource(R.string.library_it_may_still_be_generating_try_again)
         is LibraryInsightsUiState.Error.RateLimit ->
-            "Daily refresh limit reached" to "Try again tomorrow."
+            stringResource(R.string.library_daily_refresh_limit_reached) to stringResource(R.string.common_try_again_tomorrow)
         LibraryInsightsUiState.Error.ModelFailure ->
-            "The AI model returned an error" to "Try refresh in a few minutes."
+            stringResource(R.string.library_the_ai_model_returned_an_error) to stringResource(R.string.library_try_refresh_in_a_few_minutes)
         LibraryInsightsUiState.Error.Unknown ->
-            "Something went wrong" to "Try again."
+            stringResource(R.string.common_something_went_wrong) to stringResource(R.string.common_try_again)
     }
     Box(
         modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
@@ -557,7 +558,7 @@ private fun ErrorScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (error.retryable) {
-                TextButton(onClick = onRetry) { Text("Retry") }
+                TextButton(onClick = onRetry) { Text(stringResource(R.string.common_retry)) }
             }
         }
     }
@@ -579,18 +580,7 @@ private fun relativeTime(iso: String): String =
         iso
     }
 
-private fun relativeFromNow(at: Instant, now: Instant = Instant.now()): String {
-    val d = Duration.between(at, now)
-    val abs = d.abs()
-    val mins = abs.toMinutes()
-    val hours = abs.toHours()
-    val days = abs.toDays()
-    val tense = if (d.isNegative) "in" else "ago"
-    val amount = when {
-        days >= 1 -> "${days}d"
-        hours >= 1 -> "${hours}h"
-        mins >= 1 -> "${mins}m"
-        else -> "moments"
-    }
-    return if (d.isNegative) "$tense $amount" else "$amount $tense"
-}
+private fun relativeFromNow(at: Instant, now: Instant = Instant.now()): String =
+    android.text.format.DateUtils.getRelativeTimeSpanString(
+        at.toEpochMilli(), now.toEpochMilli(), android.text.format.DateUtils.MINUTE_IN_MILLIS,
+    ).toString()

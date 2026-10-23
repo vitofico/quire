@@ -17,12 +17,15 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import io.theficos.ereader.ui.theme.QuireTheme
+import io.theficos.ereader.ui.localizedDescription
+import io.theficos.quire.R
 
 /**
  * First-launch landing screen. Three paths, in the order specified by the
@@ -54,13 +57,13 @@ fun WelcomeScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
-                    text = "Welcome to Quire",
+                    text = stringResource(R.string.common_welcome_to_quire),
                     style = MaterialTheme.typography.displaySmall,
                     textAlign = TextAlign.Center,
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "How would you like to read?",
+                    text = stringResource(R.string.onboarding_how_would_you_like_to_read),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
@@ -71,27 +74,25 @@ fun WelcomeScreen(
                     onClick = onConnectServer,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .semantics { contentDescription = "Connect to my server" },
+                        .localizedDescription(R.string.common_connect_to_my_server),
                 ) {
-                    Text("Connect to my server")
+                    Text(stringResource(R.string.common_connect_to_my_server))
                 }
                 Spacer(modifier = Modifier.height(12.dp))
                 OutlinedButton(
                     onClick = onCloudSignIn,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .semantics { contentDescription = "Sign in to Quire Cloud" },
+                        .localizedDescription(R.string.common_sign_in_to_quire_cloud),
                 ) {
-                    Text("Sign in to Quire Cloud")
+                    Text(stringResource(R.string.common_sign_in_to_quire_cloud))
                 }
                 Spacer(modifier = Modifier.height(24.dp))
                 TextButton(
                     onClick = onSkipOffline,
-                    modifier = Modifier.semantics {
-                        contentDescription = "Skip and use Quire offline only"
-                    },
+                    modifier = Modifier.localizedDescription(R.string.onboarding_skip_and_use_quire_offline_only),
                 ) {
-                    Text("Skip — use offline only")
+                    Text(stringResource(R.string.common_skip_use_offline_only))
                 }
             }
         }

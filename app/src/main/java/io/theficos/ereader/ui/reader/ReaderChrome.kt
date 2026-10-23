@@ -42,12 +42,15 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
+import io.theficos.ereader.ui.localizedDescription
+import io.theficos.quire.R
 
 @Composable
 fun ReaderTopBar(
@@ -90,7 +93,7 @@ fun ReaderTopBar(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.common_back))
                 }
                 Text(
                     text = title,
@@ -100,13 +103,13 @@ fun ReaderTopBar(
                     modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
                 )
                 IconButton(onClick = onDetails) {
-                    Icon(Icons.Outlined.Info, contentDescription = "Book details")
+                    Icon(Icons.Outlined.Info, contentDescription = stringResource(R.string.common_book_details))
                 }
                 // "Aa" is how reading apps label their type settings; it is the most used action
                 // here, so it gets a button of its own rather than a slot in an overflow menu.
                 IconButton(
                     onClick = onTypeSettings,
-                    modifier = Modifier.semantics { contentDescription = "Type and theme" },
+                    modifier = Modifier.localizedDescription(R.string.reader_type_and_theme),
                 ) {
                     Text(
                         text = "Aa",
@@ -203,7 +206,7 @@ fun ReaderBottomBar(
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
                             Text(
-                                text = "$pct%",
+                                text = stringResource(R.string.common_reading_percent, pct),
                                 style = MaterialTheme.typography.headlineSmall.copy(
                                     fontWeight = FontWeight.SemiBold,
                                 ),
@@ -222,7 +225,7 @@ fun ReaderBottomBar(
                             }
                             if (locationIndex != null && locationTotal != null) {
                                 Text(
-                                    text = "Location $locationIndex / $locationTotal",
+                                    text = stringResource(R.string.common_location, locationIndex, locationTotal),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -241,7 +244,7 @@ fun ReaderBottomBar(
                     modifier = Modifier.weight(1f),
                 )
                 Text(
-                    text = "$pct%",
+                    text = stringResource(R.string.common_reading_percent, pct),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

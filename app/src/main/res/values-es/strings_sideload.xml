@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="sideload_couldn_t_read_the_shared_file">"No se pudo leer el archivo compartido."</string>
+    <string name="sideload_already_in_your_library">"Ya está en tu biblioteca: %1$s"</string>
+    <string name="sideload_import_failed_try_again">"No se pudo importar. Inténtalo de nuevo."</string>
+</resources>

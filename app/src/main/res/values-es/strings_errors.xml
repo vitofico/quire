@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="error_cleartext_blocked">"Android bloquea las conexiones http:// sin cifrar, por lo que Quire no puede acceder a este servidor. Usa su dirección https://. Un certificado privado funciona si su autoridad de certificación está instalada en este dispositivo."</string>
+</resources>

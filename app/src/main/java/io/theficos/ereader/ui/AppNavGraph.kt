@@ -1,5 +1,7 @@
 package io.theficos.ereader.ui
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,13 +22,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
-import android.content.Intent
-import android.net.Uri
-import kotlinx.coroutines.launch
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -61,6 +61,8 @@ import io.theficos.ereader.ui.settings.LicensesScreen
 import io.theficos.ereader.ui.settings.SettingsScreen
 import io.theficos.ereader.ui.settings.SettingsViewModel
 import io.theficos.ereader.ui.theme.AppTheme
+import io.theficos.quire.R
+import kotlinx.coroutines.launch
 
 @Composable
 fun AppNavGraph(container: AppContainer, appTheme: AppTheme) {
@@ -388,10 +390,10 @@ private fun CatalogDetailUnavailable(onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                text = "This catalog entry is no longer available. Reload the catalog from the Catalog tab.",
+                text = stringResource(R.string.ui_this_catalog_entry_is_no_longer_available),
                 style = MaterialTheme.typography.bodyLarge,
             )
-            TextButton(onClick = onBack) { Text("Back") }
+            TextButton(onClick = onBack) { Text(stringResource(R.string.common_back)) }
         }
     }
 }

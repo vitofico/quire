@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="palette_paper">"Paper"</string>
+    <string name="palette_ink">"Ink"</string>
+    <string name="reader_type_and_theme">"Type and theme"</string>
+    <string name="reader_page_theme">"Page theme"</string>
+    <string name="appearance_mode">"Mode"</string>
+    <string name="appearance_light_theme">"Light theme"</string>
+    <string name="appearance_dark_theme">"Dark theme"</string>
+    <string name="common_book_details">"Book details"</string>
+    <string name="common_less">"Less"</string>
+    <string name="common_ai_insights">"AI insights"</string>
+    <string name="book_open">"Open book"</string>
+    <string name="book_start">"Start reading"</string>
+    <string name="book_not_started">"Not started"</string>
+    <string name="book_finished_on">"Finished on %1$s"</string>
+    <string name="book_abandoned_on">"Abandoned on %1$s"</string>
+    <string name="book_percent_read">"%1$d%% read"</string>
+    <string name="book_series_position">"%1$s, book %2$s"</string>
+    <string name="book_publisher">"Publisher"</string>
+    <string name="book_published">"Published"</string>
+    <string name="book_subjects">"Subjects"</string>
+    <string name="book_isbn">"ISBN"</string>
+    <string name="book_added">"Added"</string>
+    <string name="book_last_read">"Last read"</string>
+    <string name="book_file_size">"File size"</string>
+    <string name="library_finished_hidden">"Finished books hidden"</string>
+    <string name="library_completed_abandoned_hidden">"Abandoned and finished books hidden"</string>
+    <string name="library_all_visible">"All books visible"</string>
+    <string name="library_show_finished">"Show finished"</string>
+    <plurals name="library_filter_hiding_books">
+        <item quantity="one">"The filter is hiding %1$d book."</item>
+        <item quantity="other">"The filter is hiding all %1$d of your books."</item>
+    </plurals>
+</resources>

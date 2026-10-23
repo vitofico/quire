@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="palette_paper">"Papier"</string>
+    <string name="palette_ink">"Encre"</string>
+    <string name="reader_type_and_theme">"Typographie et thème"</string>
+    <string name="reader_page_theme">"Thème de la page"</string>
+    <string name="appearance_mode">"Mode"</string>
+    <string name="appearance_light_theme">"Thème clair"</string>
+    <string name="appearance_dark_theme">"Thème sombre"</string>
+    <string name="common_book_details">"Détails du livre"</string>
+    <string name="common_less">"Moins"</string>
+    <string name="common_ai_insights">"Analyses IA"</string>
+    <string name="book_open">"Ouvrir le livre"</string>
+    <string name="book_start">"Commencer la lecture"</string>
+    <string name="book_not_started">"Non commencé"</string>
+    <string name="book_finished_on">"Terminé le %1$s"</string>
+    <string name="book_abandoned_on">"Abandonné le %1$s"</string>
+    <string name="book_percent_read">"%1$d%% lu"</string>
+    <string name="book_series_position">"%1$s, tome %2$s"</string>
+    <string name="book_publisher">"Éditeur"</string>
+    <string name="book_published">"Publication"</string>
+    <string name="book_subjects">"Sujets"</string>
+    <string name="book_isbn">"ISBN"</string>
+    <string name="book_added">"Ajout"</string>
+    <string name="book_last_read">"Dernière lecture"</string>
+    <string name="book_file_size">"Taille du fichier"</string>
+    <string name="library_finished_hidden">"Livres terminés masqués"</string>
+    <string name="library_completed_abandoned_hidden">"Livres abandonnés et terminés masqués"</string>
+    <string name="library_all_visible">"Tous les livres sont visibles"</string>
+    <string name="library_show_finished">"Afficher les livres terminés"</string>
+    <plurals name="library_filter_hiding_books">
+        <item quantity="one">"Le filtre masque %1$d livre."</item>
+        <item quantity="other">"Le filtre masque vos %1$d livres."</item>
+        <item quantity="many">"Le filtre masque vos %1$d livres."</item>
+    </plurals>
+</resources>

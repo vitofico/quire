@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="onboarding_quire_cloud_is_coming_soon">"Quire Cloud kommt bald"</string>
+    <string name="onboarding_we_re_not_ready_to_take_cloud">"Cloud-Registrierungen sind noch nicht verfügbar. Du kannst dich mit einem selbst gehosteten calibre-web oder quire_server verbinden oder Quire vollständig offline verwenden."</string>
+    <string name="onboarding_paste_the_url_of_your_calibre_web">"Füge die URL deines calibre-web- oder Quire-Servers ein. Wir erkennen den Servertyp."</string>
+    <string name="onboarding_we_couldn_t_recognize_that_server">"Dieser Server wurde nicht erkannt"</string>
+    <string name="onboarding_check_the_url_including_any_subpath_and">"Prüfe die URL einschließlich eventueller Unterpfade und versuche es erneut."</string>
+    <string name="onboarding_quire_can_browse_download_and_read_from">"Quire kann diesen Katalog durchsuchen, Bücher herunterladen und lesen und deine Leseposition auf diesem Gerät speichern."</string>
+    <string name="onboarding_reading_progress_won_t_sync_between_devices">"Der Lesefortschritt wird nicht zwischen Geräten synchronisiert und die KI-Funktionen bleiben deaktiviert. Beides erfordert einen Quire-Server, den dieser Katalog nicht bereitstellt."</string>
+    <string name="onboarding_if_this_is_a_calibre_web_server">"Falls dies ein calibre-web-Server ist, gehe zurück und gib seine Adresse statt der Feed-URL ein. Dann kannst du auch synchronisieren."</string>
+    <string name="onboarding_this_catalog_asked_for_a_username_and">"Dieser Katalog verlangt einen Benutzernamen und ein Passwort."</string>
+    <string name="onboarding_two_account_types_detected">"Zwei Kontotypen erkannt"</string>
+    <string name="onboarding_this_url_looks_like_both_a_calibre">"Diese URL scheint sowohl zu einem calibre-web- als auch zu einem Quire-Server zu gehören. Welches Konto möchtest du verwenden?"</string>
+    <string name="onboarding_calibre_web_username_password">"calibre-web (Benutzername + Passwort)"</string>
+    <string name="onboarding_quire_server_email_password">"Quire-Server (E-Mail + Passwort)"</string>
+    <string name="onboarding_unexpected_verification_result">"Unerwartetes Prüfergebnis."</string>
+    <string name="onboarding_that_url_answered_but_it_isn_t">"Diese URL antwortet, ist aber kein OPDS-Katalog mit Inhalten, die Quire anzeigen kann."</string>
+    <string name="onboarding_the_catalog_rejected_those_credentials">"Der Katalog hat die Zugangsdaten abgelehnt."</string>
+    <string name="onboarding_server_error_try_again_later">"Serverfehler %1$s. Versuche es später erneut."</string>
+    <string name="onboarding_unexpected_response_from_the_catalog">"Unerwartete Antwort %1$s vom Katalog."</string>
+    <string name="onboarding_username_or_password_rejected_by_the_server">"Der Server hat den Benutzernamen oder das Passwort abgelehnt."</string>
+    <string name="onboarding_this_server_asked_for_a_username_and">"Dieser Server verlangt einen Benutzernamen und ein Passwort, hat aber keinen Katalog unter /opds. Wahrscheinlich ist es kein calibre-web. Falls es Komga oder ein anderer OPDS-Server ist, gehe zurück und gib die vollständige Katalog-URL ein."</string>
+    <string name="onboarding_unexpected_response_from_opds">"Unerwartete Antwort %1$s von /opds."</string>
+    <string name="onboarding_server_returned_200_but_the_response_didn">"Der Server hat 200 zurückgegeben, aber die Antwort enthielt kein Token."</string>
+    <string name="onboarding_email_or_password_rejected_by_the_server">"Der Server hat die E-Mail oder das Passwort abgelehnt."</string>
+    <string name="onboarding_unexpected_response_from_auth_v1_login">"Unerwartete Antwort %1$s von /auth/v1/login."</string>
+    <string name="onboarding_that_doesn_t_look_like_a_valid">"Diese URL scheint ungültig zu sein. Beginne mit http:// oder https://."</string>
+    <string name="onboarding_we_couldn_t_verify_the_server_s">"Das TLS-Zertifikat des Servers konnte nicht geprüft werden. Prüfe die URL oder dein Netzwerk. (%1$s)"</string>
+    <string name="onboarding_we_couldn_t_resolve_that_hostname_check">"Dieser Hostname konnte nicht aufgelöst werden. Prüfe die URL und deine Verbindung."</string>
+    <string name="onboarding_the_server_refused_the_connection_is_it">"Der Server hat die Verbindung abgelehnt. Läuft er und ist er erreichbar?"</string>
+    <string name="onboarding_the_server_didn_t_respond_in_time">"Der Server hat nicht rechtzeitig geantwortet. Prüfe dein Netzwerk und versuche es erneut."</string>
+    <string name="onboarding_the_server_redirected_us_somewhere_unexpected_try">"Der Server hat auf ein unerwartetes Ziel umgeleitet. Versuche es direkt mit der endgültigen URL der Weiterleitung."</string>
+    <string name="onboarding_couldn_t_reach_the_server">"Der Server ist nicht erreichbar: %1$s"</string>
+    <string name="onboarding_how_would_you_like_to_read">"Wie möchtest du lesen?"</string>
+    <string name="onboarding_skip_and_use_quire_offline_only">"Überspringen und Quire nur offline verwenden"</string>
+</resources>

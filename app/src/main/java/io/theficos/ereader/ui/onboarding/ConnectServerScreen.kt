@@ -3,8 +3,8 @@ package io.theficos.ereader.ui.onboarding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -32,6 +32,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
@@ -44,6 +45,8 @@ import io.theficos.ereader.data.opds.ServerProbeResult
 import io.theficos.ereader.ui.components.QuireCard
 import io.theficos.ereader.ui.components.SectionLabel
 import io.theficos.ereader.ui.theme.QuireTheme
+import io.theficos.ereader.ui.localizedDescription
+import io.theficos.quire.R
 
 /**
  * URL-input + auto-probe + credential-entry screen.
@@ -80,12 +83,11 @@ fun ConnectServerScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(
-                text = "Connect to your server",
+                text = stringResource(R.string.common_connect_to_your_server),
                 style = MaterialTheme.typography.headlineMedium,
             )
             Text(
-                text = "Paste the URL of your calibre-web or Quire server. " +
-                    "We'll figure out which one it is.",
+                text = stringResource(R.string.onboarding_paste_the_url_of_your_calibre_web),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -101,7 +103,7 @@ fun ConnectServerScreen(
                     }
                     url = it
                 },
-                label = { Text("Server URL") },
+                label = { Text(stringResource(R.string.common_server_url)) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Uri,
@@ -111,7 +113,7 @@ fun ConnectServerScreen(
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .semantics { contentDescription = "Server URL" },
+                    .localizedDescription(R.string.common_server_url),
             )
 
             val canProbe = state !is ConnectServerViewModel.UiState.Probing &&
@@ -122,7 +124,7 @@ fun ConnectServerScreen(
                 enabled = canProbe,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("Probe server")
+                Text(stringResource(R.string.common_probe_server))
             }
 
             ResultPanel(
@@ -134,7 +136,7 @@ fun ConnectServerScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
             TextButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) {
-                Text("Back to start")
+                Text(stringResource(R.string.common_back_to_start))
             }
         }
     }
@@ -158,12 +160,12 @@ private fun ResultPanel(
             when (val probe = state.probe) {
                 is ServerProbeResult.Calibre -> BasicCredentialCard(
                     canonicalBaseUrl = probe.canonicalBaseUrl,
-                    headline = "Calibre-web detected",
+                    headline = stringResource(R.string.common_calibre_web_detected),
                     onSubmit = onVerifyBasic,
                 )
                 is ServerProbeResult.NativeAuth -> BearerCredentialCard(
                     canonicalBaseUrl = probe.canonicalBaseUrl,
-                    headline = "Quire server detected",
+                    headline = stringResource(R.string.common_quire_server_detected),
                     onSubmit = onVerifyBearer,
                 )
                 is ServerProbeResult.Both -> AmbiguousChoiceCard(
@@ -179,7 +181,7 @@ private fun ResultPanel(
                 is ServerProbeResult.Unknown -> QuireCard(modifier = Modifier.fillMaxWidth()) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            "We couldn't recognize that server",
+                            stringResource(R.string.onboarding_we_couldn_t_recognize_that_server),
                             style = MaterialTheme.typography.titleMedium,
                         )
                         Text(
@@ -188,7 +190,7 @@ private fun ResultPanel(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Text(
-                            "Check the URL (including any subpath) and try again.",
+                            stringResource(R.string.onboarding_check_the_url_including_any_subpath_and),
                             style = MaterialTheme.typography.bodyMedium,
                         )
                     }
@@ -196,11 +198,11 @@ private fun ResultPanel(
                 is ServerProbeResult.Error -> QuireCard(modifier = Modifier.fillMaxWidth()) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            "Couldn't reach the server",
+                            stringResource(R.string.library_couldn_t_reach_the_server),
                             style = MaterialTheme.typography.titleMedium,
                         )
                         Text(
-                            probeErrorMessage(probe.reason, probe.message),
+                            probeErrorMessage(probe.reason, probe.message).asString(),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -209,16 +211,16 @@ private fun ResultPanel(
             }
         }
         ConnectServerViewModel.UiState.Verifying -> QuireCard(modifier = Modifier.fillMaxWidth()) {
-            ProbingRow(rawUrl = "Signing you in…")
+            ProbingRow(rawUrl = stringResource(R.string.common_signing_you_in))
         }
         is ConnectServerViewModel.UiState.VerificationFailed -> QuireCard(modifier = Modifier.fillMaxWidth()) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    "Couldn't sign in",
+                    stringResource(R.string.common_couldn_t_sign_in),
                     style = MaterialTheme.typography.titleMedium,
                 )
                 Text(
-                    state.message,
+                    state.message.asString(),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -264,7 +266,7 @@ private fun BasicCredentialCard(
             OutlinedTextField(
                 value = username,
                 onValueChange = { username = it },
-                label = { Text("calibre-web username") },
+                label = { Text(stringResource(R.string.common_calibre_web_username)) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Text,
@@ -274,12 +276,12 @@ private fun BasicCredentialCard(
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .semantics { contentDescription = "Username" },
+                    .localizedDescription(R.string.common_username),
             )
             OutlinedTextField(
                 value = password,
                 onValueChange = { password = it },
-                label = { Text("Password") },
+                label = { Text(stringResource(R.string.common_password)) },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(
@@ -289,13 +291,13 @@ private fun BasicCredentialCard(
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .semantics { contentDescription = "Password" },
+                    .localizedDescription(R.string.common_password),
             )
             Button(
                 onClick = { onSubmit(canonicalBaseUrl, username, password) },
                 enabled = username.isNotBlank() && password.isNotBlank(),
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Sign in") }
+            ) { Text(stringResource(R.string.common_sign_in)) }
         }
     }
 }
@@ -320,7 +322,7 @@ private fun BearerCredentialCard(
             OutlinedTextField(
                 value = email,
                 onValueChange = { email = it },
-                label = { Text("Email") },
+                label = { Text(stringResource(R.string.common_email)) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Email,
@@ -330,12 +332,12 @@ private fun BearerCredentialCard(
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .semantics { contentDescription = "Email" },
+                    .localizedDescription(R.string.common_email),
             )
             OutlinedTextField(
                 value = password,
                 onValueChange = { password = it },
-                label = { Text("Password") },
+                label = { Text(stringResource(R.string.common_password)) },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(
@@ -345,13 +347,13 @@ private fun BearerCredentialCard(
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .semantics { contentDescription = "Password" },
+                    .localizedDescription(R.string.common_password),
             )
             Button(
                 onClick = { onSubmit(canonicalBaseUrl, email, password) },
                 enabled = email.isNotBlank() && password.isNotBlank(),
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Sign in") }
+            ) { Text(stringResource(R.string.common_sign_in)) }
         }
     }
 }
@@ -367,35 +369,31 @@ private fun GenericOpdsCard(
 
     QuireCard(modifier = Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("OPDS catalog detected", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.common_opds_catalog_detected), style = MaterialTheme.typography.titleMedium)
             Text(
-                "Quire can browse, download and read from this catalog, and it " +
-                    "will remember your place on this device.",
+                stringResource(R.string.onboarding_quire_can_browse_download_and_read_from),
                 style = MaterialTheme.typography.bodyMedium,
             )
             Text(
-                "Reading progress won't sync between devices, and the AI features " +
-                    "stay off: both of those need a Quire server, which this " +
-                    "catalog doesn't provide.",
+                stringResource(R.string.onboarding_reading_progress_won_t_sync_between_devices),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                "If this is a calibre-web server, go back and enter its address " +
-                    "instead of the feed URL, and you'll get sync too.",
+                stringResource(R.string.onboarding_if_this_is_a_calibre_web_server),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (requiresAuth) {
                 Text(
-                    "This catalog asked for a username and password.",
+                    stringResource(R.string.onboarding_this_catalog_asked_for_a_username_and),
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
             OutlinedTextField(
                 value = username,
                 onValueChange = { username = it },
-                label = { Text("Username (optional)") },
+                label = { Text(stringResource(R.string.common_username_optional)) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Text,
@@ -405,12 +403,12 @@ private fun GenericOpdsCard(
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .semantics { contentDescription = "Catalog username" },
+                    .localizedDescription(R.string.common_catalog_username),
             )
             OutlinedTextField(
                 value = password,
                 onValueChange = { password = it },
-                label = { Text("Password (optional)") },
+                label = { Text(stringResource(R.string.common_password_optional)) },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(
@@ -420,7 +418,7 @@ private fun GenericOpdsCard(
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .semantics { contentDescription = "Catalog password" },
+                    .localizedDescription(R.string.common_catalog_password),
             )
             Button(
                 onClick = {
@@ -434,7 +432,7 @@ private fun GenericOpdsCard(
                 // then fail with an unexplained 401.
                 enabled = username.isBlank() == password.isBlank(),
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Connect") }
+            ) { Text(stringResource(R.string.common_connect)) }
         }
     }
 }
@@ -448,10 +446,9 @@ private fun AmbiguousChoiceCard(
     var choice by rememberSaveable { mutableStateOf<AmbiguousChoice?>(null) }
     QuireCard(modifier = Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            SectionLabel("Two account types detected")
+            SectionLabel(stringResource(R.string.onboarding_two_account_types_detected))
             Text(
-                "This URL looks like both a calibre-web and a Quire server. " +
-                    "Which account do you want to use?",
+                stringResource(R.string.onboarding_this_url_looks_like_both_a_calibre),
                 style = MaterialTheme.typography.bodyMedium,
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -459,24 +456,24 @@ private fun AmbiguousChoiceCard(
                     selected = choice == AmbiguousChoice.Basic,
                     onClick = { choice = AmbiguousChoice.Basic },
                 )
-                Text("calibre-web (username + password)")
+                Text(stringResource(R.string.onboarding_calibre_web_username_password))
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 RadioButton(
                     selected = choice == AmbiguousChoice.Bearer,
                     onClick = { choice = AmbiguousChoice.Bearer },
                 )
-                Text("Quire server (email + password)")
+                Text(stringResource(R.string.onboarding_quire_server_email_password))
             }
             when (choice) {
                 AmbiguousChoice.Basic -> BasicCredentialCard(
                     canonicalBaseUrl = canonicalBaseUrl,
-                    headline = "calibre-web",
+                    headline = stringResource(R.string.common_calibre_web),
                     onSubmit = onVerifyBasic,
                 )
                 AmbiguousChoice.Bearer -> BearerCredentialCard(
                     canonicalBaseUrl = canonicalBaseUrl,
-                    headline = "Quire server",
+                    headline = stringResource(R.string.common_quire_server),
                     onSubmit = onVerifyBearer,
                 )
                 null -> Unit
@@ -500,9 +497,9 @@ private fun ConnectServerScreenIdlePreview() {
             // the same panel pieces with hand-built state.
             Surface(modifier = Modifier.fillMaxSize()) {
                 Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text("Connect to your server", style = MaterialTheme.typography.headlineMedium)
-                    OutlinedTextField(value = "https://", onValueChange = {}, label = { Text("Server URL") })
-                    Button(onClick = {}, modifier = Modifier.fillMaxWidth()) { Text("Probe server") }
+                    Text(stringResource(R.string.common_connect_to_your_server), style = MaterialTheme.typography.headlineMedium)
+                    OutlinedTextField(value = "https://", onValueChange = {}, label = { Text(stringResource(R.string.common_server_url)) })
+                    Button(onClick = {}, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.common_probe_server)) }
                 }
             }
         }
@@ -517,7 +514,7 @@ private fun ConnectServerScreenCalibrePreview() {
             Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 BasicCredentialCard(
                     canonicalBaseUrl = "https://calibre.example.com",
-                    headline = "Calibre-web detected",
+                    headline = stringResource(R.string.common_calibre_web_detected),
                     onSubmit = { _, _, _ -> },
                 )
             }
@@ -533,7 +530,7 @@ private fun ConnectServerScreenBearerPreview() {
             Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 BearerCredentialCard(
                     canonicalBaseUrl = "https://quire.example.com",
-                    headline = "Quire server detected",
+                    headline = stringResource(R.string.common_quire_server_detected),
                     onSubmit = { _, _, _ -> },
                 )
             }

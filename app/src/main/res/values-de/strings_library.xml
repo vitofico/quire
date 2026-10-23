@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_generate_your_reader_profile">"Dein Leseprofil erstellen"</string>
+    <string name="library_we_ll_send_a_summary_of_your">"Wir senden eine Zusammenfassung deiner Bibliothek an %1$s und verwenden %2$s. Du behältst die Kontrolle über deine Lesedaten."</string>
+    <plurals name="library_books_in_your_library">
+        <item quantity="one">"%1$s Buch in deiner Bibliothek"</item>
+        <item quantity="other">"%1$s Bücher in deiner Bibliothek"</item>
+    </plurals>
+    <string name="library_generating_your_profile_30s">"Dein Profil wird erstellt… (~30 Sek.)"</string>
+    <string name="library_profile_may_be_out_of_date">"Das Profil ist möglicherweise veraltet"</string>
+    <string name="library_latest_changes_could_not_sync_recommendations_may">"Die letzten Änderungen konnten nicht synchronisiert werden. Empfehlungen berücksichtigen möglicherweise nicht deine neuesten Leseaktivitäten."</string>
+    <string name="library_last_generated">"Zuletzt erstellt: %1$s • %2$s"</string>
+    <plurals name="library_themes_available_for_of_books">
+        <item quantity="one">"Themen für %1$s von %2$s Buch verfügbar"</item>
+        <item quantity="other">"Themen für %1$s von %2$s Büchern verfügbar"</item>
+    </plurals>
+    <string name="library_couldn_t_reach_the_server">"Der Server ist nicht erreichbar"</string>
+    <string name="library_the_server_took_too_long_to_answer">"Der Server hat zu lange für die Antwort gebraucht"</string>
+    <string name="library_it_may_still_be_generating_try_again">"Die Generierung läuft möglicherweise noch. Versuche es in einer Minute erneut."</string>
+    <string name="library_daily_refresh_limit_reached">"Tägliches Aktualisierungslimit erreicht"</string>
+    <string name="library_the_ai_model_returned_an_error">"Das KI-Modell hat einen Fehler gemeldet"</string>
+    <string name="library_try_refresh_in_a_few_minutes">"Versuche es in einigen Minuten erneut."</string>
+    <string name="library_ai_insights_are_turned_off_enable_in">"KI-Einblicke sind deaktiviert. Aktiviere sie unter Einstellungen → KI, um dein Leseprofil anzuzeigen oder zu erstellen."</string>
+    <string name="library_reader_profile_is_off_opt_in_from">"Das Leseprofil ist deaktiviert. Stimme unter Einstellungen → KI zu, um dein Profil zu erstellen."</string>
+    <string name="library_library_mirror_isn_t_enabled_on_this">"Die Bibliotheksspiegelung ist auf diesem Server nicht aktiviert. Verbinde zuerst deine Bibliothek."</string>
+    <string name="library_couldn_t_sync_restart_will_retry">"Der Neustart konnte nicht synchronisiert werden. Ein neuer Versuch folgt."</string>
+    <string name="library_book_details_and_ai_insights">"Buchdetails und KI-Einblicke"</string>
+    <string name="library_no_matches_in_your_library">"Keine Treffer in deiner Bibliothek"</string>
+    <string name="library_will_be_marked_as_unread_and_synced">"„%1$s“ wird als ungelesen markiert und mit deinen anderen Geräten synchronisiert."</string>
+    <string name="library_also_delete_the_downloaded_copy">"Heruntergeladene Kopie ebenfalls löschen"</string>
+    <string name="library_will_be_removed_from_your_library_and">"„%1$s“ wird aus deiner Bibliothek entfernt und die heruntergeladene Datei gelöscht. Der Lesefortschritt geht verloren."</string>
+    <string name="library_open_the_catalog_tab_to_find_books">"Öffne den Tab Katalog, um Bücher zu finden, oder importiere eine EPUB-Datei."</string>
+    <string name="library_reconnected_on_a_new_device_bring_back">"Auf einem neuen Gerät angemeldet? Hole die Bücher zurück, die du gerade gelesen hast."</string>
+    <string name="library_restore_in_progress_books">"Angefangene Bücher wiederherstellen"</string>
+    <string name="library_no_authors_yet_add_books_to_your">"Noch keine Autoren. Füge deiner Bibliothek Bücher hinzu."</string>
+    <string name="library_no_themes_yet_open_a_book_to">"Noch keine Themen. Öffne ein Buch, um Einblicke zu erstellen, oder erstelle ältere Einblicke erneut."</string>
+    <string name="library_couldn_t_reach_the_server_2">"Der Server ist nicht erreichbar: %1$s."</string>
+    <string name="library_sign_in_to_your_calibre_web_instance">"Melde dich bei deiner calibre-web-Instanz an, um die Statistik zu sehen."</string>
+    <string name="library_library_stats_aren_t_available_on_this">"Die Bibliotheksstatistik ist auf diesem Server nicht verfügbar."</string>
+    <string name="library_couldn_t_load_stats_http">"Die Statistik konnte nicht geladen werden (HTTP %1$s)."</string>
+    <string name="library_continue_your_series_shelf">"Regal zum Weiterlesen deiner Reihen"</string>
+    <string name="library_series_book">"%1$s · Band %2$s"</string>
+</resources>

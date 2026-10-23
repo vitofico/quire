@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="sideload_couldn_t_read_the_shared_file">"Die geteilte Datei konnte nicht gelesen werden."</string>
+    <string name="sideload_already_in_your_library">"Bereits in deiner Bibliothek: %1$s"</string>
+    <string name="sideload_import_failed_try_again">"Import fehlgeschlagen. Versuche es erneut."</string>
+</resources>

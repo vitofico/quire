@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="catalogdetail_this_catalog_didn_t_include_a_description">"Ce catalogue ne contient pas de description pour ce livre."</string>
+</resources>

@@ -25,12 +25,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.theficos.ereader.data.library.AffinityResponse
+import io.theficos.ereader.ui.affinityBandLabel
 import io.theficos.ereader.ui.bookdetail.InsightSection
 import io.theficos.ereader.ui.bookdetail.InsightUiState
 import io.theficos.ereader.ui.components.CoverImage
 import io.theficos.ereader.ui.components.QuireCard
+import io.theficos.ereader.ui.readingStatusLabel
+import io.theficos.quire.R
 
 /**
  * Scan-result screen.
@@ -59,12 +63,12 @@ fun ScanResultScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Scan result") },
+                title = { Text(stringResource(R.string.common_scan_result)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
+                            contentDescription = stringResource(R.string.common_back),
                         )
                     }
                 },
@@ -120,7 +124,7 @@ fun ScanResultScreen(
                 enabled = viewModel.insightAvailable() && insight !is InsightUiState.Loading,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("Get full insight")
+                Text(stringResource(R.string.common_get_full_insight))
             }
 
             InsightSection(insight, onRetry = { viewModel.retryInsight() })
@@ -134,10 +138,10 @@ fun ScanResultScreen(
 private fun OwnedBanner(readingStatus: String) {
     QuireCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
         Column {
-            Text("Already in your library", style = MaterialTheme.typography.titleSmall)
+            Text(stringResource(R.string.common_already_in_your_library), style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(4.dp))
             Text(
-                "Status: ${readingStatus.replace('_', ' ')}",
+                stringResource(R.string.common_status, readingStatusLabel(readingStatus)),
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
@@ -149,20 +153,20 @@ private fun AffinityCard(affinity: AffinityResponse) {
     QuireCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
         Column {
             if (affinity.band == "unknown") {
-                Text("Affinity", style = MaterialTheme.typography.titleSmall)
+                Text(stringResource(R.string.common_affinity), style = MaterialTheme.typography.titleSmall)
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "Not enough history yet to score this for you.",
+                    stringResource(R.string.scan_not_enough_history_yet_to_score_this),
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 return@Column
             }
 
             val header = buildString {
-                append(affinity.band.replaceFirstChar { it.uppercase() })
+                append(affinityBandLabel(affinity.band).asString())
                 affinity.score?.let { append(" · $it") }
             }
-            Text("Affinity", style = MaterialTheme.typography.titleSmall)
+            Text(stringResource(R.string.common_affinity), style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(4.dp))
             Text(header, style = MaterialTheme.typography.titleMedium)
             if (affinity.reasons.isNotEmpty()) {
@@ -187,10 +191,10 @@ private fun AffinityCard(affinity: AffinityResponse) {
 private fun AffinityUnavailableCard() {
     QuireCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
         Column {
-            Text("Affinity", style = MaterialTheme.typography.titleSmall)
+            Text(stringResource(R.string.common_affinity), style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(4.dp))
             Text(
-                "Affinity scoring isn't available on this server.",
+                stringResource(R.string.scan_affinity_scoring_isn_t_available_on_this),
                 style = MaterialTheme.typography.bodyMedium,
             )
         }

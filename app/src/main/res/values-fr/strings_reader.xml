@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="reader_paragraph_indent_default">"Retrait de paragraphe : par défaut"</string>
+    <string name="reader_paragraph_spacing_default">"Espacement des paragraphes : par défaut"</string>
+    <string name="reader_use_the_book_s_paragraph_styling">"Utiliser le style de paragraphes du livre"</string>
+    <string name="reader_keeps_the_book_s_own_line_spacing">"Conserve l’interligne, le retrait et l’espacement des paragraphes du livre. Désactivez cette option pour les modifier."</string>
+    <string name="reader_tap_left_or_right_edges_to_flip">"Touchez le bord gauche ou droit pour tourner les pages"</string>
+    <string name="reader_hide_the_status_and_navigation_bars_while">"Masquer les barres d’état et de navigation pendant la lecture"</string>
+    <string name="reader_sepia">"Sépia"</string>
+    <string name="reader_dark_sepia">"Sépia sombre"</string>
+</resources>

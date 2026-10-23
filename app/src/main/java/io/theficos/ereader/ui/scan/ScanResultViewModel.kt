@@ -4,8 +4,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.theficos.ereader.core.model.DocumentIdentity
 import io.theficos.ereader.data.ai.AiRepository
+import io.theficos.ereader.ui.UiText
 import io.theficos.ereader.ui.bookdetail.InsightUiState
 import io.theficos.ereader.ui.bookdetail.insightErrorMessage
+import io.theficos.ereader.ui.uiText
+import io.theficos.quire.R
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -44,7 +47,7 @@ class ScanResultViewModel(
             return
         }
         val isbn13 = data.isbn13.takeIf { it.isNotBlank() } ?: run {
-            _insight.value = InsightUiState.Error("Couldn't generate insights.")
+            _insight.value = InsightUiState.Error(uiText(R.string.bookdetail_couldn_t_generate_insights_2))
             return
         }
         val identity = DocumentIdentity(metadataId = "isbn:$isbn13", isbn = isbn13)

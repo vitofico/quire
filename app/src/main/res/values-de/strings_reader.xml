@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="reader_paragraph_indent_default">"Absatzeinzug: Standard"</string>
+    <string name="reader_paragraph_spacing_default">"Absatzabstand: Standard"</string>
+    <string name="reader_use_the_book_s_paragraph_styling">"Absatzformatierung des Buches verwenden"</string>
+    <string name="reader_keeps_the_book_s_own_line_spacing">"Behält Zeilenabstand, Einzug und Absatzabstand des Buches bei. Deaktiviere diese Option, um sie anzupassen."</string>
+    <string name="reader_tap_left_or_right_edges_to_flip">"Tippe auf den linken oder rechten Rand, um umzublättern"</string>
+    <string name="reader_hide_the_status_and_navigation_bars_while">"Status- und Navigationsleiste beim Lesen ausblenden"</string>
+    <string name="reader_sepia">"Sepia"</string>
+    <string name="reader_dark_sepia">"Dunkles Sepia"</string>
+</resources>

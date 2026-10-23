@@ -14,13 +14,17 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.theficos.ereader.core.model.Document
+import io.theficos.ereader.ui.UiText
 import io.theficos.ereader.ui.components.CoverImage
 import io.theficos.ereader.ui.components.SectionLabel
+import io.theficos.ereader.ui.uiText
+import io.theficos.quire.R
 
 /**
  * Horizontal "Continue your series" shelf shown above the main library grid
@@ -37,13 +41,14 @@ fun SeriesContinuationShelf(
 ) {
     if (books.isEmpty()) return
 
+    val shelfDescription = stringResource(SHELF_CONTENT_DESCRIPTION)
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .semantics { contentDescription = SHELF_CONTENT_DESCRIPTION },
+            .semantics { contentDescription = shelfDescription },
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        SectionLabel(SHELF_HEADER)
+        SectionLabel(stringResource(SHELF_HEADER))
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(vertical = 4.dp),
@@ -87,7 +92,7 @@ private fun SeriesShelfItem(
         val seriesLabel = buildSeriesLabel(book.seriesName, book.seriesIndex)
         if (seriesLabel != null) {
             Text(
-                text = seriesLabel,
+                text = seriesLabel.asString(),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -97,15 +102,12 @@ private fun SeriesShelfItem(
     }
 }
 
-internal const val SHELF_HEADER: String = "Continue your series"
-internal const val SHELF_CONTENT_DESCRIPTION: String = "Continue your series shelf"
+internal val SHELF_HEADER: Int = R.string.common_continue_your_series
+internal val SHELF_CONTENT_DESCRIPTION: Int = R.string.library_continue_your_series_shelf
 
-internal fun buildSeriesLabel(seriesName: String?, seriesIndex: Double?): String? {
+internal fun buildSeriesLabel(seriesName: String?, seriesIndex: Double?): UiText? {
     val name = seriesName?.takeIf { it.isNotBlank() } ?: return null
-    val bookN = seriesIndex?.let { idx ->
-        // Render whole numbers without ".0" (1.0 -> "1", 2.5 -> "2.5").
-        if (idx == idx.toLong().toDouble()) " · Book ${idx.toLong()}"
-        else " · Book $idx"
-    } ?: ""
-    return "$name$bookN"
+    val index = seriesIndex ?: return UiText.Dynamic(name)
+    val number = if (index == index.toLong().toDouble()) index.toLong().toString() else index.toString()
+    return uiText(R.string.library_series_book, name, number)
 }

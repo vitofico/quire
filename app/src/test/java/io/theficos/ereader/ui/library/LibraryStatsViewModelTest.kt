@@ -6,6 +6,7 @@ import io.theficos.ereader.data.library.LibraryHttpException
 import io.theficos.ereader.data.library.LibraryStatsResponse
 import io.theficos.ereader.data.library.TopAuthor
 import io.theficos.ereader.data.library.TopTheme
+import io.theficos.ereader.ui.englishContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -15,8 +16,13 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 @OptIn(ExperimentalCoroutinesApi::class)
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [33], application = android.app.Application::class)
 class LibraryStatsViewModelTest {
     private val dispatcher = StandardTestDispatcher()
 
@@ -53,7 +59,7 @@ class LibraryStatsViewModelTest {
             vm.load()
             val err = awaitItem()
             assertThat(err).isInstanceOf(LibraryStatsUiState.Error::class.java)
-            assertThat((err as LibraryStatsUiState.Error).message).contains("503")
+            assertThat((err as LibraryStatsUiState.Error).message.asString(englishContext())).contains("503")
         }
     }
 
@@ -64,7 +70,7 @@ class LibraryStatsViewModelTest {
             awaitItem() // Loading
             vm.load()
             val err = awaitItem() as LibraryStatsUiState.Error
-            assertThat(err.message).contains("Sign in")
+            assertThat(err.message.asString(englishContext())).contains("Sign in")
         }
     }
 
@@ -75,7 +81,7 @@ class LibraryStatsViewModelTest {
             awaitItem() // Loading
             vm.load()
             val err = awaitItem() as LibraryStatsUiState.Error
-            assertThat(err.message).contains("aren't available")
+            assertThat(err.message.asString(englishContext())).contains("aren't available")
         }
     }
 

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="palette_paper">"Papel"</string>
+    <string name="palette_ink">"Tinta"</string>
+    <string name="reader_type_and_theme">"Tipografía y tema"</string>
+    <string name="reader_page_theme">"Tema de la página"</string>
+    <string name="appearance_mode">"Modo"</string>
+    <string name="appearance_light_theme">"Tema claro"</string>
+    <string name="appearance_dark_theme">"Tema oscuro"</string>
+    <string name="common_book_details">"Detalles del libro"</string>
+    <string name="common_less">"Menos"</string>
+    <string name="common_ai_insights">"Análisis de IA"</string>
+    <string name="book_open">"Abrir libro"</string>
+    <string name="book_start">"Empezar a leer"</string>
+    <string name="book_not_started">"Sin empezar"</string>
+    <string name="book_finished_on">"Terminado el %1$s"</string>
+    <string name="book_abandoned_on">"Abandonado el %1$s"</string>
+    <string name="book_percent_read">"%1$d%% leído"</string>
+    <string name="book_series_position">"%1$s, libro %2$s"</string>
+    <string name="book_publisher">"Editorial"</string>
+    <string name="book_published">"Publicado"</string>
+    <string name="book_subjects">"Temas"</string>
+    <string name="book_isbn">"ISBN"</string>
+    <string name="book_added">"Añadido"</string>
+    <string name="book_last_read">"Última lectura"</string>
+    <string name="book_file_size">"Tamaño del archivo"</string>
+    <string name="library_finished_hidden">"Libros terminados ocultos"</string>
+    <string name="library_completed_abandoned_hidden">"Libros abandonados y terminados ocultos"</string>
+    <string name="library_all_visible">"Todos los libros visibles"</string>
+    <string name="library_show_finished">"Mostrar terminados"</string>
+    <plurals name="library_filter_hiding_books">
+        <item quantity="one">"El filtro está ocultando %1$d libro."</item>
+        <item quantity="other">"El filtro está ocultando tus %1$d libros."</item>
+        <item quantity="many">"El filtro está ocultando tus %1$d libros."</item>
+    </plurals>
+</resources>

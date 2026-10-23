@@ -1,5 +1,7 @@
 package io.theficos.ereader.ui.components
 
+import io.theficos.quire.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -47,7 +49,7 @@ fun BookDescription(raw: String?, modifier: Modifier = Modifier) {
         )
         if (overflows) {
             TextButton(onClick = { expanded = !expanded }) {
-                Text(if (expanded) "Less" else "More")
+                Text(if (expanded) stringResource(R.string.common_less) else stringResource(R.string.common_more))
             }
         }
     }

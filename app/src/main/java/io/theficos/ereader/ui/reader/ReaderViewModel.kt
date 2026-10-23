@@ -7,14 +7,18 @@ import io.theficos.ereader.core.model.Progress
 import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.ProgressRepository
 import io.theficos.ereader.reader.EpubAsset
+import io.theficos.ereader.reader.PAGE_START_ANCHOR_JS
 import io.theficos.ereader.reader.ProgressTracker
 import io.theficos.ereader.reader.ReaderPreferences
 import io.theficos.ereader.reader.ReaderPreferencesStore
-import io.theficos.ereader.reader.PAGE_START_ANCHOR_JS
 import io.theficos.ereader.reader.ReadiumFactory
 import io.theficos.ereader.reader.locatorAtPercent
 import io.theficos.ereader.reader.parsePageStartAnchor
 import io.theficos.ereader.reader.resizeAnchor
+import io.theficos.ereader.ui.UiText
+import io.theficos.ereader.ui.uiText
+import io.theficos.quire.R
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -29,7 +33,6 @@ import org.readium.r2.navigator.epub.EpubNavigatorFragment
 import org.readium.r2.shared.publication.Locator
 import org.readium.r2.shared.publication.Publication
 import org.readium.r2.shared.publication.services.positions
-import java.io.File
 
 class ReaderViewModel(
     private val documentId: Long,
@@ -112,13 +115,13 @@ class ReaderViewModel(
     fun load() {
         viewModelScope.launch {
             val doc = docs.findById(documentId) ?: run {
-                _state.value = ReaderUiState.Error("Document not found")
+                _state.value = ReaderUiState.Error(uiText(R.string.common_document_not_found))
                 return@launch
             }
             val publication = runCatching {
                 readium.open(EpubAsset(doc.id, File(doc.localPath), doc.title))
             }.getOrElse {
-                _state.value = ReaderUiState.Error(it.message ?: "Failed to open book")
+                _state.value = ReaderUiState.Error(it.message?.let(UiText::Dynamic) ?: uiText(R.string.common_failed_to_open_book))
                 return@launch
             }
             val savedProgress = progress.get(doc.id)
@@ -329,7 +332,7 @@ private const val ANCHOR_PIN_MS = 1_500L
 
 sealed interface ReaderUiState {
     data object Loading : ReaderUiState
-    data class Error(val message: String) : ReaderUiState
+    data class Error(val message: UiText) : ReaderUiState
     data class Open(
         val document: Document,
         val publication: Publication,

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="onboarding_quire_cloud_is_coming_soon">"Quire Cloud is coming soon"</string>
+    <string name="onboarding_we_re_not_ready_to_take_cloud">"We\'re not ready to take cloud sign-ups yet. For now, you can connect to a self-hosted calibre-web or quire_server, or use Quire entirely offline."</string>
+    <string name="onboarding_paste_the_url_of_your_calibre_web">"Paste the URL of your calibre-web or Quire server. We\'ll figure out which one it is."</string>
+    <string name="onboarding_we_couldn_t_recognize_that_server">"We couldn\'t recognize that server"</string>
+    <string name="onboarding_check_the_url_including_any_subpath_and">"Check the URL (including any subpath) and try again."</string>
+    <string name="onboarding_quire_can_browse_download_and_read_from">"Quire can browse, download and read from this catalog, and it will remember your place on this device."</string>
+    <string name="onboarding_reading_progress_won_t_sync_between_devices">"Reading progress won\'t sync between devices, and the AI features stay off: both of those need a Quire server, which this catalog doesn\'t provide."</string>
+    <string name="onboarding_if_this_is_a_calibre_web_server">"If this is a calibre-web server, go back and enter its address instead of the feed URL, and you\'ll get sync too."</string>
+    <string name="onboarding_this_catalog_asked_for_a_username_and">"This catalog asked for a username and password."</string>
+    <string name="onboarding_two_account_types_detected">"Two account types detected"</string>
+    <string name="onboarding_this_url_looks_like_both_a_calibre">"This URL looks like both a calibre-web and a Quire server. Which account do you want to use?"</string>
+    <string name="onboarding_calibre_web_username_password">"calibre-web (username + password)"</string>
+    <string name="onboarding_quire_server_email_password">"Quire server (email + password)"</string>
+    <string name="onboarding_unexpected_verification_result">"Unexpected verification result."</string>
+    <string name="onboarding_that_url_answered_but_it_isn_t">"That URL answered, but it isn\'t an OPDS catalog with anything Quire can show."</string>
+    <string name="onboarding_the_catalog_rejected_those_credentials">"The catalog rejected those credentials."</string>
+    <string name="onboarding_server_error_try_again_later">"Server error %1$s. Try again later."</string>
+    <string name="onboarding_unexpected_response_from_the_catalog">"Unexpected response %1$s from the catalog."</string>
+    <string name="onboarding_username_or_password_rejected_by_the_server">"Username or password rejected by the server."</string>
+    <string name="onboarding_this_server_asked_for_a_username_and">"This server asked for a username and password, but it has no catalog at /opds, so it probably isn\'t calibre-web. If it\'s Komga or another OPDS server, go back and enter its full catalog URL instead."</string>
+    <string name="onboarding_unexpected_response_from_opds">"Unexpected response %1$s from /opds."</string>
+    <string name="onboarding_server_returned_200_but_the_response_didn">"Server returned 200 but the response didn\'t include a token."</string>
+    <string name="onboarding_email_or_password_rejected_by_the_server">"Email or password rejected by the server."</string>
+    <string name="onboarding_unexpected_response_from_auth_v1_login">"Unexpected response %1$s from /auth/v1/login."</string>
+    <string name="onboarding_that_doesn_t_look_like_a_valid">"That doesn\'t look like a valid URL. Start with http:// or https://."</string>
+    <string name="onboarding_we_couldn_t_verify_the_server_s">"We couldn\'t verify the server\'s TLS certificate. Check the URL or your network. (%1$s)"</string>
+    <string name="onboarding_we_couldn_t_resolve_that_hostname_check">"We couldn\'t resolve that hostname. Check the URL and your connection."</string>
+    <string name="onboarding_the_server_refused_the_connection_is_it">"The server refused the connection. Is it running and reachable?"</string>
+    <string name="onboarding_the_server_didn_t_respond_in_time">"The server didn\'t respond in time. Check your network and try again."</string>
+    <string name="onboarding_the_server_redirected_us_somewhere_unexpected_try">"The server redirected us somewhere unexpected. Try the redirect\'s final URL directly."</string>
+    <string name="onboarding_couldn_t_reach_the_server">"Couldn\'t reach the server: %1$s"</string>
+    <string name="onboarding_how_would_you_like_to_read">"How would you like to read?"</string>
+    <string name="onboarding_skip_and_use_quire_offline_only">"Skip and use Quire offline only"</string>
+</resources>

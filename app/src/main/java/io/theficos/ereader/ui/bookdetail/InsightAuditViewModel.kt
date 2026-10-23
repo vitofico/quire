@@ -8,6 +8,9 @@ import io.theficos.ereader.data.ai.AiRepository
 import io.theficos.ereader.data.ai.AiStyle
 import io.theficos.ereader.data.ai.BookInsightResponse
 import io.theficos.ereader.data.local.DocumentRepository
+import io.theficos.ereader.ui.UiText
+import io.theficos.ereader.ui.uiText
+import io.theficos.quire.R
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -57,14 +60,14 @@ class InsightAuditViewModel(
             val currentStyle: AiStyle?,
         ) : State
         data object NotCached : State
-        data class Error(val message: String) : State
+        data class Error(val message: UiText) : State
         data object Invalidating : State
         data object Done : State
     }
 
     sealed interface Event {
         data object Invalidated : Event
-        data class InvalidateFailed(val message: String) : Event
+        data class InvalidateFailed(val message: UiText) : Event
     }
 
     private val _state = MutableStateFlow<State>(State.Loading)
@@ -105,7 +108,7 @@ class InsightAuditViewModel(
                 return
             }
         if (identity == null) {
-            _state.value = State.Error("Book not found.")
+            _state.value = State.Error(uiText(R.string.common_book_not_found))
             return
         }
         runCatching { source.getCachedInsight(identity) }
@@ -123,14 +126,14 @@ class InsightAuditViewModel(
             .onFailure { e -> _state.value = State.Error(loadErrorMessage(e)) }
     }
 
-    private fun loadErrorMessage(e: Throwable): String = when (e) {
-        is AiHttpException -> "Couldn't read cached insight (${e.code})."
-        else -> "Couldn't read cached insight."
+    private fun loadErrorMessage(e: Throwable): UiText = when (e) {
+        is AiHttpException -> uiText(R.string.bookdetail_couldn_t_read_cached_insight, e.code)
+        else -> uiText(R.string.bookdetail_couldn_t_read_cached_insight_2)
     }
 
-    private fun invalidateErrorMessage(e: Throwable): String = when (e) {
-        is AiHttpException -> "Couldn't invalidate (${e.code})."
-        else -> "Couldn't invalidate."
+    private fun invalidateErrorMessage(e: Throwable): UiText = when (e) {
+        is AiHttpException -> uiText(R.string.bookdetail_couldn_t_invalidate, e.code)
+        else -> uiText(R.string.common_couldn_t_invalidate)
     }
 }
 

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bookdetail_no_insight_cached_for_this_book_yet">"Aucune analyse en cache pour ce livre. Ouvrez les détails du livre pour en générer une."</string>
+    <string name="bookdetail_invalidate_cached_insight">"Invalider l’analyse en cache"</string>
+    <string name="bookdetail_invalidating_this_insight_removes_the_cached_ai">"Invalider cette analyse supprime la réponse de l’IA en cache. En revenant aux détails du livre, une nouvelle analyse sera générée. Cela peut prendre quelques secondes et consomme une de vos générations quotidiennes."</string>
+    <string name="bookdetail_couldn_t_read_cached_insight">"Impossible de lire l’analyse en cache (%1$s)."</string>
+    <string name="bookdetail_couldn_t_read_cached_insight_2">"Impossible de lire l’analyse en cache."</string>
+    <string name="bookdetail_couldn_t_invalidate">"Impossible d’invalider (%1$s)."</string>
+    <string name="bookdetail_series_book">"%1$s · tome %2$s"</string>
+    <string name="bookdetail_you_ve_reached_today_s_regeneration_limit">"Vous avez atteint la limite de régénérations du jour. Réessayez après le %1$s."</string>
+    <string name="bookdetail_couldn_t_generate_insights">"Impossible de générer les analyses (%1$s)."</string>
+    <string name="bookdetail_you_ve_reached_today_s_regeneration_limit_2">"Vous avez atteint la limite de régénérations du jour. Réessayez demain."</string>
+    <string name="bookdetail_the_server_took_too_long_to_answer">"Le serveur a mis trop de temps à répondre. La génération est peut-être encore en cours ; réessayez dans une minute."</string>
+    <string name="bookdetail_couldn_t_reach_the_server_check_the">"Impossible de joindre le serveur. Vérifiez l’URL de synchronisation et votre connexion."</string>
+    <string name="bookdetail_couldn_t_generate_insights_2">"Impossible de générer les analyses."</string>
+</resources>

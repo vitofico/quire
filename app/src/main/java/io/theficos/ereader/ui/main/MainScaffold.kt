@@ -1,5 +1,6 @@
 package io.theficos.ereader.ui.main
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.LibraryBooks
@@ -18,11 +19,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
+import io.theficos.quire.R
 
-enum class Tab(val label: String, val icon: ImageVector) {
-    LIBRARY("Library", Icons.Outlined.LibraryBooks),
-    CATALOG("Catalog", Icons.Outlined.Storefront),
-    SETTINGS("Settings", Icons.Outlined.Settings),
+enum class Tab(@StringRes val label: Int, val icon: ImageVector) {
+    LIBRARY(R.string.common_library_2, Icons.Outlined.LibraryBooks),
+    CATALOG(R.string.common_catalog, Icons.Outlined.Storefront),
+    SETTINGS(R.string.common_settings, Icons.Outlined.Settings),
 }
 
 @Composable
@@ -41,8 +44,8 @@ fun MainScaffold(
                     NavigationBarItem(
                         selected = current == tab,
                         onClick = { current = tab },
-                        icon = { Icon(tab.icon, contentDescription = tab.label) },
-                        label = { Text(tab.label) },
+                        icon = { Icon(tab.icon, contentDescription = stringResource(tab.label)) },
+                        label = { Text(stringResource(tab.label)) },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = MaterialTheme.colorScheme.primary,
                             selectedTextColor = MaterialTheme.colorScheme.primary,

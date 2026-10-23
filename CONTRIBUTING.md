@@ -17,6 +17,13 @@ project; please read this before opening a PR.
   however their server does, and in exchange they get no server-backed
   features at all.
 
+## Translations
+
+Translation fixes and new languages are welcome. See the
+[translation guide](docs/translating.md) for the XML-only workflow, scaffold
+command, glossary and checks. Translations follow the same license and CLA
+requirements as other contributions.
+
 ## Development setup
 
 See [`docs/development.md`](docs/development.md). Short version:

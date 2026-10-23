@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="onboarding_quire_cloud_is_coming_soon">"Quire Cloud llegará pronto"</string>
+    <string name="onboarding_we_re_not_ready_to_take_cloud">"Aún no aceptamos registros en la nube. Por ahora puedes conectarte a un calibre-web o quire_server autohospedado, o usar Quire totalmente sin conexión."</string>
+    <string name="onboarding_paste_the_url_of_your_calibre_web">"Pega la URL de tu servidor calibre-web o Quire. Detectaremos de qué tipo es."</string>
+    <string name="onboarding_we_couldn_t_recognize_that_server">"No se pudo reconocer ese servidor"</string>
+    <string name="onboarding_check_the_url_including_any_subpath_and">"Comprueba la URL (incluidas las subrutas) e inténtalo de nuevo."</string>
+    <string name="onboarding_quire_can_browse_download_and_read_from">"Quire puede explorar, descargar y leer libros de este catálogo, y guardará tu posición de lectura en este dispositivo."</string>
+    <string name="onboarding_reading_progress_won_t_sync_between_devices">"El progreso de lectura no se sincronizará entre dispositivos y las funciones de IA seguirán desactivadas: ambas cosas requieren un servidor Quire, que este catálogo no proporciona."</string>
+    <string name="onboarding_if_this_is_a_calibre_web_server">"Si es un servidor calibre-web, vuelve atrás e introduce su dirección en lugar de la URL del catálogo para disponer también de sincronización."</string>
+    <string name="onboarding_this_catalog_asked_for_a_username_and">"Este catálogo solicita un usuario y una contraseña."</string>
+    <string name="onboarding_two_account_types_detected">"Se han detectado dos tipos de cuenta"</string>
+    <string name="onboarding_this_url_looks_like_both_a_calibre">"Esta URL parece ser tanto un servidor calibre-web como un servidor Quire. ¿Qué cuenta quieres usar?"</string>
+    <string name="onboarding_calibre_web_username_password">"calibre-web (usuario + contraseña)"</string>
+    <string name="onboarding_quire_server_email_password">"Servidor Quire (correo + contraseña)"</string>
+    <string name="onboarding_unexpected_verification_result">"Resultado de verificación inesperado."</string>
+    <string name="onboarding_that_url_answered_but_it_isn_t">"Esa URL responde, pero no es un catálogo OPDS con contenido que Quire pueda mostrar."</string>
+    <string name="onboarding_the_catalog_rejected_those_credentials">"El catálogo ha rechazado las credenciales."</string>
+    <string name="onboarding_server_error_try_again_later">"Error del servidor %1$s. Inténtalo más tarde."</string>
+    <string name="onboarding_unexpected_response_from_the_catalog">"Respuesta inesperada %1$s del catálogo."</string>
+    <string name="onboarding_username_or_password_rejected_by_the_server">"El servidor ha rechazado el usuario o la contraseña."</string>
+    <string name="onboarding_this_server_asked_for_a_username_and">"Este servidor solicita un usuario y una contraseña, pero no tiene un catálogo en /opds, así que probablemente no sea calibre-web. Si es Komga u otro servidor OPDS, vuelve atrás e introduce la URL completa de su catálogo."</string>
+    <string name="onboarding_unexpected_response_from_opds">"Respuesta inesperada %1$s de /opds."</string>
+    <string name="onboarding_server_returned_200_but_the_response_didn">"El servidor devolvió 200, pero la respuesta no incluía un token."</string>
+    <string name="onboarding_email_or_password_rejected_by_the_server">"El servidor ha rechazado el correo o la contraseña."</string>
+    <string name="onboarding_unexpected_response_from_auth_v1_login">"Respuesta inesperada %1$s de /auth/v1/login."</string>
+    <string name="onboarding_that_doesn_t_look_like_a_valid">"Esa URL no parece válida. Debe empezar por http:// o https://."</string>
+    <string name="onboarding_we_couldn_t_verify_the_server_s">"No se pudo verificar el certificado TLS del servidor. Comprueba la URL o tu red. (%1$s)"</string>
+    <string name="onboarding_we_couldn_t_resolve_that_hostname_check">"No se pudo resolver ese nombre de servidor. Comprueba la URL y tu conexión."</string>
+    <string name="onboarding_the_server_refused_the_connection_is_it">"El servidor rechazó la conexión. ¿Está en funcionamiento y es accesible?"</string>
+    <string name="onboarding_the_server_didn_t_respond_in_time">"El servidor no respondió a tiempo. Comprueba tu red e inténtalo de nuevo."</string>
+    <string name="onboarding_the_server_redirected_us_somewhere_unexpected_try">"El servidor redirigió a un destino inesperado. Prueba directamente con la URL final de la redirección."</string>
+    <string name="onboarding_couldn_t_reach_the_server">"No se pudo conectar con el servidor: %1$s"</string>
+    <string name="onboarding_how_would_you_like_to_read">"¿Cómo quieres leer?"</string>
+    <string name="onboarding_skip_and_use_quire_offline_only">"Omitir y usar Quire solo sin conexión"</string>
+</resources>

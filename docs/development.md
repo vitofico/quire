@@ -78,6 +78,21 @@ scripts/dgradle :core:identity:test          # one module
 Identity fixtures live in `core/identity/src/test/resources` and mirror the
 Python fixtures in `server/tests/`. If you change one, change the other.
 
+### Interface translations
+
+English UI copy lives in `app/src/main/res/values/strings*.xml`. Spanish,
+Italian, French and German have matching feature files in `values-xx/`.
+Add languages with `scripts/new-translation <qualifier>`; AGP discovers them
+and generates the Android per-app language configuration. Keep app-owned
+sentences in these resources. ViewModels carry `UiText` resource references,
+resolved at display time so a locale change does not leave cached English copy.
+Server diagnostics and book/catalog content remain dynamic text.
+
+`StringParityTest` runs in the normal test suite and validates every locale's
+keys, nonblank values, format arguments, plurals and arrays. `UiTextTest` checks
+actual Android resource selection, formatting and fallback. See the
+[translation guide](translating.md) for contributor instructions.
+
 ### Lint
 
 ```sh

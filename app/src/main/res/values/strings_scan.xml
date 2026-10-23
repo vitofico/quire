@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="scan_not_enough_history_yet_to_score_this">"Not enough history yet to score this for you."</string>
+    <string name="scan_affinity_scoring_isn_t_available_on_this">"Affinity scoring isn\'t available on this server."</string>
+    <string name="scan_camera_permission_denied_enter_the_isbn_below">"Camera permission denied. Enter the ISBN below, or grant camera access in Settings to scan the barcode."</string>
+    <string name="scan_camera_unavailable_enter_the_isbn_below">"Camera unavailable. Enter the ISBN below."</string>
+    <string name="scan_that_doesn_t_look_like_a_valid">"That doesn\'t look like a valid ISBN."</string>
+    <string name="scan_no_book_found_for_that_isbn_try">"No book found for that ISBN. Try the barcode again or check the digits."</string>
+    <string name="scan_your_session_expired_sign_in_again_then">"Your session expired. Sign in again, then re-scan."</string>
+</resources>

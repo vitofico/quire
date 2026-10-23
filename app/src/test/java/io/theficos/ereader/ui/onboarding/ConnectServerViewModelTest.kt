@@ -6,6 +6,7 @@ import com.google.common.truth.Truth.assertThat
 import io.theficos.ereader.auth.AccountCredentials
 import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.ui.catalog.FakeAndroidKeyStore
+import io.theficos.ereader.ui.englishContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -129,7 +130,7 @@ class ConnectServerViewModelTest {
         advanceUntilIdle()
 
         val state = vm.state.value as ConnectServerViewModel.UiState.VerificationFailed
-        assertThat(state.message).contains("rejected")
+        assertThat(state.message.asString(englishContext())).contains("rejected")
         assertThat(store.getAccount()).isNull()
     }
 
@@ -140,7 +141,7 @@ class ConnectServerViewModelTest {
         advanceUntilIdle()
 
         val state = vm.state.value as ConnectServerViewModel.UiState.VerificationFailed
-        assertThat(state.message).doesNotContain("SUPER-SECRET")
+        assertThat(state.message.asString(englishContext())).doesNotContain("SUPER-SECRET")
     }
 
     @Test fun `a 404 from the calibre verification suggests pasting the catalog url`() = runTest {
@@ -151,8 +152,8 @@ class ConnectServerViewModelTest {
         advanceUntilIdle()
 
         val state = vm.state.value as ConnectServerViewModel.UiState.VerificationFailed
-        assertThat(state.message).contains("catalog URL")
-        assertThat(state.message).doesNotContain("Unexpected response")
+        assertThat(state.message.asString(englishContext())).contains("catalog URL")
+        assertThat(state.message.asString(englishContext())).doesNotContain("Unexpected response")
         assertThat(store.getAccount()).isNull()
     }
 
@@ -163,6 +164,6 @@ class ConnectServerViewModelTest {
         advanceUntilIdle()
 
         val state = vm.state.value as ConnectServerViewModel.UiState.VerificationFailed
-        assertThat(state.message).contains("418")
+        assertThat(state.message.asString(englishContext())).contains("418")
     }
 }

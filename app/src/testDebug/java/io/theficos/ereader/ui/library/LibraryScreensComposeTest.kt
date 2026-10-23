@@ -6,6 +6,7 @@ import androidx.compose.ui.test.onNodeWithText
 import io.theficos.ereader.data.library.LibraryStatsResponse
 import io.theficos.ereader.data.library.TopAuthor
 import io.theficos.ereader.data.library.TopTheme
+import io.theficos.ereader.ui.englishContext
 import kotlinx.coroutines.CompletableDeferred
 import org.junit.Rule
 import org.junit.Test
@@ -45,7 +46,7 @@ class LibraryScreensComposeTest {
         }
 
         composeRule
-            .onNodeWithText(LibraryInsightsUiState.Disabled.AiOff.message)
+            .onNodeWithText(LibraryInsightsUiState.Disabled.AiOff.message.asString(englishContext()))
             .assertIsDisplayed()
         composeRule.onNodeWithText("Open AI settings").assertIsDisplayed()
         composeRule.onNodeWithText("Library insights").assertIsDisplayed()
