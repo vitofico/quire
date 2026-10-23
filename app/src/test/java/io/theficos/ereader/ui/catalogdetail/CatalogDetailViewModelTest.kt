@@ -1,5 +1,10 @@
 package io.theficos.ereader.ui.catalogdetail
 
+import io.theficos.ereader.ui.englishContext
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+
 import app.cash.turbine.test
 import com.google.common.truth.Truth.assertThat
 import io.theficos.ereader.core.metadata.MetadataBundle
@@ -26,6 +31,8 @@ import org.junit.Before
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [33], application = android.app.Application::class)
 class CatalogDetailViewModelTest {
 
     private val publication = OpdsPublication(
@@ -192,7 +199,7 @@ class CatalogDetailViewModelTest {
         vm.state.test {
             var s = awaitItem()
             while (s.insight !is InsightUiState.Error) s = awaitItem()
-            assertThat((s.insight as InsightUiState.Error).message).isNotEmpty()
+            assertThat((s.insight as InsightUiState.Error).message.asString(englishContext())).isNotEmpty()
             cancelAndIgnoreRemainingEvents()
         }
     }
@@ -289,7 +296,7 @@ class CatalogDetailViewModelTest {
         vm.state.test {
             var s = awaitItem()
             while (s.insight !is InsightUiState.Error) s = awaitItem()
-            assertThat((s.insight as InsightUiState.Error).message).contains("502")
+            assertThat((s.insight as InsightUiState.Error).message.asString(englishContext())).contains("502")
             cancelAndIgnoreRemainingEvents()
         }
     }
@@ -313,7 +320,7 @@ class CatalogDetailViewModelTest {
         vm.state.test {
             var s = awaitItem()
             while (s.insight !is InsightUiState.Error) s = awaitItem()
-            assertThat((s.insight as InsightUiState.Error).message)
+            assertThat((s.insight as InsightUiState.Error).message.asString(englishContext()))
                 .startsWith("The AI provider did not answer within 120 seconds.")
             cancelAndIgnoreRemainingEvents()
         }

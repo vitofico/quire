@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="error_cleartext_blocked">"Android blocca le connessioni http:// non cifrate, quindi Quire non può raggiungere questo server. Usa il suo indirizzo https://. Un certificato privato funziona se la relativa autorità di certificazione è installata su questo dispositivo."</string>
+</resources>

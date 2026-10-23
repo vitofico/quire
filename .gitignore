@@ -20,3 +20,6 @@ captures/
 
 # Internal design specs and implementation plans (kept locally as reference)
 docs/superpowers/
+
+# Python translation-helper tests
+scripts/**/__pycache__/

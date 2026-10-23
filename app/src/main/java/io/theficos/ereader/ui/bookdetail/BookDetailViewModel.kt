@@ -13,6 +13,7 @@ import io.theficos.ereader.data.ai.Citation
 import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.ProgressRepository
 import kotlinx.coroutines.Dispatchers
+import io.theficos.ereader.ui.UiText
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,7 +26,7 @@ sealed interface InsightUiState {
     data object Hidden : InsightUiState
     data object Loading : InsightUiState
     data class Loaded(val payload: BookInsightPayload, val sources: List<Citation>) : InsightUiState
-    data class Error(val message: String) : InsightUiState
+    data class Error(val message: UiText) : InsightUiState
 }
 
 data class BookDetailState(

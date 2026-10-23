@@ -55,6 +55,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -62,6 +63,7 @@ import io.theficos.ereader.data.opds.OpdsPublication
 import io.theficos.ereader.ui.components.CoverImage
 import io.theficos.ereader.ui.components.CoverInfoButton
 import io.theficos.ereader.ui.components.SectionLabel
+import io.theficos.quire.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -84,7 +86,7 @@ fun CatalogScreen(
             CatalogUiState.Idle -> {}
             CatalogUiState.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
             is CatalogUiState.Error -> Text(
-                s.message,
+                s.message.asString(),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.align(Alignment.Center).padding(24.dp),
@@ -120,7 +122,7 @@ fun CatalogScreen(
                 .align(Alignment.BottomEnd)
                 .padding(16.dp),
         ) {
-            Icon(Icons.Default.QrCodeScanner, contentDescription = "Scan a book")
+            Icon(Icons.Default.QrCodeScanner, contentDescription = stringResource(R.string.common_scan_a_book))
         }
     }
 }
@@ -151,7 +153,7 @@ private fun Loaded(
     ) {
         item(span = { GridItemSpan(maxLineSpan) }) {
             Header(
-                title = state.feed.title.takeUnless { it.isBlank() } ?: "Catalog",
+                title = state.feed.title.takeUnless { it.isBlank() } ?: stringResource(R.string.common_catalog),
                 canGoBack = state.canGoBack,
                 onBack = onBack,
             )
@@ -164,14 +166,14 @@ private fun Loaded(
         if (state.error != null) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Text(
-                    text = "Download error: ${state.error}",
+                    text = stringResource(R.string.common_download_error, state.error?.asString().orEmpty()),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
         }
         if (state.feed.navigation.isNotEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }) { SectionLabel("Sections") }
+            item(span = { GridItemSpan(maxLineSpan) }) { SectionLabel(stringResource(R.string.common_sections)) }
             navigationItems(state, onNavigate)
         }
         if (publications.isNotEmpty()) {
@@ -219,14 +221,14 @@ private fun Loaded(
                             ) {
                                 Icon(
                                     Icons.Default.Check,
-                                    contentDescription = "Downloaded",
+                                    contentDescription = stringResource(R.string.common_downloaded),
                                     tint = MaterialTheme.colorScheme.onPrimary,
                                     modifier = Modifier.align(Alignment.Center).size(14.dp),
                                 )
                             }
                             else -> Icon(
                                 Icons.Default.FileDownload,
-                                contentDescription = "Download",
+                                contentDescription = stringResource(R.string.common_download),
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
@@ -240,7 +242,7 @@ private fun Loaded(
                         // at TopEnd).
                         CoverInfoButton(
                             onClick = { onShowDetails(pub) },
-                            contentDescription = "Details",
+                            contentDescription = stringResource(R.string.common_details),
                             modifier = Modifier.align(Alignment.TopStart),
                         )
                     }
@@ -267,10 +269,10 @@ private fun Loaded(
 
 }
 
-private val catalogSortLabels: List<Pair<CatalogSort, String>> = listOf(
-    CatalogSort.AUTHOR to "Author",
-    CatalogSort.TITLE to "Title",
-    CatalogSort.AS_SHOWN to "As shown",
+private val catalogSortLabels: List<Pair<CatalogSort, Int>> = listOf(
+    CatalogSort.AUTHOR to R.string.common_author,
+    CatalogSort.TITLE to R.string.common_title,
+    CatalogSort.AS_SHOWN to R.string.common_as_shown,
 )
 
 @Composable
@@ -283,11 +285,11 @@ private fun CatalogBooksHeader(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        SectionLabel("Books · $count", modifier = Modifier.weight(1f))
+        SectionLabel(stringResource(R.string.common_books, count), modifier = Modifier.weight(1f))
         var sortMenuOpen by rememberSaveable { mutableStateOf(false) }
         Box {
             IconButton(onClick = { sortMenuOpen = true }) {
-                Icon(Icons.Filled.Sort, contentDescription = "Sort")
+                Icon(Icons.Filled.Sort, contentDescription = stringResource(R.string.common_sort))
             }
             DropdownMenu(
                 expanded = sortMenuOpen,
@@ -295,7 +297,7 @@ private fun CatalogBooksHeader(
             ) {
                 catalogSortLabels.forEach { (key, label) ->
                     DropdownMenuItem(
-                        text = { Text(label) },
+                        text = { Text(stringResource(label)) },
                         leadingIcon = if (sort == key) {
                             { Icon(Icons.Filled.Check, contentDescription = null) }
                         } else null,
@@ -324,7 +326,7 @@ private fun Header(
             ) {
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
+                    contentDescription = stringResource(R.string.common_back),
                     tint = MaterialTheme.colorScheme.onSurface,
                 )
             }
@@ -347,12 +349,12 @@ private fun SearchField(onSearch: (String) -> Unit) {
     OutlinedTextField(
         value = query,
         onValueChange = { query = it },
-        placeholder = { Text("Search this catalog") },
+        placeholder = { Text(stringResource(R.string.common_search_this_catalog)) },
         leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
         trailingIcon = {
             if (query.isNotEmpty()) {
                 IconButton(onClick = { query = "" }) {
-                    Icon(Icons.Default.Close, contentDescription = "Clear")
+                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.common_clear))
                 }
             }
         },

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bookdetail_no_insight_cached_for_this_book_yet">"Für dieses Buch ist noch kein Einblick gespeichert. Öffne die Buchdetails, um einen zu erstellen."</string>
+    <string name="bookdetail_invalidate_cached_insight">"Gespeicherten Einblick verwerfen"</string>
+    <string name="bookdetail_invalidating_this_insight_removes_the_cached_ai">"Dadurch wird die gespeicherte KI-Antwort entfernt. Wenn du die Buchdetails erneut öffnest, wird ein neuer Einblick erstellt. Das kann einige Sekunden dauern und verbraucht eine deiner täglichen Generierungen."</string>
+    <string name="bookdetail_couldn_t_read_cached_insight">"Gespeicherter Einblick konnte nicht gelesen werden (%1$s)."</string>
+    <string name="bookdetail_couldn_t_read_cached_insight_2">"Gespeicherter Einblick konnte nicht gelesen werden."</string>
+    <string name="bookdetail_couldn_t_invalidate">"Verwerfen fehlgeschlagen (%1$s)."</string>
+    <string name="bookdetail_series_book">"%1$s · Band %2$s"</string>
+    <string name="bookdetail_you_ve_reached_today_s_regeneration_limit">"Du hast das heutige Limit für Neugenerierungen erreicht. Versuche es nach dem %1$s erneut."</string>
+    <string name="bookdetail_couldn_t_generate_insights">"Einblicke konnten nicht erstellt werden (%1$s)."</string>
+    <string name="bookdetail_you_ve_reached_today_s_regeneration_limit_2">"Du hast das heutige Limit für Neugenerierungen erreicht. Versuche es morgen erneut."</string>
+    <string name="bookdetail_the_server_took_too_long_to_answer">"Der Server hat zu lange für die Antwort gebraucht. Die Generierung läuft möglicherweise noch. Versuche es in einer Minute erneut."</string>
+    <string name="bookdetail_couldn_t_reach_the_server_check_the">"Der Server ist nicht erreichbar. Prüfe die Synchronisierungs-URL und deine Verbindung."</string>
+    <string name="bookdetail_couldn_t_generate_insights_2">"Einblicke konnten nicht erstellt werden."</string>
+</resources>

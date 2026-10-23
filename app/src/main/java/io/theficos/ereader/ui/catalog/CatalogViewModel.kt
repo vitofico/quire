@@ -22,6 +22,11 @@ import io.theficos.ereader.data.opds.OpdsPublication
 import io.theficos.ereader.data.opds.cleartextBlockedMessage
 import io.theficos.ereader.data.opds.redactUrl
 import io.theficos.ereader.data.sync.SyncEnqueuer
+import io.theficos.ereader.ui.UiText
+import io.theficos.ereader.ui.uiText
+import io.theficos.quire.R
+import java.util.ArrayDeque
+import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -30,8 +35,6 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.util.ArrayDeque
-import java.util.UUID
 
 class CatalogViewModel(
     private val client: OpdsClient,
@@ -82,7 +85,7 @@ class CatalogViewModel(
     fun loadRoot() {
         val account = credentialStore.getAccount()
         if (account == null || account.baseUrl.isBlank()) {
-            _state.value = CatalogUiState.Error("Configure a server in Settings first.")
+            _state.value = CatalogUiState.Error(uiText(R.string.catalog_configure_a_server_in_settings_first))
             return
         }
         backStack.clear()
@@ -111,7 +114,7 @@ class CatalogViewModel(
                 .onSuccess { feed ->
                     _state.value = CatalogUiState.Loaded(current.url, feed, canGoBack = backStack.isNotEmpty())
                 }
-                .onFailure { _state.value = CatalogUiState.Error(describeFailure(it, "Fetch failed")) }
+                .onFailure { _state.value = CatalogUiState.Error(describeFailure(it, uiText(R.string.common_fetch_failed))) }
             _isRefreshing.value = false
         }
     }
@@ -125,7 +128,7 @@ class CatalogViewModel(
                     if (current != null) backStack.push(current.url to current.feed)
                     _state.value = CatalogUiState.Loaded(url, feed, canGoBack = backStack.isNotEmpty())
                 }
-                .onFailure { _state.value = CatalogUiState.Error(describeFailure(it, "Fetch failed")) }
+                .onFailure { _state.value = CatalogUiState.Error(describeFailure(it, uiText(R.string.common_fetch_failed))) }
         }
     }
 
@@ -148,7 +151,7 @@ class CatalogViewModel(
                 backStack.push(current.url to current.feed)
                 _state.value = CatalogUiState.Loaded(resolved, feed, canGoBack = true)
             }.onFailure {
-                _state.value = CatalogUiState.Error(describeFailure(it, "Search failed"))
+                _state.value = CatalogUiState.Error(describeFailure(it, uiText(R.string.common_search_failed)))
             }
         }
     }
@@ -206,8 +209,9 @@ class CatalogViewModel(
      * raw form ("CLEARTEXT communication to … not permitted by network security
      * policy") reads like a crash report (issue #101).
      */
-    private fun describeFailure(t: Throwable, fallback: String): String =
-        cleartextBlockedMessage(t) ?: t.message ?: fallback
+    private fun describeFailure(t: Throwable, fallback: UiText): UiText =
+        if (cleartextBlockedMessage(t) != null) uiText(R.string.error_cleartext_blocked)
+        else t.message?.let(UiText::Dynamic) ?: fallback
 
     fun download(pub: OpdsPublication, context: Context) {
         val current = _state.value as? CatalogUiState.Loaded ?: return
@@ -284,8 +288,7 @@ class CatalogViewModel(
                 _state.value = current.copy(
                     downloading = null,
                     progress = 0f,
-                    error = cleartextBlockedMessage(it)
-                        ?: "${it.javaClass.simpleName}: ${it.message ?: "(no message)"}",
+                    error = describeFailure(it, uiText(R.string.common_fetch_failed)),
                 )
             }
         }
@@ -295,7 +298,7 @@ class CatalogViewModel(
 sealed interface CatalogUiState {
     data object Idle : CatalogUiState
     data object Loading : CatalogUiState
-    data class Error(val message: String) : CatalogUiState
+    data class Error(val message: UiText) : CatalogUiState
     data class Loaded(
         val url: String,
         val feed: OpdsFeed,
@@ -303,6 +306,6 @@ sealed interface CatalogUiState {
         val downloading: String? = null,
         val progress: Float = 0f,
         val lastDownloaded: String? = null,
-        val error: String? = null,
+        val error: UiText? = null,
     ) : CatalogUiState
 }

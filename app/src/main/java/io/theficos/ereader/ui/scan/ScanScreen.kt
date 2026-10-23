@@ -47,12 +47,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.BinaryBitmap
 import com.google.zxing.DecodeHintType
@@ -60,6 +61,7 @@ import com.google.zxing.LuminanceSource
 import com.google.zxing.MultiFormatReader
 import com.google.zxing.PlanarYUVLuminanceSource
 import com.google.zxing.common.HybridBinarizer
+import io.theficos.quire.R
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -130,12 +132,12 @@ fun ScanScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Scan a book") },
+                title = { Text(stringResource(R.string.common_scan_a_book)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
+                            contentDescription = stringResource(R.string.common_back),
                         )
                     }
                 },
@@ -166,10 +168,9 @@ fun ScanScreen(
                 ) {
                     Text(
                         text = if (permissionDenied) {
-                            "Camera permission denied. Enter the ISBN below, or grant " +
-                                "camera access in Settings to scan the barcode."
+                            stringResource(R.string.scan_camera_permission_denied_enter_the_isbn_below)
                         } else {
-                            "Camera unavailable. Enter the ISBN below."
+                            stringResource(R.string.scan_camera_unavailable_enter_the_isbn_below)
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -198,10 +199,10 @@ private fun ManualIsbnField(
         OutlinedTextField(
             value = value,
             onValueChange = { value = it },
-            label = { Text("Enter ISBN") },
+            label = { Text(stringResource(R.string.common_enter_isbn)) },
             isError = isError,
             supportingText = if (isError) {
-                { Text("That doesn't look like a valid ISBN.") }
+                { Text(stringResource(R.string.scan_that_doesn_t_look_like_a_valid)) }
             } else null,
             singleLine = true,
             keyboardOptions = KeyboardOptions(
@@ -218,7 +219,7 @@ private fun ManualIsbnField(
             enabled = value.isNotBlank(),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text("Look up")
+            Text(stringResource(R.string.common_look_up))
         }
     }
 }
@@ -237,15 +238,15 @@ private fun StatusArea(state: ScanUiState) {
             CircularProgressIndicator()
         }
         ScanUiState.NotFound -> Text(
-            "No book found for that ISBN. Try the barcode again or check the digits.",
+            stringResource(R.string.scan_no_book_found_for_that_isbn_try),
             style = MaterialTheme.typography.bodyMedium,
         )
         ScanUiState.ReauthRequired -> Text(
-            "Your session expired. Sign in again, then re-scan.",
+            stringResource(R.string.scan_your_session_expired_sign_in_again_then),
             style = MaterialTheme.typography.bodyMedium,
         )
         is ScanUiState.Failed -> Text(
-            state.message,
+            state.message.asString(),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.error,
         )

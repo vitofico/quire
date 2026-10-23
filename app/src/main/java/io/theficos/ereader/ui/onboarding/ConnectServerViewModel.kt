@@ -11,6 +11,13 @@ import io.theficos.ereader.data.opds.cleartextBlockedMessage
 import io.theficos.ereader.data.opds.isAcquisitionRel
 import io.theficos.ereader.data.opds.isEpubMediaType
 import io.theficos.ereader.data.opds.parseXmlOrNull
+import io.theficos.ereader.ui.UiText
+import io.theficos.ereader.ui.uiText
+import io.theficos.quire.R
+import java.io.IOException
+import java.time.OffsetDateTime
+import java.util.Base64
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -30,10 +37,6 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import java.io.IOException
-import java.time.OffsetDateTime
-import java.util.Base64
-import java.util.concurrent.TimeUnit
 
 /**
  * Drives the "Connect to my server" screen.
@@ -165,7 +168,7 @@ class ConnectServerViewModel(
                     UiState.Completed
                 }
                 is VerificationOutcome.Failure -> UiState.VerificationFailed(result.message)
-                else -> UiState.VerificationFailed("Unexpected verification result.")
+                else -> UiState.VerificationFailed(uiText(R.string.onboarding_unexpected_verification_result))
             }
         }
     }
@@ -194,25 +197,25 @@ class ConnectServerViewModel(
                             VerificationOutcome.OkOpds
                         } else {
                             VerificationOutcome.Failure(
-                                "That URL answered, but it isn't an OPDS catalog with " +
-                                    "anything Quire can show.",
+                                uiText(R.string.onboarding_that_url_answered_but_it_isn_t),
                             )
                         }
                     }
                     401 -> VerificationOutcome.Failure(
-                        "The catalog rejected those credentials.",
+                        uiText(R.string.onboarding_the_catalog_rejected_those_credentials),
                     )
                     in 500..599 -> VerificationOutcome.Failure(
-                        "Server error ${resp.code}. Try again later.",
+                        uiText(R.string.onboarding_server_error_try_again_later, resp.code),
                     )
                     else -> VerificationOutcome.Failure(
-                        "Unexpected response ${resp.code} from the catalog.",
+                        uiText(R.string.onboarding_unexpected_response_from_the_catalog, resp.code),
                     )
                 }
             }
         } catch (e: IOException) {
             VerificationOutcome.Failure(
-                cleartextBlockedMessage(e) ?: e.localizedMessage ?: "Network error.",
+                if (cleartextBlockedMessage(e) != null) uiText(R.string.error_cleartext_blocked)
+                else e.localizedMessage?.let(UiText::Dynamic) ?: uiText(R.string.common_network_error),
             )
         }
     }
@@ -265,28 +268,26 @@ class ConnectServerViewModel(
             onboardingClient.newCall(req).execute().use { resp ->
                 when (resp.code) {
                     200 -> VerificationOutcome.OkBasic
-                    401 -> VerificationOutcome.Failure("Username or password rejected by the server.")
+                    401 -> VerificationOutcome.Failure(uiText(R.string.onboarding_username_or_password_rejected_by_the_server))
                     in 500..599 -> VerificationOutcome.Failure(
-                        "Server error ${resp.code}. Try again later.",
+                        uiText(R.string.onboarding_server_error_try_again_later, resp.code),
                     )
                     // A server that demands Basic auth everywhere (Komga does)
                     // satisfies the calibre probe's 401-with-challenge test, then
                     // 404s here because its catalog lives elsewhere. Say so,
                     // rather than leaving the user at "unexpected response".
                     404 -> VerificationOutcome.Failure(
-                        "This server asked for a username and password, but it has " +
-                            "no catalog at /opds, so it probably isn't calibre-web. " +
-                            "If it's Komga or another OPDS server, go back and enter " +
-                            "its full catalog URL instead.",
+                        uiText(R.string.onboarding_this_server_asked_for_a_username_and),
                     )
                     else -> VerificationOutcome.Failure(
-                        "Unexpected response ${resp.code} from /opds.",
+                        uiText(R.string.onboarding_unexpected_response_from_opds, resp.code),
                     )
                 }
             }
         } catch (e: IOException) {
             VerificationOutcome.Failure(
-                cleartextBlockedMessage(e) ?: e.localizedMessage ?: "Network error.",
+                if (cleartextBlockedMessage(e) != null) uiText(R.string.error_cleartext_blocked)
+                else e.localizedMessage?.let(UiText::Dynamic) ?: uiText(R.string.common_network_error),
             )
         }
     }
@@ -323,24 +324,25 @@ class ConnectServerViewModel(
                         val parsed = parseLogin(body)
                         if (parsed == null || parsed.token.isBlank()) {
                             VerificationOutcome.Failure(
-                                "Server returned 200 but the response didn't include a token.",
+                                uiText(R.string.onboarding_server_returned_200_but_the_response_didn),
                             )
                         } else {
                             VerificationOutcome.OkBearer(parsed.token, parsed.expiresAtEpochMs)
                         }
                     }
-                    401 -> VerificationOutcome.Failure("Email or password rejected by the server.")
+                    401 -> VerificationOutcome.Failure(uiText(R.string.onboarding_email_or_password_rejected_by_the_server))
                     in 500..599 -> VerificationOutcome.Failure(
-                        "Server error ${resp.code}. Try again later.",
+                        uiText(R.string.onboarding_server_error_try_again_later, resp.code),
                     )
                     else -> VerificationOutcome.Failure(
-                        "Unexpected response ${resp.code} from /auth/v1/login.",
+                        uiText(R.string.onboarding_unexpected_response_from_auth_v1_login, resp.code),
                     )
                 }
             }
         } catch (e: IOException) {
             VerificationOutcome.Failure(
-                cleartextBlockedMessage(e) ?: e.localizedMessage ?: "Network error.",
+                if (cleartextBlockedMessage(e) != null) uiText(R.string.error_cleartext_blocked)
+                else e.localizedMessage?.let(UiText::Dynamic) ?: uiText(R.string.common_network_error),
             )
         }
     }
@@ -369,7 +371,7 @@ class ConnectServerViewModel(
         data class Probing(val rawUrl: String) : UiState()
         data class Result(val probe: ServerProbeResult) : UiState()
         object Verifying : UiState()
-        data class VerificationFailed(val message: String) : UiState()
+        data class VerificationFailed(val message: UiText) : UiState()
         object Completed : UiState()
     }
 
@@ -377,7 +379,7 @@ class ConnectServerViewModel(
         object OkBasic : VerificationOutcome()
         object OkOpds : VerificationOutcome()
         data class OkBearer(val token: String, val expiresAtEpochMs: Long?) : VerificationOutcome()
-        data class Failure(val message: String) : VerificationOutcome()
+        data class Failure(val message: UiText) : VerificationOutcome()
     }
 
     companion object {
@@ -409,21 +411,19 @@ class ConnectServerViewModel(
 
 /** Maps a [ProbeError] to a user-facing message. Kept out of the VM so the
  *  UI layer owns wording (translations live in resources, eventually). */
-fun probeErrorMessage(reason: ProbeError, raw: String): String = when (reason) {
+fun probeErrorMessage(reason: ProbeError, raw: String): UiText = when (reason) {
     ProbeError.MalformedUrl ->
-        "That doesn't look like a valid URL. Start with http:// or https://."
+        uiText(R.string.onboarding_that_doesn_t_look_like_a_valid)
     ProbeError.Tls ->
-        "We couldn't verify the server's TLS certificate. " +
-            "Check the URL or your network. ($raw)"
+        uiText(R.string.onboarding_we_couldn_t_verify_the_server_s, raw)
     ProbeError.Dns ->
-        "We couldn't resolve that hostname. Check the URL and your connection."
+        uiText(R.string.onboarding_we_couldn_t_resolve_that_hostname_check)
     ProbeError.ConnectionRefused ->
-        "The server refused the connection. Is it running and reachable?"
+        uiText(R.string.onboarding_the_server_refused_the_connection_is_it)
     ProbeError.Timeout ->
-        "The server didn't respond in time. Check your network and try again."
+        uiText(R.string.onboarding_the_server_didn_t_respond_in_time)
     ProbeError.RedirectRejected ->
-        "The server redirected us somewhere unexpected. " +
-            "Try the redirect's final URL directly."
-    ProbeError.Cleartext -> CLEARTEXT_BLOCKED_MESSAGE
-    ProbeError.Unexpected -> "Couldn't reach the server: $raw"
+        uiText(R.string.onboarding_the_server_redirected_us_somewhere_unexpected_try)
+    ProbeError.Cleartext -> uiText(R.string.error_cleartext_blocked)
+    ProbeError.Unexpected -> uiText(R.string.onboarding_couldn_t_reach_the_server, raw)
 }

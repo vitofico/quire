@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_couldn_t_delete_reader_profile">"Couldn\'t delete reader profile: %1$s"</string>
+    <string name="settings_quire_server_url_optional">"Quire server URL (optional)"</string>
+    <string name="settings_only_set_this_if_sync_ai_run">"Only set this if sync / AI run at a different address than your books."</string>
+    <string name="settings_connect_to_any_opds_catalog_such_as">"Connect to any OPDS catalog, such as Kavita. Fill this in instead of calibre-web above, not as well as it."</string>
+    <string name="settings_connected_to_an_opds_catalog_your_place">"Connected to an OPDS catalog. Your place in a book is saved on this device only, and the AI features are off: both need a Quire server."</string>
+    <string name="settings_this_opds_catalog_has_no_quire_server">"This OPDS catalog has no Quire server behind it, so there\'s nothing to sync with."</string>
+    <string name="settings_configure_a_server_above_to_enable_sync">"Configure a server above to enable sync."</string>
+    <string name="settings_re_pull_everything_on_the_next_sync">"Re-pull everything on the next sync. Your books and progress are kept."</string>
+    <string name="settings_remove_all_downloaded_books">"Remove all downloaded books"</string>
+    <string name="settings_delete_all_epub_files_from_this_device">"Delete all EPUB files from this device. Reading progress is preserved on the server."</string>
+    <string name="settings_re_download_the_books_you_d_started">"Re-download the books you\'d started reading and restore where you left off. Useful after a reinstall."</string>
+    <string name="settings_next_sync_will_re_pull_everything_from">"Next sync will re-pull everything from the server. Local books and progress are kept."</string>
+    <string name="settings_remove_all_downloaded_books_2">"Remove all downloaded books?"</string>
+    <string name="settings_delete_all_downloaded_books_from_this_device">"Delete all downloaded books from this device? Reading progress is preserved on the server and will sync back if you re-download."</string>
+    <string name="settings_your_administrator_has_not_configured_an_ai">"Your administrator has not configured an AI endpoint on this server."</string>
+    <string name="settings_enable_ai_features_for_this_account">"Enable AI features for this account"</string>
+    <string name="settings_when_enabled_quire_sends_the_title_author">"When enabled, Quire sends the title, author, and other EPUB metadata of books you open to %1$s (model %2$s) to generate insights."</string>
+    <string name="settings_external_sources_used">"External sources used: %1$s."</string>
+    <string name="settings_nothing_is_sent_until_you_opt_in">"Nothing is sent until you opt in."</string>
+    <string name="settings_how_book_insights_are_written">"How book insights are written."</string>
+    <string name="settings_language_the_model_writes_insights_in_auto">"Language the model writes insights in. Auto follows the book\'s own language."</string>
+    <string name="settings_removes_the_ai_generated_profile_from_the">"Removes the AI-generated profile from the server. A new one is built next time you refresh insights."</string>
+    <string name="settings_provider_not_yet_checked">"Provider: not yet checked"</string>
+    <string name="settings_provider_reachable">"Provider: reachable%1$s%2$s"</string>
+    <string name="settings_provider_unreachable">"Provider: unreachable — %1$s%2$s"</string>
+    <string name="settings_enter_a_full_catalog_url_starting_with">"Enter a full catalog URL starting with http:// or https://"</string>
+    <string name="settings_last_synced_sentence">"Last synced %1$s."</string>
+    <string name="settings_last_attempt_failed_sentence">"Last attempt failed: %1$s"</string>
+</resources>

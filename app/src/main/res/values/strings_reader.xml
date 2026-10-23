@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="reader_paragraph_indent_default">"Paragraph indent: Default"</string>
+    <string name="reader_paragraph_spacing_default">"Paragraph spacing: Default"</string>
+    <string name="reader_use_the_book_s_paragraph_styling">"Use the book\'s paragraph styling"</string>
+    <string name="reader_keeps_the_book_s_own_line_spacing">"Keeps the book\'s own line spacing, indent and paragraph spacing — turn off to adjust them"</string>
+    <string name="reader_tap_left_or_right_edges_to_flip">"Tap left or right edges to flip pages"</string>
+    <string name="reader_hide_the_status_and_navigation_bars_while">"Hide the status and navigation bars while reading"</string>
+    <string name="reader_sepia">"Sepia"</string>
+    <string name="reader_dark_sepia">"Dark sepia"</string>
+</resources>

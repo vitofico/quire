@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bookdetail_no_insight_cached_for_this_book_yet">"Aún no hay un análisis guardado de este libro. Abre los detalles del libro para generar uno."</string>
+    <string name="bookdetail_invalidate_cached_insight">"Invalidar análisis guardado"</string>
+    <string name="bookdetail_invalidating_this_insight_removes_the_cached_ai">"Invalidar este análisis elimina la respuesta de IA guardada. Al volver a los detalles del libro se generará un nuevo análisis, lo que puede tardar unos segundos y consume una de tus generaciones diarias."</string>
+    <string name="bookdetail_couldn_t_read_cached_insight">"No se pudo leer el análisis guardado (%1$s)."</string>
+    <string name="bookdetail_couldn_t_read_cached_insight_2">"No se pudo leer el análisis guardado."</string>
+    <string name="bookdetail_couldn_t_invalidate">"No se pudo invalidar (%1$s)."</string>
+    <string name="bookdetail_series_book">"%1$s · libro %2$s"</string>
+    <string name="bookdetail_you_ve_reached_today_s_regeneration_limit">"Has alcanzado el límite de regeneraciones de hoy. Inténtalo de nuevo después del %1$s."</string>
+    <string name="bookdetail_couldn_t_generate_insights">"No se pudieron generar los análisis (%1$s)."</string>
+    <string name="bookdetail_you_ve_reached_today_s_regeneration_limit_2">"Has alcanzado el límite de regeneraciones de hoy. Inténtalo mañana."</string>
+    <string name="bookdetail_the_server_took_too_long_to_answer">"El servidor tardó demasiado en responder. Puede que siga generando el contenido; inténtalo de nuevo en un minuto."</string>
+    <string name="bookdetail_couldn_t_reach_the_server_check_the">"No se pudo conectar con el servidor. Comprueba la URL de sincronización y tu conexión."</string>
+    <string name="bookdetail_couldn_t_generate_insights_2">"No se pudieron generar los análisis."</string>
+</resources>

@@ -15,10 +15,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import io.theficos.ereader.ui.theme.QuireTheme
+import io.theficos.quire.R
 
 /**
  * Placeholder for the deferred "Sign in to Quire Cloud" path.
@@ -44,16 +46,14 @@ fun CloudComingSoonScreen(onBack: () -> Unit) {
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
-                    text = "Quire Cloud is coming soon",
+                    text = stringResource(R.string.onboarding_quire_cloud_is_coming_soon),
                     style = MaterialTheme.typography.headlineMedium,
                     textAlign = TextAlign.Center,
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
                     text =
-                        "We're not ready to take cloud sign-ups yet. " +
-                            "For now, you can connect to a self-hosted calibre-web or " +
-                            "quire_server, or use Quire entirely offline.",
+                        stringResource(R.string.onboarding_we_re_not_ready_to_take_cloud),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
@@ -63,7 +63,7 @@ fun CloudComingSoonScreen(onBack: () -> Unit) {
                     onClick = onBack,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Back")
+                    Text(stringResource(R.string.common_back))
                 }
             }
         }

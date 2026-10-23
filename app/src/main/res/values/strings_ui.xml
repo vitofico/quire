@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ui_this_catalog_entry_is_no_longer_available">"This catalog entry is no longer available. Reload the catalog from the Catalog tab."</string>
+</resources>

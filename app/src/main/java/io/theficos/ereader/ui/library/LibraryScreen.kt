@@ -1,5 +1,7 @@
 package io.theficos.ereader.ui.library
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -9,9 +11,9 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -21,8 +23,6 @@ import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -30,9 +30,9 @@ import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
-import androidx.compose.material3.Button
 import androidx.compose.material.icons.outlined.FilterAlt
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -43,13 +43,13 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -63,6 +63,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
@@ -76,13 +78,14 @@ import io.theficos.ereader.sideload.SideloadResult
 import io.theficos.ereader.ui.components.CoverImage
 import io.theficos.ereader.ui.components.CoverInfoButton
 import io.theficos.ereader.ui.components.SectionLabel
+import io.theficos.quire.R
 import kotlinx.coroutines.launch
 
-private val sortLabels: List<Pair<LibrarySort, String>> = listOf(
-    LibrarySort.RECENTLY_READ to "Recently read",
-    LibrarySort.RECENTLY_ADDED to "Recently added",
-    LibrarySort.TITLE to "Title",
-    LibrarySort.AUTHOR to "Author",
+private val sortLabels: List<Pair<LibrarySort, Int>> = listOf(
+    LibrarySort.RECENTLY_READ to R.string.common_recently_read,
+    LibrarySort.RECENTLY_ADDED to R.string.common_recently_added,
+    LibrarySort.TITLE to R.string.common_title,
+    LibrarySort.AUTHOR to R.string.common_author,
 )
 
 /**
@@ -131,13 +134,13 @@ fun LibraryScreen(
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
             val msg = when (event) {
-                LibraryEvent.RestartFailed -> "Couldn't sync restart — will retry."
+                LibraryEvent.RestartFailed -> context.getString(R.string.library_couldn_t_sync_restart_will_retry)
                 is LibraryEvent.RestoreFinished -> {
                     val s = event.summary
-                    "Restored ${s.downloaded} of ${s.requested}" +
-                        if (s.failed > 0) " · ${s.failed} failed" else ""
+                    if (s.failed > 0) context.getString(R.string.restore_partial, s.downloaded, s.requested, s.failed)
+                    else context.getString(R.string.restore_complete, s.downloaded, s.requested)
                 }
-                is LibraryEvent.RestoreFailed -> "Restore failed: ${event.message}"
+                is LibraryEvent.RestoreFailed -> context.getString(R.string.common_restore_failed, event.message)
             }
             snackbarHostState.showSnackbar(msg)
         }
@@ -154,12 +157,12 @@ fun LibraryScreen(
                     val displayName = SideloadImporter.queryDisplayName(context.contentResolver, uri)
                     val result = sideloadImporter.import(uri, displayName)
                     val msg = when (result) {
-                        is SideloadResult.Imported -> "Imported: ${result.title}"
-                        is SideloadResult.AlreadyImported -> "Already in your library: ${result.title}"
+                        is SideloadResult.Imported -> context.getString(R.string.common_imported, result.title)
+                        is SideloadResult.AlreadyImported -> context.getString(R.string.sideload_already_in_your_library, result.title)
                         is SideloadResult.Failed -> when (result.reason) {
-                            SideloadFailure.InvalidEpub -> "Not a valid EPUB."
-                            SideloadFailure.UriUnreadable -> "Couldn't read the file."
-                            SideloadFailure.IoError -> "Import failed — try again."
+                            SideloadFailure.InvalidEpub -> context.getString(R.string.common_not_a_valid_epub)
+                            SideloadFailure.UriUnreadable -> context.getString(R.string.common_couldn_t_read_the_file)
+                            SideloadFailure.IoError -> context.getString(R.string.sideload_import_failed_try_again)
                         }
                     }
                     snackbarHostState.showSnackbar(msg)
@@ -173,7 +176,7 @@ fun LibraryScreen(
     }
 
     // Null until Room first answers. Drawing nothing for those few milliseconds
-    // beats flashing "Your shelf is empty." over a library that has books.
+    // beats flashing stringResource(R.string.common_your_shelf_is_empty) over a library that has books.
     val shelf = loadedShelf ?: return
     val items = shelf.books
 
@@ -211,24 +214,24 @@ fun LibraryScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "Quire",
+                        text = stringResource(R.string.brand_name),
                         style = MaterialTheme.typography.displaySmall,
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f),
                     )
                     IconButton(onClick = { searchActive = true }) {
-                        Icon(Icons.Filled.Search, contentDescription = "Search")
+                        Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.common_search))
                     }
                     launchPicker?.let { picker ->
                         IconButton(onClick = picker) {
-                            Icon(Icons.Filled.Add, contentDescription = "Import EPUB")
+                            Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.common_import_epub))
                         }
                     }
                     var sortMenuOpen by rememberSaveable { mutableStateOf(false) }
                     val currentSort by viewModel.sort.collectAsState()
                     Box {
                         IconButton(onClick = { sortMenuOpen = true }) {
-                            Icon(Icons.Filled.Sort, contentDescription = "Sort")
+                            Icon(Icons.Filled.Sort, contentDescription = stringResource(R.string.common_sort))
                         }
                         DropdownMenu(
                             expanded = sortMenuOpen,
@@ -236,7 +239,7 @@ fun LibraryScreen(
                         ) {
                             sortLabels.forEach { (key, label) ->
                                 DropdownMenuItem(
-                                    text = { Text(label) },
+                                    text = { Text(stringResource(label)) },
                                     leadingIcon = if (currentSort == key) {
                                         { Icon(Icons.Filled.Check, contentDescription = null) }
                                     } else null,
@@ -262,10 +265,10 @@ fun LibraryScreen(
                                     Icons.Filled.FilterAlt
                                 },
                                 contentDescription = when {
-                                    !showAbandoned && !showFinished -> "Abandoned and finished books hidden"
-                                    !showAbandoned -> "Abandoned books hidden"
-                                    !showFinished -> "Finished books hidden"
-                                    else -> "All books visible"
+                                    !showAbandoned && !showFinished -> stringResource(R.string.library_completed_abandoned_hidden)
+                                    !showAbandoned -> stringResource(R.string.common_abandoned_books_hidden)
+                                    !showFinished -> stringResource(R.string.library_finished_hidden)
+                                    else -> stringResource(R.string.library_all_visible)
                                 },
                                 tint = if (anyHidden) {
                                     MaterialTheme.colorScheme.primary
@@ -279,7 +282,7 @@ fun LibraryScreen(
                             onDismissRequest = { filterMenuOpen = false },
                         ) {
                             DropdownMenuItem(
-                                text = { Text("Show abandoned") },
+                                text = { Text(stringResource(R.string.common_show_abandoned)) },
                                 leadingIcon = {
                                     Checkbox(checked = showAbandoned, onCheckedChange = null)
                                 },
@@ -289,7 +292,7 @@ fun LibraryScreen(
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text("Show finished") },
+                                text = { Text(stringResource(R.string.library_show_finished)) },
                                 leadingIcon = {
                                     Checkbox(checked = showFinished, onCheckedChange = null)
                                 },
@@ -303,7 +306,7 @@ fun LibraryScreen(
                     var moreMenuOpen by rememberSaveable { mutableStateOf(false) }
                     Box {
                         IconButton(onClick = { moreMenuOpen = true }) {
-                            Icon(Icons.Filled.MoreVert, contentDescription = "More")
+                            Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.common_more))
                         }
                         DropdownMenu(
                             expanded = moreMenuOpen,
@@ -312,14 +315,14 @@ fun LibraryScreen(
                             // PR-γ: Insights ranks above Stats — Insights is the
                             // headline reader-profile surface; Stats is utility.
                             DropdownMenuItem(
-                                text = { Text("Insights") },
+                                text = { Text(stringResource(R.string.common_insights)) },
                                 onClick = {
                                     moreMenuOpen = false
                                     onShowInsights()
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text("Stats") },
+                                text = { Text(stringResource(R.string.common_stats)) },
                                 onClick = {
                                     moreMenuOpen = false
                                     onShowStats()
@@ -348,7 +351,7 @@ fun LibraryScreen(
                         value = query,
                         onValueChange = { viewModel.setQuery(it) },
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("Search library") },
+                        placeholder = { Text(stringResource(R.string.common_search_library)) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(
                             capitalization = KeyboardCapitalization.None,
@@ -359,12 +362,12 @@ fun LibraryScreen(
                                 viewModel.setQuery("")
                                 searchActive = false
                             }) {
-                                Icon(Icons.Filled.Close, contentDescription = "Close search")
+                                Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.common_close_search))
                             }
                         },
                     )
                 } else {
-                    SectionLabel("Library · ${items.size}")
+                    SectionLabel(stringResource(R.string.common_library, items.size))
                 }
             }
             itemsIndexed(items, key = { _, r -> r.document.id }) { _, row ->
@@ -387,7 +390,7 @@ fun LibraryScreen(
                         // there is a server behind them to add AI insights.
                         CoverInfoButton(
                             onClick = { onShowDetails(row.document.id) },
-                            contentDescription = "Book details",
+                            contentDescription = stringResource(R.string.common_book_details),
                             modifier = Modifier.align(Alignment.TopStart),
                         )
                         // Finished badge: top-right, passive marker.
@@ -404,7 +407,7 @@ fun LibraryScreen(
                                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                                     Icon(
                                         imageVector = Icons.Filled.Check,
-                                        contentDescription = "Finished",
+                                        contentDescription = stringResource(R.string.common_finished_2),
                                         modifier = Modifier.size(16.dp),
                                     )
                                 }
@@ -422,7 +425,7 @@ fun LibraryScreen(
                                     .padding(6.dp),
                             ) {
                                 Text(
-                                    text = "Abandoned",
+                                    text = stringResource(R.string.common_abandoned),
                                     style = MaterialTheme.typography.labelSmall,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                 )
@@ -441,11 +444,7 @@ fun LibraryScreen(
             if (items.isEmpty() && shelf.hiddenCount > 0) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Text(
-                        text = if (shelf.hiddenCount == 1) {
-                            "The filter is hiding your only book."
-                        } else {
-                            "The filter is hiding all ${shelf.hiddenCount} of your books."
-                        },
+                        text = pluralStringResource(R.plurals.library_filter_hiding_books, shelf.hiddenCount, shelf.hiddenCount),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(16.dp),
@@ -455,7 +454,7 @@ fun LibraryScreen(
             if (searchActive && query.isNotBlank() && items.isEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Text(
-                        text = "No matches in your library",
+                        text = stringResource(R.string.library_no_matches_in_your_library),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(16.dp),
@@ -488,7 +487,7 @@ fun LibraryScreen(
                     },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                 ) {
-                    Text("Book details", modifier = Modifier.fillMaxWidth())
+                    Text(stringResource(R.string.common_book_details), modifier = Modifier.fillMaxWidth())
                 }
                 TextButton(
                     onClick = {
@@ -497,7 +496,7 @@ fun LibraryScreen(
                     },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                 ) {
-                    Text("Restart book", modifier = Modifier.fillMaxWidth())
+                    Text(stringResource(R.string.common_restart_book), modifier = Modifier.fillMaxWidth())
                 }
                 // pr-δ: Mark / Unmark abandoned (Lock #18 — augment the existing
                 // sheet, do not introduce a new menu). Snackbar with Undo on mark
@@ -511,8 +510,8 @@ fun LibraryScreen(
                             viewModel.markAbandoned(doc)
                             scope.launch {
                                 val result = snackbarHostState.showSnackbar(
-                                    message = "Marked abandoned",
-                                    actionLabel = "Undo",
+                                    message = context.getString(R.string.common_marked_abandoned),
+                                    actionLabel = context.getString(R.string.common_undo),
                                     duration = SnackbarDuration.Short,
                                 )
                                 if (result == SnackbarResult.ActionPerformed) {
@@ -525,7 +524,7 @@ fun LibraryScreen(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                 ) {
                     Text(
-                        text = if (row.abandonedAt == null) "Mark as abandoned" else "Unmark abandoned",
+                        text = if (row.abandonedAt == null) stringResource(R.string.common_mark_as_abandoned) else stringResource(R.string.common_unmark_abandoned),
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -537,7 +536,7 @@ fun LibraryScreen(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                 ) {
                     Text(
-                        "Delete from library",
+                        stringResource(R.string.common_delete_from_library),
                         modifier = Modifier.fillMaxWidth(),
                         color = MaterialTheme.colorScheme.error,
                     )
@@ -550,13 +549,13 @@ fun LibraryScreen(
         var alsoDelete by remember { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { pendingRestart = null },
-            title = { Text("Restart book?") },
+            title = { Text(stringResource(R.string.common_restart_book_2)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("\"${doc.title}\" will be marked as unread and synced to your other devices.")
+                    Text(stringResource(R.string.library_will_be_marked_as_unread_and_synced, doc.title))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = alsoDelete, onCheckedChange = { alsoDelete = it })
-                        Text("Also delete the downloaded copy", modifier = Modifier.padding(start = 8.dp))
+                        Text(stringResource(R.string.library_also_delete_the_downloaded_copy), modifier = Modifier.padding(start = 8.dp))
                     }
                 }
             },
@@ -564,10 +563,10 @@ fun LibraryScreen(
                 TextButton(onClick = {
                     viewModel.restartFromUi(doc, alsoDelete, context)
                     pendingRestart = null
-                }) { Text("Restart") }
+                }) { Text(stringResource(R.string.common_restart)) }
             },
             dismissButton = {
-                TextButton(onClick = { pendingRestart = null }) { Text("Cancel") }
+                TextButton(onClick = { pendingRestart = null }) { Text(stringResource(R.string.common_cancel)) }
             },
         )
     }
@@ -575,16 +574,16 @@ fun LibraryScreen(
     pendingDelete?.let { doc ->
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
-            title = { Text("Delete book?") },
-            text = { Text("\"${doc.title}\" will be removed from your library and the downloaded file deleted. Reading progress will be lost.") },
+            title = { Text(stringResource(R.string.common_delete_book)) },
+            text = { Text(stringResource(R.string.library_will_be_removed_from_your_library_and, doc.title)) },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.delete(doc)
                     pendingDelete = null
-                }) { Text("Delete") }
+                }) { Text(stringResource(R.string.common_delete)) }
             },
             dismissButton = {
-                TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
+                TextButton(onClick = { pendingDelete = null }) { Text(stringResource(R.string.common_cancel)) }
             },
         )
     }
@@ -600,7 +599,10 @@ private fun EmptyState(
     onRestore: () -> Unit = {},
 ) {
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(
+            modifier = Modifier.padding(horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
             Text(
                 text = "q",
                 style = MaterialTheme.typography.displaySmall.copy(
@@ -609,12 +611,14 @@ private fun EmptyState(
                 modifier = Modifier.padding(bottom = 16.dp),
             )
             Text(
-                text = "Your shelf is empty.",
+                text = stringResource(R.string.common_your_shelf_is_empty),
                 style = MaterialTheme.typography.titleMedium,
+                textAlign = TextAlign.Center,
             )
             Text(
-                text = "Open the Catalog tab to find books, or import an EPUB.",
+                text = stringResource(R.string.library_open_the_catalog_tab_to_find_books),
                 style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp),
             )
@@ -627,7 +631,7 @@ private fun EmptyState(
                     modifier = Modifier.padding(top = 16.dp),
                 ) {
                     Icon(Icons.Filled.Add, contentDescription = null)
-                    Text(text = "Import EPUB", modifier = Modifier.padding(start = 8.dp))
+                    Text(text = stringResource(R.string.common_import_epub), modifier = Modifier.padding(start = 8.dp))
                 }
             }
             // Task 6: empty-state restore prompt — only when an account is
@@ -635,7 +639,7 @@ private fun EmptyState(
             if (canRestore) {
                 Spacer(Modifier.height(16.dp))
                 Text(
-                    "Reconnected on a new device? Bring back the books you were reading.",
+                    stringResource(R.string.library_reconnected_on_a_new_device_bring_back),
                     style = MaterialTheme.typography.bodyMedium,
                     textAlign = TextAlign.Center,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -643,9 +647,9 @@ private fun EmptyState(
                 Spacer(Modifier.height(8.dp))
                 val restoreLabel = when {
                     restoreRunning && restoreProgress != null ->
-                        "Restoring… (${restoreProgress.done}/${restoreProgress.total})"
-                    restoreRunning -> "Restoring…"
-                    else -> "Restore in-progress books"
+                        stringResource(R.string.common_restoring, restoreProgress.done, restoreProgress.total)
+                    restoreRunning -> stringResource(R.string.common_restoring_2)
+                    else -> stringResource(R.string.library_restore_in_progress_books)
                 }
                 Button(
                     onClick = onRestore,

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="reader_paragraph_indent_default">"Sangría de párrafo: predeterminada"</string>
+    <string name="reader_paragraph_spacing_default">"Espaciado de párrafos: predeterminado"</string>
+    <string name="reader_use_the_book_s_paragraph_styling">"Usar el estilo de párrafos del libro"</string>
+    <string name="reader_keeps_the_book_s_own_line_spacing">"Mantiene el interlineado, la sangría y el espaciado de párrafos del libro. Desactívalo para ajustarlos."</string>
+    <string name="reader_tap_left_or_right_edges_to_flip">"Toca los bordes izquierdo o derecho para pasar página"</string>
+    <string name="reader_hide_the_status_and_navigation_bars_while">"Ocultar las barras de estado y navegación durante la lectura"</string>
+    <string name="reader_sepia">"Sepia"</string>
+    <string name="reader_dark_sepia">"Sepia oscuro"</string>
+</resources>

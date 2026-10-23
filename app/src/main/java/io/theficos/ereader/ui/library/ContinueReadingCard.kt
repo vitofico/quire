@@ -17,11 +17,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.theficos.ereader.ui.components.CoverImage
 import io.theficos.ereader.ui.components.QuireCard
 import io.theficos.ereader.ui.components.SectionLabel
+import io.theficos.quire.R
 
 @Composable
 fun ContinueReadingCard(row: LibraryRow, onClick: () -> Unit) {
@@ -32,7 +34,7 @@ fun ContinueReadingCard(row: LibraryRow, onClick: () -> Unit) {
             .clickable { onClick() },
     ) {
         Column {
-            SectionLabel("Continue reading")
+            SectionLabel(stringResource(R.string.common_continue_reading))
             Row(
                 modifier = Modifier.padding(top = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -74,7 +76,7 @@ fun ContinueReadingCard(row: LibraryRow, onClick: () -> Unit) {
                         )
                     }
                     Text(
-                        text = "$percentInt%",
+                        text = stringResource(R.string.common_reading_percent, percentInt),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.padding(top = 4.dp),

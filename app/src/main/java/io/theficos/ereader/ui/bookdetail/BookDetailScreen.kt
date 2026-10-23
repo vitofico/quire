@@ -37,6 +37,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -49,6 +50,8 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
+import androidx.compose.ui.res.stringResource
+import io.theficos.quire.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -68,20 +71,20 @@ fun BookDetailScreen(
                 title = {},
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }
                 },
                 actions = {
                     if (state.insight !is InsightUiState.Hidden) {
                         IconButton(onClick = { menuExpanded = true }) {
-                            Icon(Icons.Default.MoreVert, contentDescription = "More")
+                            Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.common_more))
                         }
                         DropdownMenu(
                             expanded = menuExpanded,
                             onDismissRequest = { menuExpanded = false },
                         ) {
                             DropdownMenuItem(
-                                text = { Text("Inspect insight") },
+                                text = { Text(stringResource(R.string.common_inspect_insight)) },
                                 enabled = doc != null,
                                 onClick = {
                                     menuExpanded = false
@@ -119,8 +122,9 @@ fun BookDetailContent(
     val metadata = state.metadata
     val progress = state.progress
     val context = LocalContext.current
-    val dateFormatter = remember {
-        DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withZone(ZoneId.systemDefault())
+    val locale = LocalConfiguration.current.locales[0]
+    val dateFormatter = remember(locale) {
+        DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(locale).withZone(ZoneId.systemDefault())
     }
     val formatDate: (Long) -> String = { dateFormatter.format(Instant.ofEpochMilli(it)) }
     val now = System.currentTimeMillis()
@@ -134,6 +138,7 @@ fun BookDetailContent(
             DateUtils.getRelativeTimeSpanString(it, now, DateUtils.DAY_IN_MILLIS).toString()
         },
         formatSize = { Formatter.formatShortFileSize(context, it) },
+        displayLocale = locale,
     )
 
     Column(modifier = modifier) {
@@ -144,7 +149,7 @@ fun BookDetailContent(
             series = seriesLine(
                 document.seriesName?.takeIf { it.isNotBlank() } ?: metadata?.seriesName,
                 document.seriesIndex ?: metadata?.seriesPosition?.toDouble(),
-            ),
+            )?.asString(),
         )
 
         Spacer(Modifier.height(16.dp))
@@ -162,7 +167,7 @@ fun BookDetailContent(
             Spacer(Modifier.height(6.dp))
         }
         Text(
-            text = readingStatus(progress, formatDate),
+            text = readingStatus(progress, formatDate).asString(),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -174,9 +179,9 @@ fun BookDetailContent(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 val label = when {
-                    progress?.finishedAt != null -> "Open book"
-                    progress?.abandonedAt != null || (progress?.percent ?: 0.0) > 0 -> "Continue reading"
-                    else -> "Start reading"
+                    progress?.finishedAt != null -> stringResource(R.string.book_open)
+                    progress?.abandonedAt != null || (progress?.percent ?: 0.0) > 0 -> stringResource(R.string.common_continue_reading)
+                    else -> stringResource(R.string.book_start)
                 }
                 Text(label)
             }
@@ -188,14 +193,14 @@ fun BookDetailContent(
         }
 
         Spacer(Modifier.height(24.dp))
-        SectionLabel("Details")
+        SectionLabel(stringResource(R.string.common_details))
         Spacer(Modifier.height(8.dp))
         QuireCard(modifier = Modifier.fillMaxWidth()) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 facts.forEach { fact ->
                     Row(modifier = Modifier.semantics(mergeDescendants = true) {}) {
                         Text(
-                            text = fact.label,
+                            text = stringResource(fact.label),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.width(96.dp),
@@ -205,7 +210,7 @@ fun BookDetailContent(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.weight(1f),
-                            maxLines = if (fact.label == "Subjects") 3 else Int.MAX_VALUE,
+                            maxLines = if (fact.label == R.string.book_subjects) 3 else Int.MAX_VALUE,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
@@ -215,7 +220,7 @@ fun BookDetailContent(
 
         if (state.insight !is InsightUiState.Hidden) {
             Spacer(Modifier.height(24.dp))
-            SectionLabel("AI insights")
+            SectionLabel(stringResource(R.string.common_ai_insights))
             Spacer(Modifier.height(8.dp))
             InsightSection(state.insight, onRetry = onRetryInsight)
         }

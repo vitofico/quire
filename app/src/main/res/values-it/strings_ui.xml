@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ui_this_catalog_entry_is_no_longer_available">"Questa voce del catalogo non è più disponibile. Ricarica il catalogo dalla scheda Catalogo."</string>
+</resources>

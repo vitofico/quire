@@ -14,6 +14,10 @@ import io.theficos.ereader.data.local.db.SyncStateEntity
 import io.theficos.ereader.data.opds.BookDownloader
 import io.theficos.ereader.data.opds.CLEARTEXT_BLOCKED_MESSAGE
 import io.theficos.ereader.data.opds.OpdsClient
+import io.theficos.ereader.ui.englishContext
+import java.io.File
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -35,9 +39,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import java.io.File
-import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.TimeUnit
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -360,8 +361,8 @@ class CatalogViewModelTest {
         vm.load("http://books.example.com/opds")
 
         val state = vm.state.first { it is CatalogUiState.Error } as CatalogUiState.Error
-        assertThat(state.message).isEqualTo(CLEARTEXT_BLOCKED_MESSAGE)
-        assertThat(state.message).doesNotContain("CLEARTEXT communication")
+        assertThat(state.message.asString(englishContext())).isEqualTo(CLEARTEXT_BLOCKED_MESSAGE)
+        assertThat(state.message.asString(englishContext())).doesNotContain("CLEARTEXT communication")
     }
 
     @Test fun `no account shows a scheme-neutral error`() = runTest {
@@ -370,8 +371,8 @@ class CatalogViewModelTest {
         vm.loadRoot()
 
         val state = vm.state.value as CatalogUiState.Error
-        assertThat(state.message).doesNotContain("calibre-web")
-        assertThat(state.message).contains("Settings")
+        assertThat(state.message.asString(englishContext())).doesNotContain("calibre-web")
+        assertThat(state.message.asString(englishContext())).contains("Settings")
     }
 
     // ---------- issue #101: reader-only accounts ----------

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="palette_paper">"Papier"</string>
+    <string name="palette_ink">"Tinte"</string>
+    <string name="reader_type_and_theme">"Schrift und Design"</string>
+    <string name="reader_page_theme">"Seitendesign"</string>
+    <string name="appearance_mode">"Modus"</string>
+    <string name="appearance_light_theme">"Helles Design"</string>
+    <string name="appearance_dark_theme">"Dunkles Design"</string>
+    <string name="common_book_details">"Buchdetails"</string>
+    <string name="common_less">"Weniger"</string>
+    <string name="common_ai_insights">"KI-Einblicke"</string>
+    <string name="book_open">"Buch öffnen"</string>
+    <string name="book_start">"Lesen beginnen"</string>
+    <string name="book_not_started">"Nicht begonnen"</string>
+    <string name="book_finished_on">"Beendet am %1$s"</string>
+    <string name="book_abandoned_on">"Abgebrochen am %1$s"</string>
+    <string name="book_percent_read">"%1$d%% gelesen"</string>
+    <string name="book_series_position">"%1$s, Band %2$s"</string>
+    <string name="book_publisher">"Verlag"</string>
+    <string name="book_published">"Veröffentlicht"</string>
+    <string name="book_subjects">"Themen"</string>
+    <string name="book_isbn">"ISBN"</string>
+    <string name="book_added">"Hinzugefügt"</string>
+    <string name="book_last_read">"Zuletzt gelesen"</string>
+    <string name="book_file_size">"Dateigröße"</string>
+    <string name="library_finished_hidden">"Beendete Bücher ausgeblendet"</string>
+    <string name="library_completed_abandoned_hidden">"Abgebrochene und beendete Bücher ausgeblendet"</string>
+    <string name="library_all_visible">"Alle Bücher sichtbar"</string>
+    <string name="library_show_finished">"Beendete anzeigen"</string>
+    <plurals name="library_filter_hiding_books">
+        <item quantity="one">"Der Filter blendet %1$d Buch aus."</item>
+        <item quantity="other">"Der Filter blendet alle deine %1$d Bücher aus."</item>
+    </plurals>
+</resources>

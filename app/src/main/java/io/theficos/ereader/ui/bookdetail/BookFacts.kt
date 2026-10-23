@@ -1,16 +1,20 @@
 package io.theficos.ereader.ui.bookdetail
 
+import androidx.annotation.StringRes
+import io.theficos.quire.R
+import io.theficos.ereader.ui.UiText
+import io.theficos.ereader.ui.uiText
 import io.theficos.ereader.core.metadata.MetadataBundle
 import io.theficos.ereader.core.model.Document
 import io.theficos.ereader.core.model.Progress
 import java.math.BigDecimal
 import java.util.Locale
 
-internal fun seriesLine(name: String?, index: Double?): String? {
+internal fun seriesLine(name: String?, index: Double?): UiText? {
     val series = name?.trim()?.takeIf { it.isNotEmpty() } ?: return null
     val position = index?.takeIf { it.isFinite() }
         ?.let { BigDecimal.valueOf(it).stripTrailingZeros().toPlainString() }
-    return if (position == null) series else "$series, book $position"
+    return if (position == null) UiText.Dynamic(series) else uiText(R.string.book_series_position, series, position)
 }
 
 internal fun publishedYear(date: String?): String? =
@@ -45,14 +49,14 @@ internal fun subjectsLine(subjects: List<String>): String? = subjects
 internal fun Progress.isStarted(): Boolean =
     percent >= 0.000001 || finishedAt != null || abandonedAt != null
 
-internal fun readingStatus(progress: Progress?, formatDate: (Long) -> String): String {
-    if (progress == null || !progress.isStarted()) return "Not started"
-    progress.finishedAt?.let { return "Finished on ${formatDate(it)}" }
-    progress.abandonedAt?.let { return "Abandoned on ${formatDate(it)}" }
-    return "${(progress.percent * 100).toInt()}% read"
+internal fun readingStatus(progress: Progress?, formatDate: (Long) -> String): UiText {
+    if (progress == null || !progress.isStarted()) return uiText(R.string.book_not_started)
+    progress.finishedAt?.let { return uiText(R.string.book_finished_on, formatDate(it)) }
+    progress.abandonedAt?.let { return uiText(R.string.book_abandoned_on, formatDate(it)) }
+    return uiText(R.string.book_percent_read, (progress.percent * 100).toInt())
 }
 
-internal data class BookFact(val label: String, val value: String)
+internal data class BookFact(@StringRes val label: Int, val value: String)
 
 internal fun bookFacts(
     metadata: MetadataBundle?,
@@ -62,21 +66,22 @@ internal fun bookFacts(
     formatDate: (Long) -> String,
     formatRelative: (Long) -> String,
     formatSize: (Long) -> String,
+    displayLocale: Locale = Locale.getDefault(),
 ): List<BookFact> = buildList {
-    fun addFact(label: String, value: String?) {
+    fun addFact(@StringRes label: Int, value: String?) {
         value?.trim()?.takeIf { it.isNotEmpty() }?.let { add(BookFact(label, it)) }
     }
 
-    addFact("Publisher", metadata?.publisher)
-    addFact("Published", publishedYear(metadata?.publishDate))
-    addFact("Language", languageName(metadata?.language))
-    addFact("Subjects", subjectsLine(metadata?.subjects.orEmpty()))
-    addFact("ISBN", metadata?.isbn)
-    addFact("Added", formatDate(document.downloadedAt))
+    addFact(R.string.book_publisher, metadata?.publisher)
+    addFact(R.string.book_published, publishedYear(metadata?.publishDate))
+    addFact(R.string.common_language, languageName(metadata?.language, displayLocale))
+    addFact(R.string.book_subjects, subjectsLine(metadata?.subjects.orEmpty()))
+    addFact(R.string.book_isbn, metadata?.isbn)
+    addFact(R.string.book_added, formatDate(document.downloadedAt))
     // Never alongside "Not started": a progress row can exist for a book still on its first page.
     addFact(
-        "Last read",
+        R.string.book_last_read,
         progress?.takeIf { it.isStarted() }?.updatedAt?.takeIf { it > 0L }?.let(formatRelative),
     )
-    addFact("File size", fileSizeBytes?.takeIf { it > 0L }?.let(formatSize))
+    addFact(R.string.book_file_size, fileSizeBytes?.takeIf { it > 0L }?.let(formatSize))
 }

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bookdetail_no_insight_cached_for_this_book_yet">"Non ci sono ancora approfondimenti memorizzati per questo libro. Apri i dettagli del libro per generarne uno."</string>
+    <string name="bookdetail_invalidate_cached_insight">"Invalida approfondimento memorizzato"</string>
+    <string name="bookdetail_invalidating_this_insight_removes_the_cached_ai">"Invalidare questo approfondimento elimina la risposta IA memorizzata. Tornando ai dettagli del libro verrà generato un nuovo approfondimento: potrebbe richiedere alcuni secondi e consumare una delle generazioni giornaliere."</string>
+    <string name="bookdetail_couldn_t_read_cached_insight">"Impossibile leggere l’approfondimento memorizzato (%1$s)."</string>
+    <string name="bookdetail_couldn_t_read_cached_insight_2">"Impossibile leggere l’approfondimento memorizzato."</string>
+    <string name="bookdetail_couldn_t_invalidate">"Impossibile invalidare (%1$s)."</string>
+    <string name="bookdetail_series_book">"%1$s · libro %2$s"</string>
+    <string name="bookdetail_you_ve_reached_today_s_regeneration_limit">"Hai raggiunto il limite di rigenerazioni di oggi. Riprova dopo il %1$s."</string>
+    <string name="bookdetail_couldn_t_generate_insights">"Impossibile generare gli approfondimenti (%1$s)."</string>
+    <string name="bookdetail_you_ve_reached_today_s_regeneration_limit_2">"Hai raggiunto il limite di rigenerazioni di oggi. Riprova domani."</string>
+    <string name="bookdetail_the_server_took_too_long_to_answer">"Il server ha impiegato troppo tempo a rispondere. Potrebbe essere ancora in fase di generazione; riprova tra un minuto."</string>
+    <string name="bookdetail_couldn_t_reach_the_server_check_the">"Impossibile raggiungere il server. Controlla l’URL di sincronizzazione e la connessione."</string>
+    <string name="bookdetail_couldn_t_generate_insights_2">"Impossibile generare gli approfondimenti."</string>
+</resources>

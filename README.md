@@ -271,6 +271,15 @@ Dockerfile            Reproducible Android build environment (linux/amd64)
   commands, testing, CI, releases.
 - [`docs/sync-api.md`](docs/sync-api.md) — REST surface of Quire Server.
 
+## Make Quire speak your language
+
+English is the default; Spanish, Italian, French and German are included.
+Translations are complete Android resource folders, with automatic language
+discovery and completeness checks. Adding a language needs only XML files.
+The [translation guide](docs/translating.md) covers corrections, the
+`scripts/new-translation` helper and the shared glossary. Native speakers are
+welcome to contribute and review the wording.
+
 ## Contributing
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md). TL;DR: gitmoji + conventional

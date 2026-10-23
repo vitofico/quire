@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="scan_not_enough_history_yet_to_score_this">"Aún no hay suficiente historial para calcular tu afinidad."</string>
+    <string name="scan_affinity_scoring_isn_t_available_on_this">"El cálculo de afinidad no está disponible en este servidor."</string>
+    <string name="scan_camera_permission_denied_enter_the_isbn_below">"Permiso de cámara denegado. Introduce el ISBN abajo o permite el acceso a la cámara en Ajustes para escanear el código de barras."</string>
+    <string name="scan_camera_unavailable_enter_the_isbn_below">"Cámara no disponible. Introduce el ISBN abajo."</string>
+    <string name="scan_that_doesn_t_look_like_a_valid">"Ese ISBN no parece válido."</string>
+    <string name="scan_no_book_found_for_that_isbn_try">"No se encontró ningún libro con ese ISBN. Vuelve a escanear el código de barras o comprueba los dígitos."</string>
+    <string name="scan_your_session_expired_sign_in_again_then">"Tu sesión ha caducado. Vuelve a iniciar sesión y a escanear."</string>
+</resources>

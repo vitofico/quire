@@ -17,13 +17,16 @@ import io.theficos.ereader.data.opds.normalizeCatalogUrl
 import io.theficos.ereader.data.sync.SyncEnqueuer
 import io.theficos.ereader.domain.restore.RestoreProgress
 import io.theficos.ereader.domain.restore.RestoreSummary
-import java.io.File
 import io.theficos.ereader.reader.ReaderFontFamily
 import io.theficos.ereader.reader.ReaderPreferences
 import io.theficos.ereader.reader.ReaderPreferencesStore
 import io.theficos.ereader.reader.ReaderTheme
+import io.theficos.ereader.ui.UiText
 import io.theficos.ereader.ui.theme.AppTheme
 import io.theficos.ereader.ui.theme.AppThemePreferencesStore
+import io.theficos.ereader.ui.uiText
+import io.theficos.quire.R
+import java.io.File
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -55,7 +58,7 @@ data class AiState(
 sealed interface InsightSyncStatus {
     data object Idle : InsightSyncStatus
     data object Syncing : InsightSyncStatus
-    data class Error(val message: String) : InsightSyncStatus
+    data class Error(val message: UiText) : InsightSyncStatus
 }
 
 /**
@@ -64,7 +67,7 @@ sealed interface InsightSyncStatus {
  */
 sealed interface SettingsEvent {
     data object ProfileDeleted : SettingsEvent
-    data class ProfileDeleteFailed(val message: String) : SettingsEvent
+    data class ProfileDeleteFailed(val message: UiText) : SettingsEvent
     data class RestoreFinished(val summary: RestoreSummary) : SettingsEvent
     data class RestoreFailed(val message: String) : SettingsEvent
 }
@@ -249,7 +252,7 @@ class SettingsViewModel(
         val canonical = normalizeCatalogUrl(s.catalogUrl)
         if (canonical == null) {
             _opds.value = s.copy(
-                error = "Enter a full catalog URL starting with http:// or https://",
+                error = uiText(R.string.settings_enter_a_full_catalog_url_starting_with),
                 saved = false,
             )
             return
@@ -327,7 +330,7 @@ class SettingsViewModel(
                 _events.tryEmit(SettingsEvent.ProfileDeleted)
             } catch (t: Throwable) {
                 _events.tryEmit(
-                    SettingsEvent.ProfileDeleteFailed(t.message ?: "Unknown error"),
+                    SettingsEvent.ProfileDeleteFailed(t.message?.let(UiText::Dynamic) ?: uiText(R.string.common_unknown_error)),
                 )
             } finally {
                 _deleteProfileInFlight.value = false
@@ -349,7 +352,7 @@ class SettingsViewModel(
                 is InsightSyncRepository.SyncResult.Synced,
                 is InsightSyncRepository.SyncResult.Skipped -> InsightSyncStatus.Idle
                 is InsightSyncRepository.SyncResult.Failed ->
-                    InsightSyncStatus.Error(result.error.message ?: "Sync failed")
+                    InsightSyncStatus.Error(result.error.message?.let(UiText::Dynamic) ?: uiText(R.string.common_sync_failed))
             }
             _lastInsightSync.value = insightDao?.latestSyncedAt() ?: _lastInsightSync.value
         }
@@ -397,7 +400,7 @@ data class OpdsUiState(
     val isActive: Boolean,
     val saved: Boolean,
     /** Validation message for the catalog URL, or null when it looks usable. */
-    val error: String? = null,
+    val error: UiText? = null,
 )
 
 data class CalibreUiState(

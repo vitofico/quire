@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="onboarding_quire_cloud_is_coming_soon">"Quire Cloud arrive bientôt"</string>
+    <string name="onboarding_we_re_not_ready_to_take_cloud">"Les inscriptions au cloud ne sont pas encore ouvertes. Pour le moment, connectez-vous à un calibre-web ou quire_server autohébergé, ou utilisez Quire entièrement hors ligne."</string>
+    <string name="onboarding_paste_the_url_of_your_calibre_web">"Collez l’URL de votre serveur calibre-web ou Quire. Nous détecterons son type."</string>
+    <string name="onboarding_we_couldn_t_recognize_that_server">"Ce serveur n’a pas pu être reconnu"</string>
+    <string name="onboarding_check_the_url_including_any_subpath_and">"Vérifiez l’URL (y compris les sous-chemins) et réessayez."</string>
+    <string name="onboarding_quire_can_browse_download_and_read_from">"Quire peut parcourir ce catalogue, télécharger et lire ses livres, et mémoriser votre position sur cet appareil."</string>
+    <string name="onboarding_reading_progress_won_t_sync_between_devices">"La progression ne sera pas synchronisée entre appareils et les fonctions d’IA resteront désactivées : ces deux fonctions nécessitent un serveur Quire, que ce catalogue ne fournit pas."</string>
+    <string name="onboarding_if_this_is_a_calibre_web_server">"S’il s’agit d’un serveur calibre-web, revenez en arrière et saisissez son adresse au lieu de l’URL du flux pour bénéficier aussi de la synchronisation."</string>
+    <string name="onboarding_this_catalog_asked_for_a_username_and">"Ce catalogue demande un nom d’utilisateur et un mot de passe."</string>
+    <string name="onboarding_two_account_types_detected">"Deux types de comptes détectés"</string>
+    <string name="onboarding_this_url_looks_like_both_a_calibre">"Cette URL semble correspondre à un serveur calibre-web et à un serveur Quire. Quel compte souhaitez-vous utiliser ?"</string>
+    <string name="onboarding_calibre_web_username_password">"calibre-web (nom d’utilisateur + mot de passe)"</string>
+    <string name="onboarding_quire_server_email_password">"Serveur Quire (e-mail + mot de passe)"</string>
+    <string name="onboarding_unexpected_verification_result">"Résultat de vérification inattendu."</string>
+    <string name="onboarding_that_url_answered_but_it_isn_t">"Cette URL répond, mais ce n’est pas un catalogue OPDS avec du contenu que Quire peut afficher."</string>
+    <string name="onboarding_the_catalog_rejected_those_credentials">"Le catalogue a refusé ces identifiants."</string>
+    <string name="onboarding_server_error_try_again_later">"Erreur serveur %1$s. Réessayez plus tard."</string>
+    <string name="onboarding_unexpected_response_from_the_catalog">"Réponse inattendue %1$s du catalogue."</string>
+    <string name="onboarding_username_or_password_rejected_by_the_server">"Le serveur a refusé le nom d’utilisateur ou le mot de passe."</string>
+    <string name="onboarding_this_server_asked_for_a_username_and">"Ce serveur demande un nom d’utilisateur et un mot de passe, mais ne propose aucun catalogue sur /opds. Il ne s’agit probablement pas de calibre-web. Si c’est Komga ou un autre serveur OPDS, revenez en arrière et saisissez l’URL complète de son catalogue."</string>
+    <string name="onboarding_unexpected_response_from_opds">"Réponse inattendue %1$s de /opds."</string>
+    <string name="onboarding_server_returned_200_but_the_response_didn">"Le serveur a renvoyé 200, mais la réponse ne contient pas de jeton."</string>
+    <string name="onboarding_email_or_password_rejected_by_the_server">"Le serveur a refusé l’e-mail ou le mot de passe."</string>
+    <string name="onboarding_unexpected_response_from_auth_v1_login">"Réponse inattendue %1$s de /auth/v1/login."</string>
+    <string name="onboarding_that_doesn_t_look_like_a_valid">"Cette URL ne semble pas valide. Elle doit commencer par http:// ou https://."</string>
+    <string name="onboarding_we_couldn_t_verify_the_server_s">"Impossible de vérifier le certificat TLS du serveur. Vérifiez l’URL ou votre réseau. (%1$s)"</string>
+    <string name="onboarding_we_couldn_t_resolve_that_hostname_check">"Impossible de résoudre ce nom d’hôte. Vérifiez l’URL et votre connexion."</string>
+    <string name="onboarding_the_server_refused_the_connection_is_it">"Le serveur a refusé la connexion. Est-il en fonctionnement et accessible ?"</string>
+    <string name="onboarding_the_server_didn_t_respond_in_time">"Le serveur n’a pas répondu à temps. Vérifiez votre réseau et réessayez."</string>
+    <string name="onboarding_the_server_redirected_us_somewhere_unexpected_try">"Le serveur a redirigé vers une destination inattendue. Essayez directement l’URL finale de la redirection."</string>
+    <string name="onboarding_couldn_t_reach_the_server">"Impossible de joindre le serveur : %1$s"</string>
+    <string name="onboarding_how_would_you_like_to_read">"Comment souhaitez-vous lire ?"</string>
+    <string name="onboarding_skip_and_use_quire_offline_only">"Passer et utiliser Quire hors ligne uniquement"</string>
+</resources>

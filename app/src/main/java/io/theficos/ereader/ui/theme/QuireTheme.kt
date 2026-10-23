@@ -1,5 +1,7 @@
 package io.theficos.ereader.ui.theme
 
+import androidx.annotation.StringRes
+import io.theficos.quire.R
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
@@ -13,18 +15,18 @@ import androidx.compose.ui.unit.dp
 import io.theficos.ereader.reader.ReaderTheme
 
 /** Whether the app follows the system's light/dark setting or holds one of its own. */
-enum class ThemeMode(val label: String) {
-    SYSTEM("System"),
-    LIGHT("Light"),
-    DARK("Dark"),
+enum class ThemeMode(@StringRes val label: Int) {
+    SYSTEM(R.string.font_system),
+    LIGHT(R.string.common_light),
+    DARK(R.string.common_dark),
 }
 
 /** The app's colour palettes. Each is either light or dark, never both. */
-enum class Palette(val label: String, val isDark: Boolean) {
-    PAPER("Paper", isDark = false),
-    SAGE("Sage", isDark = false),
-    INK("Ink", isDark = true),
-    MIDNIGHT("Midnight", isDark = true),
+enum class Palette(@StringRes val label: Int, val isDark: Boolean) {
+    PAPER(R.string.palette_paper, isDark = false),
+    SAGE(R.string.common_sage, isDark = false),
+    INK(R.string.palette_ink, isDark = true),
+    MIDNIGHT(R.string.common_midnight, isDark = true),
     ;
 
     val colors: ColorScheme

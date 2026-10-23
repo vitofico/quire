@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bookdetail_no_insight_cached_for_this_book_yet">"No insight cached for this book yet. Open the book detail to generate one."</string>
+    <string name="bookdetail_invalidate_cached_insight">"Invalidate cached insight"</string>
+    <string name="bookdetail_invalidating_this_insight_removes_the_cached_ai">"Invalidating this insight removes the cached AI response. Returning to this book detail will generate a fresh insight, which may take a few seconds and uses one of your daily generations."</string>
+    <string name="bookdetail_couldn_t_read_cached_insight">"Couldn\'t read cached insight (%1$s)."</string>
+    <string name="bookdetail_couldn_t_read_cached_insight_2">"Couldn\'t read cached insight."</string>
+    <string name="bookdetail_couldn_t_invalidate">"Couldn\'t invalidate (%1$s)."</string>
+    <string name="bookdetail_series_book">"%1$s — book %2$s"</string>
+    <string name="bookdetail_you_ve_reached_today_s_regeneration_limit">"You\'ve reached today\'s regeneration limit. Try again after %1$s."</string>
+    <string name="bookdetail_couldn_t_generate_insights">"Couldn\'t generate insights (%1$s)."</string>
+    <string name="bookdetail_you_ve_reached_today_s_regeneration_limit_2">"You\'ve reached today\'s regeneration limit. Try again tomorrow."</string>
+    <string name="bookdetail_the_server_took_too_long_to_answer">"The server took too long to answer. It may still be generating; try again in a minute."</string>
+    <string name="bookdetail_couldn_t_reach_the_server_check_the">"Couldn\'t reach the server. Check the sync URL and your connection."</string>
+    <string name="bookdetail_couldn_t_generate_insights_2">"Couldn\'t generate insights."</string>
+</resources>

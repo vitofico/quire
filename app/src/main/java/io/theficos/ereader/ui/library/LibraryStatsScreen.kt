@@ -28,10 +28,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.theficos.ereader.data.library.LibraryStatsResponse
 import io.theficos.ereader.data.library.TopAuthor
 import io.theficos.ereader.data.library.TopTheme
+import io.theficos.quire.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,10 +47,10 @@ fun LibraryStatsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Library stats") },
+                title = { Text(stringResource(R.string.common_library_stats)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }
                 },
             )
@@ -56,7 +58,7 @@ fun LibraryStatsScreen(
     ) { padding ->
         when (val s = state) {
             is LibraryStatsUiState.Loading -> LoadingState(padding)
-            is LibraryStatsUiState.Error -> ErrorState(padding, s.message, onRetry = { viewModel.load() })
+            is LibraryStatsUiState.Error -> ErrorState(padding, s.message.asString(), onRetry = { viewModel.load() })
             is LibraryStatsUiState.Ready -> ReadyState(padding, s.stats)
         }
     }
@@ -67,7 +69,7 @@ private fun LoadingState(padding: PaddingValues) {
     Box(
         modifier = Modifier.fillMaxSize().padding(padding),
         contentAlignment = Alignment.Center,
-    ) { Text("Loading…") }
+    ) { Text(stringResource(R.string.common_loading)) }
 }
 
 @Composable
@@ -78,7 +80,7 @@ private fun ErrorState(padding: PaddingValues, message: String, onRetry: () -> U
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(message, style = MaterialTheme.typography.bodyMedium)
-            TextButton(onClick = onRetry) { Text("Retry") }
+            TextButton(onClick = onRetry) { Text(stringResource(R.string.common_retry)) }
         }
     }
 }
@@ -98,25 +100,25 @@ private fun ReadyState(padding: PaddingValues, stats: LibraryStatsResponse) {
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    CountCard(label = "Books", value = stats.totalBooks, modifier = Modifier.weight(1f))
-                    CountCard(label = "Finished", value = stats.finishedCount, modifier = Modifier.weight(1f))
+                    CountCard(label = stringResource(R.string.common_books_2), value = stats.totalBooks, modifier = Modifier.weight(1f))
+                    CountCard(label = stringResource(R.string.common_finished_2), value = stats.finishedCount, modifier = Modifier.weight(1f))
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    CountCard(label = "Reading", value = stats.inProgressCount, modifier = Modifier.weight(1f))
-                    CountCard(label = "Abandoned", value = stats.abandonedCount, modifier = Modifier.weight(1f))
+                    CountCard(label = stringResource(R.string.common_reading), value = stats.inProgressCount, modifier = Modifier.weight(1f))
+                    CountCard(label = stringResource(R.string.common_abandoned), value = stats.abandonedCount, modifier = Modifier.weight(1f))
                 }
             }
         }
-        item { SectionHeading("Top authors") }
+        item { SectionHeading(stringResource(R.string.common_top_authors_2)) }
         if (stats.topAuthors.isEmpty()) {
-            item { PlaceholderText("No authors yet — add books to your library.") }
+            item { PlaceholderText(stringResource(R.string.library_no_authors_yet_add_books_to_your)) }
         } else {
             items(stats.topAuthors) { TopAuthorRow(it) }
         }
-        item { SectionHeading("Top themes") }
+        item { SectionHeading(stringResource(R.string.common_top_themes_2)) }
         item {
             Text(
                 stats.themesCaveat,
@@ -125,7 +127,7 @@ private fun ReadyState(padding: PaddingValues, stats: LibraryStatsResponse) {
             )
         }
         if (stats.topThemes.isEmpty()) {
-            item { PlaceholderText("No themes yet — open a book to generate insights, or regenerate older ones.") }
+            item { PlaceholderText(stringResource(R.string.library_no_themes_yet_open_a_book_to)) }
         } else {
             items(stats.topThemes) { TopThemeRow(it) }
         }

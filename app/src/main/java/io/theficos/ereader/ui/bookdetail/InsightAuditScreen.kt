@@ -36,7 +36,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -47,6 +49,7 @@ import io.theficos.ereader.data.ai.AiStyle
 import io.theficos.ereader.data.ai.BookInsightResponse
 import io.theficos.ereader.data.ai.Citation
 import io.theficos.ereader.ui.components.QuireCard
+import io.theficos.quire.R
 import java.time.Instant
 import java.time.format.DateTimeParseException
 
@@ -58,6 +61,7 @@ fun InsightAuditScreen(
     onInvalidated: () -> Unit,
 ) {
     val state by viewModel.state.collectAsState()
+    val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     var confirmOpen by rememberSaveable { mutableStateOf(false) }
 
@@ -67,7 +71,7 @@ fun InsightAuditScreen(
         viewModel.events.collect { event ->
             when (event) {
                 is InsightAuditViewModel.Event.InvalidateFailed ->
-                    snackbarHostState.showSnackbar(event.message)
+                    snackbarHostState.showSnackbar(event.message.asString(context))
                 InsightAuditViewModel.Event.Invalidated -> Unit
             }
         }
@@ -79,10 +83,10 @@ fun InsightAuditScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Inspect insight") },
+                title = { Text(stringResource(R.string.common_inspect_insight)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }
                 },
             )
@@ -93,7 +97,7 @@ fun InsightAuditScreen(
             when (val s = state) {
                 InsightAuditViewModel.State.Loading -> CenteredProgress()
                 is InsightAuditViewModel.State.Error -> ErrorView(
-                    message = s.message,
+                    message = s.message.asString(),
                     onRetry = { viewModel.retry() },
                 )
                 InsightAuditViewModel.State.NotCached -> NotCachedView()
@@ -107,7 +111,7 @@ fun InsightAuditScreen(
                     // Render the last-known content area dimmed by overlaying
                     // a progress indicator; the underlying Loaded composition
                     // is gone, so show a centered spinner with helper text.
-                    CenteredProgress(label = "Invalidating…")
+                    CenteredProgress(label = stringResource(R.string.common_invalidating))
                 }
                 InsightAuditViewModel.State.Done -> {
                     // Transient — onInvalidated() pops back. Render nothing.
@@ -151,7 +155,7 @@ private fun ErrorView(message: String, onRetry: () -> Unit) {
     ) {
         Text(message, style = MaterialTheme.typography.bodyMedium)
         Spacer(Modifier.height(12.dp))
-        OutlinedButton(onClick = onRetry) { Text("Retry") }
+        OutlinedButton(onClick = onRetry) { Text(stringResource(R.string.common_retry)) }
     }
 }
 
@@ -163,7 +167,7 @@ private fun NotCachedView() {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
-            "No insight cached for this book yet. Open the book detail to generate one.",
+            stringResource(R.string.bookdetail_no_insight_cached_for_this_book_yet),
             style = MaterialTheme.typography.bodyMedium,
         )
     }
@@ -195,7 +199,7 @@ private fun LoadedView(
                 .padding(horizontal = 8.dp),
             enabled = !invalidating,
             onClick = onInvalidate,
-        ) { Text("Invalidate cached insight") }
+        ) { Text(stringResource(R.string.bookdetail_invalidate_cached_insight)) }
         Spacer(Modifier.height(24.dp))
     }
 }
@@ -204,11 +208,11 @@ private fun LoadedView(
 private fun CacheKeyCard(response: BookInsightResponse) {
     QuireCard(modifier = Modifier.fillMaxWidth()) {
         Column {
-            Text("Cache key (from server)", style = MaterialTheme.typography.titleSmall)
+            Text(stringResource(R.string.common_cache_key_from_server), style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(8.dp))
-            LabeledRow("Model", response.modelId)
-            LabeledRow("Prompt ver.", response.promptVersion)
-            LabeledRow("Schema ver.", response.payload.schemaVersion.toString())
+            LabeledRow(stringResource(R.string.common_model), response.modelId)
+            LabeledRow(stringResource(R.string.common_prompt_ver), response.promptVersion)
+            LabeledRow(stringResource(R.string.common_schema_ver), response.payload.schemaVersion.toString())
         }
     }
 }
@@ -217,10 +221,10 @@ private fun CacheKeyCard(response: BookInsightResponse) {
 private fun StyleCard(style: AiStyle?) {
     QuireCard(modifier = Modifier.fillMaxWidth()) {
         Column {
-            Text("Your current AI style", style = MaterialTheme.typography.titleSmall)
+            Text(stringResource(R.string.common_your_current_ai_style), style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(8.dp))
-            LabeledRow("Tone", style?.tone ?: "—")
-            LabeledRow("Language", style?.language ?: "—")
+            LabeledRow(stringResource(R.string.common_tone), style?.tone ?: "—")
+            LabeledRow(stringResource(R.string.common_language), style?.language ?: "—")
         }
     }
 }
@@ -229,7 +233,7 @@ private fun StyleCard(style: AiStyle?) {
 private fun GeneratedCard(generatedAt: String) {
     QuireCard(modifier = Modifier.fillMaxWidth()) {
         Column {
-            Text("Generated", style = MaterialTheme.typography.titleSmall)
+            Text(stringResource(R.string.common_generated), style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(8.dp))
             val rel = formatRelative(generatedAt)
             if (rel != null) {
@@ -256,11 +260,11 @@ private fun SourcesCard(sources: List<Citation>) {
     val uriHandler = LocalUriHandler.current
     QuireCard(modifier = Modifier.fillMaxWidth()) {
         Column {
-            Text("Sources (${sources.size})", style = MaterialTheme.typography.titleSmall)
+            Text(stringResource(R.string.common_sources, sources.size), style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(8.dp))
             if (sources.isEmpty()) {
                 Text(
-                    "No sources recorded.",
+                    stringResource(R.string.common_no_sources_recorded),
                     style = MaterialTheme.typography.bodySmall,
                 )
             } else {
@@ -317,17 +321,15 @@ private fun LabeledRow(label: String, value: String) {
 private fun InvalidateConfirmDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Invalidate insight?") },
+        title = { Text(stringResource(R.string.common_invalidate_insight)) },
         text = {
             Text(
-                "Invalidating this insight removes the cached AI response. " +
-                    "Returning to this book detail will generate a fresh insight, " +
-                    "which may take a few seconds and uses one of your daily generations.",
+                stringResource(R.string.bookdetail_invalidating_this_insight_removes_the_cached_ai),
                 style = MaterialTheme.typography.bodyMedium,
             )
         },
-        confirmButton = { TextButton(onClick = onConfirm) { Text("Invalidate") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = onConfirm) { Text(stringResource(R.string.common_invalidate)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } },
     )
 }
 
@@ -336,11 +338,12 @@ private fun InvalidateConfirmDialog(onDismiss: () -> Unit, onConfirm: () -> Unit
  * `SourcesFooter` mapping (keep the two in sync; the audit screen renders
  * sources as a list rather than inline text).
  */
+@Composable
 internal fun citationLabel(c: Citation): String = when (c.kind) {
     "wikipedia" -> "Wikipedia"
     "openlibrary" -> "OpenLibrary"
-    "model" -> "AI model: ${c.title}"
-    "opf" -> "Book metadata"
+    "model" -> stringResource(R.string.common_ai_model, c.title)
+    "opf" -> stringResource(R.string.common_book_metadata)
     else -> c.title
 }
 
@@ -355,15 +358,16 @@ internal fun citationUrl(c: Citation): String? = when (c.kind) {
  * ago"). Returns null when the input cannot be parsed; callers fall back
  * to displaying the raw value.
  */
+@Composable
 internal fun formatRelative(iso: String, nowMs: Long = System.currentTimeMillis()): String? {
     val epoch = parseIsoOrNull(iso) ?: return null
     val deltaSec = (nowMs - epoch) / 1000
     return when {
-        deltaSec < 0 -> "just now"
-        deltaSec < 60 -> "just now"
-        deltaSec < 3600 -> "${deltaSec / 60}m ago"
-        deltaSec < 86_400 -> "${deltaSec / 3600}h ago"
-        else -> "${deltaSec / 86_400}d ago"
+        deltaSec < 0 -> stringResource(R.string.common_just_now)
+        deltaSec < 60 -> stringResource(R.string.common_just_now)
+        deltaSec < 3600 -> stringResource(R.string.common_m_ago, deltaSec / 60)
+        deltaSec < 86_400 -> stringResource(R.string.common_h_ago, deltaSec / 3600)
+        else -> stringResource(R.string.common_d_ago, deltaSec / 86_400)
     }
 }
 

@@ -20,6 +20,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -27,6 +28,8 @@ import io.theficos.ereader.reader.ReaderFontFamily
 import io.theficos.ereader.reader.ReaderPreferences
 import io.theficos.ereader.reader.ReaderTheme
 import io.theficos.ereader.ui.components.RadioOptionRow
+import io.theficos.ereader.ui.displayLabel
+import io.theficos.quire.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -40,7 +43,7 @@ fun FontSettingsSheet(
         Column(
             // Scrollable + nav-bar inset so every control stays reachable — the sheet is
             // taller than the screen once all sliders are shown, and the last item
-            // ("Full-screen reading") otherwise falls off the bottom / under the nav bar.
+            // (stringResource(R.string.common_full_screen_reading)) otherwise falls off the bottom / under the nav bar.
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
@@ -48,7 +51,7 @@ fun FontSettingsSheet(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text("Font size: ${"%.1fx".format(prefs.fontScale)}", style = MaterialTheme.typography.bodyMedium)
+            Text(stringResource(R.string.common_font_size, "%.1fx".format(prefs.fontScale)), style = MaterialTheme.typography.bodyMedium)
             Slider(
                 value = prefs.fontScale.toFloat(),
                 onValueChange = { onChange(prefs.copy(fontScale = it.toDouble().coerceIn(0.5, 2.0))) },
@@ -58,7 +61,7 @@ fun FontSettingsSheet(
             )
             val advancedEnabled = !prefs.usePublisherStyles
 
-            val lineSpacingLabel = "Line spacing: ${"%.1f".format(prefs.lineSpacing)}"
+            val lineSpacingLabel = stringResource(R.string.common_line_spacing, "%.1f".format(prefs.lineSpacing))
             Text(lineSpacingLabel, style = MaterialTheme.typography.bodyMedium)
             Slider(
                 value = prefs.lineSpacing.toFloat(),
@@ -69,7 +72,7 @@ fun FontSettingsSheet(
                 modifier = Modifier.fillMaxWidth().semantics { contentDescription = lineSpacingLabel },
             )
 
-            val marginLabel = "Page margins: ${"%.1f".format(prefs.pageMargins)}"
+            val marginLabel = stringResource(R.string.common_page_margins, "%.1f".format(prefs.pageMargins))
             Text(marginLabel, style = MaterialTheme.typography.bodyMedium)
             Slider(
                 value = prefs.pageMargins.toFloat(),
@@ -80,7 +83,7 @@ fun FontSettingsSheet(
             )
 
             val indentLabel = prefs.paragraphIndent
-                ?.let { "Paragraph indent: ${"%.1f".format(it)}" } ?: "Paragraph indent: Default"
+                ?.let { stringResource(R.string.common_paragraph_indent, "%.1f".format(it)) } ?: stringResource(R.string.reader_paragraph_indent_default)
             Text(indentLabel, style = MaterialTheme.typography.bodyMedium)
             Slider(
                 value = (prefs.paragraphIndent ?: 0.0).toFloat(),
@@ -94,7 +97,7 @@ fun FontSettingsSheet(
             )
 
             val spacingLabel = prefs.paragraphSpacing
-                ?.let { "Paragraph spacing: ${"%.1f".format(it)}" } ?: "Paragraph spacing: Default"
+                ?.let { stringResource(R.string.common_paragraph_spacing, "%.1f".format(it)) } ?: stringResource(R.string.reader_paragraph_spacing_default)
             Text(spacingLabel, style = MaterialTheme.typography.bodyMedium)
             Slider(
                 value = (prefs.paragraphSpacing ?: 0.0).toFloat(),
@@ -112,9 +115,9 @@ fun FontSettingsSheet(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Use the book's paragraph styling", style = MaterialTheme.typography.titleSmall)
+                    Text(stringResource(R.string.reader_use_the_book_s_paragraph_styling), style = MaterialTheme.typography.titleSmall)
                     Text(
-                        "Keeps the book's own line spacing, indent and paragraph spacing — turn off to adjust them",
+                        stringResource(R.string.reader_keeps_the_book_s_own_line_spacing),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -125,23 +128,23 @@ fun FontSettingsSheet(
                 )
             }
 
-            Text("Page theme", style = MaterialTheme.typography.bodyMedium)
-            // A column, not a row: four themes with labels as long as "Dark sepia" overflow one
+            Text(stringResource(R.string.reader_page_theme), style = MaterialTheme.typography.bodyMedium)
+            // A column, not a row: four themes with labels as long as stringResource(R.string.reader_dark_sepia) overflow one
             // line on a narrow screen, and this matches the font-family picker just below.
             Column(Modifier.selectableGroup()) {
                 ReaderTheme.values().forEach { t ->
                     RadioOptionRow(
-                        label = t.displayLabel(),
+                        label = t.displayLabel().asString(),
                         selected = prefs.theme == t,
                         onSelect = { onChange(prefs.copy(theme = t)) },
                     )
                 }
             }
-            Text("Font family", style = MaterialTheme.typography.bodyMedium)
+            Text(stringResource(R.string.common_font_family), style = MaterialTheme.typography.bodyMedium)
             Column(Modifier.selectableGroup()) {
                 ReaderFontFamily.values().forEach { f ->
                     RadioOptionRow(
-                        label = f.name.replace('_', ' ').lowercase().replaceFirstChar { it.uppercase() },
+                        label = f.displayLabel(),
                         selected = prefs.fontFamily == f,
                         onSelect = { onChange(prefs.copy(fontFamily = f)) },
                     )
@@ -155,9 +158,9 @@ fun FontSettingsSheet(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Tap to turn pages", style = MaterialTheme.typography.titleSmall)
+                    Text(stringResource(R.string.common_tap_to_turn_pages), style = MaterialTheme.typography.titleSmall)
                     Text(
-                        "Tap left or right edges to flip pages",
+                        stringResource(R.string.reader_tap_left_or_right_edges_to_flip),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -174,9 +177,9 @@ fun FontSettingsSheet(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Full-screen reading", style = MaterialTheme.typography.titleSmall)
+                    Text(stringResource(R.string.common_full_screen_reading), style = MaterialTheme.typography.titleSmall)
                     Text(
-                        "Hide the status and navigation bars while reading",
+                        stringResource(R.string.reader_hide_the_status_and_navigation_bars_while),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

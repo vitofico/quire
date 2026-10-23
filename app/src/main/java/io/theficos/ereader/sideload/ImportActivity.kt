@@ -5,6 +5,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.lifecycle.lifecycleScope
 import io.theficos.ereader.EReaderApp
+import io.theficos.quire.R
 import kotlinx.coroutines.launch
 
 /**
@@ -27,7 +28,7 @@ class ImportActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val uri = extractImportUri(intent)
         if (uri == null) {
-            Toast.makeText(this, "Couldn't read the shared file.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, getString(R.string.sideload_couldn_t_read_the_shared_file), Toast.LENGTH_LONG).show()
             finish()
             return
         }
@@ -36,12 +37,12 @@ class ImportActivity : ComponentActivity() {
         lifecycleScope.launch {
             val result = importer.import(uri, displayName)
             val msg = when (result) {
-                is SideloadResult.Imported -> "Imported: ${result.title}"
-                is SideloadResult.AlreadyImported -> "Already in your library: ${result.title}"
+                is SideloadResult.Imported -> getString(R.string.common_imported, result.title)
+                is SideloadResult.AlreadyImported -> getString(R.string.sideload_already_in_your_library, result.title)
                 is SideloadResult.Failed -> when (result.reason) {
-                    SideloadFailure.InvalidEpub -> "Not a valid EPUB."
-                    SideloadFailure.UriUnreadable -> "Couldn't read the shared file."
-                    SideloadFailure.IoError -> "Import failed — try again."
+                    SideloadFailure.InvalidEpub -> getString(R.string.common_not_a_valid_epub)
+                    SideloadFailure.UriUnreadable -> getString(R.string.sideload_couldn_t_read_the_shared_file)
+                    SideloadFailure.IoError -> getString(R.string.sideload_import_failed_try_again)
                 }
             }
             Toast.makeText(this@ImportActivity, msg, Toast.LENGTH_LONG).show()

@@ -4,6 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.theficos.ereader.data.library.LibraryHttpException
 import io.theficos.ereader.data.library.LibraryStatsResponse
+import io.theficos.ereader.ui.UiText
+import io.theficos.ereader.ui.uiText
+import io.theficos.quire.R
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -13,7 +16,7 @@ import kotlinx.coroutines.launch
 sealed interface LibraryStatsUiState {
     data object Loading : LibraryStatsUiState
     data class Ready(val stats: LibraryStatsResponse) : LibraryStatsUiState
-    data class Error(val message: String) : LibraryStatsUiState
+    data class Error(val message: UiText) : LibraryStatsUiState
 }
 
 /**
@@ -99,16 +102,16 @@ class LibraryStatsViewModel(
                 if (mine != generation) return@launch
                 if (cache.lastReady == null) {
                     _state.value = LibraryStatsUiState.Error(
-                        "Couldn't reach the server: ${e.message ?: "unknown error"}."
+                        uiText(R.string.library_couldn_t_reach_the_server_2, e.message ?: "")
                     )
                 }
             }
         }
     }
 
-    private fun messageForHttp(code: Int): String = when (code) {
-        401 -> "Sign in to your calibre-web instance to see stats."
-        404 -> "Library stats aren't available on this server."
-        else -> "Couldn't load stats (HTTP $code)."
+    private fun messageForHttp(code: Int): UiText = when (code) {
+        401 -> uiText(R.string.library_sign_in_to_your_calibre_web_instance)
+        404 -> uiText(R.string.library_library_stats_aren_t_available_on_this)
+        else -> uiText(R.string.library_couldn_t_load_stats_http, code)
     }
 }

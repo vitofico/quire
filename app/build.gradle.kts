@@ -73,6 +73,7 @@ android {
     }
     kotlinOptions { jvmTarget = "21" }
     buildFeatures { compose = true }
+    androidResources { generateLocaleConfig = true }
     testOptions { unitTests.isIncludeAndroidResources = true }
     // Don't embed dependency-metadata in the APK / bundle. AGP 8.x writes
     // this into the v3 signing block; F-Droid's `check apk` rejects it as

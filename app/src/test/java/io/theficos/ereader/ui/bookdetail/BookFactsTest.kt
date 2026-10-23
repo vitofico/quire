@@ -5,6 +5,9 @@ import io.theficos.ereader.core.metadata.MetadataBundle
 import io.theficos.ereader.core.model.Document
 import io.theficos.ereader.core.model.DocumentIdentity
 import io.theficos.ereader.core.model.Progress
+import io.theficos.ereader.ui.UiText
+import io.theficos.ereader.ui.uiText
+import io.theficos.quire.R
 import org.junit.Test
 import java.util.Locale
 
@@ -73,9 +76,9 @@ class BookFactsTest {
 
     @Test
     fun `series formats whole and fractional positions without trailing zeros`() {
-        assertThat(seriesLine("Foundation", 3.0)).isEqualTo("Foundation, book 3")
-        assertThat(seriesLine("Foundation", 1.5)).isEqualTo("Foundation, book 1.5")
-        assertThat(seriesLine(" Foundation ", null)).isEqualTo("Foundation")
+        assertThat(seriesLine("Foundation", 3.0)).isEqualTo(uiText(R.string.book_series_position, "Foundation", "3"))
+        assertThat(seriesLine("Foundation", 1.5)).isEqualTo(uiText(R.string.book_series_position, "Foundation", "1.5"))
+        assertThat(seriesLine(" Foundation ", null)).isEqualTo(UiText.Dynamic("Foundation"))
         assertThat(seriesLine(null, 3.0)).isNull()
         assertThat(seriesLine("  ", 3.0)).isNull()
     }
@@ -90,23 +93,23 @@ class BookFactsTest {
 
     @Test
     fun `reading status is not started without meaningful progress`() {
-        assertThat(readingStatus(null) { "date-$it" }).isEqualTo("Not started")
-        assertThat(readingStatus(progress(percent = 0.0)) { "date-$it" }).isEqualTo("Not started")
-        assertThat(readingStatus(progress(percent = 0.0000001)) { "date-$it" }).isEqualTo("Not started")
+        assertThat(readingStatus(null) { "date-$it" }).isEqualTo(uiText(R.string.book_not_started))
+        assertThat(readingStatus(progress(percent = 0.0)) { "date-$it" }).isEqualTo(uiText(R.string.book_not_started))
+        assertThat(readingStatus(progress(percent = 0.0000001)) { "date-$it" }).isEqualTo(uiText(R.string.book_not_started))
     }
 
     @Test
     fun `reading status rounds down the percentage`() {
-        assertThat(readingStatus(progress()) { "date-$it" }).isEqualTo("42% read")
-        assertThat(readingStatus(progress(percent = 0.999)) { "date-$it" }).isEqualTo("99% read")
+        assertThat(readingStatus(progress()) { "date-$it" }).isEqualTo(uiText(R.string.book_percent_read, 42))
+        assertThat(readingStatus(progress(percent = 0.999)) { "date-$it" }).isEqualTo(uiText(R.string.book_percent_read, 99))
     }
 
     @Test
     fun `reading status formats finished and abandoned dates before the percentage`() {
         assertThat(readingStatus(progress(percent = 1.0, finishedAt = 300L)) { "date-$it" })
-            .isEqualTo("Finished on date-300")
+            .isEqualTo(uiText(R.string.book_finished_on, "date-300"))
         assertThat(readingStatus(progress(percent = 0.0, abandonedAt = 400L)) { "date-$it" })
-            .isEqualTo("Abandoned on date-400")
+            .isEqualTo(uiText(R.string.book_abandoned_on, "date-400"))
     }
 
     @Test
@@ -129,7 +132,7 @@ class BookFactsTest {
         )
 
         assertThat(facts.map { it.label }).containsExactly(
-            "Publisher", "Published", "Language", "Subjects", "ISBN", "Added", "Last read", "File size",
+            R.string.book_publisher, R.string.book_published, R.string.common_language, R.string.book_subjects, R.string.book_isbn, R.string.book_added, R.string.book_last_read, R.string.book_file_size,
         ).inOrder()
         assertThat(facts.first().value).isEqualTo("Gnome Press")
         assertThat(facts[1].value).isEqualTo("1951")
@@ -156,7 +159,7 @@ class BookFactsTest {
                 formatSize = { error("No size to format") },
             )
 
-            assertThat(facts).containsExactly(BookFact("Added", "date-100"))
+            assertThat(facts).containsExactly(BookFact(R.string.book_added, "date-100"))
         }
     }
 
@@ -169,7 +172,7 @@ class BookFactsTest {
             formatSize = { error("No size to format") },
         )
 
-        assertThat(facts).containsExactly(BookFact("Added", "date-100"))
+        assertThat(facts).containsExactly(BookFact(R.string.book_added, "date-100"))
     }
 
     @Test
@@ -181,6 +184,6 @@ class BookFactsTest {
             formatSize = { error("No size to format") },
         )
 
-        assertThat(facts).containsExactly(BookFact("Added", "date-100"))
+        assertThat(facts).containsExactly(BookFact(R.string.book_added, "date-100"))
     }
 }

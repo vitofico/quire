@@ -8,6 +8,9 @@ import io.theficos.ereader.data.library.AffinityIdentity
 import io.theficos.ereader.data.library.AffinityRequestBody
 import io.theficos.ereader.data.library.AffinityResponse
 import io.theficos.ereader.data.library.LibraryHttpException
+import io.theficos.ereader.ui.UiText
+import io.theficos.ereader.ui.uiText
+import io.theficos.quire.R
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -109,7 +112,7 @@ class ScanViewModel(
                             // they have an actionable screen to re-scan from.
                             ScanUiState.ReauthRequired
                         }
-                        else -> ScanUiState.Failed(e.localizedMessage ?: "Affinity request failed.")
+                        else -> ScanUiState.Failed(e.localizedMessage?.let(UiText::Dynamic) ?: uiText(R.string.common_affinity_request_failed))
                     }
                 }
                 if (mine != generation) return@launch
@@ -118,7 +121,7 @@ class ScanViewModel(
                 throw e
             } catch (e: Throwable) {
                 if (mine != generation) return@launch
-                _state.value = ScanUiState.Failed(e.localizedMessage ?: "Something went wrong.")
+                _state.value = ScanUiState.Failed(e.localizedMessage?.let(UiText::Dynamic) ?: uiText(R.string.common_something_went_wrong_2))
             }
         }
     }
@@ -142,5 +145,5 @@ sealed interface ScanUiState {
         val affinity: AffinityResponse?,
         val affinityUnavailable: Boolean,
     ) : ScanUiState
-    data class Failed(val message: String) : ScanUiState
+    data class Failed(val message: UiText) : ScanUiState
 }

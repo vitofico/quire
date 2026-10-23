@@ -52,6 +52,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -62,10 +63,13 @@ import io.theficos.ereader.reader.ReaderTheme
 import io.theficos.ereader.ui.components.QuireCard
 import io.theficos.ereader.ui.components.RadioOptionRow
 import io.theficos.ereader.ui.components.SectionLabel
+import io.theficos.ereader.ui.displayLabel
 import io.theficos.ereader.ui.reader.displayLabel
 import io.theficos.ereader.ui.theme.AppTheme
 import io.theficos.ereader.ui.theme.Palette
 import io.theficos.ereader.ui.theme.ThemeMode
+import io.theficos.ereader.ui.toneLabel
+import io.theficos.quire.R
 import java.time.Instant
 import java.time.format.DateTimeParseException
 
@@ -119,20 +123,21 @@ fun SettingsScreen(
     val isConnected by viewModel.isConnected.collectAsState()
     val restoreRunning by viewModel.restoreRunning.collectAsState()
     val restoreProgress by viewModel.restoreProgress.collectAsState()
+    val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
             val msg = when (event) {
-                SettingsEvent.ProfileDeleted -> "Reader profile deleted."
+                SettingsEvent.ProfileDeleted -> context.getString(R.string.common_reader_profile_deleted)
                 is SettingsEvent.ProfileDeleteFailed ->
-                    "Couldn't delete reader profile: ${event.message}"
+                    context.getString(R.string.settings_couldn_t_delete_reader_profile, event.message.asString(context))
                 is SettingsEvent.RestoreFinished -> {
                     val s = event.summary
-                    val failTail = if (s.failed > 0) " · ${s.failed} failed" else ""
-                    "Restored ${s.downloaded} of ${s.requested}$failTail"
+                    if (s.failed > 0) context.getString(R.string.restore_partial, s.downloaded, s.requested, s.failed)
+                    else context.getString(R.string.restore_complete, s.downloaded, s.requested)
                 }
-                is SettingsEvent.RestoreFailed -> "Restore failed: ${event.message}"
+                is SettingsEvent.RestoreFailed -> context.getString(R.string.common_restore_failed, event.message)
             }
             snackbarHostState.showSnackbar(msg)
         }
@@ -146,9 +151,9 @@ fun SettingsScreen(
             .padding(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-        Text("Settings", style = MaterialTheme.typography.displaySmall)
+        Text(stringResource(R.string.common_settings), style = MaterialTheme.typography.displaySmall)
 
-        SectionLabel("Appearance")
+        SectionLabel(stringResource(R.string.common_appearance))
         QuireCard(modifier = Modifier.fillMaxWidth()) {
             AppearanceSettings(theme = appTheme, onChange = viewModel::setAppTheme)
         }
@@ -159,29 +164,29 @@ fun SettingsScreen(
                 OutlinedTextField(
                     value = calibre.baseUrl,
                     onValueChange = viewModel::onBaseUrlChange,
-                    label = { Text("calibre-web URL") },
+                    label = { Text(stringResource(R.string.common_calibre_web_url)) },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
                     value = calibre.username,
                     onValueChange = viewModel::onUsernameChange,
-                    label = { Text("Username") },
+                    label = { Text(stringResource(R.string.common_username)) },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
                     value = calibre.password,
                     onValueChange = viewModel::onPasswordChange,
-                    label = { Text("Password") },
+                    label = { Text(stringResource(R.string.common_password)) },
                     visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
                     value = calibre.quireServerUrl,
                     onValueChange = viewModel::onQuireServerUrlChange,
-                    label = { Text("Quire server URL (optional)") },
-                    placeholder = { Text("Same as calibre-web URL") },
+                    label = { Text(stringResource(R.string.settings_quire_server_url_optional)) },
+                    placeholder = { Text(stringResource(R.string.common_same_as_calibre_web_url)) },
                     supportingText = {
-                        Text("Only set this if sync / AI run at a different address than your books.")
+                        Text(stringResource(R.string.settings_only_set_this_if_sync_ai_run))
                     },
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -189,27 +194,26 @@ fun SettingsScreen(
                     onClick = viewModel::saveCalibre,
                     enabled = calibre.baseUrl.isNotBlank() && calibre.username.isNotBlank() && calibre.password.isNotBlank(),
                 ) {
-                    Text(if (calibre.saved) "Saved" else "Save")
+                    Text(if (calibre.saved) stringResource(R.string.common_saved) else stringResource(R.string.common_save))
                 }
             }
         }
 
-        SectionLabel("OPDS catalog")
+        SectionLabel(stringResource(R.string.common_opds_catalog))
         QuireCard(modifier = Modifier.fillMaxWidth()) {
             var revealUrl by rememberSaveable { mutableStateOf(false) }
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    "Connect to any OPDS catalog, such as Kavita. Fill this in " +
-                        "instead of calibre-web above, not as well as it.",
+                    stringResource(R.string.settings_connect_to_any_opds_catalog_such_as),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 OutlinedTextField(
                     value = opds.catalogUrl,
                     onValueChange = viewModel::onOpdsCatalogUrlChange,
-                    label = { Text("Catalog URL") },
+                    label = { Text(stringResource(R.string.common_catalog_url)) },
                     isError = opds.error != null,
-                    supportingText = opds.error?.let { msg -> { Text(msg) } },
+                    supportingText = opds.error?.let { msg -> { Text(msg.asString()) } },
                     // Some catalogs put an account key in the URL, so it is
                     // masked like a password until the user asks to see it.
                     visualTransformation = if (revealUrl) {
@@ -219,7 +223,7 @@ fun SettingsScreen(
                     },
                     trailingIcon = {
                         TextButton(onClick = { revealUrl = !revealUrl }) {
-                            Text(if (revealUrl) "Hide" else "Show")
+                            Text(if (revealUrl) stringResource(R.string.common_hide) else stringResource(R.string.common_show))
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -227,21 +231,19 @@ fun SettingsScreen(
                 OutlinedTextField(
                     value = opds.username,
                     onValueChange = viewModel::onOpdsUsernameChange,
-                    label = { Text("Username (optional)") },
+                    label = { Text(stringResource(R.string.common_username_optional)) },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
                     value = opds.password,
                     onValueChange = viewModel::onOpdsPasswordChange,
-                    label = { Text("Password (optional)") },
+                    label = { Text(stringResource(R.string.common_password_optional)) },
                     visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 if (opds.isActive) {
                     Text(
-                        "Connected to an OPDS catalog. Your place in a book is " +
-                            "saved on this device only, and the AI features are " +
-                            "off: both need a Quire server.",
+                        stringResource(R.string.settings_connected_to_an_opds_catalog_your_place),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -256,16 +258,16 @@ fun SettingsScreen(
                             opds.catalogUrl.startsWith("https://", ignoreCase = true)) &&
                         opds.username.isBlank() == opds.password.isBlank(),
                 ) {
-                    Text(if (opds.saved) "Saved" else "Save")
+                    Text(if (opds.saved) stringResource(R.string.common_saved) else stringResource(R.string.common_save))
                 }
             }
         }
 
-        SectionLabel("Reader defaults")
+        SectionLabel(stringResource(R.string.common_reader_defaults))
         QuireCard(modifier = Modifier.fillMaxWidth()) {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Column {
-                    Text("Font size: ${"%.1fx".format(reader.fontScale)}", style = MaterialTheme.typography.bodyMedium)
+                    Text(stringResource(R.string.common_font_size, "%.1fx".format(reader.fontScale)), style = MaterialTheme.typography.bodyMedium)
                     Slider(
                         value = reader.fontScale.toFloat(),
                         onValueChange = { viewModel.setFontScale(it.toDouble()) },
@@ -275,7 +277,7 @@ fun SettingsScreen(
                     )
                 }
                 Column {
-                    Text("Line spacing: ${"%.1f".format(reader.lineSpacing)}", style = MaterialTheme.typography.bodyMedium)
+                    Text(stringResource(R.string.common_line_spacing, "%.1f".format(reader.lineSpacing)), style = MaterialTheme.typography.bodyMedium)
                     Slider(
                         value = reader.lineSpacing.toFloat(),
                         onValueChange = { viewModel.setLineSpacing(it.toDouble()) },
@@ -285,14 +287,14 @@ fun SettingsScreen(
                     )
                 }
                 Column {
-                    Text("Page theme", style = MaterialTheme.typography.bodyMedium)
-                    // A column, not a row: four themes with labels as long as "Dark sepia"
+                    Text(stringResource(R.string.reader_page_theme), style = MaterialTheme.typography.bodyMedium)
+                    // A column, not a row: four themes with labels as long as stringResource(R.string.reader_dark_sepia)
                     // overflow one line on a narrow screen, and this matches the font-family
                     // picker just below.
                     Column(Modifier.selectableGroup()) {
                         ReaderTheme.values().forEach { t ->
                             RadioOptionRow(
-                                label = t.displayLabel(),
+                                label = t.displayLabel().asString(),
                                 selected = reader.theme == t,
                                 onSelect = { viewModel.setTheme(t) },
                             )
@@ -300,11 +302,11 @@ fun SettingsScreen(
                     }
                 }
                 Column {
-                    Text("Font family", style = MaterialTheme.typography.bodyMedium)
+                    Text(stringResource(R.string.common_font_family), style = MaterialTheme.typography.bodyMedium)
                     Column(Modifier.selectableGroup()) {
                         ReaderFontFamily.values().forEach { f ->
                             RadioOptionRow(
-                                label = f.name.replace('_', ' ').lowercase().replaceFirstChar { it.uppercase() },
+                                label = f.displayLabel(),
                                 selected = reader.fontFamily == f,
                                 onSelect = { viewModel.setFontFamily(f) },
                             )
@@ -314,7 +316,7 @@ fun SettingsScreen(
             }
         }
 
-        SectionLabel("Sync")
+        SectionLabel(stringResource(R.string.common_sync))
         QuireCard(modifier = Modifier.fillMaxWidth()) {
             val syncState by viewModel.sync.collectAsState()
             val context = LocalContext.current
@@ -323,10 +325,9 @@ fun SettingsScreen(
                 if (!syncState.hasCredentials) {
                     Text(
                         if (opds.isActive) {
-                            "This OPDS catalog has no Quire server behind it, so " +
-                                "there's nothing to sync with."
+                            stringResource(R.string.settings_this_opds_catalog_has_no_quire_server)
                         } else {
-                            "Configure a server above to enable sync."
+                            stringResource(R.string.settings_configure_a_server_above_to_enable_sync)
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -334,18 +335,18 @@ fun SettingsScreen(
                 } else {
                     val ts = syncState.lastSyncedAtMs
                     Text(
-                        if (ts == null) "Not synced yet" else "Last synced: ${formatRelative(ts)}",
+                        if (ts == null) stringResource(R.string.common_not_synced_yet) else stringResource(R.string.common_last_synced, formatRelative(ts)),
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
                 Button(
                     onClick = { viewModel.syncNow(context) },
                     enabled = syncState.hasCredentials,
-                ) { Text("Sync now") }
+                ) { Text(stringResource(R.string.common_sync_now)) }
             }
         }
 
-        SectionLabel("Storage & sync")
+        SectionLabel(stringResource(R.string.common_storage_sync))
         QuireCard(modifier = Modifier.fillMaxWidth()) {
             val context = LocalContext.current
             var pendingResetSync by remember { mutableStateOf(false) }
@@ -353,39 +354,39 @@ fun SettingsScreen(
 
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Column {
-                    Text("Reset sync", style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(R.string.common_reset_sync), style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "Re-pull everything on the next sync. Your books and progress are kept.",
+                        stringResource(R.string.settings_re_pull_everything_on_the_next_sync),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    TextButton(onClick = { pendingResetSync = true }) { Text("Reset sync") }
+                    TextButton(onClick = { pendingResetSync = true }) { Text(stringResource(R.string.common_reset_sync)) }
                 }
                 Column {
-                    Text("Remove all downloaded books", style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(R.string.settings_remove_all_downloaded_books), style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "Delete all EPUB files from this device. Reading progress is preserved on the server.",
+                        stringResource(R.string.settings_delete_all_epub_files_from_this_device),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     TextButton(
                         onClick = { pendingRemoveAll = true },
                         colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                    ) { Text("Remove all downloaded books") }
+                    ) { Text(stringResource(R.string.settings_remove_all_downloaded_books)) }
                 }
                 if (isConnected) {
                     Column {
-                        Text("Restore in-progress books", style = MaterialTheme.typography.titleMedium)
+                        Text(stringResource(R.string.library_restore_in_progress_books), style = MaterialTheme.typography.titleMedium)
                         Text(
-                            "Re-download the books you'd started reading and restore where you left off. Useful after a reinstall.",
+                            stringResource(R.string.settings_re_download_the_books_you_d_started),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         val restoreLabel = when {
                             restoreRunning && restoreProgress != null ->
-                                "Restoring… (${restoreProgress!!.done}/${restoreProgress!!.total})"
-                            restoreRunning -> "Restoring…"
-                            else -> "Restore in-progress books"
+                                stringResource(R.string.common_restoring, restoreProgress!!.done, restoreProgress!!.total)
+                            restoreRunning -> stringResource(R.string.common_restoring_2)
+                            else -> stringResource(R.string.library_restore_in_progress_books)
                         }
                         TextButton(
                             onClick = { viewModel.restoreInProgressBooks() },
@@ -398,24 +399,24 @@ fun SettingsScreen(
             if (pendingResetSync) {
                 AlertDialog(
                     onDismissRequest = { pendingResetSync = false },
-                    title = { Text("Reset sync?") },
-                    text = { Text("Next sync will re-pull everything from the server. Local books and progress are kept.") },
+                    title = { Text(stringResource(R.string.common_reset_sync_2)) },
+                    text = { Text(stringResource(R.string.settings_next_sync_will_re_pull_everything_from)) },
                     confirmButton = {
                         TextButton(onClick = {
                             viewModel.resetSync(context)
                             pendingResetSync = false
-                        }) { Text("Reset") }
+                        }) { Text(stringResource(R.string.common_reset)) }
                     },
                     dismissButton = {
-                        TextButton(onClick = { pendingResetSync = false }) { Text("Cancel") }
+                        TextButton(onClick = { pendingResetSync = false }) { Text(stringResource(R.string.common_cancel)) }
                     },
                 )
             }
             if (pendingRemoveAll) {
                 AlertDialog(
                     onDismissRequest = { pendingRemoveAll = false },
-                    title = { Text("Remove all downloaded books?") },
-                    text = { Text("Delete all downloaded books from this device? Reading progress is preserved on the server and will sync back if you re-download.") },
+                    title = { Text(stringResource(R.string.settings_remove_all_downloaded_books_2)) },
+                    text = { Text(stringResource(R.string.settings_delete_all_downloaded_books_from_this_device)) },
                     confirmButton = {
                         TextButton(
                             onClick = {
@@ -423,22 +424,22 @@ fun SettingsScreen(
                                 pendingRemoveAll = false
                             },
                             colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                        ) { Text("Remove all") }
+                        ) { Text(stringResource(R.string.common_remove_all)) }
                     },
                     dismissButton = {
-                        TextButton(onClick = { pendingRemoveAll = false }) { Text("Cancel") }
+                        TextButton(onClick = { pendingRemoveAll = false }) { Text(stringResource(R.string.common_cancel)) }
                     },
                 )
             }
         }
 
-        SectionLabel("AI features")
+        SectionLabel(stringResource(R.string.common_ai_features))
         QuireCard(modifier = Modifier.fillMaxWidth()) {
             if (aiState.config?.configured != true) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("AI not configured", style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(R.string.common_ai_not_configured), style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "Your administrator has not configured an AI endpoint on this server.",
+                        stringResource(R.string.settings_your_administrator_has_not_configured_an_ai),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -458,25 +459,23 @@ fun SettingsScreen(
                     ) {
                         Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
                             Text(
-                                "Enable AI features for this account",
+                                stringResource(R.string.settings_enable_ai_features_for_this_account),
                                 style = MaterialTheme.typography.titleMedium,
                             )
                             Text(
-                                "When enabled, Quire sends the title, author, and other " +
-                                    "EPUB metadata of books you open to ${cfg.baseUrlHost ?: "the AI endpoint"} " +
-                                    "(model ${cfg.modelId ?: "unknown"}) to generate insights.",
+                                stringResource(R.string.settings_when_enabled_quire_sends_the_title_author, cfg.baseUrlHost ?: stringResource(R.string.settings_ai_endpoint), cfg.modelId ?: stringResource(R.string.common_unknown)),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             if (cfg.sourcesEnabled.isNotEmpty()) {
                                 Text(
-                                    "External sources used: ${cfg.sourcesEnabled.joinToString(", ")}.",
+                                    stringResource(R.string.settings_external_sources_used, cfg.sourcesEnabled.joinToString(", ")),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                             Text(
-                                "Nothing is sent until you opt in.",
+                                stringResource(R.string.settings_nothing_is_sent_until_you_opt_in),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -491,14 +490,14 @@ fun SettingsScreen(
                         val tone = aiState.preferences?.style?.tone ?: "neutral"
                         var menuOpen by remember { mutableStateOf(false) }
                         Column {
-                            Text("Insight tone", style = MaterialTheme.typography.titleMedium)
+                            Text(stringResource(R.string.common_insight_tone), style = MaterialTheme.typography.titleMedium)
                             Text(
-                                "How book insights are written.",
+                                stringResource(R.string.settings_how_book_insights_are_written),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             TextButton(onClick = { menuOpen = true }) {
-                                Text(tone.replaceFirstChar { it.uppercase() })
+                                Text(toneLabel(tone))
                             }
                             DropdownMenu(
                                 expanded = menuOpen,
@@ -506,7 +505,7 @@ fun SettingsScreen(
                             ) {
                                 listOf("neutral", "enthusiastic", "scholarly", "casual").forEach { option ->
                                     DropdownMenuItem(
-                                        text = { Text(option.replaceFirstChar { it.uppercase() }) },
+                                        text = { Text(toneLabel(option)) },
                                         onClick = {
                                             viewModel.setStyleTone(option)
                                             menuOpen = false
@@ -518,22 +517,20 @@ fun SettingsScreen(
 
                         // PR-η: user-initiated bulk sync of /ai/v1/insights/sync.
                         Column {
-                            Text("Refresh insights", style = MaterialTheme.typography.titleMedium)
+                            Text(stringResource(R.string.common_refresh_insights), style = MaterialTheme.typography.titleMedium)
                             Text(
                                 buildString {
                                     val last = aiState.lastInsightSyncMs
                                     if (last != null) {
-                                        append("Last synced ")
-                                        append(formatRelative(last))
-                                        append('.')
+                                        append(stringResource(R.string.settings_last_synced_sentence, formatRelative(last)))
                                     } else {
-                                        append("Not yet synced.")
+                                        append(stringResource(R.string.common_not_yet_synced))
                                     }
                                     when (val s = aiState.syncStatus) {
-                                        is InsightSyncStatus.Syncing -> append(" Syncing…")
+                                        is InsightSyncStatus.Syncing -> append(stringResource(R.string.common_syncing))
                                         is InsightSyncStatus.Error -> {
-                                            append(" Last attempt failed: ")
-                                            append(s.message)
+                                            append(" ")
+                                            append(stringResource(R.string.settings_last_attempt_failed_sentence, s.message.asString()))
                                         }
                                         InsightSyncStatus.Idle -> Unit
                                     }
@@ -544,22 +541,22 @@ fun SettingsScreen(
                             Button(
                                 onClick = { viewModel.refreshInsights() },
                                 enabled = aiState.syncStatus !is InsightSyncStatus.Syncing,
-                            ) { Text("Refresh insights") }
+                            ) { Text(stringResource(R.string.common_refresh_insights)) }
                         }
 
                         val language = aiState.preferences?.style?.language ?: "auto"
                         var langMenuOpen by remember { mutableStateOf(false) }
                         Column {
-                            Text("Insight language", style = MaterialTheme.typography.titleMedium)
+                            Text(stringResource(R.string.common_insight_language), style = MaterialTheme.typography.titleMedium)
                             Text(
-                                "Language the model writes insights in. " +
-                                    "Auto follows the book's own language.",
+                                stringResource(R.string.settings_language_the_model_writes_insights_in_auto),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             TextButton(onClick = { langMenuOpen = true }) {
                                 Text(
                                     LANGUAGE_OPTIONS.firstOrNull { it.first == language }?.second
+                                        ?.let { if (language == "auto") stringResource(R.string.common_auto) else it }
                                         ?: language,
                                 )
                             }
@@ -569,7 +566,7 @@ fun SettingsScreen(
                             ) {
                                 LANGUAGE_OPTIONS.forEach { (code, label) ->
                                     DropdownMenuItem(
-                                        text = { Text(label) },
+                                        text = { Text(if (code == "auto") stringResource(R.string.common_auto) else label) },
                                         onClick = {
                                             viewModel.setStyleLanguage(code)
                                             langMenuOpen = false
@@ -582,12 +579,11 @@ fun SettingsScreen(
                         // PR-δ: delete server-side reader profile.
                         Column {
                             Text(
-                                "Reader profile",
+                                stringResource(R.string.common_reader_profile),
                                 style = MaterialTheme.typography.titleMedium,
                             )
                             Text(
-                                "Removes the AI-generated profile from the server. " +
-                                    "A new one is built next time you refresh insights.",
+                                stringResource(R.string.settings_removes_the_ai_generated_profile_from_the),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -596,7 +592,7 @@ fun SettingsScreen(
                                 enabled = !deleteInFlight,
                             ) {
                                 Text(
-                                    if (deleteInFlight) "Deleting…" else "Delete reader profile",
+                                    if (deleteInFlight) stringResource(R.string.common_deleting) else stringResource(R.string.common_delete_reader_profile),
                                 )
                             }
                         }
@@ -605,19 +601,19 @@ fun SettingsScreen(
             }
         }
 
-        SectionLabel("About")
+        SectionLabel(stringResource(R.string.common_about))
         QuireCard(modifier = Modifier.fillMaxWidth()) {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Column {
-                    Text("Quire", style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(R.string.brand_name), style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "A reader for your shelf.",
+                        stringResource(R.string.common_a_reader_for_your_shelf),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 Text(
-                    "Open-source licenses",
+                    stringResource(R.string.common_open_source_licenses),
                     style = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -634,13 +630,14 @@ fun SettingsScreen(
     }
 }
 
+@Composable
 private fun formatRelative(epochMs: Long): String {
     val deltaSec = (System.currentTimeMillis() - epochMs) / 1000
     return when {
-        deltaSec < 60 -> "just now"
-        deltaSec < 3600 -> "${deltaSec / 60}m ago"
-        deltaSec < 86_400 -> "${deltaSec / 3600}h ago"
-        else -> "${deltaSec / 86_400}d ago"
+        deltaSec < 60 -> stringResource(R.string.common_just_now)
+        deltaSec < 3600 -> stringResource(R.string.common_m_ago, deltaSec / 60)
+        deltaSec < 86_400 -> stringResource(R.string.common_h_ago, deltaSec / 3600)
+        else -> stringResource(R.string.common_d_ago, deltaSec / 86_400)
     }
 }
 
@@ -657,22 +654,22 @@ private fun parseIsoOrNull(iso: String?): Long? {
 @Composable
 private fun AiHealthStatusBlock(health: AiHealthResponse) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("Status", style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.common_status_2), style = MaterialTheme.typography.titleMedium)
 
         // Provider row.
         val providerCheckedMs = parseIsoOrNull(health.providerLastCheckedAt)
         val providerFailureMs = parseIsoOrNull(health.lastFailureAt)
         val (providerText, providerColor) = when (health.providerReachable) {
-            null -> "Provider: not yet checked" to MaterialTheme.colorScheme.onSurfaceVariant
+            null -> stringResource(R.string.settings_provider_not_yet_checked) to MaterialTheme.colorScheme.onSurfaceVariant
             true -> {
-                val modelSuffix = health.modelId?.let { " (model: $it)" } ?: ""
-                val whenSuffix = providerCheckedMs?.let { ", checked ${formatRelative(it)}" } ?: ""
-                "Provider: reachable$modelSuffix$whenSuffix" to MaterialTheme.colorScheme.onSurface
+                val modelSuffix = health.modelId?.let { stringResource(R.string.common_model_2, it) } ?: ""
+                val whenSuffix = providerCheckedMs?.let { stringResource(R.string.common_checked, formatRelative(it)) } ?: ""
+                stringResource(R.string.settings_provider_reachable, modelSuffix, whenSuffix) to MaterialTheme.colorScheme.onSurface
             }
             false -> {
-                val errClass = health.lastFailureClass ?: "unknown error"
-                val whenSuffix = providerFailureMs?.let { ", ${formatRelative(it)}" } ?: ""
-                "Provider: unreachable — $errClass$whenSuffix" to MaterialTheme.colorScheme.error
+                val errClass = health.lastFailureClass ?: stringResource(R.string.common_unknown_error)
+                val whenSuffix = providerFailureMs?.let { stringResource(R.string.common_time_suffix, formatRelative(it)) } ?: ""
+                stringResource(R.string.settings_provider_unreachable, errClass, whenSuffix) to MaterialTheme.colorScheme.error
             }
         }
         Text(
@@ -694,14 +691,14 @@ private fun formatRetrievalSource(source: RetrievalSourceHealth): Pair<String, a
     val label = source.name.replaceFirstChar { it.uppercase() }
     val checkedMs = parseIsoOrNull(source.lastCheckedAt)
     return when (source.reachable) {
-        null -> "$label: not yet checked" to MaterialTheme.colorScheme.onSurfaceVariant
+        null -> stringResource(R.string.common_not_yet_checked, label) to MaterialTheme.colorScheme.onSurfaceVariant
         true -> {
-            val whenSuffix = checkedMs?.let { ", checked ${formatRelative(it)}" } ?: ""
-            "$label: reachable$whenSuffix" to MaterialTheme.colorScheme.onSurface
+            val whenSuffix = checkedMs?.let { stringResource(R.string.common_checked, formatRelative(it)) } ?: ""
+            stringResource(R.string.common_reachable, label, whenSuffix) to MaterialTheme.colorScheme.onSurface
         }
         false -> {
-            val whenSuffix = checkedMs?.let { ", ${formatRelative(it)}" } ?: ""
-            "$label: unreachable$whenSuffix" to MaterialTheme.colorScheme.error
+            val whenSuffix = checkedMs?.let { stringResource(R.string.common_time_suffix, formatRelative(it)) } ?: ""
+            stringResource(R.string.common_unreachable, label, whenSuffix) to MaterialTheme.colorScheme.error
         }
     }
 }
@@ -715,26 +712,26 @@ private fun formatRetrievalSource(source: RetrievalSourceHealth): Pair<String, a
 private fun AppearanceSettings(theme: AppTheme, onChange: (AppTheme) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Mode", style = MaterialTheme.typography.titleSmall)
+            Text(stringResource(R.string.appearance_mode), style = MaterialTheme.typography.titleSmall)
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 ThemeMode.entries.forEachIndexed { i, mode ->
                     SegmentedButton(
                         selected = theme.mode == mode,
                         onClick = { onChange(theme.copy(mode = mode)) },
                         shape = SegmentedButtonDefaults.itemShape(i, ThemeMode.entries.size),
-                    ) { Text(mode.label) }
+                    ) { Text(stringResource(mode.label)) }
                 }
             }
         }
         PaletteRow(
-            title = "Light theme",
+            title = stringResource(R.string.appearance_light_theme),
             palettes = Palette.entries.filterNot { it.isDark },
             selected = theme.light,
             enabled = theme.mode != ThemeMode.DARK,
             onSelect = { onChange(theme.copy(light = it)) },
         )
         PaletteRow(
-            title = "Dark theme",
+            title = stringResource(R.string.appearance_dark_theme),
             palettes = Palette.entries.filter { it.isDark },
             selected = theme.dark,
             enabled = theme.mode != ThemeMode.LIGHT,
@@ -814,7 +811,7 @@ private fun ThemeSwatch(palette: Palette, selected: Boolean, enabled: Boolean, o
         }
         Spacer(Modifier.height(6.dp))
         Text(
-            text = palette.label,
+            text = stringResource(palette.label),
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = if (selected) FontWeight.SemiBold else null,
             color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,

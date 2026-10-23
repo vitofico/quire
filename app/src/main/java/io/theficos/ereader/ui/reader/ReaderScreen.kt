@@ -170,7 +170,7 @@ private fun ReaderScreenContent(
     Box(Modifier.fillMaxSize()) {
         when (val s = state) {
             ReaderUiState.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-            is ReaderUiState.Error -> Text(s.message, Modifier.align(Alignment.Center))
+            is ReaderUiState.Error -> Text(s.message.asString(), Modifier.align(Alignment.Center))
             is ReaderUiState.Open -> {
                 // Scoped to the Open state so Loading/Error keep normal, themed system bars.
                 ImmersiveWindowEffects(

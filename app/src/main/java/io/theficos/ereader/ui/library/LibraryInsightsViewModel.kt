@@ -11,16 +11,19 @@ import io.theficos.ereader.data.ai.ReaderProfileResponseDto
 import io.theficos.ereader.data.library.LibraryClient
 import io.theficos.ereader.data.library.LibraryStatsResponse
 import io.theficos.ereader.data.local.db.ProgressDao
+import io.theficos.ereader.ui.UiText
+import io.theficos.ereader.ui.uiText
+import io.theficos.quire.R
+import java.io.IOException
+import java.io.InterruptedIOException
+import java.security.MessageDigest
+import java.time.Instant
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import java.io.IOException
-import java.io.InterruptedIOException
-import java.security.MessageDigest
-import java.time.Instant
 
 /**
  * PR-γ — Reader Profile / Library Insights screen.
@@ -35,21 +38,21 @@ sealed interface LibraryInsightsUiState {
 
     /** Disabled state family — three distinct reasons with locked copy. */
     sealed interface Disabled : LibraryInsightsUiState {
-        val message: String
+        val message: UiText
 
         data object AiOff : Disabled {
-            override val message: String =
-                "AI insights are turned off. Enable in Settings → AI to view or generate your reader profile."
+            override val message: UiText =
+                uiText(R.string.library_ai_insights_are_turned_off_enable_in)
         }
 
         data object OptedOut : Disabled {
-            override val message: String =
-                "Reader profile is off. Opt in from Settings → AI to generate your profile."
+            override val message: UiText =
+                uiText(R.string.library_reader_profile_is_off_opt_in_from)
         }
 
         data object ProgressUnsupported : Disabled {
-            override val message: String =
-                "Library mirror isn't enabled on this server. Connect your library first."
+            override val message: UiText =
+                uiText(R.string.library_library_mirror_isn_t_enabled_on_this)
         }
     }
 
@@ -267,7 +270,7 @@ class LibraryInsightsViewModel(
             t is InterruptedIOException ->
                 LibraryInsightsUiState.Error.Timeout
             t is IOException ->
-                LibraryInsightsUiState.Error.Network(t.message ?: "Couldn't reach the server")
+                LibraryInsightsUiState.Error.Network(t.message.orEmpty())
             else ->
                 LibraryInsightsUiState.Error.Unknown
         }

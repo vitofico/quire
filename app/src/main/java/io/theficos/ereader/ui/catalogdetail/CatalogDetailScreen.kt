@@ -33,11 +33,15 @@ import io.theficos.ereader.ui.bookdetail.InsightUiState
 import io.theficos.ereader.ui.components.BookDescription
 import io.theficos.ereader.ui.components.BookHeader
 import io.theficos.ereader.ui.components.SectionLabel
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
+import io.theficos.ereader.ui.components.CoverImage
+import io.theficos.quire.R
 
 /**
  * Pre-download book detail. Shows cover + title + author, the catalog entry's
  * own description, the same `InsightSection` the book-detail screen uses, and
- * an "Open in calibre-web" footer when the OPDS entry exposed a web URL.
+ * an stringResource(R.string.common_open_in_calibre_web) footer when the OPDS entry exposed a web URL.
  *
  * The screen does NOT trigger downloads — that stays a catalog-tile tap.
  * The catalog screen handles download progress + state.
@@ -67,7 +71,7 @@ fun CatalogDetailScreen(
                 IconButton(onClick = onBack) {
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
+                        contentDescription = stringResource(R.string.common_back),
                     )
                 }
             }
@@ -97,7 +101,7 @@ fun CatalogDetailScreen(
             // whether something failed to load.
             if (pub.description.isNullOrBlank() && state.insight is InsightUiState.Hidden) {
                 Text(
-                    text = "This catalog didn't include a description for this book.",
+                    text = stringResource(R.string.catalogdetail_this_catalog_didn_t_include_a_description),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -118,7 +122,7 @@ fun CatalogDetailScreen(
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Open in calibre-web")
+                    Text(stringResource(R.string.common_open_in_calibre_web))
                 }
             }
             Spacer(Modifier.height(24.dp))
