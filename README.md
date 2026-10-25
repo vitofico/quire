@@ -1,229 +1,176 @@
 <p align="center">
-  <img src="docs/assets/readme-cover.svg" alt="Quire. Lose yourself. Keep your place. Your books, on a server you own." width="100%">
+  <img src="docs/assets/readme-cover.svg" alt="Quire's italic q surrounded by marbled ink." width="100%">
 </p>
 
 <h1 align="center">Quire</h1>
 
 <p align="center">
-  <strong>quire</strong> <em>&nbsp;/ˈkwaɪər/ &nbsp;n.&nbsp; — a gathering of folded leaves, bound into a book.</em>
+  <strong>Lose yourself. Keep your place.</strong>
 </p>
 
 <p align="center">
-  <em>A privacy-first Android EPUB reader for calibre-web — gathering your library,<br>
-  your reading state, and opt-in, self-hosted AI into one bound whole.<br>
-  No telemetry, no cloud, your data.</em>
+  An Android EPUB reader for the library you keep.<br>
+  Import your books, browse OPDS catalogs, and sync your place through a server you own.<br>
+  No telemetry. Optional AI, off by default.
 </p>
 
 <p align="center">
-  <a href="https://github.com/vitofico/quire/actions/workflows/android-ci.yaml"><img src="https://github.com/vitofico/quire/actions/workflows/android-ci.yaml/badge.svg" alt="android-ci"></a>
-  <a href="https://github.com/vitofico/quire/actions/workflows/server-ci.yaml"><img src="https://github.com/vitofico/quire/actions/workflows/server-ci.yaml/badge.svg" alt="server-ci"></a>
+  <a href="https://github.com/vitofico/quire/actions/workflows/android-ci.yaml"><img src="https://github.com/vitofico/quire/actions/workflows/android-ci.yaml/badge.svg" alt="Android CI"></a>
+  <a href="https://github.com/vitofico/quire/actions/workflows/server-ci.yaml"><img src="https://github.com/vitofico/quire/actions/workflows/server-ci.yaml/badge.svg" alt="Server CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/app-Apache_2.0-blue.svg" alt="App license: Apache 2.0"></a>
   <a href="server/LICENSE"><img src="https://img.shields.io/badge/server-AGPL--3.0--only-blue.svg" alt="Server license: AGPL-3.0-only"></a>
 </p>
 
 <p align="center">
-  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/01_library.png" alt="Library" width="260">
-  &nbsp;&nbsp;
-  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/02_catalog.png" alt="Catalog" width="260">
-  &nbsp;&nbsp;
-  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/05_reader.png" alt="Reader" width="260">
+  <a href="#install">Install</a> ·
+  <a href="#bring-your-books">Bring your books</a> ·
+  <a href="server/README.md">Set up a server</a> ·
+  <a href="#privacy">Privacy</a>
 </p>
 
-## What it is
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/identity-refinement/after-ink.png">
+    <img src="docs/assets/identity-refinement/after-paper.png" alt="Quire's compact library with its marbled background, search, import, sort and filter controls." width="320">
+  </picture>
+</p>
 
-A self-hosted reading stack for people who already run [calibre-web]:
+<p align="center"><em>Your shelf, in Paper or Ink.</em></p>
 
-- **Quire** — native Android EPUB reader (Kotlin / Compose / Readium).
-- **Quire Server** — small FastAPI service that stores reading state and
-  your per-user library mirror in Postgres, and orchestrates the optional
-  AI features. The Python package is `quire_server` and the container image
-  is `ghcr.io/vitofico/quire-server`.
-- **Optional, private AI** — book insights, catalog previews, a reader
-  profile, recommendations, and barcode book-scanning — all routed through
-  an OpenAI-compatible endpoint *you* control. Off by default, opt-in per
-  user. [Jump to AI ↓](#ai-on-your-terms)
-- **Other OPDS catalogs.** Quire also connects to any OPDS 1.x catalog, such
-  as [Kavita], by its full feed URL. That mode is reader-only: browse,
-  download, read, and keep your place on the device. Reading-state sync, the
-  library mirror, and the AI features need a Quire server and stay off.
+## Made for reading
 
-calibre-web stays the source of truth for books. Quire Server is the
-source of truth for reading state. Quire reconciles both on the device.
+- **Read offline.** Import EPUBs from your device or download them from an
+  OPDS catalog, then keep reading without a connection.
+- **Make the page comfortable.** Adjust the typeface, text size, line spacing
+  and page theme. The reader's bars and menus take the page's colours.
+- **Keep a useful shelf.** Search, sort, continue reading, and filter finished
+  or abandoned books. With Quire Server, Library Stats brings together reading
+  counts and authors.
+- **Know what is in a book.** Tap its info icon or long-press it for the
+  description, series, publisher, language, subjects, ISBN, progress and file size.
+  Imported EPUB metadata stays with the book.
 
-```
-[calibre-web]  ──OPDS + HTTP Basic──>  [Android: Quire]
-                                              │
-                                              │  HTTPS + same Basic creds
-                                              ▼
-                                       [quire-server]
-                                              │
-                                              ▼
-                                         [Postgres]
-```
+Under **Settings → Appearance**, follow the system or stay light or dark.
+Choose Paper or Sage for light mode, and Ink or Midnight for dark mode.
+These app palettes are separate from the page theme inside a book.
 
-Choose how the app looks under **Settings → Appearance**: follow the system or
-stay light or dark, and pick a light theme (Paper or Sage) and a dark theme (Ink or
-Midnight) to go with it. While you read, the bars and menus take the page's colours,
-which stay a separate reader setting.
+<details>
+<summary>See the reader, marbled loading and both library palettes</summary>
 
-Tap the info icon on any book in your library, or long-press it, for its details:
-description, series, publisher, language, subjects, ISBN, reading progress and file
-size, read from the EPUB itself. The same details are a tap away in the reader.
+The same ink appears during real loading work, without an added waiting period.
+The library screenshots use synthetic books; the reader screenshot shows an
+EPUB page. Open a full-size example:
+[Paper library](docs/assets/identity-refinement/after-paper.png),
+[Ink library](docs/assets/identity-refinement/after-ink.png),
+[Reader page](fastlane/metadata/android/en-US/images/phoneScreenshots/05_reader.png),
+[Paper loading](docs/assets/identity-refinement/loading-paper.png), or
+[Ink loading](docs/assets/identity-refinement/loading-ink.png).
+
+<p align="center">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/05_reader.png" alt="An EPUB page in Quire, with adjustable typography and a separate reader page theme." width="260">
+  &nbsp;
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/identity-refinement/loading-ink.png">
+    <img src="docs/assets/identity-refinement/loading-paper.png" alt="A real Quire loading state: the italic q amid theme-tinted marbled ink, a progress indicator and loading status." width="260">
+  </picture>
+</p>
+
+</details>
+
+## Bring your books
+
+- **On this device:** import EPUB files and keep your reading place locally.
+  No server is required.
+- **From an OPDS catalog:** browse, search and download from an OPDS 1.x feed,
+  including [calibre-web] and [Kavita]. Give Quire the full catalog feed URL for
+  a generic OPDS connection. This mode keeps reading state on the device;
+  server sync, the library mirror and AI features stay off.
+- **Across devices:** add a compatible **Quire Server** to sync reading state
+  and your per-user library mirror. The calibre-web integration keeps
+  calibre-web as the source of books and Quire Server as the source of reading
+  state. Onboarding supports calibre-web credentials and compatible Quire
+  Server account sign-in, according to the server you run.
+
+Quire is the native Kotlin / Compose / Readium client. Quire Server is an
+optional FastAPI service backed by Postgres, available as
+`ghcr.io/vitofico/quire-server`. The [server guide](server/README.md) covers
+self-hosting; the [architecture](docs/architecture.md) covers how the parts fit.
 
 ## AI, on your terms
 
-Most reading apps that got "smart" did it by shipping your library to
-someone else's cloud. Quire does the opposite: the intelligence runs
-against an endpoint **you** point it at, it is **off by default**, and
-every user **opts in** individually. The admin configures any
-OpenAI-compatible endpoint — Ollama, llama.cpp, vLLM, OpenAI,
-OpenRouter, … — and if AI isn't enabled and opted into, Quire makes no
-AI calls at all.
+AI is **off by default** and each user **opts in**. A server administrator
+chooses an OpenAI-compatible endpoint: a local model through Ollama,
+llama.cpp or vLLM, or a provider such as OpenAI or OpenRouter. Choosing a
+provider means requests go to that provider; self-hosting Quire Server does
+not make a remote model local.
 
-What that unlocks:
+With AI enabled and opted into, Quire can provide:
 
-### 📷 Scan a book before you buy it
+- **Book and catalog insights:** author context, series placement, themes,
+  craft notes, comparisons, discussion prompts and content advisories, with
+  citations from Wikipedia and OpenLibrary. Preview a catalog book before
+  downloading it; cached insights carry over to the owned book.
+- **A reader profile:** an on-demand narrative based on finished books, with
+  suggestions from your library, OpenLibrary discovery and the model.
+- **Your preferred voice:** adjustable tone and language, plus regeneration
+  with feedback. Shared instance caches avoid repeating the same generation.
 
-Point your phone at a physical book's barcode (or type the ISBN) and
-Quire tells you, on the spot, whether it belongs on your shelf:
+ISBN scanning also looks up a physical book through OpenLibrary. A compatible
+Quire Server can return an already-owned check and a deterministic reader-affinity
+score based on your library, **without an LLM call**. A generated insight is
+an optional follow-up. ISBN metadata and cover lookups are separate from AI opt-in.
 
-- **Reader-affinity score** — a deterministic 0–100 match score with a
-  band (very low → very high) and plain-language reasons, computed from
-  the authors, series, and subjects already in your library. **No LLM,
-  no AI network call** — instant, private, and works as a snap judgment
-  in a bookshop.
-- **Already-owned detection** — tells you if it's in your library and
-  where you left off (unread / in progress / finished / abandoned).
-- **Cover + one-tap deep dive** — pulls the cover from OpenLibrary and,
-  if you want more, loads the full AI insight card on demand.
-
-### 📖 Insights that actually say something
-
-Per-book insight cards generated by the LLM and **grounded with real
-citations** from Wikipedia and OpenLibrary — not hallucinated blurbs:
-
-- intro · author context · series placement
-- themes & **craft notes** (how the book is *made*, not just what it's about)
-- **comparative anchors** ("if you liked…")
-- a distinctive take · curiosities about the book and its author · discussion prompts ·
-  content advisory · cited sources
-
-Insights show up **on catalog tiles before you download** (tap the info
-icon), so you can size up a book before it ever touches your device.
-Download it and the cached insight is promoted onto the owned book
-instantly. Cards are cached per book and shared across every opted-in
-reader on your instance, so you pay for each generation once.
-
-### 🎚️ In your voice, in your language
-
-Set the tone — neutral, enthusiastic, scholarly, or casual — and the
-language: 100+ options, or **`auto`** to follow the book's own language.
-Don't like a card? Regenerate it with feedback.
-
-### 🧭 A reader profile that recommends
-
-From the books you've finished, Quire builds an AI-written narrative of
-your taste (refresh on demand) that powers three flavors of suggestions:
-
-- **In-library** — unfinished books you *already own* that fit your taste.
-- **Discovery** — more from authors you've finished, fetched from OpenLibrary.
-- **AI-suggested** — books you don't own yet, worth hunting down.
-
-Plus **Library Stats** (finished / in-progress / abandoned counts, top
-authors, top themes) and an **abandoned-book** status that quietly drops
-DNFs out of your library view until you ask for them. Finished books can
-be tucked away the same way from the library's filter menu.
-
-### 🔧 Built for self-hosters
-
-Per-user daily budgets and quotas, an AI **health endpoint**, and deploy
-modes for **sync-only**, **AI-only**, or **full-stack** operation. Bring
-your own model; cap your own spend.
-
-> All of the above is opt-in and routed through your endpoint. For setup,
-> env vars, and deploy modes see [`server/README.md`](server/README.md).
-
-## Why this exists
-
-The starting point was an OPDS catalog (calibre-web) and a simple need:
-read books from it on Android, with reading progress synced across
-devices.
-
-That's harder than it sounds in the self-hosted world:
-
-- **KOReader has KOSync**, but KOSync is shaped around KOReader's
-  identity and document model. Using it as a generic sync layer for
-  other clients means working against the grain.
-- **Stock OPDS readers** on Android either don't sync reading position
-  to a server you control, or sync it through a vendor cloud.
-
-So Quire Server is the piece that was missing: a small, reader-agnostic
-progress server that speaks OPDS-style document identity and uses your
-**calibre-web account as the only credential** — no second IdP, no
-separate sync account. Quire is the Android client built against it;
-nothing in the server design is Quire-specific.
+Administrators can set per-user budgets and run sync-only, AI-only or full
+server deployments. See [AI configuration](docs/configuration.md) and the
+[server guide](server/README.md) for the supported setup and privacy boundaries.
 
 ## Privacy
 
-Open source, calibre-web-only, **no telemetry, ever.**
+**No telemetry, analytics or crash reporting.**
 
-- No analytics, no crash reporting, no third-party SDKs.
-- Network calls go to your calibre-web instance and your Quire Server.
-  If your administrator has enabled AI features and you have opted in,
-  Quire Server will additionally call the AI endpoint your administrator
-  configured (such as a self-hosted Ollama, or a third-party provider you
-  have chosen) and the public Wikipedia and OpenLibrary APIs to ground the
-  generated insights. None of these AI-related calls happen unless you
-  opt in from Quire's settings; the Android app itself talks only to your
-  calibre-web instance and your Quire Server.
-- Credentials are stored in Android Keystore (hardware-backed where the
-  device supports it).
+- Catalog and sync requests go to your configured catalog and Quire Server.
+  Book downloads and covers can use the hosts linked by an OPDS feed.
+- When you scan or enter an ISBN, the Android app contacts **OpenLibrary** for
+  metadata and may fetch its cover from `covers.openlibrary.org`. These lookups
+  can happen without AI opt-in.
+- When AI is enabled and you opt in, Quire Server contacts the configured
+  model endpoint and the public Wikipedia and OpenLibrary APIs for grounding
+  and discovery. The endpoint may be local or a third-party provider chosen
+  by your administrator.
+- Stored credentials are encrypted with keys protected by **Android Keystore**,
+  hardware-backed where the device supports it.
 
 ## Install
 
-Install Quire from [F-Droid] or [Obtainium], or grab the latest APK from
-[Releases], then point it at your calibre-web URL on first launch.
-Obtainium installs straight from [Releases], so it offers each new version
-as soon as it is published, before F-Droid has built it. All three give
-you the same APK signed with the same key, so you can move between them
-without reinstalling.
+Quire runs on **Android 8.0 or newer**. Get it from [F-Droid], add the
+[GitHub repository to Obtainium][Obtainium-add], or download an APK from
+[Releases]. Obtainium follows GitHub Releases; F-Droid publishes on its own
+schedule and may offer an earlier version. Its published developer-signed
+releases are [verified against the source][F-Droid].
 
 <a href="https://f-droid.org/packages/io.theficos.quire/">
-  <img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png"
-       alt="Get it on F-Droid"
-       height="80">
+  <img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png" alt="Get it on F-Droid" height="80">
 </a>
 <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/vitofico/quire">
-  <img src="https://raw.githubusercontent.com/ImranR98/Obtainium/main/assets/graphics/badge_obtainium.png"
-       alt="Get it on Obtainium"
-       height="80">
+  <img src="https://raw.githubusercontent.com/ImranR98/Obtainium/main/assets/graphics/badge_obtainium.png" alt="Get it on Obtainium" height="80">
 </a>
 
-For the sync server, see [`server/README.md`](server/README.md) — it
-ships two reference docker-compose files (`docker-compose.yml` for
-"bring your own proxy"; `docker-compose.full.yml` for a Caddy-fronted
-full stack with calibre-web + quire-server + TLS behind one base URL).
-Every server setting, with a ready `.env` per deploy mode and AI provider,
-is in [`docs/configuration.md`](docs/configuration.md).
+On first launch, connect a server or catalog, or continue with local EPUBs.
+For historical Play Protect installation reports, see
+[#108](https://github.com/vitofico/quire/issues/108).
 
-### "Harmful app blocked" by Play Protect
+To sync across devices, follow [`server/README.md`](server/README.md).
+It includes Docker Compose setups for an existing reverse proxy or a full
+Caddy-fronted stack with calibre-web, Quire Server and TLS. Ready-to-use
+configuration examples live in [`docs/configuration.md`](docs/configuration.md).
 
-On some phones, Google Play Protect blocks Quire as a harmful app, whether
-the APK comes from F-Droid, Obtainium or [Releases]. It is a false positive,
-tracked in [#108](https://github.com/vitofico/quire/issues/108), and an
-appeal with Google is pending.
+## Why Quire
 
-To install anyway, tap **More details** in the dialog, then
-**Install anyway**. You do not need to turn Play Protect off.
+Quire started with a simple need: read an OPDS library on Android and sync
+reading progress to a server under the reader's control. The app works on its
+own; the companion server adds shared reading state and optional insights.
 
-You don't have to take this on trust:
-
-- F-Droid builds every release from this repository's source code, and the
-  APK it serves is byte-for-byte the one on [Releases], signed with the same
-  release key as every earlier version.
-- The [F-Droid page][F-Droid] lists every permission Quire declares. The
-  camera, used to scan a book's ISBN barcode, is the only one Android asks
-  you to approve.
+A *quire* /ˈkwaɪər/ is a gathering of folded leaves, bound into a book.
 
 ## Build from source
 
@@ -249,7 +196,7 @@ QUIRE_SERVER_CWA_BASE_URL=https://library.example.com \
 
 ```
 app/                  Android entry point — Compose UI, navigation, DI wiring
-auth/                 Keystore-backed calibre-web Basic credential store
+auth/                 Encrypted credentials for catalog and server accounts
 core/identity/        Document identity: hash + dc:identifier normalization
 core/model/           Domain types (Document, Progress, Bookmark)
 data/local/           Room database, DAOs
@@ -311,5 +258,5 @@ If Quire is useful to you and you'd like to chip in, you can buy me a coffee:
 [calibre-web]: https://github.com/janeczku/calibre-web
 [Releases]: https://github.com/vitofico/quire/releases
 [F-Droid]: https://f-droid.org/packages/io.theficos.quire/
-[Obtainium]: https://obtainium.imranr.dev/
+[Obtainium-add]: https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/vitofico/quire
 [Kavita]: https://www.kavitareader.com/
