@@ -20,7 +20,8 @@ import io.theficos.ereader.ui.catalog.FakeAndroidKeyStore
 import io.theficos.ereader.core.model.Progress as DomainProgress
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.filterNotNull
@@ -97,17 +98,17 @@ class LibraryViewModelTest {
     }
 
     @After fun tearDown() {
-        // Every view model this test built keeps `WhileSubscribed` collectors alive
-        // on viewModelScope, which runs on the Main dispatcher we are about to reset.
-        // Left running they outlive the test and trip the next one's setMain() with
-        // "Dispatchers.Main is used concurrently with setting it" (see 4bfc1bd).
-        runCatching { viewModels.forEach { it.viewModelScope.cancel() } }
-        // Reset the Main dispatcher unconditionally — if db.close()/server.shutdown()
-        // throw, an un-reset Main pollutes the next test's setMain() with an
-        // IllegalStateException and cascades lateinit failures across the suite.
-        runCatching { db.close() }
-        runCatching { server.shutdown() }
-        Dispatchers.resetMain()
+        // Room can finish cancellation on a worker thread. Join every view-model
+        // scope before resetting Main so a late completion cannot race resetMain().
+        try {
+            runTest {
+                viewModels.forEach { it.viewModelScope.coroutineContext[Job]?.cancelAndJoin() }
+            }
+        } finally {
+            runCatching { db.close() }
+            runCatching { server.shutdown() }
+            Dispatchers.resetMain()
+        }
     }
 
     /** Every view model built by this test, so tearDown can cancel their scopes. */
