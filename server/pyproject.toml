@@ -38,6 +38,9 @@ dev = [
 [tool.setuptools.packages.find]
 include = ["quire_server*"]
 
+[tool.setuptools.package-data]
+quire_server = ["assets/*.webp"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

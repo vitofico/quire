@@ -76,6 +76,7 @@ import io.theficos.ereader.sideload.SideloadFailure
 import io.theficos.ereader.sideload.SideloadImporter
 import io.theficos.ereader.sideload.SideloadResult
 import io.theficos.ereader.ui.components.CoverImage
+import io.theficos.ereader.ui.components.MarbledInk
 import io.theficos.ereader.ui.components.CoverInfoButton
 import io.theficos.ereader.ui.components.SectionLabel
 import io.theficos.quire.R
@@ -209,125 +210,131 @@ fun LibraryScreen(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = stringResource(R.string.brand_name),
-                        style = MaterialTheme.typography.displaySmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.weight(1f),
+                Box(Modifier.fillMaxWidth()) {
+                    MarbledInk(
+                        Modifier.align(Alignment.CenterEnd).size(width = 200.dp, height = 72.dp),
+                        intensity = 0.14f,
                     )
-                    IconButton(onClick = { searchActive = true }) {
-                        Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.common_search))
-                    }
-                    launchPicker?.let { picker ->
-                        IconButton(onClick = picker) {
-                            Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.common_import_epub))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.brand_name),
+                            style = MaterialTheme.typography.displaySmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f),
+                        )
+                        IconButton(onClick = { searchActive = true }) {
+                            Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.common_search))
                         }
-                    }
-                    var sortMenuOpen by rememberSaveable { mutableStateOf(false) }
-                    val currentSort by viewModel.sort.collectAsState()
-                    Box {
-                        IconButton(onClick = { sortMenuOpen = true }) {
-                            Icon(Icons.Filled.Sort, contentDescription = stringResource(R.string.common_sort))
+                        launchPicker?.let { picker ->
+                            IconButton(onClick = picker) {
+                                Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.common_import_epub))
+                            }
                         }
-                        DropdownMenu(
-                            expanded = sortMenuOpen,
-                            onDismissRequest = { sortMenuOpen = false },
-                        ) {
-                            sortLabels.forEach { (key, label) ->
+                        var sortMenuOpen by rememberSaveable { mutableStateOf(false) }
+                        val currentSort by viewModel.sort.collectAsState()
+                        Box {
+                            IconButton(onClick = { sortMenuOpen = true }) {
+                                Icon(Icons.Filled.Sort, contentDescription = stringResource(R.string.common_sort))
+                            }
+                            DropdownMenu(
+                                expanded = sortMenuOpen,
+                                onDismissRequest = { sortMenuOpen = false },
+                            ) {
+                                sortLabels.forEach { (key, label) ->
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(label)) },
+                                        leadingIcon = if (currentSort == key) {
+                                            { Icon(Icons.Filled.Check, contentDescription = null) }
+                                        } else null,
+                                        onClick = {
+                                            viewModel.setSort(key)
+                                            sortMenuOpen = false
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                        // pr-δ: filter icon — abandoned books hidden by default. The
+                        // OUTLINED + primary-tinted icon communicates "items hidden";
+                        // the FILLED icon communicates "every book visible."
+                        var filterMenuOpen by rememberSaveable { mutableStateOf(false) }
+                        val anyHidden = !showAbandoned || !showFinished
+                        Box {
+                            IconButton(onClick = { filterMenuOpen = true }) {
+                                Icon(
+                                    imageVector = if (anyHidden) {
+                                        Icons.Outlined.FilterAlt
+                                    } else {
+                                        Icons.Filled.FilterAlt
+                                    },
+                                    contentDescription = when {
+                                        !showAbandoned && !showFinished -> stringResource(R.string.library_completed_abandoned_hidden)
+                                        !showAbandoned -> stringResource(R.string.common_abandoned_books_hidden)
+                                        !showFinished -> stringResource(R.string.library_finished_hidden)
+                                        else -> stringResource(R.string.library_all_visible)
+                                    },
+                                    tint = if (anyHidden) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        LocalContentColor.current
+                                    },
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = filterMenuOpen,
+                                onDismissRequest = { filterMenuOpen = false },
+                            ) {
                                 DropdownMenuItem(
-                                    text = { Text(stringResource(label)) },
-                                    leadingIcon = if (currentSort == key) {
-                                        { Icon(Icons.Filled.Check, contentDescription = null) }
-                                    } else null,
+                                    text = { Text(stringResource(R.string.common_show_abandoned)) },
+                                    leadingIcon = {
+                                        Checkbox(checked = showAbandoned, onCheckedChange = null)
+                                    },
                                     onClick = {
-                                        viewModel.setSort(key)
-                                        sortMenuOpen = false
+                                        viewModel.toggleShowAbandoned()
+                                        filterMenuOpen = false
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.library_show_finished)) },
+                                    leadingIcon = {
+                                        Checkbox(checked = showFinished, onCheckedChange = null)
+                                    },
+                                    onClick = {
+                                        viewModel.toggleShowFinished()
+                                        filterMenuOpen = false
                                     },
                                 )
                             }
                         }
-                    }
-                    // pr-δ: filter icon — abandoned books hidden by default. The
-                    // OUTLINED + primary-tinted icon communicates "items hidden";
-                    // the FILLED icon communicates "every book visible."
-                    var filterMenuOpen by rememberSaveable { mutableStateOf(false) }
-                    val anyHidden = !showAbandoned || !showFinished
-                    Box {
-                        IconButton(onClick = { filterMenuOpen = true }) {
-                            Icon(
-                                imageVector = if (anyHidden) {
-                                    Icons.Outlined.FilterAlt
-                                } else {
-                                    Icons.Filled.FilterAlt
-                                },
-                                contentDescription = when {
-                                    !showAbandoned && !showFinished -> stringResource(R.string.library_completed_abandoned_hidden)
-                                    !showAbandoned -> stringResource(R.string.common_abandoned_books_hidden)
-                                    !showFinished -> stringResource(R.string.library_finished_hidden)
-                                    else -> stringResource(R.string.library_all_visible)
-                                },
-                                tint = if (anyHidden) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    LocalContentColor.current
-                                },
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = filterMenuOpen,
-                            onDismissRequest = { filterMenuOpen = false },
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.common_show_abandoned)) },
-                                leadingIcon = {
-                                    Checkbox(checked = showAbandoned, onCheckedChange = null)
-                                },
-                                onClick = {
-                                    viewModel.toggleShowAbandoned()
-                                    filterMenuOpen = false
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.library_show_finished)) },
-                                leadingIcon = {
-                                    Checkbox(checked = showFinished, onCheckedChange = null)
-                                },
-                                onClick = {
-                                    viewModel.toggleShowFinished()
-                                    filterMenuOpen = false
-                                },
-                            )
-                        }
-                    }
-                    var moreMenuOpen by rememberSaveable { mutableStateOf(false) }
-                    Box {
-                        IconButton(onClick = { moreMenuOpen = true }) {
-                            Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.common_more))
-                        }
-                        DropdownMenu(
-                            expanded = moreMenuOpen,
-                            onDismissRequest = { moreMenuOpen = false },
-                        ) {
-                            // PR-γ: Insights ranks above Stats — Insights is the
-                            // headline reader-profile surface; Stats is utility.
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.common_insights)) },
-                                onClick = {
-                                    moreMenuOpen = false
-                                    onShowInsights()
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.common_stats)) },
-                                onClick = {
-                                    moreMenuOpen = false
-                                    onShowStats()
-                                },
-                            )
+                        var moreMenuOpen by rememberSaveable { mutableStateOf(false) }
+                        Box {
+                            IconButton(onClick = { moreMenuOpen = true }) {
+                                Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.common_more))
+                            }
+                            DropdownMenu(
+                                expanded = moreMenuOpen,
+                                onDismissRequest = { moreMenuOpen = false },
+                            ) {
+                                // PR-γ: Insights ranks above Stats — Insights is the
+                                // headline reader-profile surface; Stats is utility.
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.common_insights)) },
+                                    onClick = {
+                                        moreMenuOpen = false
+                                        onShowInsights()
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.common_stats)) },
+                                    onClick = {
+                                        moreMenuOpen = false
+                                        onShowStats()
+                                    },
+                                )
+                            }
                         }
                     }
                 }
@@ -603,13 +610,7 @@ private fun EmptyState(
             modifier = Modifier.padding(horizontal = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(
-                text = "q",
-                style = MaterialTheme.typography.displaySmall.copy(
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                ),
-                modifier = Modifier.padding(bottom = 16.dp),
-            )
+            MarbledInk(Modifier.size(width = 256.dp, height = 144.dp).padding(bottom = 16.dp))
             Text(
                 text = stringResource(R.string.common_your_shelf_is_empty),
                 style = MaterialTheme.typography.titleMedium,
