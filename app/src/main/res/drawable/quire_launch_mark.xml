@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android applies its standard icon mask to this dedicated 288dp launch canvas. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:width="288dp" android:height="288dp">
+        <shape android:shape="rectangle">
+            <solid android:color="@android:color/transparent" />
+        </shape>
+    </item>
+    <item android:width="160dp" android:height="106dp" android:gravity="center">
+        <bitmap
+            android:src="@drawable/marbled_ink"
+            android:gravity="fill"
+            android:tint="@color/quire_launch_ink" />
+    </item>
+    <item android:width="40dp" android:height="52dp" android:gravity="center"
+        android:drawable="@drawable/quire_mark" />
+</layer-list>

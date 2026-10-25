@@ -8,4 +8,7 @@
         <item name="android:navigationBarColor">@color/quire_surface</item>
         <item name="android:windowLightNavigationBar" tools:targetApi="27">true</item>
     </style>
+    <style name="Theme.Quire.Launch" parent="Theme.Quire">
+        <item name="android:windowBackground">@drawable/quire_starting_window</item>
+    </style>
 </resources>

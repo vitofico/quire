@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/quire_surface" />
+        </shape>
+    </item>
+    <item android:width="288dp" android:height="288dp" android:gravity="center"
+        android:drawable="@drawable/quire_launch_mark" />
+</layer-list>
