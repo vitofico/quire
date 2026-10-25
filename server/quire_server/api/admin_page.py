@@ -8,8 +8,10 @@ Every value passes through ``_e`` before it reaches the markup.
 
 from __future__ import annotations
 
+from base64 import b64encode
 from datetime import datetime
 from html import escape
+from importlib.resources import files
 
 _MODE_LABELS = {"progress": "reading progress and library sync", "ai": "AI insights"}
 
@@ -54,13 +56,13 @@ _EDITABLE_TEXT = {
 }
 
 _STYLE = """
-:root { color-scheme: light dark; --bg: #fafaf7; --fg: #1d1d1b; --muted: #6b6b66;
-  --line: #e2e2dc; --card: #ffffff; --ok: #1f7a3a; --bad: #b3261e; --accent: #3b5bdb;
-  --on-accent: #ffffff; }
+:root { color-scheme: light dark; --bg: #f8f4ec; --fg: #1f1a14; --muted: #77664e;
+  --line: #e5dac7; --card: #fefbf4; --ok: #1f7a3a; --bad: #b3261e; --accent: #7a2e2a;
+  --on-accent: #f5efe3; }
 @media (prefers-color-scheme: dark) {
-  :root { --bg: #161615; --fg: #ececea; --muted: #9a9a94; --line: #2e2e2b;
-    --card: #1f1f1d; --ok: #6cc585; --bad: #f2877e; --accent: #8ea4ff;
-    --on-accent: #10131f; } }
+  :root { --bg: #1a1612; --fg: #ede5d5; --muted: #b2a58e; --line: #40372d;
+    --card: #241f18; --ok: #6cc585; --bad: #f2877e; --accent: #d88a82;
+    --on-accent: #1a1612; } }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg);
   font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
@@ -103,6 +105,16 @@ th, td { text-align: left; padding: 6px 8px; vertical-align: top;
 th { color: var(--muted); font-weight: 500; font-size: 13px; border-top: 0; }
 td.src { color: var(--muted); font-size: 13px; white-space: nowrap; }
 tr.default td:nth-child(2) { color: var(--muted); }
+"""
+
+_INK = b64encode(files("quire_server").joinpath("assets/marbled-ink.webp").read_bytes()).decode()
+_STYLE += f"""
+header {{ position: relative; isolation: isolate; padding-block: 12px; }}
+header::after {{ content: ""; position: absolute; z-index: -1; pointer-events: none;
+  width: min(48%, 260px); height: 110px; right: 0; top: -18px; opacity: .14;
+  background: var(--accent);
+  mask: url("data:image/webp;base64,{_INK}") center / contain no-repeat; }}
+h1 {{ font-family: Georgia, serif; font-size: 30px; }}
 """
 
 

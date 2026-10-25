@@ -64,7 +64,7 @@ NO_STORE = {"Cache-Control": "no-store"}
 PAGE_HEADERS = {
     **NO_STORE,
     "Content-Security-Policy": (
-        "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; "
+        "default-src 'none'; style-src 'unsafe-inline'; img-src data:; form-action 'self'; "
         "frame-ancestors 'none'; base-uri 'none'"
     ),
     "Referrer-Policy": "no-referrer",
