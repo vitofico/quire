@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The platform owns this brief window; saved app palettes take over with Compose. -->
+    <style name="Theme.Quire.Launch" parent="Theme.Quire">
+        <item name="android:windowBackground">@color/quire_surface</item>
+        <item name="android:windowSplashScreenBackground">@color/quire_surface</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/quire_launch_mark</item>
+    </style>
+</resources>

@@ -63,6 +63,7 @@ import io.theficos.ereader.data.opds.OpdsPublication
 import io.theficos.ereader.ui.components.CoverImage
 import io.theficos.ereader.ui.components.CoverInfoButton
 import io.theficos.ereader.ui.components.SectionLabel
+import io.theficos.ereader.ui.components.QuireLoading
 import io.theficos.quire.R
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -84,7 +85,7 @@ fun CatalogScreen(
     Box(modifier = Modifier.fillMaxSize().padding(contentPadding)) {
         when (val s = state) {
             CatalogUiState.Idle -> {}
-            CatalogUiState.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+            CatalogUiState.Loading -> QuireLoading(Modifier.align(Alignment.Center))
             is CatalogUiState.Error -> Text(
                 s.message.asString(),
                 style = MaterialTheme.typography.bodyMedium,

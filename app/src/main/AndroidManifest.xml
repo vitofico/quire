@@ -27,6 +27,7 @@
              stay off the list so theme and locale changes still recreate. -->
         <activity
             android:name="io.theficos.ereader.MainActivity"
+            android:theme="@style/Theme.Quire.Launch"
             android:exported="true"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation">
             <intent-filter>

@@ -7,15 +7,22 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 class AppThemePreferencesStore(context: Context) {
+    private val appContext = context.applicationContext
     private val prefs = context.applicationContext
         .getSharedPreferences("app_theme_prefs", Context.MODE_PRIVATE)
 
     private val _flow = MutableStateFlow(prefs.readTheme())
     val flow: StateFlow<AppTheme> = _flow.asStateFlow()
 
+    init {
+        appContext.syncLaunchNightMode(_flow.value.mode)
+    }
+
     fun update(theme: AppTheme) {
-        prefs.edit().putTheme(theme).apply()
+        // The platform may recreate the Activity when brightness changes; save before notifying it.
+        prefs.edit().putTheme(theme).commit()
         _flow.value = theme
+        appContext.syncLaunchNightMode(theme.mode)
     }
 }
 

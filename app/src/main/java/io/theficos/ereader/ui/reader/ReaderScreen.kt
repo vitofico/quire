@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -57,6 +56,7 @@ import io.theficos.ereader.data.sync.SyncEnqueuer
 import io.theficos.ereader.reader.ReaderPreferences
 import io.theficos.ereader.reader.declareReaderFonts
 import io.theficos.ereader.reader.toEpubPreferences
+import io.theficos.ereader.ui.components.QuireLoading
 import io.theficos.ereader.ui.theme.AppTheme
 import io.theficos.quire.R
 import kotlinx.coroutines.delay
@@ -79,9 +79,13 @@ fun ReaderScreen(
     detailsSheet: @Composable (onDismiss: () -> Unit) -> Unit,
 ) {
     val preferences by viewModel.preferences.collectAsState()
-    // The reader's chrome, sheets and loading text take the page's colours, and the root paints
-    // the page colour behind the system bars, so nothing app-coloured frames the book.
-    MaterialTheme(colorScheme = appTheme.readerColors(preferences.theme)) {
+    val state by viewModel.state.collectAsState()
+    // The wait belongs to the app. Once the publication opens, its page colours own the chrome,
+    // sheets and background behind the system bars, so nothing app-coloured frames the book.
+    val colors = if (state is ReaderUiState.Open) {
+        appTheme.readerColors(preferences.theme)
+    } else MaterialTheme.colorScheme
+    MaterialTheme(colorScheme = colors) {
         Surface(Modifier.fillMaxSize()) {
             ReaderScreenContent(viewModel, onClose, detailsSheet)
         }
@@ -169,7 +173,7 @@ private fun ReaderScreenContent(
 
     Box(Modifier.fillMaxSize()) {
         when (val s = state) {
-            ReaderUiState.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+            ReaderUiState.Loading -> QuireLoading(Modifier.align(Alignment.Center))
             is ReaderUiState.Error -> Text(s.message.asString(), Modifier.align(Alignment.Center))
             is ReaderUiState.Open -> {
                 // Scoped to the Open state so Loading/Error keep normal, themed system bars.

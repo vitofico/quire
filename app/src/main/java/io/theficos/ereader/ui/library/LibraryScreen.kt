@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -62,7 +63,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
@@ -77,6 +80,7 @@ import io.theficos.ereader.sideload.SideloadImporter
 import io.theficos.ereader.sideload.SideloadResult
 import io.theficos.ereader.ui.components.CoverImage
 import io.theficos.ereader.ui.components.MarbledInk
+import io.theficos.ereader.ui.components.QuireLoading
 import io.theficos.ereader.ui.components.CoverInfoButton
 import io.theficos.ereader.ui.components.SectionLabel
 import io.theficos.quire.R
@@ -176,9 +180,13 @@ fun LibraryScreen(
         { l.launch(IMPORT_MIME_FILTER) }
     }
 
-    // Null until Room first answers. Drawing nothing for those few milliseconds
-    // beats flashing stringResource(R.string.common_your_shelf_is_empty) over a library that has books.
-    val shelf = loadedShelf ?: return
+    // Room's first answer has its own loading state, so an existing library never flashes empty.
+    val shelf = loadedShelf ?: run {
+        Box(Modifier.fillMaxSize().padding(contentPadding), contentAlignment = Alignment.Center) {
+            QuireLoading()
+        }
+        return
+    }
     val items = shelf.books
 
     // Only a truly empty library gets the empty state, which has no top bar:
@@ -201,16 +209,27 @@ fun LibraryScreen(
         return
     }
 
-    Box(modifier = Modifier.fillMaxSize().padding(contentPadding)) {
+    val gridState = rememberLazyGridState()
+    val inkFadeDistance = with(LocalDensity.current) { 112.dp.toPx() }
+    Box(modifier = Modifier.fillMaxSize()) {
+        LibraryBackdrop(
+            Modifier.graphicsLayer {
+                // As the header leaves, plain paper also protects books scrolling through the top.
+                alpha = if (gridState.firstVisibleItemIndex == 0) {
+                    (1f - gridState.firstVisibleItemScrollOffset / inkFadeDistance).coerceIn(0f, 1f)
+                } else 0f
+            },
+        )
         LazyVerticalGrid(
             columns = GridCells.Fixed(3),
-            modifier = Modifier.fillMaxSize(),
+            state = gridState,
+            modifier = Modifier.fillMaxSize().padding(contentPadding),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
-                LibraryHeader {
+                LibraryHeader(actionCount = if (launchPicker != null) 5 else 4) {
                     IconButton(onClick = { searchActive = true }) {
                         Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.common_search))
                     }
@@ -454,7 +473,10 @@ fun LibraryScreen(
                 }
             }
         }
-        SnackbarHost(hostState = snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter))
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(contentPadding),
+        )
     }
 
     menuFor?.let { row ->

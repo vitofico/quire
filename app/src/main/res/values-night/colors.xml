@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="quire_surface">#FF1A1612</color>
+    <color name="quire_on_surface">#FFEDE5D5</color>
+    <color name="quire_launch_ink">#8CB4ADA1</color>
 </resources>
