@@ -161,6 +161,54 @@ def test_render_page_escapes_every_value():
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in page
 
 
+def test_background_choice_is_independent_and_validated():
+    artwork = render_page(_status())
+    plain = render_page(_status(), background_style="plain")
+    invalid = render_page(_status(), background_style='plain" onload="alert(1)')
+    assert '<body data-background-style="artwork">' in artwork
+    assert '<body data-background-style="plain">' in plain
+    assert '<option value="plain" selected>Plain</option>' in plain
+    assert '<body data-background-style="artwork">' in invalid
+    assert "onload" not in invalid
+    assert "<script" not in artwork
+
+
+def test_background_preference_cookie_survives_page_actions():
+    from starlette.requests import Request
+
+    from quire_server.api.admin import _page_response
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/quire-admin",
+            "scheme": "https",
+            "query_string": b"background=plain",
+            "headers": [],
+            "server": ("example.org", 443),
+        }
+    )
+    response = _page_response(request, _status())
+    assert 'data-background-style="plain"' in response.body.decode()
+    assert "quire_background_style=plain" in response.headers["set-cookie"]
+    assert "HttpOnly" in response.headers["set-cookie"]
+    assert "Secure" in response.headers["set-cookie"]
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/quire-admin/probe",
+            "scheme": "https",
+            "query_string": b"",
+            "headers": [(b"cookie", b"quire_background_style=plain")],
+            "server": ("example.org", 443),
+        }
+    )
+    response = _page_response(request, _status())
+    assert 'data-background-style="plain"' in response.body.decode()
+
+
 def test_render_page_says_when_the_provider_was_never_checked():
     page = render_page(_status())
 

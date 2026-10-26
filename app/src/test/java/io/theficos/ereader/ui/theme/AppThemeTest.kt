@@ -2,6 +2,7 @@ package io.theficos.ereader.ui.theme
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.compositeOver
 import com.google.common.truth.Truth.assertThat
 import com.google.common.truth.Truth.assertWithMessage
 import io.theficos.ereader.reader.ReaderTheme
@@ -88,6 +89,16 @@ class AppThemeTest {
             }
             // A text field's border has to be seen to be found.
             assertWithMessage("$palette outline").that(contrastRatio(colors.outline, colors.surface)).isAtLeast(3.0)
+        }
+    }
+
+    @Test fun `ambient ink preserves text contrast in every palette`() {
+        Palette.entries.forEach { palette ->
+            val colors = palette.colors
+            val strongestInk = colors.primary.copy(alpha = 0.11f).compositeOver(colors.background)
+            listOf(colors.onBackground, colors.onSurfaceVariant, colors.primary).forEach { text ->
+                assertWithMessage("$palette text over artwork").that(contrastRatio(text, strongestInk)).isAtLeast(4.5)
+            }
         }
     }
 

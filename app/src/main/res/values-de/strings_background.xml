@@ -1,0 +1,6 @@
+<resources>
+    <string name="background_title">Hintergrund</string>
+    <string name="background_hint">Wähle einen Hintergrund unabhängig vom Farbthema. Die Buchseiten bleiben unverändert.</string>
+    <string name="background_plain">Schlicht</string>
+    <string name="background_artwork">Illustration</string>
+</resources>

@@ -44,3 +44,17 @@ added app delay.
   [Ink](assets/identity-refinement/loading-ink.png).
 - Android launch: [light](assets/identity-refinement/launch-light.png) and
   [dark](assets/identity-refinement/launch-dark.png).
+
+## Background style
+
+Plain and Artwork are independent of the colour theme. Artwork is the initial
+choice; either selection is saved locally and survives palette changes and restart.
+Android exposes two previews in Settings. The server status page offers the same
+choice with a local appearance cookie, retaining its script-free security policy.
+
+`branding/background-ink.webp` is the canonical ambient ink artwork. The brand
+sync script exports it alongside the existing welcome and empty-state motif.
+It is a static, theme-tinted edge crop behind library, catalog and settings chrome,
+at eleven percent intensity. Cards and navigation retain opaque surfaces. Plain
+removes this ambient layer while keeping the existing welcome and empty artwork.
+Neither style decorates EPUB prose or changes the reader's separate page colours.

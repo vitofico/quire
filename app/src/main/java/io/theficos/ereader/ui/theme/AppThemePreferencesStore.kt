@@ -14,6 +14,14 @@ class AppThemePreferencesStore(context: Context) {
     private val _flow = MutableStateFlow(prefs.readTheme())
     val flow: StateFlow<AppTheme> = _flow.asStateFlow()
 
+    private val _backgroundStyle = MutableStateFlow(BackgroundStyle.fromStored(prefs.getString("background-style", null)))
+    val backgroundStyle: StateFlow<BackgroundStyle> = _backgroundStyle.asStateFlow()
+
+    fun updateBackgroundStyle(style: BackgroundStyle) {
+        prefs.edit().putString("background-style", style.name).commit()
+        _backgroundStyle.value = style
+    }
+
     init {
         appContext.syncLaunchNightMode(_flow.value.mode)
     }
