@@ -55,6 +55,19 @@ tasks.matching { it.name == "collectDependencies" || it.name == "exportLibraryDe
         outputs.upToDateWhen { false }
     }
 
+// Compose's incremental output can differ from a clean compilation, changing
+// R8's DEX and baseline profile. Full release compilation also uses a separate
+// build-cache key, so old incremental outputs cannot leak into F-Droid builds.
+afterEvaluate {
+    tasks.named<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>("compileReleaseKotlin") {
+        incremental = false
+    }
+    // AGP 8.6 emits a nondeterministic baseline.prof even when DEX is identical.
+    // Follow F-Droid's workaround for releases; clean builds remove old profiles.
+    tasks.matching { it.name.contains("Release") && it.name.contains("ArtProfile") }
+        .configureEach { enabled = false }
+}
+
 android {
     namespace = "io.theficos.quire"
     compileSdk = 35
@@ -103,7 +116,11 @@ android {
             versionNameSuffix = "-debug"
         }
         release {
-            isMinifyEnabled = false   // Phase 1 only; revisit before publishing
+            // Strip unused dependency code (including the extended icon catalog)
+            // and resources; library consumer rules preserve dynamic entry points.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
             // AGP 8.3+ embeds git origin/branch/SHA into the APK by default,
             // which makes F-Droid reproducible builds fail (their checkout's
             // origin URL differs from ours). The tag itself already pins the
