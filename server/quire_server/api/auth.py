@@ -32,11 +32,59 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select, text
 
 from quire_server.core.auth import current_auth_user
 from quire_server.core.auth_backend import AuthUser, NativeAuth
+from quire_server.core.native_auth import hash_session_token
+from quire_server.db.models import NativeSession
 
 router = APIRouter(tags=["auth"])
+
+
+@router.get("/me")
+async def me(
+    user: Annotated[AuthUser, Depends(current_auth_user)], response: Response, request: Request
+) -> dict:
+    """Authenticated storage identity. Consumers must revalidate the session each time.
+
+    No identity is accepted from a browser-supplied account ID or email. This
+    contract deliberately exposes neither password hashes nor session tokens.
+    """
+    response.headers["Cache-Control"] = "no-store"
+    settings = request.app.state.identity_settings
+    token = request.cookies.get(settings.cookie_name, "")
+    from quire_server.api.browser_identity import csrf
+
+    capabilities = dict(request.app.state.hosting_capabilities)
+    if user.backend == "native":
+        async with request.app.state.identity_factory() as session:
+            linked = await session.scalar(
+                text("SELECT 1 FROM external_identities WHERE user_id=:id AND issuer=:issuer"),
+                {"id": int(user.user_id.split(":")[1]), "issuer": settings.oidc_issuer},
+            )
+        capabilities["delete_reauth"] = "oidc" if linked else "password"
+        proof = request.cookies.get(settings.cookie_name + "-delete", "")
+        async with request.app.state.identity_factory() as session:
+            authorized = await session.scalar(
+                text(
+                    "SELECT 1 FROM account_delete_authorizations "
+                    "WHERE proof_hash=:proof AND user_id=:id AND session_hash=:hash "
+                    "AND expires_at>now()"
+                ),
+                {
+                    "proof": hash_session_token(proof),
+                    "id": int(user.user_id.split(":")[1]),
+                    "hash": user.session_token_hash,
+                },
+            )
+        capabilities["deletion_authorized"] = bool(authorized)
+    return {
+        "user": {"id": user.user_id, "backend": user.backend},
+        "version": 1,
+        "capabilities": capabilities,
+        "csrf_token": csrf(token) if token else None,
+    }
 
 
 # ----------------------------------------------------------------------------
@@ -58,6 +106,7 @@ class LoginResponse(BaseModel):
     # Expiry as ISO-8601. Clients should refresh BEFORE this fires; the
     # server does not currently support refresh-without-relogin (deferred).
     expires_at: datetime
+    account_id: str | None = None
 
 
 class MagicLinkRequest(BaseModel):
@@ -110,6 +159,7 @@ async def _require_native_backend(request: Request) -> NativeAuth:
 async def login(
     body: LoginRequest,
     backend: Annotated[NativeAuth, Depends(_require_native_backend)],
+    request: Request,
 ) -> LoginResponse:
     """Verify creds, issue a session token.
 
@@ -118,14 +168,26 @@ async def login(
     trick in :class:`NativeAuth.login` keeps the verify cost roughly
     constant across paths.
     """
-    token, expires_at = await backend.login(email=body.email, password=body.password)
-    return LoginResponse(token=token, expires_at=expires_at)
+    guard = request.app.state.native_login_guard
+    guard.begin(request.client.host if request.client else "unknown")
+    try:
+        token, expires_at = await backend.login(email=body.email, password=body.password)
+    finally:
+        guard.inflight -= 1
+    async with backend._sf() as session:
+        number = await session.scalar(
+            select(NativeSession.user_id).where(
+                NativeSession.token_hash == hash_session_token(token)
+            )
+        )
+    return LoginResponse(token=token, expires_at=expires_at, account_id=f"native:{number}")
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(
     user: Annotated[AuthUser, Depends(current_auth_user)],
     backend: Annotated[NativeAuth, Depends(_require_native_backend)],
+    request: Request,
 ) -> Response:
     """Revoke the session backing the current bearer token.
 
@@ -141,7 +203,18 @@ async def logout(
             detail="no_session_token",
         )
     await backend.revoke(user.session_token_hash)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    response = Response(status_code=status.HTTP_204_NO_CONTENT)
+    response.delete_cookie(
+        request.app.state.identity_settings.cookie_name,
+        path="/",
+        secure=bool(
+            request.app.state.identity_settings.public_url
+            and request.app.state.identity_settings.public_url.startswith("https:")
+        ),
+        httponly=True,
+        samesite="lax",
+    )
+    return response
 
 
 @router.post(

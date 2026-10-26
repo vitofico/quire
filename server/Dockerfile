@@ -1,3 +1,5 @@
+FROM postgres:16-bookworm AS postgres_tools
+
 FROM python:3.12-slim AS base
 
 # Build-time version identity. server-ci.yaml's `image` job passes the
@@ -16,8 +18,13 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential libpq-dev \
+        build-essential libpq-dev postgresql-client \
  && rm -rf /var/lib/apt/lists/*
+
+# Match the supported PostgreSQL 16 server; newer dump output may not restore
+# to an older major (for example transaction_timeout emitted by version 17).
+COPY --from=postgres_tools /usr/lib/postgresql/16/bin/ /usr/local/pg16/bin/
+ENV PATH="/usr/local/pg16/bin:${PATH}"
 
 # uv installs into a project venv (avoids PEP 668 on python:3.12-slim, which
 # marks the system Python as externally-managed).
@@ -40,4 +47,4 @@ LABEL org.opencontainers.image.title="quire-server" \
 EXPOSE 8000
 # Entrypoint: run the migrate wrapper (per-branch, mode-aware) then start the app.
 # The wrapper reads QUIRE_SERVER_PROGRESS_ENABLED / QUIRE_SERVER_AI_ENABLED.
-CMD ["sh", "-c", "python /app/scripts/migrate.py && exec uvicorn quire_server.main:app --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "python /app/scripts/migrate.py && exec uvicorn quire_server.main:app --host 0.0.0.0 --port 8000 --no-access-log"]

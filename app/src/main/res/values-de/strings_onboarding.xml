@@ -33,4 +33,11 @@
     <string name="onboarding_couldn_t_reach_the_server">"Der Server ist nicht erreichbar: %1$s"</string>
     <string name="onboarding_how_would_you_like_to_read">"Wie möchtest du lesen?"</string>
     <string name="onboarding_skip_and_use_quire_offline_only">"Überspringen und Quire nur offline verwenden"</string>
+    <string name="onboarding_pairing_help">"Oder öffne dein Serverkonto im Browser, wähle Telefon verbinden und füge hier den einmal verwendbaren Code ein."</string>
+    <string name="onboarding_pairing_ticket">"Einmal verwendbarer Kopplungscode"</string>
+    <string name="onboarding_connect_phone">"Telefon verbinden"</string>
+    <string name="onboarding_pairing_ticket_invalid">"Füge den einmal verwendbaren Code von deiner Serverkontoseite ein."</string>
+    <string name="onboarding_pairing_identity_missing">"Die Kopplungsantwort hat dein Konto nicht identifiziert."</string>
+    <string name="onboarding_pairing_ticket_expired">"Dieser Code ist abgelaufen oder wurde bereits verwendet. Erstelle im Browser einen neuen Code."</string>
+    <string name="onboarding_unexpected_pairing_response">"Unerwartete Antwort %1$s von der Telefonkopplung."</string>
 </resources>

@@ -33,4 +33,11 @@
     <string name="onboarding_couldn_t_reach_the_server">"Impossible de joindre le serveur : %1$s"</string>
     <string name="onboarding_how_would_you_like_to_read">"Comment souhaitez-vous lire ?"</string>
     <string name="onboarding_skip_and_use_quire_offline_only">"Passer et utiliser Quire hors ligne uniquement"</string>
+    <string name="onboarding_pairing_help">"Ou ouvre ton compte du serveur dans un navigateur, choisis Connecter un téléphone et colle ici le code à usage unique."</string>
+    <string name="onboarding_pairing_ticket">"Code d’association à usage unique"</string>
+    <string name="onboarding_connect_phone">"Connecter le téléphone"</string>
+    <string name="onboarding_pairing_ticket_invalid">"Colle le code à usage unique de la page de ton compte du serveur."</string>
+    <string name="onboarding_pairing_identity_missing">"La réponse d’association n’a pas identifié ton compte."</string>
+    <string name="onboarding_pairing_ticket_expired">"Ce code a expiré ou a déjà été utilisé. Crée un nouveau code dans ton navigateur."</string>
+    <string name="onboarding_unexpected_pairing_response">"Réponse inattendue %1$s de l’association du téléphone."</string>
 </resources>

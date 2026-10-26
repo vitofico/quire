@@ -33,4 +33,11 @@
     <string name="onboarding_couldn_t_reach_the_server">"Impossibile raggiungere il server: %1$s"</string>
     <string name="onboarding_how_would_you_like_to_read">"Come vuoi leggere?"</string>
     <string name="onboarding_skip_and_use_quire_offline_only">"Salta e usa Quire solo offline"</string>
+    <string name="onboarding_pairing_help">"Oppure apri il tuo account del server in un browser, scegli Collega un telefono e incolla qui il codice monouso."</string>
+    <string name="onboarding_pairing_ticket">"Codice di abbinamento monouso"</string>
+    <string name="onboarding_connect_phone">"Collega telefono"</string>
+    <string name="onboarding_pairing_ticket_invalid">"Incolla il codice monouso dalla pagina del tuo account del server."</string>
+    <string name="onboarding_pairing_identity_missing">"La risposta di abbinamento non ha identificato il tuo account."</string>
+    <string name="onboarding_pairing_ticket_expired">"Questo codice è scaduto o è già stato usato. Creane uno nuovo nel browser."</string>
+    <string name="onboarding_unexpected_pairing_response">"Risposta imprevista %1$s dall’abbinamento del telefono."</string>
 </resources>

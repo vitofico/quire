@@ -33,4 +33,11 @@
     <string name="onboarding_couldn_t_reach_the_server">"Couldn\'t reach the server: %1$s"</string>
     <string name="onboarding_how_would_you_like_to_read">"How would you like to read?"</string>
     <string name="onboarding_skip_and_use_quire_offline_only">"Skip and use Quire offline only"</string>
+    <string name="onboarding_pairing_help">"Or open your server account in a browser, choose Connect a phone, and paste its one-use ticket here."</string>
+    <string name="onboarding_pairing_ticket">"One-use pairing ticket"</string>
+    <string name="onboarding_connect_phone">"Connect phone"</string>
+    <string name="onboarding_pairing_ticket_invalid">"Paste the one-use ticket from your server account page."</string>
+    <string name="onboarding_pairing_identity_missing">"The pairing response did not identify your account."</string>
+    <string name="onboarding_pairing_ticket_expired">"This ticket expired or was already used. Create a new ticket in your browser."</string>
+    <string name="onboarding_unexpected_pairing_response">"Unexpected response %1$s from phone pairing."</string>
 </resources>

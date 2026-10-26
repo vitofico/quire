@@ -45,11 +45,11 @@ async def _stamp(postgres_url: str, revision: str | tuple[str, ...]) -> None:
 
 
 async def _restore_to_0004(postgres_url: str) -> None:
-    """Set alembic_version rows back to {0004, auth_001} — the canonical
+    """Set alembic_version rows back to {0004, auth_003} — the canonical
     "backbone + always-on auth branch" state expected by the rest of the
     suite (which depends on the session-scoped alembic_upgrade fixture).
     """
-    await _stamp(postgres_url, ("0004", "auth_001"))
+    await _stamp(postgres_url, ("0004", "auth_003"))
 
 
 @pytest.fixture
@@ -60,9 +60,9 @@ async def restore_after(postgres_url: str, alembic_upgrade):
 
 
 async def test_readyz_200_when_at_ai_head(monkeypatch, postgres_url, alembic_upgrade):
-    """With ai@head (ai_008) + progress@head (progress_003) materialized,
+    """With ai@head (ai_009) + progress@head (progress_003) materialized,
     /readyz reports both heads. (progress_003 added by Phase 0 task F-1;
-    ai_008 by issue #102, the settings saved on the status page.)
+    ai_009 by the optional monthly allowance migration.)
     """
     # Some earlier test in the session may have downgraded the DB
     # (test_migrate_script.py exercises rollback). Ensure both branches are
@@ -81,15 +81,15 @@ async def test_readyz_200_when_at_ai_head(monkeypatch, postgres_url, alembic_upg
     body = r.json()
     assert body["ready"] is True
     # Phase 0, task S-1 added the always-materialized `auth` branch:
-    # `auth_001` joins `ai_008` / `progress_003` in `heads_applied`.
-    assert body["heads_applied"] == ["ai_008", "auth_001", "progress_003"]
+    # `auth_003` joins `ai_009` / `progress_003` in `heads_applied`.
+    assert body["heads_applied"] == ["ai_009", "auth_003", "progress_003"]
 
 
 async def test_readyz_503_when_db_below_backbone(
     monkeypatch, postgres_url, alembic_upgrade, restore_after
 ):
     """DB stamped below backbone; with both modes enabled, required heads
-    include ai_008 (ai@head since issue #102) and auth_001 (auth@head
+    include ai_009 (ai@head since monthly allowance) and auth_003 (auth@head
     after Phase 0 / S-1) — both should be reported missing.
     """
     await _stamp(postgres_url, "0003")
@@ -99,8 +99,8 @@ async def test_readyz_503_when_db_below_backbone(
     assert r.status_code == 503
     body = r.json()
     assert body["ready"] is False
-    assert "ai_008" in body["missing"]
-    assert "auth_001" in body["missing"]
+    assert "ai_009" in body["missing"]
+    assert "auth_003" in body["missing"]
 
 
 async def test_readyz_200_with_neither_mode_at_backbone(
@@ -109,10 +109,10 @@ async def test_readyz_200_with_neither_mode_at_backbone(
     """With neither feature-mode enabled, the required heads collapse to
     {backbone, auth} — `auth` is unconditionally required (Phase 0 / S-1).
 
-    Stamp the DB to ``(0004, auth_001)`` to exercise the "fresh sync-only
+    Stamp the DB to ``(0004, auth_003)`` to exercise the "fresh sync-only
     deploy that never materialized the ai or progress branches" code path.
     """
-    await _stamp(postgres_url, ("0004", "auth_001"))
+    await _stamp(postgres_url, ("0004", "auth_003"))
     app = _build_app(monkeypatch, postgres_url, progress=False, ai=False)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         r = await c.get("/readyz")
@@ -122,7 +122,7 @@ async def test_readyz_200_with_neither_mode_at_backbone(
     # ``heads_applied`` lists every row in ``alembic_version`` (sorted).
     # We stamped both to simulate a deploy that explicitly walked the
     # backbone + always-on ``auth`` branch.
-    assert body["heads_applied"] == ["0004", "auth_001"]
+    assert body["heads_applied"] == ["0004", "auth_003"]
 
 
 async def test_readyz_503_with_neither_mode_below_backbone(
@@ -135,4 +135,4 @@ async def test_readyz_503_with_neither_mode_below_backbone(
     assert r.status_code == 503
     body = r.json()
     # Both the backbone tip and the always-on `auth` head are missing.
-    assert "auth_001" in body["missing"]
+    assert "auth_003" in body["missing"]

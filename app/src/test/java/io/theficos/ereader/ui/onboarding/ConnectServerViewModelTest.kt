@@ -166,4 +166,29 @@ class ConnectServerViewModelTest {
         val state = vm.state.value as ConnectServerViewModel.UiState.VerificationFailed
         assertThat(state.message.asString(englishContext())).contains("418")
     }
+    @Test fun `pairing ticket exchanges once and saves a bearer session`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(200)
+            .setBody("""{"token":"synthetic-device-token","account_id":"native:42","expires_at":"2027-01-01T00:00:00Z"}"""))
+        val vm = newViewModel()
+        vm.verifyAndSavePairing(server.url("/").toString().trimEnd('/'), "synthetic-ticket-1234567890")
+        advanceUntilIdle()
+        assertThat(vm.state.value).isEqualTo(ConnectServerViewModel.UiState.Completed)
+        val saved = store.getAccount() as AccountCredentials.Bearer
+        assertThat(saved.token).isEqualTo("synthetic-device-token")
+        assertThat(saved.email).isEqualTo("native:42")
+        val request = server.takeRequest()
+        assertThat(request.path).isEqualTo("/auth/v1/pairing/exchange")
+        assertThat(request.body.readUtf8()).contains("synthetic-ticket-1234567890")
+    }
+
+    @Test fun `expired pairing ticket never replaces saved credentials`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(401))
+        val vm = newViewModel()
+        vm.verifyAndSavePairing(server.url("/").toString().trimEnd('/'), "synthetic-expired-1234567890")
+        advanceUntilIdle()
+        val result = vm.state.value as ConnectServerViewModel.UiState.VerificationFailed
+        assertThat(result.message.asString(englishContext())).contains("expired")
+        assertThat(store.getAccount()).isNull()
+    }
+
 }

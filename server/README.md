@@ -2,6 +2,65 @@
 
 Quire sync server. FastAPI + Postgres. Source of truth for reading state.
 
+Native mode exposes `GET /auth/v1/me` with the existing `native:N` storage
+identity, current CSRF proof and deployed capabilities. Generic browser identity
+uses `QUIRE_IDENTITY_PUBLIC_URL` (fixed HTTPS public origin), optional paired
+`QUIRE_IDENTITY_OIDC_ISSUER`/`QUIRE_IDENTITY_OIDC_CLIENT_ID`, optional confidential
+`QUIRE_IDENTITY_OIDC_CLIENT_SECRET`, and independent 32-character
+`QUIRE_IDENTITY_SERVICE_TOKEN` for internal lifecycle operations. Explicit
+`QUIRE_IDENTITY_ALLOW_INSECURE_LOOPBACK=true` permits a localhost-only fixture.
+
+`/auth/v1/browser/login` issues a native HttpOnly/Lax cookie. OIDC code + PKCE,
+state, nonce and strict issuer/audience/JWKS validation reuse the same session
+backend. Exact issuer + subject mappings never auto-link by email. Registration,
+verification and recovery belong to the configured IdP; the core does not copy
+its password database. Calibre mode and existing bearer API login remain intact.
+Operator-only `scripts/create_native_account.py` prompts privately for native
+credentials. Login attempts have bounded per-IP/global/concurrent admission.
+Do not enable access logs that record OIDC callback query credentials.
+
+Authenticated `POST /auth/v1/pairing` creates a random 120-second one-use ticket;
+`POST /auth/v1/pairing/exchange` yields a native device session and server-issued
+stable account subject. Cookie mutations require exact Origin and CSRF proof.
+Session revocation invalidates unused child tickets. `auth_002` migrates external
+identities, transaction/pairing state, session kinds and closure fences forward.
+`auth_003` adds two-minute one-use account deletion proofs bound to the live
+session and account. `/auth/v1/account/delete-authorization` verifies the current
+native password; `/auth/v1/oidc/start?reauth=account-delete` instead forces a fresh
+IdP login with validated auth_time and exact linked subject. The purpose-bound
+callback validates the server-held transaction's live session, without requiring
+an ordinary cookie on that callback; a presented cookie must match. Companions
+must consume `/auth/v1/account/delete-authorization/consume` before queueing
+customer-requested destructive work. CSRF or a paired bearer alone is insufficient.
+
+Optional `QUIRE_POLICY_URL` + `QUIRE_POLICY_TOKEN` fetch an authenticated generic
+`/cloud/internal/policy/{native:N}` response. Exact account, bounded body/total
+deadline and a maximum 120-second expiry are validated. Fields include
+`limits.monthly_jobs`, optional fixed `quota_window_start`, `sync_writes` and
+`account_closed`. The latter denies newly issued hosted sessions after recovery
+of a closed account. Enabled hosted policy gates progress/library writes and
+optional model jobs; reads/exports/cache remain available. On policy outage new
+jobs and hosted writes fail closed. Unconfigured policy preserves self-hosting.
+`ai_009` atomically admits monthly logical jobs across generation, regeneration
+and model-backed profiles. Cache hits/stats-only profiles are free; failed jobs
+retain their slot and bounded provider retries share one debit.
+
+`GET /auth/v1/account/export` includes only caller-owned private data.
+`/internal/v1/accounts/{native:N}/identity|close|purge|finalize` requires the
+separate lifecycle service credential. Closure serializes with in-flight writes,
+revokes sessions/devices and purges private reading state while preserving shared
+cached insights. Finalization requires a purged account. Keep internal routes
+outside public ingress; companions use these HTTP seams, never this database.
+
+`scripts/pg_backup.py backup <new-directory>` creates a `pg_dump` archive and
+SHA256 manifest. Tools/server must have the same PostgreSQL major; the image
+includes PostgreSQL 16 tools. `restore` requires a new empty target and clears every native
+session, pairing ticket and OIDC exchange. Restore offline with the current
+external closure ledger and reconcile before reopening; an older cloud privacy
+snapshot must not overwrite newer deletion receipts. Backup encryption,
+retention and IdP recovery configuration are operator responsibilities. No EPUB
+file storage or commercial plan is implied by these generic seams.
+
 See [`../docs/architecture.md`](../docs/architecture.md) for the system
 design and [`../docs/sync-api.md`](../docs/sync-api.md) for the REST surface.
 
