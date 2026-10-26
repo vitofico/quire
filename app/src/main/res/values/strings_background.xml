@@ -1,0 +1,6 @@
+<resources>
+    <string name="background_title">Background</string>
+    <string name="background_hint">Choose a background independently of your colour theme. Reading pages stay unchanged.</string>
+    <string name="background_plain">Plain</string>
+    <string name="background_artwork">Artwork</string>
+</resources>

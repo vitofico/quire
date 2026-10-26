@@ -31,12 +31,13 @@ class MainActivity : FragmentActivity() {
         setContent {
             val container = (application as EReaderApp).container
             val theme by container.appThemePreferencesStore.flow.collectAsState()
+            val backgroundStyle by container.appThemePreferencesStore.backgroundStyle.collectAsState()
             val dark = theme.isDark(isSystemInDarkTheme())
             DisposableEffect(dark) {
                 styleSystemBars(dark)
                 onDispose { }
             }
-            QuireTheme(theme = theme) {
+            QuireTheme(theme = theme, backgroundStyle = backgroundStyle) {
                 // Paints the app background behind the transparent system bars and between
                 // navigation transitions, so the starting window never shows through.
                 Surface(Modifier.fillMaxSize()) {

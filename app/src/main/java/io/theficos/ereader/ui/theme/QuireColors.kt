@@ -31,7 +31,7 @@ internal val PaperColors = lightColorScheme(
     surface = Color(0xFFF8F4EC),
     onSurface = Color(0xFF1F1A14),
     surfaceVariant = Color(0xFFE7DED0),
-    onSurfaceVariant = Color(0xFF725D45),
+    onSurfaceVariant = Color(0xFF6E5C45),
     surfaceTint = Color(0xFF7A2E2A),
     surfaceDim = Color(0xFFE5DDD1),
     surfaceBright = Color(0xFFFDFAF3),
@@ -49,7 +49,7 @@ internal val PaperColors = lightColorScheme(
 
 /** Paper's dark counterpart: warm near-black with a muted rose accent. */
 internal val InkColors = darkColorScheme(
-    primary = Color(0xFFCC7873),
+    primary = Color(0xFFD88A82),
     onPrimary = Color(0xFF1A1612),
     primaryContainer = Color(0xFF5C2724),
     onPrimaryContainer = Color(0xFFFFDAD5),
@@ -66,7 +66,7 @@ internal val InkColors = darkColorScheme(
     surface = Color(0xFF1A1612),
     onSurface = Color(0xFFEDE5D5),
     surfaceVariant = Color(0xFF363027),
-    onSurfaceVariant = Color(0xFFAB9881),
+    onSurfaceVariant = Color(0xFFB2A58E),
     surfaceTint = Color(0xFFCC7873),
     surfaceDim = Color(0xFF1A1612),
     surfaceBright = Color(0xFF2D271F),  // no lighter: the rose accent must stay AA on it

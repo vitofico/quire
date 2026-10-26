@@ -25,6 +25,23 @@ class AppThemePreferencesStoreTest {
         prefs.edit().clear().commit()
     }
 
+    @Test fun `background choice is saved separately and survives palette changes`() {
+        val store = AppThemePreferencesStore(context)
+        assertThat(store.backgroundStyle.value).isEqualTo(BackgroundStyle.ARTWORK)
+        store.updateBackgroundStyle(BackgroundStyle.PLAIN)
+        store.update(AppTheme(mode = ThemeMode.DARK, dark = Palette.MIDNIGHT))
+        val reloaded = AppThemePreferencesStore(context)
+        assertThat(reloaded.backgroundStyle.value).isEqualTo(BackgroundStyle.PLAIN)
+        assertThat(reloaded.flow.value.dark).isEqualTo(Palette.MIDNIGHT)
+        reloaded.updateBackgroundStyle(BackgroundStyle.ARTWORK)
+        assertThat(reloaded.flow.value.mode).isEqualTo(ThemeMode.DARK)
+    }
+
+    @Test fun `unknown background preferences restore artwork without changing theme`() {
+        prefs.edit().putString("background-style", "unsupported").commit()
+        assertThat(AppThemePreferencesStore(context).backgroundStyle.value).isEqualTo(BackgroundStyle.ARTWORK)
+    }
+
     @Test fun `a fresh install follows the system with Quire's palettes`() {
         assertThat(AppThemePreferencesStore(context).flow.value).isEqualTo(AppTheme())
     }
