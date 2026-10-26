@@ -317,6 +317,7 @@ class InsightOrchestrator:
         # retries once on malformed output, each attempt under this budget, and
         # the orchestrator's outer backstop is derived from it (issue #102).
         profile_timeout_s: float = 90.0,
+        monthly_policy=None,
     ) -> None:
         self.ai = ai
         self.retriever_factory = retriever_factory
@@ -356,6 +357,7 @@ class InsightOrchestrator:
         self._profile_retriever_factory = profile_retriever_factory
         self._profile_refresh_daily_limit = profile_refresh_daily_limit
         self._profile_timeout_s = profile_timeout_s
+        self._monthly_policy = monthly_policy
 
     def apply_tunables(
         self,
@@ -517,6 +519,9 @@ class InsightOrchestrator:
             )
         lock = await self._acquire_identity_lock(ident, tone=tone, language=language)
         async with lock:
+            # Admission can reject for daily/monthly quota or policy outage.
+            # Preserve the shared live insight until that decision succeeds.
+            await self._reserve_budget(session, user_id=user_id, is_regen=True)
             existing = await self._cache_lookup(
                 session, ident, tone=tone, language=language, allow_backfill=False
             )
@@ -527,7 +532,6 @@ class InsightOrchestrator:
                 existing.superseded_at = datetime.now(UTC)
                 await session.commit()
 
-            await self._reserve_budget(session, user_id=user_id, is_regen=True)
             await self._bucket.acquire()
             row = await self._do_generate(
                 session,
@@ -863,6 +867,8 @@ class InsightOrchestrator:
         is_regen: bool,
     ) -> None:
         if self._daily_budget <= 0 and not is_regen:
+            if self._monthly_policy is not None:
+                await self._monthly_policy.reserve(user_id)
             return
         today = datetime.now(UTC).date()
         usage = (
@@ -890,6 +896,8 @@ class InsightOrchestrator:
                 resets_at=_next_utc_midnight(today),
             )
 
+        if self._monthly_policy is not None:
+            await self._monthly_policy.reserve(user_id)
         usage.count += 1
         if is_regen:
             usage.regen_count += 1
@@ -1645,6 +1653,8 @@ class InsightOrchestrator:
 
             # 5. Daily cap (after low-data short-circuit).
             await self._enforce_profile_daily_cap(session, principal)
+            if self._monthly_policy is not None:
+                await self._monthly_policy.reserve(principal.subject)
 
             # 6. Build digest + candidates and call the LLM under the global
             #    semaphore.

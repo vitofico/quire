@@ -38,6 +38,7 @@ tokens used by ``/auth/v1`` / ``/sync/v1`` / ``/library/v1``. The legacy
 
 from __future__ import annotations
 
+import hmac
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -181,10 +182,15 @@ class NativeAuth:
         session_factory: async_sessionmaker,
         session_ttl_s: int,
         clock: callable = _now_utc,  # type: ignore[valid-type]
+        cookie_name: str | None = None,
+        public_origin: str | None = None,
+        account_allowed=None,
     ) -> None:
         self._sf = session_factory
         self._ttl_s = session_ttl_s
         self._clock = clock
+        self._cookie_name, self._public_origin = cookie_name, public_origin
+        self._account_allowed = account_allowed
 
     # ------------------------------------------------------------------ #
     # Public API (called by the /auth/v1/* router and by tests)          #
@@ -233,7 +239,9 @@ class NativeAuth:
             user_row = None
             if canon:
                 user_row = (
-                    await s.execute(select(NativeUser).where(NativeUser.email == canon))
+                    await s.execute(
+                        select(NativeUser).where(NativeUser.email == canon).with_for_update()
+                    )
                 ).scalar_one_or_none()
 
             if user_row is None:
@@ -248,7 +256,7 @@ class NativeAuth:
                 )
 
             ok = await verify_password(user_row.password_hash, password or "")
-            if not ok:
+            if not ok or user_row.closed_at is not None:
                 logger.info(
                     "event=auth.login_failed reason=wrong_password user_id=%s",
                     user_row.id,
@@ -258,6 +266,8 @@ class NativeAuth:
                     detail="invalid credentials",
                 )
 
+            if self._account_allowed:
+                await self._account_allowed(f"native:{user_row.id}")
             token_plain, token_hash = generate_session_token()
             now = self._clock()
             expires_at = now + timedelta(seconds=self._ttl_s)
@@ -299,13 +309,31 @@ class NativeAuth:
     # ------------------------------------------------------------------ #
 
     async def current_user(self, request: Request) -> AuthUser:
-        token = _extract_bearer_token(request)
+        if request.headers.get("authorization"):
+            token = _extract_bearer_token(request)
+        elif self._cookie_name and request.cookies.get(self._cookie_name):
+            token = request.cookies[self._cookie_name]
+            if not token.isascii() or not 20 <= len(token) <= 128:
+                raise HTTPException(401, "invalid credentials")
+            if request.method not in {"GET", "HEAD", "OPTIONS"}:
+                from quire_server.api.browser_identity import csrf
+
+                if request.headers.get("origin") != self._public_origin or not hmac.compare_digest(
+                    request.headers.get("x-csrf-token", ""), csrf(token)
+                ):
+                    raise HTTPException(403, "invalid_csrf")
+        else:
+            token = _extract_bearer_token(request)
         token_hash = hash_session_token(token)
         now = self._clock()
 
         async with self._sf() as s:
             row = (
-                await s.execute(select(NativeSession).where(NativeSession.token_hash == token_hash))
+                await s.execute(
+                    select(NativeSession)
+                    .join(NativeUser)
+                    .where(NativeSession.token_hash == token_hash, NativeUser.closed_at.is_(None))
+                )
             ).scalar_one_or_none()
             if row is None:
                 logger.info("event=auth.session_invalid reason=unknown_token")
@@ -363,7 +391,7 @@ def _extract_bearer_token(request: Request) -> str:
             detail="invalid credentials",
         )
     token = header[len("Bearer ") :]
-    if not token or " " in token or "\t" in token:
+    if not token or len(token) > 128 or not token.isascii() or " " in token or "\t" in token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="invalid credentials",

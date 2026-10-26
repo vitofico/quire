@@ -20,6 +20,7 @@ dependencies = [
     # binding is the canonical Python implementation; no alternative is
     # acceptable for password-hash storage.
     "argon2-cffi>=23.1",
+    "PyJWT[crypto]>=2.10,<3",
 ]
 
 [project.optional-dependencies]

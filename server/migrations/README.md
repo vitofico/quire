@@ -24,6 +24,10 @@ checkout and a running production DB.
 
 ## Branches (forward-only from 0004)
 
+The current AI head is `ai_009`, adding `ai_usage_monthly` for an optional
+generic authenticated HTTP policy. It follows `ai_008` without rewriting any
+deployed revision. Quotas are inert unless the operator enables that policy.
+
 From the split point onward, every new migration belongs to exactly one branch:
 
 | Branch     | Label        | Owners | Notes                                                                                            |

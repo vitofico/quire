@@ -122,17 +122,35 @@ class ConnectServerViewModel(
      * persist the token via `saveBearerAccount`.
      */
     fun verifyAndSaveBearer(canonicalBaseUrl: String, email: String, password: String) {
+        verifyAndSaveBearerRequest(canonicalBaseUrl, email, password, null)
+    }
+
+    fun verifyAndSavePairing(canonicalBaseUrl: String, ticket: String) {
+        val trimmed = ticket.trim()
+        if (!trimmed.matches(Regex("[A-Za-z0-9_-]{20,128}"))) {
+            _state.value = UiState.VerificationFailed(uiText(R.string.onboarding_pairing_ticket_invalid))
+            return
+        }
+        verifyAndSaveBearerRequest(canonicalBaseUrl, "", "", trimmed)
+    }
+
+    private fun verifyAndSaveBearerRequest(
+        canonicalBaseUrl: String,
+        email: String,
+        password: String,
+        pairingTicket: String?,
+    ) {
         verifyJob?.cancel()
         _state.value = UiState.Verifying
         verifyJob = viewModelScope.launch {
             val result = withContext(ioDispatcher) {
-                runBearerVerification(canonicalBaseUrl, email, password)
+                runBearerVerification(canonicalBaseUrl, email, password, pairingTicket)
             }
             _state.value = when (result) {
                 is VerificationOutcome.OkBearer -> {
                     credentialStore.saveBearerAccount(
                         canonicalBaseUrl,
-                        email,
+                        if (pairingTicket != null) result.accountSubject ?: result.accountId ?: email else email,
                         result.token,
                         result.expiresAtEpochMs,
                     )
@@ -296,6 +314,7 @@ class ConnectServerViewModel(
         canonicalBaseUrl: String,
         email: String,
         password: String,
+        pairingTicket: String? = null,
     ): VerificationOutcome {
         // Build the LoginRequest body via kotlinx.serialization's JSON
         // builder. We avoid `@Serializable` data classes here because the
@@ -303,11 +322,17 @@ class ConnectServerViewModel(
         // plugin (only the runtime dependency); a `buildJsonObject` builder
         // does the same job with no codegen.
         val payload = buildJsonObject {
-            put("email", JsonPrimitive(email))
-            put("password", JsonPrimitive(password))
+            if (pairingTicket != null) {
+                put("ticket", JsonPrimitive(pairingTicket))
+                put("device_name", JsonPrimitive("Android phone"))
+            } else {
+                put("email", JsonPrimitive(email))
+                put("password", JsonPrimitive(password))
+            }
         }.toString()
+        val path = if (pairingTicket != null) "pairing/exchange" else "login"
         val req = Request.Builder()
-            .url("$canonicalBaseUrl/auth/v1/login")
+            .url("$canonicalBaseUrl/auth/v1/$path")
             .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
             .headers(
                 Headers.Builder()
@@ -326,16 +351,22 @@ class ConnectServerViewModel(
                             VerificationOutcome.Failure(
                                 uiText(R.string.onboarding_server_returned_200_but_the_response_didn),
                             )
+                        } else if (pairingTicket != null && parsed.accountId == null) {
+                            VerificationOutcome.Failure(uiText(R.string.onboarding_pairing_identity_missing))
                         } else {
-                            VerificationOutcome.OkBearer(parsed.token, parsed.expiresAtEpochMs)
+                            VerificationOutcome.OkBearer(parsed.token, parsed.expiresAtEpochMs, parsed.accountId, parsed.accountSubject)
                         }
                     }
-                    401 -> VerificationOutcome.Failure(uiText(R.string.onboarding_email_or_password_rejected_by_the_server))
+                    401 -> VerificationOutcome.Failure(
+                        if (pairingTicket != null) uiText(R.string.onboarding_pairing_ticket_expired)
+                        else uiText(R.string.onboarding_email_or_password_rejected_by_the_server),
+                    )
                     in 500..599 -> VerificationOutcome.Failure(
                         uiText(R.string.onboarding_server_error_try_again_later, resp.code),
                     )
                     else -> VerificationOutcome.Failure(
-                        uiText(R.string.onboarding_unexpected_response_from_auth_v1_login, resp.code),
+                        if (pairingTicket != null) uiText(R.string.onboarding_unexpected_pairing_response, resp.code)
+                        else uiText(R.string.onboarding_unexpected_response_from_auth_v1_login, resp.code),
                     )
                 }
             }
@@ -348,7 +379,7 @@ class ConnectServerViewModel(
     }
 
     /** Token plus optional absolute expiry, parsed from a login response. */
-    private data class ParsedLogin(val token: String, val expiresAtEpochMs: Long?)
+    private data class ParsedLogin(val token: String, val expiresAtEpochMs: Long?, val accountId: String?, val accountSubject: String?)
 
     /**
      * Parse `{"token": ..., "expires_at": ...}` from the login response.
@@ -362,7 +393,11 @@ class ConnectServerViewModel(
         val token = (parsed["token"] as? JsonPrimitive)?.content ?: return null
         val expiresAt = (parsed["expires_at"] as? JsonPrimitive)?.content
             ?.let { raw -> runCatching { OffsetDateTime.parse(raw).toInstant().toEpochMilli() }.getOrNull() }
-        ParsedLogin(token, expiresAt)
+        val accountId = (parsed["account_id"] as? JsonPrimitive)?.content
+            ?.takeIf { it.matches(Regex("native:[1-9][0-9]{0,17}")) }
+        val accountSubject = (parsed["account_subject"] as? JsonPrimitive)?.content
+            ?.takeIf { it.isNotBlank() && it.length <= 320 }
+        ParsedLogin(token, expiresAt, accountId, accountSubject)
     }.getOrNull()
 
     /** UI state. Sealed so the screen can `when`-exhaust render branches. */
@@ -378,7 +413,7 @@ class ConnectServerViewModel(
     private sealed class VerificationOutcome {
         object OkBasic : VerificationOutcome()
         object OkOpds : VerificationOutcome()
-        data class OkBearer(val token: String, val expiresAtEpochMs: Long?) : VerificationOutcome()
+        data class OkBearer(val token: String, val expiresAtEpochMs: Long?, val accountId: String? = null, val accountSubject: String? = null) : VerificationOutcome()
         data class Failure(val message: UiText) : VerificationOutcome()
     }
 

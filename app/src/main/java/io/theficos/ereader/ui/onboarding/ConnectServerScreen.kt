@@ -131,6 +131,7 @@ fun ConnectServerScreen(
                 state = state,
                 onVerifyBasic = { base, u, p -> viewModel.verifyAndSaveBasic(base, u, p) },
                 onVerifyBearer = { base, e, p -> viewModel.verifyAndSaveBearer(base, e, p) },
+                onPairing = { base, ticket -> viewModel.verifyAndSavePairing(base, ticket) },
                 onVerifyOpds = { catalog, u, p -> viewModel.verifyAndSaveOpds(catalog, u, p) },
             )
 
@@ -147,6 +148,7 @@ private fun ResultPanel(
     state: ConnectServerViewModel.UiState,
     onVerifyBasic: (String, String, String) -> Unit,
     onVerifyBearer: (String, String, String) -> Unit,
+    onPairing: (String, String) -> Unit = { _, _ -> },
     onVerifyOpds: (String, String?, String?) -> Unit,
 ) {
     when (state) {
@@ -167,11 +169,13 @@ private fun ResultPanel(
                     canonicalBaseUrl = probe.canonicalBaseUrl,
                     headline = stringResource(R.string.common_quire_server_detected),
                     onSubmit = onVerifyBearer,
+                    onPairing = onPairing,
                 )
                 is ServerProbeResult.Both -> AmbiguousChoiceCard(
                     canonicalBaseUrl = probe.canonicalBaseUrl,
                     onVerifyBasic = onVerifyBasic,
                     onVerifyBearer = onVerifyBearer,
+                    onPairing = onPairing,
                 )
                 is ServerProbeResult.GenericOpds -> GenericOpdsCard(
                     canonicalCatalogUrl = probe.canonicalCatalogUrl,
@@ -307,9 +311,11 @@ private fun BearerCredentialCard(
     canonicalBaseUrl: String,
     headline: String,
     onSubmit: (String, String, String) -> Unit,
+    onPairing: (String, String) -> Unit = { _, _ -> },
 ) {
     var email by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
+    var ticket by rememberSaveable { mutableStateOf("") }
 
     QuireCard(modifier = Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -354,6 +360,23 @@ private fun BearerCredentialCard(
                 enabled = email.isNotBlank() && password.isNotBlank(),
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(stringResource(R.string.common_sign_in)) }
+            Text(
+                stringResource(R.string.onboarding_pairing_help),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            OutlinedTextField(
+                value = ticket,
+                onValueChange = { ticket = it },
+                label = { Text(stringResource(R.string.onboarding_pairing_ticket)) },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Button(
+                onClick = { onPairing(canonicalBaseUrl, ticket) },
+                enabled = ticket.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(stringResource(R.string.onboarding_connect_phone)) }
         }
     }
 }
@@ -442,6 +465,7 @@ private fun AmbiguousChoiceCard(
     canonicalBaseUrl: String,
     onVerifyBasic: (String, String, String) -> Unit,
     onVerifyBearer: (String, String, String) -> Unit,
+    onPairing: (String, String) -> Unit = { _, _ -> },
 ) {
     var choice by rememberSaveable { mutableStateOf<AmbiguousChoice?>(null) }
     QuireCard(modifier = Modifier.fillMaxWidth()) {
@@ -475,6 +499,7 @@ private fun AmbiguousChoiceCard(
                     canonicalBaseUrl = canonicalBaseUrl,
                     headline = stringResource(R.string.common_quire_server),
                     onSubmit = onVerifyBearer,
+                    onPairing = onPairing,
                 )
                 null -> Unit
             }

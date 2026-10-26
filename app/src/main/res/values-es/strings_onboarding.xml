@@ -33,4 +33,11 @@
     <string name="onboarding_couldn_t_reach_the_server">"No se pudo conectar con el servidor: %1$s"</string>
     <string name="onboarding_how_would_you_like_to_read">"¿Cómo quieres leer?"</string>
     <string name="onboarding_skip_and_use_quire_offline_only">"Omitir y usar Quire solo sin conexión"</string>
+    <string name="onboarding_pairing_help">"O abre tu cuenta del servidor en un navegador, elige Conectar un teléfono y pega aquí el código de un solo uso."</string>
+    <string name="onboarding_pairing_ticket">"Código de vinculación de un solo uso"</string>
+    <string name="onboarding_connect_phone">"Conectar teléfono"</string>
+    <string name="onboarding_pairing_ticket_invalid">"Pega el código de un solo uso de la página de tu cuenta del servidor."</string>
+    <string name="onboarding_pairing_identity_missing">"La respuesta de vinculación no identificó tu cuenta."</string>
+    <string name="onboarding_pairing_ticket_expired">"Este código ha caducado o ya se ha utilizado. Crea uno nuevo en el navegador."</string>
+    <string name="onboarding_unexpected_pairing_response">"Respuesta inesperada %1$s de la vinculación del teléfono."</string>
 </resources>

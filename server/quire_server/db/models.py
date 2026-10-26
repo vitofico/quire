@@ -526,6 +526,8 @@ class NativeUser(Base):
     # Argon2id PHC string. Stored verbatim; never compared to anything other
     # than the configured PasswordHasher.
     password_hash: Mapped[str] = mapped_column(String, nullable=False)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    purged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -553,3 +555,5 @@ class NativeSession(Base):
     # NULL while the session is live; set to revocation time by `logout`.
     # A revoked session is rejected even before its expires_at fires.
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    kind: Mapped[str] = mapped_column(String, nullable=False, default="api", server_default="api")
+    device_name: Mapped[str | None] = mapped_column(String)

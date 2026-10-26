@@ -209,6 +209,13 @@ def _build_ai_authenticator(settings: Settings, validator: CalibreAuthValidator,
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    from quire_server.core.ai.monthly_policy import MonthlyPolicy, PolicySettings
+
+    policy_settings = PolicySettings()
+    from quire_server.api.browser_identity import IdentitySettings
+    from quire_server.core.login_guard import LoginGuard
+
+    identity_settings = IdentitySettings()
     logging.basicConfig(level=settings.log_level)
     # Inject request_id into every log record routed through the root
     # handlers. Logger-level filters on the root logger do NOT apply to
@@ -239,6 +246,22 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="quire-server", version=settings.version)
     app.state.config_warnings = boot_warnings
+    app.state.identity_settings = identity_settings
+    app.state.identity_factory = session_factory
+    app.state.native_login_guard = LoginGuard()
+    hosted_policy = (
+        MonthlyPolicy(policy_settings, httpx.AsyncClient(), session_factory)
+        if policy_settings.url
+        else None
+    )
+    app.state.hosted_policy = hosted_policy
+    app.state.hosting_capabilities = {
+        "progress_metadata_sync": settings.progress_enabled,
+        "ai_enabled": settings.ai_enabled,
+        "ai_policy_enabled": bool(policy_settings.url),
+        "browser_pairing": bool(identity_settings.public_url),
+        "identity_provider_onboarding": bool(identity_settings.oidc_issuer),
+    }
 
     httpx_client = httpx.AsyncClient(timeout=settings.cwa_probe_timeout_s)
     app.state.httpx_client = httpx_client
@@ -265,6 +288,9 @@ def create_app() -> FastAPI:
         app.state.auth_backend = NativeAuth(
             session_factory=session_factory,
             session_ttl_s=settings.native_session_ttl_s,
+            cookie_name=identity_settings.cookie_name if identity_settings.public_url else None,
+            public_origin=identity_settings.public_url,
+            account_allowed=hosted_policy.allow_account if hosted_policy else None,
         )
     else:
         app.state.auth_backend = CalibreWebBasicAuth(app.state.auth_validator)
@@ -272,6 +298,8 @@ def create_app() -> FastAPI:
     @app.on_event("shutdown")
     async def _close() -> None:
         await httpx_client.aclose()
+        if hosted_policy:
+            await hosted_policy.client.aclose()
 
     # Always-on root endpoints (no prefix). Mounted before mode gates so they
     # remain available even when both flags are false.
@@ -293,6 +321,74 @@ def create_app() -> FastAPI:
         from quire_server.api.auth import router as auth_router
 
         app.include_router(auth_router, prefix="/auth/v1")
+        from quire_server.api.account_lifecycle import router as lifecycle_router
+        from quire_server.api.browser_identity import Transactions
+        from quire_server.api.browser_identity import router as browser_router
+
+        app.include_router(browser_router, prefix="/auth/v1")
+        app.include_router(lifecycle_router)
+        if identity_settings.oidc_issuer:
+            from quire_server.core.oidc import OIDCClient
+
+            app.state.oidc_client = OIDCClient(
+                identity_settings.oidc_settings(),
+                transaction_store=Transactions(session_factory),
+                http_client=httpx_client,
+            )
+
+        @app.middleware("http")
+        async def closure_fence(request, call_next):
+            from fastapi import HTTPException
+            from fastapi.responses import JSONResponse
+            from sqlalchemy import select
+
+            from quire_server.db.models import NativeUser
+
+            issuance = request.url.path in {
+                "/auth/v1/login",
+                "/auth/v1/browser/login",
+                "/auth/v1/oidc/start",
+                "/auth/v1/oidc/callback",
+                "/auth/v1/pairing/exchange",
+            }
+            legacy_ai = request.url.path.startswith("/ai/") and settings.ai_auth_mode == "token"
+            if (
+                issuance
+                or legacy_ai
+                or request.url.path.startswith("/internal/")
+                or not (
+                    request.headers.get("authorization")
+                    or request.cookies.get(identity_settings.cookie_name)
+                )
+            ):
+                return await call_next(request)
+            try:
+                user = await app.state.auth_backend.current_user(request)
+                async with session_factory() as session:
+                    row = (
+                        await session.execute(
+                            select(NativeUser)
+                            .where(NativeUser.id == int(user.user_id.split(":")[1]))
+                            .with_for_update(read=True)
+                        )
+                    ).scalar_one_or_none()
+                    if row is None or row.closed_at is not None:
+                        return JSONResponse({"detail": "account_closed"}, status_code=401)
+                    if (
+                        hosted_policy
+                        and request.method not in {"GET", "HEAD", "OPTIONS"}
+                        and (
+                            request.url.path.startswith("/sync/")
+                            or request.url.path.startswith("/library/")
+                        )
+                        and not await hosted_policy.allow_sync(user.user_id)
+                    ):
+                        return JSONResponse(
+                            {"detail": "hosting_subscription_required"}, status_code=403
+                        )
+                    return await call_next(request)
+            except HTTPException as exc:
+                return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
 
     if settings.progress_enabled:
         # Lazy import: only pull progress + library routers when progress mode
@@ -393,6 +489,7 @@ def create_app() -> FastAPI:
                 # AsyncSession per source-lookup so wikipedia + openlibrary
                 # don't race on a single asyncpg connection.
                 session_factory=session_factory,
+                monthly_policy=hosted_policy,
             )
             app.state.ai_orchestrator = orch
             runtime.on_change(
