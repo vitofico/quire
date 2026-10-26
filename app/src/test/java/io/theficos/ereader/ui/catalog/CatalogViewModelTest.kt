@@ -11,6 +11,7 @@ import io.theficos.ereader.data.library.LibraryUploader
 import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.db.EReaderDatabase
 import io.theficos.ereader.data.local.db.SyncStateEntity
+import io.theficos.ereader.data.opds.AccountAuthInterceptor
 import io.theficos.ereader.data.opds.BookDownloader
 import io.theficos.ereader.data.opds.CLEARTEXT_BLOCKED_MESSAGE
 import io.theficos.ereader.data.opds.OpdsClient
@@ -27,6 +28,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import okhttp3.Credentials
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
@@ -292,9 +294,10 @@ class CatalogViewModelTest {
     private fun newViewModel(
         syncEnqueuer: (Context) -> Unit = { enqueueCount++ },
         libraryUploader: LibraryUploader? = null,
+        client: OpdsClient = opdsClient,
     ) = track(
         CatalogViewModel(
-            client = opdsClient,
+            client = client,
             downloader = downloader,
             docs = docs,
             credentialStore = credentialStore,
@@ -334,6 +337,64 @@ class CatalogViewModelTest {
         newViewModel().loadRoot()
 
         assertThat(firstRequestPath()).isEqualTo("/opds")
+    }
+
+    // ---------- issue #154: credential changes at the same catalog URL ----------
+
+    private suspend fun assertOpdsCredentialChangeReloads(
+        initialUsername: String?,
+        initialPassword: String?,
+    ) {
+        val catalogUrl = server.url("/catalog").toString()
+        val expectedAuth = Credentials.basic("reader", "correct-password")
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(req: RecordedRequest): MockResponse =
+                if (req.getHeader("Authorization") == expectedAuth) {
+                    MockResponse()
+                        .setHeader("Content-Type", "application/atom+xml")
+                        .setBody(feedXml(server.url("/book.epub").toString()))
+                } else {
+                    MockResponse().setResponseCode(401)
+                }
+        }
+        val authenticatedClient = OpdsClient(
+            OkHttpClient.Builder()
+                .addInterceptor(AccountAuthInterceptor(credentialStore::getAccount))
+                .build(),
+        )
+        credentialStore.saveOpdsAccount(catalogUrl, initialUsername, initialPassword)
+        val vm = newViewModel(client = authenticatedClient)
+        val error = vm.state.first { it is CatalogUiState.Error } as CatalogUiState.Error
+        assertThat(error.message.asString(englishContext())).contains("401")
+        assertThat(firstRequestPath()).isEqualTo("/catalog")
+
+        credentialStore.saveOpdsAccount(catalogUrl, "reader", "correct-password")
+
+        val retry = server.takeRequest(10, TimeUnit.SECONDS)
+            ?: error("changing OPDS credentials did not reload the catalog")
+        assertThat(retry.path).isEqualTo("/catalog")
+        assertThat(retry.getHeader("Authorization")).isEqualTo(expectedAuth)
+        assertThat(awaitLoaded(vm).url).isEqualTo(catalogUrl)
+        assertThat(server.requestCount).isEqualTo(2)
+
+        // StateFlow compares the full account, so saving identical credentials
+        // must keep the loaded feed and avoid another request.
+        credentialStore.saveOpdsAccount(catalogUrl, "reader", "correct-password")
+        assertThat(vm.state.value).isInstanceOf(CatalogUiState.Loaded::class.java)
+        assertThat(server.takeRequest(250, TimeUnit.MILLISECONDS)).isNull()
+        assertThat(server.requestCount).isEqualTo(2)
+    }
+
+    @Test fun `correcting an opds password reloads the same catalog url after a 401`() = runTest {
+        assertOpdsCredentialChangeReloads("reader", "wrong-password")
+    }
+
+    @Test fun `correcting an opds username reloads the same catalog url after a 401`() = runTest {
+        assertOpdsCredentialChangeReloads("wrong-reader", "correct-password")
+    }
+
+    @Test fun `adding opds credentials reloads the same catalog url after a 401`() = runTest {
+        assertOpdsCredentialChangeReloads(null, null)
     }
 
     @Test fun `a blocked http catalog explains itself instead of quoting the exception`() = runTest {

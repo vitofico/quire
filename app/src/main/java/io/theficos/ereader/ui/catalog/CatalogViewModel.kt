@@ -31,7 +31,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -70,14 +69,12 @@ class CatalogViewModel(
 
     init {
         viewModelScope.launch {
-            // Scheme-aware: also re-loads when a BEARER account is configured
-            // (legacy `flow` would have emitted null in that case and left the
-            // catalog stuck on the "configure in Settings" branch).
+            // Observe the full account so credential changes retry a failed
+            // catalog even when its URL stays the same. StateFlow suppresses
+            // identical accounts without dropping username/password changes.
             credentialStore.accountFlow
-                .map { it?.baseUrl }
-                .distinctUntilChanged()
-                .collect { baseUrl ->
-                    if (!baseUrl.isNullOrBlank()) loadRoot()
+                .collect { account ->
+                    if (!account?.baseUrl.isNullOrBlank()) loadRoot()
                 }
         }
     }
