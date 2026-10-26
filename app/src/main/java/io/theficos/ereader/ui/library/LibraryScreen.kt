@@ -63,9 +63,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
@@ -210,16 +208,7 @@ fun LibraryScreen(
     }
 
     val gridState = rememberLazyGridState()
-    val inkFadeDistance = with(LocalDensity.current) { 112.dp.toPx() }
     Box(modifier = Modifier.fillMaxSize()) {
-        LibraryBackdrop(
-            Modifier.graphicsLayer {
-                // As the header leaves, plain paper also protects books scrolling through the top.
-                alpha = if (gridState.firstVisibleItemIndex == 0) {
-                    (1f - gridState.firstVisibleItemScrollOffset / inkFadeDistance).coerceIn(0f, 1f)
-                } else 0f
-            },
-        )
         LazyVerticalGrid(
             columns = GridCells.Fixed(3),
             state = gridState,

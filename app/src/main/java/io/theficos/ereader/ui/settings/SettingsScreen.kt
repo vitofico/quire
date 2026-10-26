@@ -1,7 +1,7 @@
 package io.theficos.ereader.ui.settings
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,6 +26,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
@@ -56,6 +57,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import io.theficos.ereader.ui.components.InkBackground
+import io.theficos.ereader.ui.theme.BackgroundStyle
 import io.theficos.ereader.data.ai.AiHealthResponse
 import io.theficos.ereader.data.ai.RetrievalSourceHealth
 import io.theficos.ereader.reader.ReaderFontFamily
@@ -118,6 +121,7 @@ fun SettingsScreen(
     val opds by viewModel.opds.collectAsState()
     val reader by viewModel.readerPreferences.collectAsState()
     val appTheme by viewModel.appTheme.collectAsState()
+    val backgroundStyle by viewModel.backgroundStyle.collectAsState()
     val aiState by viewModel.ai.collectAsState()
     val deleteInFlight by viewModel.deleteProfileInFlight.collectAsState()
     val isConnected by viewModel.isConnected.collectAsState()
@@ -156,6 +160,26 @@ fun SettingsScreen(
         SectionLabel(stringResource(R.string.common_appearance))
         QuireCard(modifier = Modifier.fillMaxWidth()) {
             AppearanceSettings(theme = appTheme, onChange = viewModel::setAppTheme)
+        }
+
+        QuireCard(modifier = Modifier.fillMaxWidth()) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(stringResource(R.string.background_title), style = MaterialTheme.typography.titleSmall)
+                Text(stringResource(R.string.background_hint), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    BackgroundStyle.entries.forEach { style ->
+                        Column(Modifier.weight(1f).selectable(selected = backgroundStyle == style, role = Role.RadioButton, onClick = { viewModel.setBackgroundStyle(style) })) {
+                            Box(Modifier.fillMaxWidth().height(76.dp).clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.surface).border(1.dp, if (backgroundStyle == style) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, MaterialTheme.shapes.medium)) {
+                                InkBackground(Modifier.matchParentSize(), style)
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(selected = backgroundStyle == style, onClick = null)
+                                Text(stringResource(if (style == BackgroundStyle.PLAIN) R.string.background_plain else R.string.background_artwork))
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         SectionLabel("calibre-web")
@@ -521,11 +545,10 @@ fun SettingsScreen(
                             Text(
                                 buildString {
                                     val last = aiState.lastInsightSyncMs
-                                    if (last != null) {
-                                        append(stringResource(R.string.settings_last_synced_sentence, formatRelative(last)))
-                                    } else {
-                                        append(stringResource(R.string.common_not_yet_synced))
-                                    }
+                                    append(
+                                        if (last != null) stringResource(R.string.settings_last_synced_sentence, formatRelative(last))
+                                        else stringResource(R.string.common_not_yet_synced),
+                                    )
                                     when (val s = aiState.syncStatus) {
                                         is InsightSyncStatus.Syncing -> append(stringResource(R.string.common_syncing))
                                         is InsightSyncStatus.Error -> {

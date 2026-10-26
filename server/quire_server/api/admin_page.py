@@ -107,13 +107,20 @@ td.src { color: var(--muted); font-size: 13px; white-space: nowrap; }
 tr.default td:nth-child(2) { color: var(--muted); }
 """
 
-_INK = b64encode(files("quire_server").joinpath("assets/marbled-ink.webp").read_bytes()).decode()
+_BACKGROUND_INK = b64encode(
+    files("quire_server").joinpath("assets/background-ink.webp").read_bytes()
+).decode()
 _STYLE += f"""
 header {{ position: relative; isolation: isolate; padding-block: 12px; }}
-header::after {{ content: ""; position: absolute; z-index: -1; pointer-events: none;
-  width: min(48%, 260px); height: 110px; right: 0; top: -18px; opacity: .14;
+body::before {{ content: ""; position: fixed; pointer-events: none;
+  width: min(90vw, 850px); height: 100dvh; right: 0; top: 0; opacity: .11;
   background: var(--accent);
-  mask: url("data:image/webp;base64,{_INK}") center / contain no-repeat; }}
+  mask: url("data:image/webp;base64,{_BACKGROUND_INK}") right top / 100% 100% no-repeat; }}
+body[data-background-style="plain"]::before {{ display: none; }}
+main {{ position: relative; }}
+.appearance {{ display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }}
+.appearance select {{ font: inherit; color: var(--fg); background: var(--card);
+  border: 1px solid var(--line); border-radius: 6px; padding: 6px; }}
 h1 {{ font-family: Georgia, serif; font-size: 30px; }}
 """
 
@@ -390,16 +397,30 @@ def _settings_section(status: dict) -> str:
 
 
 def render_page(
-    status: dict, probe: dict | None = None, settings_notice: dict | None = None
+    status: dict,
+    probe: dict | None = None,
+    settings_notice: dict | None = None,
+    background_style: str = "artwork",
 ) -> str:
+    background_style = "plain" if background_style == "plain" else "artwork"
+    options = "".join(
+        f'<option value="{value}"{" selected" if value == background_style else ""}>'
+        f"{label}</option>"
+        for value, label in (("plain", "Plain"), ("artwork", "Artwork"))
+    )
     serving = ", ".join(_MODE_LABELS.get(m, m) for m in status["modes"]) or "health checks only"
     return (
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        f"<title>Quire Server status</title><style>{_STYLE}</style></head><body><main>"
+        f"<title>Quire Server status</title><style>{_STYLE}</style></head>"
+        f'<body data-background-style="{background_style}"><main>'
         "<header><h1>Quire Server</h1>"
         f'<p class="meta">Build <code>{_e(status["version"])}</code>. '
-        f"Serving {_e(serving)}.</p></header>"
+        f"Serving {_e(serving)}.</p>"
+        '<form class="appearance" method="get" action="/quire-admin">'
+        '<label for="background">Background</label>'
+        f'<select id="background" name="background">{options}</select>'
+        '<button class="quiet" type="submit">Apply</button></form></header>'
         f"{_warnings_section(status)}{_ai_section(status, probe)}"
         f"{_editable_section(status, settings_notice)}"
         f"{_migrations_section(status)}{_settings_section(status)}"

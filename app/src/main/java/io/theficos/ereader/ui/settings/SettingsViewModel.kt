@@ -23,6 +23,7 @@ import io.theficos.ereader.reader.ReaderPreferencesStore
 import io.theficos.ereader.reader.ReaderTheme
 import io.theficos.ereader.ui.UiText
 import io.theficos.ereader.ui.theme.AppTheme
+import io.theficos.ereader.ui.theme.BackgroundStyle
 import io.theficos.ereader.ui.theme.AppThemePreferencesStore
 import io.theficos.ereader.ui.uiText
 import io.theficos.quire.R
@@ -93,6 +94,9 @@ class SettingsViewModel(
 
     val readerPreferences: StateFlow<ReaderPreferences> = readerStore.flow
     val appTheme: StateFlow<AppTheme> = appThemeStore.flow
+    val backgroundStyle: StateFlow<BackgroundStyle> = appThemeStore.backgroundStyle
+
+    fun setBackgroundStyle(style: BackgroundStyle) { appThemeStore.updateBackgroundStyle(style) }
 
     private val _sync = MutableStateFlow(
         SyncUiState(

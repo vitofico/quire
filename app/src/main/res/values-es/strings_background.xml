@@ -1,0 +1,6 @@
+<resources>
+    <string name="background_title">Fondo</string>
+    <string name="background_hint">Elige un fondo independiente del tema de color. Las páginas de lectura no cambian.</string>
+    <string name="background_plain">Liso</string>
+    <string name="background_artwork">Ilustración</string>
+</resources>

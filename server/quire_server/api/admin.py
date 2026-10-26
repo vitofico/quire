@@ -475,16 +475,34 @@ async def put_settings(
 
 @router.get("", response_class=HTMLResponse)
 async def get_page(request: Request, _: Admin) -> HTMLResponse:
-    return HTMLResponse(render_page(await build_status(request.app)), headers=PAGE_HEADERS)
+    return _page_response(request, await build_status(request.app))
+
+
+def _page_response(request: Request, page_status: dict, **kwargs) -> HTMLResponse:
+    style = request.query_params.get(
+        "background", request.cookies.get("quire_background_style", "artwork")
+    )
+    style = "plain" if style == "plain" else "artwork"
+    response = HTMLResponse(
+        render_page(page_status, background_style=style, **kwargs), headers=PAGE_HEADERS
+    )
+    response.set_cookie(
+        "quire_background_style",
+        style,
+        max_age=365 * 24 * 60 * 60,
+        httponly=True,
+        secure=request.url.scheme == "https",
+        samesite="lax",
+        path="/quire-admin",
+    )
+    return response
 
 
 @router.post("/probe", response_class=HTMLResponse, dependencies=[Depends(require_same_origin)])
 async def post_page_probe(request: Request, _: Admin) -> HTMLResponse:
     # Probe first so the page's AI health section already shows its outcome.
     probe = await run_probe(request.app)
-    return HTMLResponse(
-        render_page(await build_status(request.app), probe=probe), headers=PAGE_HEADERS
-    )
+    return _page_response(request, await build_status(request.app), probe=probe)
 
 
 @router.post("/settings", response_class=HTMLResponse, dependencies=[Depends(require_same_origin)])
@@ -501,8 +519,6 @@ async def post_page_settings(request: Request, admin: Admin) -> HTMLResponse:
     except SettingsRejected as exc:
         code = status.HTTP_422_UNPROCESSABLE_ENTITY
         notice = {"ok": False, "errors": list(exc.errors.values())}
-    return HTMLResponse(
-        render_page(await build_status(request.app), settings_notice=notice),
-        status_code=code,
-        headers=PAGE_HEADERS,
-    )
+    response = _page_response(request, await build_status(request.app), settings_notice=notice)
+    response.status_code = code
+    return response

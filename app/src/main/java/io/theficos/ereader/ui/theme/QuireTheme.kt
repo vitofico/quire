@@ -7,6 +7,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
@@ -81,15 +82,21 @@ internal val QuireShapes = Shapes(
 )
 
 @Composable
-fun QuireTheme(theme: AppTheme = AppTheme(), content: @Composable () -> Unit) {
+fun QuireTheme(
+    theme: AppTheme = AppTheme(),
+    backgroundStyle: BackgroundStyle = LocalBackgroundStyle.current,
+    content: @Composable () -> Unit,
+) {
     val colors = theme.palette(isSystemInDarkTheme()).colors
     // Lora loads from assets, which needs the context; build it once, not per recomposition.
     val assets = LocalContext.current.assets
     val typography = remember(assets) { quireTypography(loraFontFamily(assets)) }
+    CompositionLocalProvider(LocalBackgroundStyle provides backgroundStyle) {
     MaterialTheme(
         colorScheme = colors,
         typography = typography,
         shapes = QuireShapes,
         content = content,
     )
+    }
 }

@@ -1,6 +1,12 @@
 package io.theficos.ereader.ui.main
 
 import androidx.annotation.StringRes
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import io.theficos.ereader.ui.components.InkBackground
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.LibraryBooks
@@ -38,6 +44,8 @@ fun MainScaffold(
     // back on the Catalog tab, not reset to the default LIBRARY.
     var current by rememberSaveable { mutableStateOf(initial) }
     Scaffold(
+        containerColor = Color.Transparent,
+        contentColor = MaterialTheme.colorScheme.onBackground,
         bottomBar = {
             NavigationBar {
                 Tab.values().forEach { tab ->
@@ -57,6 +65,9 @@ fun MainScaffold(
             }
         },
     ) { padding ->
-        content(current, padding)
+        Box(Modifier.fillMaxSize()) {
+            InkBackground(Modifier.matchParentSize().padding(top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding()))
+            content(current, padding)
+        }
     }
 }
