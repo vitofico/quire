@@ -186,8 +186,8 @@ jobs:
             echo "::error::app/src/main/res/raw/aboutlibraries.json is stale. Regenerate: scripts/dgradle :app:exportLibraryDefinitions -PaboutLibraries.exportVariant=release -PaboutLibraries.exportPath=src/main/res/raw"
             exit 1
           fi
-      - name: Assemble debug APK
-        run: ./gradlew assembleDebug --stacktrace
+      - name: Assemble debug and optimized release APKs
+        run: ./gradlew :app:clean assembleDebug :app:assembleRelease --stacktrace
       # Robolectric fetches a full Android SDK jar for each API level the tests
       # use (28 and 33) from Maven Central at test time, into ~/.m2, which the
       # Gradle cache does not cover. On 2026-09-24 one of those downloads was
@@ -344,7 +344,13 @@ jobs:
           QUIRE_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.QUIRE_RELEASE_KEYSTORE_PASSWORD }}
           QUIRE_RELEASE_KEY_ALIAS: ${{ secrets.QUIRE_RELEASE_KEY_ALIAS }}
           QUIRE_RELEASE_KEY_PASSWORD: ${{ secrets.QUIRE_RELEASE_KEY_PASSWORD }}
-        run: ./gradlew :app:assembleRelease --stacktrace
+        run: ./gradlew :app:clean :app:assembleRelease --stacktrace
+      - name: Retain release R8 mapping
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-mapping-${{ needs.build.outputs.version }}
+          path: app/build/outputs/mapping/release/mapping.txt
+          if-no-files-found: error
       - name: Create GitHub Release
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3
         with:

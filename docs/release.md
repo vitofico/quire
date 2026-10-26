@@ -6,10 +6,10 @@ files, or the workflow itself) trigger `android-ci.yaml`. The `build`
 job bumps `VERSION_NAME` in `gradle.properties` to the next CalVer
 (`YYYY.MM.DD.<run>`) and `VERSION_CODE` to one above its current
 value, or to `yyMMdd*1000` on a new day. It commits with a `[bot]`
-author, tags `vYYYY.MM.DD.<run>`, and pushes both once the debug
-build, unit tests and lint pass. The `release` job then builds and
-signs a release APK from the freshly-pushed tag and attaches it to a
-GitHub Release.
+author, tags `vYYYY.MM.DD.<run>`, and pushes both once the debug and
+optimized release builds, unit tests and lint pass. The `release` job then
+builds and signs a release APK from the freshly-pushed tag and attaches it
+to a GitHub Release.
 
 Server-only PRs (everything under `server/**`) **do not cut a release**
 — the path filter excludes them. A batch of stacked server PRs that
@@ -99,12 +99,33 @@ export QUIRE_RELEASE_KEYSTORE_PASSWORD=...
 export QUIRE_RELEASE_KEY_ALIAS=quire
 export QUIRE_RELEASE_KEY_PASSWORD=...
 
-scripts/dgradle :app:assembleRelease
+scripts/dgradle :app:clean :app:assembleRelease
 # APK at app/build/outputs/apk/release/app-release.apk
 ```
 
 If the env vars are unset, `:app:assembleRelease` falls back to
 debug-signed.
+
+Release builds enable R8 code optimization and resource shrinking using
+`proguard-android-optimize.txt` plus the libraries' consumer rules. Debug builds
+remain unoptimized. Release UI compilation disables Kotlin incremental
+compilation: cached incremental Compose classes differed from clean output and
+changed the optimized DEX and baseline profile. Full compilation uses its own
+build-cache key while debug compilation remains incremental.
+
+Release ArtProfile tasks are disabled using
+[F-Droid's baseline-profile workaround](https://f-droid.org/docs/Reproducible_Builds/#bug-baselineprof-not-deterministic):
+AGP 8.6 generated different `baseline.prof` bytes with identical DEX and R8
+mapping. This omits bundled startup-optimization hints. Use `:app:clean` before
+release assembly to remove profiles left by older builds; CI does the same.
+
+Keep `app/build/outputs/mapping/release/mapping.txt` with
+each release's build records so obfuscated stack traces can be retraced; the
+normal release job uploads it as a CI artifact. When changing dependencies,
+check the optimized APK's startup, EPUB rendering,
+login, sync and barcode scanning; unit tests alone do not exercise the
+optimized DEX. Add narrowly scoped keep rules only when a dynamic entry point
+requires them. Do not suppress all R8 warnings or keep entire library packages.
 
 ## Reproducibility check before submitting to F-Droid
 
