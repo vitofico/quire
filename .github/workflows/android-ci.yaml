@@ -17,6 +17,7 @@ on:
       - "gradle.properties"
       - "gradle/**"
       - "gradlew"
+      - "scripts/**"
       - ".github/workflows/android-ci.yaml"
   pull_request:
     paths:
@@ -30,6 +31,7 @@ on:
       - "gradle.properties"
       - "gradle/**"
       - "gradlew"
+      - "scripts/**"
       - ".github/workflows/android-ci.yaml"
   # "Run workflow" on main releases main as it stands, no commit needed.
   # "Push version bump + tag" below also dispatches a run this way when a
@@ -77,6 +79,8 @@ jobs:
         with:
           packages: "platform-tools platforms;android-35 build-tools;34.0.0"
       - uses: gradle/actions/setup-gradle@4c125117fe7c5aed11272ec4213f602f012f89f2 # v5
+      - name: Release tooling tests
+        run: python3 -m unittest discover -s scripts/tests -p 'test_*.py'
       - id: version
         name: Compute version
         env:
@@ -84,6 +88,7 @@ jobs:
           # "Push version bump + tag" step can publish the commit and tag.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          python3 scripts/android-release.py
           if [ "$GITHUB_REF" = "refs/heads/main" ]; then
             # On main: compute the next CalVer from date + run number, write it
             # into gradle.properties and commit + tag it LOCALLY. Nothing is
@@ -129,6 +134,7 @@ jobs:
             # gradle.properties — no bump, no tag, no commit.
             VERSION=$(grep '^VERSION_NAME=' gradle.properties | cut -d= -f2)
           fi
+          python3 scripts/android-release.py
           echo "VERSION_NAME=$VERSION" >> "$GITHUB_ENV"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Building version $VERSION"
@@ -305,6 +311,9 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: write
+    concurrency:
+      group: quire-release-v${{ needs.build.outputs.version }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
@@ -319,45 +328,68 @@ jobs:
         with:
           packages: "platform-tools platforms;android-35 build-tools;34.0.0"
       - uses: gradle/actions/setup-gradle@4c125117fe7c5aed11272ec4213f602f012f89f2 # v5
-      - name: Decode keystore
-        if: env.KEYSTORE_B64 != ''
-        run: echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+      - name: Verify tagged source
+        env:
+          TAG: v${{ needs.build.outputs.version }}
+        run: python3 scripts/android-release.py --tag "$TAG"
+      - name: Reuse an existing immutable APK
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ needs.build.outputs.version }}
+        run: |
+          python3 scripts/publish-release.py --repo "$GITHUB_REPOSITORY" --tag "$TAG" \
+            --fetch-existing app-release.apk --destination app/build/outputs/apk/release/app-release.apk >> "$GITHUB_OUTPUT"
+      - name: Require signing secrets
+        if: steps.existing.outputs.existing != 'true'
         env:
           KEYSTORE_B64: ${{ secrets.QUIRE_RELEASE_KEYSTORE_B64 }}
-      # A blank keystore makes app/build.gradle.kts fall back to the debug
-      # signing config, and :app:assembleRelease then succeeds and produces a
-      # debug-signed app-release.apk. Publishing that is worse than publishing
-      # nothing: F-Droid rejects the signature outright, and anyone who installs
-      # it can never upgrade to a properly signed build, because Android refuses
-      # to install over a changed signature. Failing here does strand the tag
-      # the build job already pushed, but that is the recoverable state: fix the
-      # secrets, then run release-apk.yaml against the tag to publish it.
-      - name: Require signing secrets
+          STORE_PASSWORD: ${{ secrets.QUIRE_RELEASE_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.QUIRE_RELEASE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.QUIRE_RELEASE_KEY_PASSWORD }}
         run: |
-          test -s "$RUNNER_TEMP/release.keystore" || {
-            echo "::error::Release keystore missing — refusing to publish a debug-signed build."
+          test -n "$KEYSTORE_B64" && test -n "$STORE_PASSWORD" && test -n "$KEY_ALIAS" && test -n "$KEY_PASSWORD" || {
+            echo "::error::All four release signing secrets are required; refusing an unsigned or debug-signed release."
             exit 1
           }
+          umask 077
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          test -s "$RUNNER_TEMP/release.keystore"
       - name: Assemble release APK
+        if: steps.existing.outputs.existing != 'true'
         env:
-          QUIRE_RELEASE_KEYSTORE: ${{ secrets.QUIRE_RELEASE_KEYSTORE_B64 != '' && format('{0}/release.keystore', runner.temp) || '' }}
+          QUIRE_RELEASE_KEYSTORE: ${{ format('{0}/release.keystore', runner.temp) }}
           QUIRE_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.QUIRE_RELEASE_KEYSTORE_PASSWORD }}
           QUIRE_RELEASE_KEY_ALIAS: ${{ secrets.QUIRE_RELEASE_KEY_ALIAS }}
           QUIRE_RELEASE_KEY_PASSWORD: ${{ secrets.QUIRE_RELEASE_KEY_PASSWORD }}
         run: ./gradlew :app:clean :app:assembleRelease --stacktrace
       - name: Retain release R8 mapping
+        if: steps.existing.outputs.existing != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-mapping-${{ needs.build.outputs.version }}
           path: app/build/outputs/mapping/release/mapping.txt
           if-no-files-found: error
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3
-        with:
-          tag_name: v${{ needs.build.outputs.version }}
-          files: app/build/outputs/apk/release/*.apk
-          generate_release_notes: true
-          # A Release with no APK is the state that blocks F-Droid, so if the
-          # glob ever stops matching (an AGP output-path change, a variant
-          # rename) fail loudly instead of publishing an empty Release green.
-          fail_on_unmatched_files: true
+      - name: Verify APK and record its source identity
+        env:
+          TAG: v${{ needs.build.outputs.version }}
+        run: |
+          python3 scripts/android-release.py --tag "$TAG" \
+            --apk app/build/outputs/apk/release/app-release.apk \
+            --build-tools "$ANDROID_HOME/build-tools/34.0.0" \
+            --certificate-sha256 scripts/release-certificate-sha256.txt
+      - name: Publish missing immutable release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ needs.build.outputs.version }}
+        run: |
+          newest=$(python3 scripts/android-release.py --newest-tag)
+          latest=false
+          if [ "$newest" = "$TAG" ]; then latest=true; fi
+          python3 scripts/publish-release.py --repo "$GITHUB_REPOSITORY" --tag "$TAG" --latest "$latest" \
+            --asset app/build/outputs/apk/release/app-release.apk \
+            --asset app/build/outputs/apk/release/app-release.apk.sha256 \
+            --asset app/build/outputs/apk/release/release-identity.json
+      - name: Remove temporary keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.keystore"

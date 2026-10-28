@@ -1,3 +1,5 @@
+import java.time.LocalDate
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -7,8 +9,30 @@ plugins {
 
 // Static version. Source of truth: gradle.properties (VERSION_NAME, VERSION_CODE).
 // CI bumps these on every push to main; local devs see the most recent release.
-val appVersionName: String = project.property("VERSION_NAME") as String
-val appVersionCode: Int = (project.property("VERSION_CODE") as String).toInt()
+val appVersionName = providers.gradleProperty("VERSION_NAME").get().also { name ->
+    require(Regex("[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}\\.[1-9][0-9]*").matches(name)) {
+        "VERSION_NAME must use CalVer YYYY.MM.DD.<run>, starting at run 1."
+    }
+    val date = name.split('.').take(3).joinToString("-")
+    require(!date.startsWith("0000") && runCatching { LocalDate.parse(date) }.isSuccess) {
+        "VERSION_NAME must contain a valid calendar date."
+    }
+}
+val appVersionCode = providers.gradleProperty("VERSION_CODE").get().let { raw ->
+    require(Regex("[1-9][0-9]*").matches(raw)) { "VERSION_CODE must be a positive integer." }
+    raw.toIntOrNull()?.takeIf { it <= 2_100_000_000 }
+        ?: throw GradleException("VERSION_CODE must be from 1 to 2100000000.")
+}
+val releaseSigningNames = listOf(
+    "QUIRE_RELEASE_KEYSTORE", "QUIRE_RELEASE_KEYSTORE_PASSWORD",
+    "QUIRE_RELEASE_KEY_ALIAS", "QUIRE_RELEASE_KEY_PASSWORD",
+)
+val hasReleaseSigning = releaseSigningNames.any { !System.getenv(it).isNullOrBlank() }
+if (hasReleaseSigning) {
+    require(releaseSigningNames.all { !System.getenv(it).isNullOrBlank() }) {
+        "Set all four QUIRE_RELEASE signing variables, or leave all unset for an unsigned release."
+    }
+}
 
 // AboutLibraries' build-time collector is not reproducible: it scans whatever
 // dependency configurations happen to be resolvable in a given build, so the
@@ -97,9 +121,8 @@ android {
     }
     signingConfigs {
         create("release") {
-            val storePath = System.getenv("QUIRE_RELEASE_KEYSTORE")
-            if (!storePath.isNullOrBlank()) {
-                storeFile = file(storePath)
+            if (hasReleaseSigning) {
+                storeFile = file(System.getenv("QUIRE_RELEASE_KEYSTORE"))
                 storePassword = System.getenv("QUIRE_RELEASE_KEYSTORE_PASSWORD")
                 keyAlias = System.getenv("QUIRE_RELEASE_KEY_ALIAS")
                 keyPassword = System.getenv("QUIRE_RELEASE_KEY_PASSWORD")
@@ -126,11 +149,9 @@ android {
             // origin URL differs from ours). The tag itself already pins the
             // commit, so we don't lose useful info by disabling this.
             vcsInfo.include = false
-            signingConfig =
-                if (System.getenv("QUIRE_RELEASE_KEYSTORE").isNullOrBlank())
-                    signingConfigs.getByName("debug")
-                else
-                    signingConfigs.getByName("release")
+            // A local release is unsigned unless the owner explicitly configures
+            // all signing inputs. Never silently ship a release with a debug key.
+            signingConfig = if (hasReleaseSigning) signingConfigs.getByName("release") else null
         }
     }
 }

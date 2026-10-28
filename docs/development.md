@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- **Docker** — Android builds run inside a pinned image via `scripts/dgradle`,
+- **Docker** — Android builds run inside the project image via `scripts/dgradle`,
   and the server's tests use testcontainers for Postgres.
 - **uv** — for the Python sync server (`server/`).
 - A calibre-web instance reachable from your dev device (for end-to-end OPDS
@@ -16,8 +16,8 @@ both.
 ### `scripts/dgradle`
 
 `scripts/dgradle` runs Gradle inside `quire-build:latest`, an image
-built from the project's `Dockerfile` (Eclipse Temurin 17 + Android cmdline
-tools, pinned platform 34, build-tools 34.0.0).
+built from the project's `Dockerfile` (Eclipse Temurin 21 + Android cmdline
+tools, platform 35, build-tools 34.0.0).
 
 ```sh
 scripts/dgradle :app:assembleDebug
@@ -28,7 +28,7 @@ scripts/dgradle lint
 
 First invocation builds the image (~5 minutes on Apple Silicon under Rosetta).
 The Gradle and Android caches live in named Docker volumes
-(`quire-gradle-cache`, `quire-android-cache`) so rebuilds are
+(`quire-gradle-cache`, `quire-android-cache`, `quire-m2-cache`) so rebuilds are
 fast.
 
 Use `scripts/dgradle` rather than the host `./gradlew` — host JDK/SDK drift
@@ -106,8 +106,19 @@ scripts/dgradle :app:assembleDebug
 # app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Debug builds are versioned `YYYY.MM.DD.<run>` (CalVer + CI run number) on the
-CI path. Local builds use a placeholder version.
+Local builds use the checked-in `VERSION_NAME` and `VERSION_CODE` in
+`gradle.properties`; debug builds add `-debug` to the version name and use the
+separate `io.theficos.quire.debug` package. CI bumps the static CalVer before its
+main build. Release builds are unsigned unless all four signing variables are
+explicitly configured. See [release.md](release.md) for offline local signing
+and F-Droid reproducibility verification.
+
+The release tooling's fast checks need only Python 3.11 or newer:
+
+```sh
+python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+python3 scripts/android-release.py
+```
 
 ## Sync server (`server/`)
 
@@ -229,16 +240,20 @@ tests/
 
 ## CI
 
-Two workflows in `.github/workflows/`:
+Android and server validation workflows in `.github/workflows/`:
 
 - `android-ci.yaml` — fires on Android-relevant paths. Assembles debug APK,
-  runs `test` and `lint`, uploads the APK and tags `vYYYY.MM.DD.<run>` on
-  pushes to `main`.
+  runs release-tooling checks, `test` and `lint`, uploads the debug APK and tags
+  `vYYYY.MM.DD.<run>` on pushes to `main`. Its release job verifies and publishes
+  the signed APK, checksum and source identity record.
 - `server-ci.yaml` — fires on `server/**`. Runs `pytest` and `ruff`, plus a
   three-mode boot smoke (full / sync-only / AI-only) that verifies each mode's
   router set and migration heads against a fresh Postgres.
 
-Both workflows use path filters so an Android-only change doesn't run server
+`release-apk.yaml` is a manual repair workflow for missing assets on an existing
+tag; it never overwrites existing asset bytes.
+
+Both validation workflows use path filters so an Android-only change doesn't run server
 CI and vice versa. A consequence: server-only PRs do NOT cut a release —
 release tagging is gated on Android-relevant paths.
 

@@ -370,3 +370,34 @@ async def test_deletion_proof_requires_password_and_same_live_session_once(
         )
         await session.commit()
         assert (await client.post(consumed, headers=csrf, json={"proof": proof})).status_code == 401
+
+
+@pytest.mark.parametrize("endpoint", ["/quire-admin/probe", "/quire-admin/settings"])
+async def test_native_admin_forms_require_same_origin_csrf(
+    client_factory, app, monkeypatch, session, endpoint
+):
+    import re
+
+    configure(monkeypatch)
+    async with client_factory(
+        auth_backend="native", ai_enabled=True, admin_users="placeholder", skip_auth_overrides=True
+    ) as client:
+        me, _ = await signin(client, app)
+        app.state.admin_users = {me["user"]["id"].lower()}
+        page = await client.get("/quire-admin")
+        assert page.status_code == 200
+        fields = re.findall(r'name="csrf_token" value="([^"]+)"', page.text)
+        # Probe, save, and the separate reset form all carry the browser proof.
+        assert fields == [me["csrf_token"]] * 3
+        for origin, data in [
+            (ORIGIN, {}),
+            (ORIGIN, {"csrf_token": "wrong"}),
+            (ORIGIN, {"csrf_token": "é"}),
+            ("https://untrusted.example.test", {"csrf_token": fields[0]}),
+        ]:
+            rejected = await client.post(endpoint, headers={"Origin": origin}, data=data)
+            assert rejected.status_code == 403
+        accepted = await client.post(
+            endpoint, headers={"Origin": ORIGIN}, data={"csrf_token": fields[0]}
+        )
+        assert accepted.status_code == 200, accepted.text

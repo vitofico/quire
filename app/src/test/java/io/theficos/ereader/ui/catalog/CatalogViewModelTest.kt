@@ -16,6 +16,7 @@ import io.theficos.ereader.data.opds.BookDownloader
 import io.theficos.ereader.data.opds.CLEARTEXT_BLOCKED_MESSAGE
 import io.theficos.ereader.data.opds.OpdsClient
 import io.theficos.ereader.ui.englishContext
+import io.theficos.ereader.sideload.writeTestEpub
 import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
@@ -106,6 +107,15 @@ class CatalogViewModelTest {
 
     private fun track(vm: CatalogViewModel): CatalogViewModel = vm.also { viewModels += it }
 
+    private fun validEpubBytes(): ByteArray {
+        val file = File.createTempFile("catalog-test", ".epub")
+        return try {
+            writeTestEpub(file, "urn:uuid:catalog-book", "Test Book").readBytes()
+        } finally {
+            file.delete()
+        }
+    }
+
     private fun feedXml(epubUrl: String): String = """
         <?xml version="1.0" encoding="UTF-8"?>
         <feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog" xmlns:dc="http://purl.org/dc/terms/">
@@ -151,7 +161,7 @@ class CatalogViewModelTest {
         db.syncStateDao().set(SyncStateEntity(tableName = "progress", lastPulledAt = 12345L))
         assertThat(db.syncStateDao().lastPulled("progress")).isEqualTo(12345L)
 
-        val epubBytes = "fake-epub-bytes".toByteArray()
+        val epubBytes = validEpubBytes()
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(req: RecordedRequest): MockResponse {
                 val path = req.path?.substringBefore('?')
@@ -202,7 +212,7 @@ class CatalogViewModelTest {
     @Test fun `successful download promotes the catalog insight when a stash entry exists`() = runTest {
         val stash = io.theficos.ereader.data.ai.CatalogInsightStash()
         val recordingAi = RecordingAiRepository()
-        val epubBytes = "fake-epub-bytes".toByteArray()
+        val epubBytes = validEpubBytes()
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(req: RecordedRequest): MockResponse {
                 val path = req.path?.substringBefore('?')
@@ -436,6 +446,73 @@ class CatalogViewModelTest {
         assertThat(state.message.asString(englishContext())).contains("Settings")
     }
 
+    @Test fun `retry after a transient failure reloads the failed feed url`() = runTest {
+        val vm = newViewModel()
+        val url = server.url("/nested-feed").toString()
+        server.enqueue(MockResponse().setResponseCode(503))
+        vm.load(url)
+        val error = vm.state.first { it is CatalogUiState.Error } as CatalogUiState.Error
+        assertThat(error.url).isEqualTo(url)
+        assertThat(error.canGoBack).isFalse()
+        assertThat(firstRequestPath()).isEqualTo("/nested-feed")
+
+        server.enqueue(MockResponse().setBody(feedXml(server.url("/book.epub").toString())))
+        vm.retry()
+
+        assertThat(awaitLoaded(vm).url).isEqualTo(url)
+        assertThat(firstRequestPath()).isEqualTo("/nested-feed")
+    }
+
+    @Test fun `failed subsection navigation can return to the cached parent without network`() = runTest {
+        val vm = newViewModel()
+        val root = server.url("/opds").toString()
+        server.enqueue(MockResponse().setBody(feedXml(server.url("/book.epub").toString())))
+        vm.load(root)
+        awaitLoaded(vm)
+        server.enqueue(MockResponse().setResponseCode(503))
+        vm.load(server.url("/broken-section").toString())
+        val error = vm.state.first { it is CatalogUiState.Error } as CatalogUiState.Error
+        assertThat(error.canGoBack).isTrue()
+
+        assertThat(vm.back()).isTrue()
+
+        assertThat(awaitLoaded(vm).url).isEqualTo(root)
+        assertThat(server.requestCount).isEqualTo(2)
+    }
+
+    @Test fun `retry repeats a search whose OpenSearch descriptor failed without losing the query`() = runTest {
+        var descriptors = 0
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(req: RecordedRequest): MockResponse = when (req.path?.substringBefore('?')) {
+                "/opds" -> MockResponse().setBody(
+                    feedXml(server.url("/book.epub").toString()).replace(
+                        "<link rel=\"self\"",
+                        "<link rel=\"search\" href=\"/search.xml\" type=\"application/opensearchdescription+xml\"/><link rel=\"self\"",
+                    ),
+                )
+                "/search.xml" -> if (descriptors++ == 0) MockResponse().setResponseCode(503) else MockResponse().setBody(
+                    """<OpenSearchDescription xmlns="http://a9.com/-/spec/opensearch/1.1/"><Url type="application/atom+xml" template="${server.url("/search")}?q={searchTerms}"/></OpenSearchDescription>""",
+                )
+                else -> MockResponse().setBody(feedXml(server.url("/book.epub").toString()))
+            }
+        }
+        val vm = newViewModel()
+        vm.load(server.url("/opds").toString())
+        awaitLoaded(vm)
+        vm.search("two words")
+        vm.state.first { it is CatalogUiState.Error }
+
+        vm.retry()
+
+        assertThat(awaitLoaded(vm).url).contains("/search?q=two+words")
+        server.takeRequest() // root
+        assertThat(server.takeRequest().path).isEqualTo("/search.xml")
+        assertThat(server.takeRequest().path).isEqualTo("/search.xml")
+        assertThat(server.takeRequest().requestUrl?.queryParameter("q")).isEqualTo("two words")
+        assertThat(vm.back()).isTrue()
+        assertThat(vm.back()).isFalse() // retry did not add the parent twice
+    }
+
     // ---------- issue #101: reader-only accounts ----------
 
     /** Every library-mirror PUT that reached the server, in arrival order. */
@@ -451,7 +528,7 @@ class CatalogViewModelTest {
      * and accepts the library-mirror PUT, recording it so a test can assert
      * whether the post-download hook fired at all.
      */
-    private fun serveCatalogAndLibrary() {
+    private fun serveCatalogAndLibrary(epubBytes: ByteArray = validEpubBytes()) {
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(req: RecordedRequest): MockResponse {
                 return when (req.path?.substringBefore('?')) {
@@ -463,7 +540,7 @@ class CatalogViewModelTest {
                     }
                     "/book.epub" -> MockResponse()
                         .setHeader("Content-Type", "application/epub+zip")
-                        .setBody(Buffer().write("fake-epub-bytes".toByteArray()))
+                        .setBody(Buffer().write(epubBytes))
                     else -> MockResponse()
                         .setHeader("Content-Type", "application/atom+xml")
                         .setBody(feedXml(server.url("/book.epub").toString()))
@@ -512,6 +589,22 @@ class CatalogViewModelTest {
         } finally {
             uploaderScope.cancel()
         }
+    }
+
+    @Test fun `a successful HTTP response containing HTML is rejected and removed from disk`() = runTest {
+        serveCatalogAndLibrary("<html><body>Sign in</body></html>".toByteArray())
+        credentialStore.saveOpdsAccount(server.url("/catalog").toString())
+        val vm = newViewModel()
+        vm.download(awaitLoaded(vm).feed.publications.single(), context)
+        val finished = vm.state.first {
+            it is CatalogUiState.Loaded && (it.lastDownloaded != null || it.error != null)
+        } as CatalogUiState.Loaded
+
+        assertThat(finished.error?.asString(englishContext())).isEqualTo("Not a valid EPUB.")
+        assertThat(finished.lastDownloaded).isNull()
+        assertThat(docs.observeLibrary().first()).isEmpty()
+        assertThat(booksDir.listFiles().orEmpty()).isEmpty()
+        assertThat(enqueueCount).isEqualTo(0)
     }
 
     @Test fun `download from a calibre catalog still enqueues sync and a mirror push`() = runTest {

@@ -43,6 +43,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -79,18 +80,22 @@ fun CatalogScreen(
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val context = LocalContext.current
 
-    val canGoBack = (state as? CatalogUiState.Loaded)?.canGoBack == true
+    val canGoBack = when (val s = state) {
+        is CatalogUiState.Loaded -> s.canGoBack
+        is CatalogUiState.Error -> s.canGoBack
+        else -> false
+    }
     BackHandler(enabled = canGoBack) { viewModel.back() }
 
     Box(modifier = Modifier.fillMaxSize().padding(contentPadding)) {
         when (val s = state) {
             CatalogUiState.Idle -> {}
             CatalogUiState.Loading -> QuireLoading(Modifier.align(Alignment.Center))
-            is CatalogUiState.Error -> Text(
-                s.message.asString(),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.align(Alignment.Center).padding(24.dp),
+            is CatalogUiState.Error -> CatalogError(
+                state = s,
+                onRetry = viewModel::retry,
+                onBack = { viewModel.back() },
+                modifier = Modifier.align(Alignment.Center),
             )
             is CatalogUiState.Loaded -> {
                 val sort by viewModel.sort.collectAsState()
@@ -124,6 +129,30 @@ fun CatalogScreen(
                 .padding(16.dp),
         ) {
             Icon(Icons.Default.QrCodeScanner, contentDescription = stringResource(R.string.common_scan_a_book))
+        }
+    }
+}
+
+@Composable
+internal fun CatalogError(
+    state: CatalogUiState.Error,
+    onRetry: () -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            state.message.asString(),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        TextButton(onClick = onRetry) { Text(stringResource(R.string.common_retry)) }
+        if (state.canGoBack) {
+            TextButton(onClick = onBack) { Text(stringResource(R.string.common_back)) }
         }
     }
 }

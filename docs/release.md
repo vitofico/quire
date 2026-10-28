@@ -44,33 +44,37 @@ the unlabeled `0001..0004` backbone and then `alembic upgrade
 and `QUIRE_SERVER_AI_ENABLED`. Sync-only and AI-only deployments skip the
 other branch's migrations silently. See `server/migrations/README.md`.
 
-## One-time keystore setup
+## Signing identity and GitHub secrets
 
-```sh
-keytool -genkey -v \
-  -keystore quire-release.keystore \
-  -alias quire \
-  -keyalg RSA -keysize 4096 -validity 10000
+Use the existing owner-controlled Quire key. Do not generate a replacement:
+Android upgrades and F-Droid depend on its certificate. Keep the keystore and
+passwords outside the repository, with an offline backup.
+
+The public SHA-256 certificate fingerprint in
+`scripts/release-certificate-sha256.txt` is pinned to Quire's
+[F-Droid AllowedAPKSigningKeys](https://gitlab.com/fdroid/fdroiddata/-/blob/master/metadata/io.theficos.quire.yml):
+
+```text
+3c1814b1499c7c7996110835995d4112a39449f8da824333ea77aa7343948ff3
 ```
 
-Keep `quire-release.keystore` somewhere you'll never lose it — Android
-ties update integrity to the signing key. Losing it means users on the
-old key can never upgrade.
+The workflows verify the APK signature and require this certificate, the
+release package `io.theficos.quire`, the source version name/code and a
+non-debuggable build before publication. They fail if any required signing
+secret is missing; debug-signed or unsigned APKs must never be published.
 
-## GitHub secrets
-
-Add to repo Settings → Secrets and variables → Actions:
+Add the existing key's values to Settings → Secrets and variables → Actions:
 
 | Secret | Value |
 |---|---|
-| `QUIRE_RELEASE_KEYSTORE_B64` | `base64 < quire-release.keystore` (one line, no wrap) |
-| `QUIRE_RELEASE_KEYSTORE_PASSWORD` | the `-storepass` you set when creating the keystore |
-| `QUIRE_RELEASE_KEY_ALIAS` | `quire` (or whatever `-alias` you used) |
-| `QUIRE_RELEASE_KEY_PASSWORD` | the `-keypass` you set when creating the key |
+| `QUIRE_RELEASE_KEYSTORE_B64` | Base64 of the existing keystore, one line |
+| `QUIRE_RELEASE_KEYSTORE_PASSWORD` | Its keystore password |
+| `QUIRE_RELEASE_KEY_ALIAS` | Its existing key alias |
+| `QUIRE_RELEASE_KEY_PASSWORD` | Its key password |
 
-If `QUIRE_RELEASE_KEYSTORE_B64` is missing, the `release` job still
-runs but produces a debug-signed APK. That's safe to publish for
-testers but should not be your `latest` release.
+The temporary CI keystore is restricted to the runner user and removed even
+when a later step fails. A missing APK requires all four secrets; repairing
+sidecars for an existing verified APK needs no private signing key.
 
 ## Cutting a release
 
@@ -88,23 +92,22 @@ Manually-pushed tags are not used by this workflow.
 
 ## Local release builds
 
-`gradle.properties` carries the version (`VERSION_NAME` and
-`VERSION_CODE`). Whatever's committed at HEAD is what the local build
-reports — if you want a specific version locally, edit those values
-before running.
+`gradle.properties` is the source of truth for `VERSION_NAME` and
+`VERSION_CODE`. CalVer must contain a real calendar date and a positive run;
+Android version codes must be integers from 1 to 2100000000. Normal CI retains
+Quire's monotonic `max(previousCode + 1, yyMMdd * 1000)` algorithm.
+
+With all four `QUIRE_RELEASE_*` signing variables unset, build an unsigned APK:
 
 ```sh
-export QUIRE_RELEASE_KEYSTORE=/abs/path/to/quire-release.keystore
-export QUIRE_RELEASE_KEYSTORE_PASSWORD=...
-export QUIRE_RELEASE_KEY_ALIAS=quire
-export QUIRE_RELEASE_KEY_PASSWORD=...
-
 scripts/dgradle :app:clean :app:assembleRelease
-# APK at app/build/outputs/apk/release/app-release.apk
+# app/build/outputs/apk/release/app-release-unsigned.apk
 ```
 
-If the env vars are unset, `:app:assembleRelease` falls back to
-debug-signed.
+Release builds no longer fall back to the debug key. Partial signing
+configuration fails. Native Gradle builds can still use all four explicit
+signing variables; `scripts/dgradle` intentionally does not pass host secrets
+into its build container.
 
 Release builds enable R8 code optimization and resource shrinking using
 `proguard-android-optimize.txt` plus the libraries' consumer rules. Debug builds
@@ -127,46 +130,88 @@ login, sync and barcode scanning; unit tests alone do not exercise the
 optimized DEX. Add narrowly scoped keep rules only when a dynamic entry point
 requires them. Do not suppress all R8 warnings or keep entire library packages.
 
-## Reproducibility check before submitting to F-Droid
+For local signing, create a private directory outside the repository and put
+these files in it. Use the existing key; these instructions do not create one.
+Restrict the directory to the owner (`chmod 700`) and its files (`chmod 600`).
 
-F-Droid's builder rebuilds every release from source and compares the
-output to the signed APK in your GitHub Release. If the contents
-differ, F-Droid won't publish. Run the same check locally before
-submitting the recipe MR.
+| File | Contents |
+|---|---|
+| `quire-release.keystore` | Existing owner keystore |
+| `keystore-password.txt` | Keystore password, one line |
+| `key-password.txt` | Key password, one line |
+| `key-alias.txt` | Existing key alias, one line |
+| `certificate-sha256.txt` | Expected public SHA-256 fingerprint above |
 
 ```sh
-# In an fdroiddata clone (https://gitlab.com/fdroid/fdroiddata),
-# with fdroidserver installed:
-cd ~/src/fdroiddata
+scripts/sign-release /absolute/private/signing-directory
+# app/build/outputs/apk/release/app-release.apk
+```
+
+This uses the already-built `quire-build:latest` image with networking disabled,
+a read-only filesystem, dropped capabilities and no repository/cache mounts.
+Only the unsigned APK, private signing files (read-only) and a temporary output
+directory are mounted. It checks the signature, expected certificate and actual
+APK identity before moving the verified signed APK into place. Passwords are
+read from files, never command arguments.
+
+## Release records and recovery
+
+Each release publishes exactly these expected assets:
+
+- `app-release.apk`, preserving the upstream download URL used by F-Droid.
+- `app-release.apk.sha256`, a SHA-256 checksum of those exact APK bytes.
+- `release-identity.json`, recording the package/version, peeled source commit,
+  APK digest/size and verified certificate fingerprint, without a build timestamp.
+
+If a tag has no APK, run `release-apk` in Actions with that existing
+`vYYYY.MM.DD.<run>` tag. The source version must match the tag. Recovery uses
+verification tooling from the workflow's commit, so it also supports older tags
+that do not contain these scripts. It does not change the version or create a tag.
+
+If the APK already exists, recovery downloads and verifies those bytes instead
+of rebuilding them, then derives missing sidecars from them. All existing
+expected assets are compared before uploads: identical assets are skipped;
+different bytes fail the run. Only missing assets are uploaded. An existing
+APK or sidecar is never deleted or replaced, including during a rerun. Both
+workflows share a per-tag publication lock. Normal CI marks a newly created release
+Latest only if its CalVer date/run is numerically newest. Recovery always creates
+with `--latest=false` and leaves an existing release's metadata unchanged, so a
+repair cannot displace a newer release that appeared during its build.
+
+## Reproducibility check before submitting to F-Droid
+
+F-Droid rebuilds the tagged source and verifies it against the signed upstream
+APK. Matching extracted ZIP contents alone is insufficient: APK v2/v3 signatures
+cover ZIP metadata, ordering and all other signed bytes. Use
+[APK signature copying](https://f-droid.org/docs/Reproducible_Builds/) followed by
+signature verification. Build-tools 34.0.0 is selected explicitly for signing.
+
+Build the exact tag with the F-Droid recipe and retain the unsigned output:
+
+```sh
+# In an fdroiddata clone with fdroidserver installed:
 fdroid lint io.theficos.quire
 fdroid readmeta
-fdroid rewritemeta io.theficos.quire
 fdroid build --server -v -l io.theficos.quire
 ```
 
-The `--server` flag spins fdroidserver's reproducible build VM
-(headless VirtualBox by default; podman backend also supported). On
-success, the unsigned APK lands in
-`~/src/fdroiddata/unsigned/io.theficos.quire_<versionCode>.apk`.
-
-Compare it to your signed release APK:
+Download that tag's `app-release.apk` from the upstream GitHub Release and
+verify its pinned certificate. With `apksigcopier` installed, copy its signatures
+to the independently rebuilt unsigned APK, then verify the reconstructed APK:
 
 ```sh
-# Strip signatures from both, then diff the contents.
-cd /tmp && mkdir cmp && cd cmp
-unzip -q ~/src/fdroiddata/unsigned/io.theficos.quire_*.apk -d a
-unzip -q ~/Downloads/app-release.apk -d b
-rm -rf a/META-INF b/META-INF       # signatures differ by design
-diff -r a b && echo "REPRODUCIBLE"
+apksigcopier copy /path/to/upstream/app-release.apk \
+  /path/to/rebuilt/app-release-unsigned.apk /tmp/quire-reconstructed.apk
+"$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs \
+  /tmp/quire-reconstructed.apk
+cmp /path/to/upstream/app-release.apk /tmp/quire-reconstructed.apk
 ```
 
-If `diff` reports no differences, F-Droid will accept the build. If
-it reports differences in `classes*.dex`, the build is non-reproducible
-— check JDK version, AGP version, and `gradle.properties` flags in
-the fdroidserver VM vs the CI runner.
+A successful copied-signature verification establishes that the signed bytes
+match; `cmp` also checks full byte equality. Use `diffoscope` to investigate
+failures. Matching local rebuilds provide useful evidence, while acceptance by
+F-Droid still depends on its recipe, environment and own verification run.
 
-The version values come from `gradle.properties` (`VERSION_NAME` and
-`VERSION_CODE`), which CI bumps on every push to `main` before the
-build runs. fdroidserver reads them via the recipe's `UpdateCheckData`
-line, so each tag's APK metadata is statically derivable from source
-without running Gradle.
+The recipe reads the static version from `gradle.properties`. Keep the committed
+`app/src/main/res/raw/aboutlibraries.json` byte-identical during ordinary builds;
+regenerate it only after dependency changes using the documented export task.

@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Explicit local signing: no network and no repository or Gradle-cache mount.
+set -euo pipefail
+signing_dir=${1:?usage: sign-release /absolute/private/signing-directory}
+case "$signing_dir" in /*) ;; *) echo 'Use an absolute signing-directory path.' >&2; exit 2;; esac
+root=$(cd "$(dirname "$0")/.." && pwd)
+signing_dir=$(cd "$signing_dir" && pwd -P)
+case "$signing_dir/" in "$root/"*) echo 'Keep signing files outside the repository.' >&2; exit 2;; esac
+for signing_file in quire-release.keystore keystore-password.txt key-password.txt key-alias.txt certificate-sha256.txt; do
+  test -s "$signing_dir/$signing_file" && test -r "$signing_dir/$signing_file" || {
+    echo "Missing or unreadable signing file: $signing_file" >&2; exit 2;
+  }
+done
+unsigned="$root/app/build/outputs/apk/release/app-release-unsigned.apk"
+test -s "$unsigned" || { echo 'Assemble :app:assembleRelease without signing variables first.' >&2; exit 2; }
+# Stage and verify before replacing any previously verified signed APK.
+staging=$(mktemp -d "$root/app/build/outputs/apk/release/.signing.XXXXXX")
+trap 'rm -rf "$staging"' EXIT
+docker image inspect quire-build:latest >/dev/null 2>&1 || {
+  echo 'Build quire-build:latest with scripts/dgradle before offline signing.' >&2; exit 2;
+}
+docker run --rm --pull never --network none --read-only --tmpfs /tmp \
+  --cap-drop ALL --security-opt no-new-privileges --platform linux/amd64 \
+  --user "$(id -u):$(id -g)" \
+  -v "$unsigned":/unsigned.apk:ro -v "$staging":/output \
+  -v "$signing_dir/quire-release.keystore":/signing/quire-release.keystore:ro \
+  -v "$signing_dir/keystore-password.txt":/signing/keystore-password.txt:ro \
+  -v "$signing_dir/key-password.txt":/signing/key-password.txt:ro \
+  -v "$signing_dir/key-alias.txt":/signing/key-alias.txt:ro \
+  -v "$signing_dir/certificate-sha256.txt":/signing/certificate-sha256.txt:ro \
+  quire-build:latest bash -euo pipefail -c '
+    tools="$ANDROID_HOME/build-tools/34.0.0"
+    expected=$(tr -d ":[:space:]" < /signing/certificate-sha256.txt | tr "A-F" "a-f")
+    [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || { echo "Invalid certificate fingerprint." >&2; exit 1; }
+    "$tools/apksigner" sign --ks /signing/quire-release.keystore \
+      --ks-key-alias "$(cat /signing/key-alias.txt)" \
+      --ks-pass file:/signing/keystore-password.txt --key-pass file:/signing/key-password.txt \
+      --out /output/app-release.apk /unsigned.apk
+    "$tools/apksigner" verify --verbose --print-certs /output/app-release.apk > /output/signature.txt
+    actual=$(sed -n "s/^Signer #1 certificate SHA-256 digest: //p" /output/signature.txt | tr "A-F" "a-f")
+    test "$actual" = "$expected" || { echo "Signing certificate mismatch." >&2; exit 1; }
+    test "$(grep -c "certificate SHA-256 digest:" /output/signature.txt)" = 1
+    if grep -Ei "certificate DN:.*(^|[, ])CN[[:space:]]*=[[:space:]]*Android Debug([,[:space:]]|$)" /output/signature.txt >/dev/null; then
+      echo "Refusing Android debug certificate." >&2; exit 1
+    fi
+    "$tools/aapt" dump badging /output/app-release.apk > /output/badging.txt
+  '
+python3 - "$root" "$staging" "$signing_dir/certificate-sha256.txt" <<'PY'
+import importlib.util
+import sys
+from pathlib import Path
+root, staging, certificate = map(Path, sys.argv[1:])
+spec = importlib.util.spec_from_file_location("android_release", root / "scripts/android-release.py")
+release = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(release)
+release.check_badging(release.read_version((root / "gradle.properties").read_text()), (staging / "badging.txt").read_text())
+release.check_signature((staging / "signature.txt").read_text(), certificate.read_text())
+PY
+mv "$staging/app-release.apk" "$root/app/build/outputs/apk/release/app-release.apk"
+echo 'Verified app/build/outputs/apk/release/app-release.apk'

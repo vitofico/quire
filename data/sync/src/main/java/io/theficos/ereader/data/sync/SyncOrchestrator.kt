@@ -2,7 +2,6 @@ package io.theficos.ereader.data.sync
 
 import io.theficos.ereader.core.model.DocumentIdentity
 import io.theficos.ereader.data.local.DocumentRepository
-import io.theficos.ereader.data.local.ProgressRepository
 import io.theficos.ereader.data.local.db.ProgressDao
 import io.theficos.ereader.data.local.db.ProgressEntity
 import io.theficos.ereader.data.local.db.SyncStateDao
@@ -11,16 +10,14 @@ import java.time.Instant
 
 class SyncOrchestrator(
     private val client: SyncClient,
-    private val progressRepo: ProgressRepository,
     private val progressDao: ProgressDao,
     private val documentRepo: DocumentRepository,
     private val syncState: SyncStateDao,
-    private val nowMillis: () -> Long = System::currentTimeMillis,
 ) {
 
     suspend fun runOnce(): SyncResult<Unit> {
         // 1) PUSH dirty rows
-        val dirty = progressRepo.dirty()
+        val dirty = progressDao.dirty()
         if (dirty.isNotEmpty()) {
             val items = dirty.map { progress ->
                 val doc = documentRepo.findById(progress.documentId)
@@ -45,7 +42,7 @@ class SyncOrchestrator(
             when (val res = client.pushProgress(ProgressPushBody(items))) {
                 is SyncResult.Success -> {
                     res.value.results.zip(dirty).forEach { (_, p) ->
-                        progressRepo.markSynced(p.documentId, syncedAt = nowMillis())
+                        progressDao.markSyncedIfUnchanged(p)
                     }
                 }
                 else -> return res.asUnit()
@@ -99,13 +96,8 @@ class SyncOrchestrator(
         // wins. `percent` is whatever the server emitted.
         val effectiveAbandonedAt =
             if (incomingFinishedAt != null) null else incomingAbandonedAt
-        val existing = progressDao.findByDocument(doc.id)
-        if (existing != null && existing.localUpdatedAt >= incomingUpdatedAt) {
-            return
-        }
-        progressDao.upsert(
+        progressDao.applyPulledIfNewer(
             ProgressEntity(
-                id = existing?.id ?: 0L,
                 documentId = doc.id,
                 locator = item.locator,
                 percent = item.percent,

@@ -112,7 +112,6 @@ class AppContainer(context: Context) {
     )
     val syncOrchestrator: SyncOrchestrator = SyncOrchestrator(
         client = syncClient,
-        progressRepo = progressRepository,
         progressDao = db.progressDao(),
         documentRepo = documentRepository,
         syncState = syncStateDao,
@@ -211,9 +210,6 @@ class AppContainer(context: Context) {
     val aiRepository: AiRepository = AiRepository(
         client = aiClient,
         insightDao = insightDao,
-        // pr-α (Bundle 3): wired so `markAbandoned`/`unmarkAbandoned`
-        // can flip the Room row's `abandonedAt` without a separate DAO.
-        progressDao = db.progressDao(),
         // PR-γ (Bundle 3): best-effort preflight collaborators for
         // refreshProfile(). Adapted to the decoupling interfaces so
         // `:data:ai` never has to depend on `:data:sync` / `:data:library`.
@@ -222,7 +218,7 @@ class AppContainer(context: Context) {
         },
         libraryRunner = {
             val result = libraryUploader.runOnce()
-            !result.abortedOnAuth
+            !result.abortedOnAuth && result.succeeded == result.attempted
         },
     )
 

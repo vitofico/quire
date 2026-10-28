@@ -71,6 +71,43 @@ class ProgressDaoTest {
         }
     }
 
+    @Test fun `snapshot acknowledgement keeps a same millisecond replacement dirty`() = runTest {
+        val docId = newDoc()
+        dao.upsert(ProgressEntity(documentId = docId, locator = "before", percent = 0.1, updatedAt = 5, localUpdatedAt = 5, syncedAt = 0))
+        val sent = checkNotNull(dao.findByDocument(docId))
+        dao.upsert(sent.copy(id = 0, locator = "after", percent = 0.2))
+
+        dao.markSyncedIfUnchanged(sent)
+
+        assertThat(dao.dirty().single().locator).isEqualTo("after")
+    }
+
+    @Test fun `snapshot acknowledgement keeps same millisecond terminal changes dirty`() = runTest {
+        val docId = newDoc()
+        dao.upsert(ProgressEntity(documentId = docId, locator = "before", percent = 0.1, updatedAt = 5, localUpdatedAt = 5, syncedAt = 0))
+        val sent = checkNotNull(dao.findByDocument(docId))
+        dao.markAbandoned(docId, now = 5)
+
+        dao.markSyncedIfUnchanged(sent)
+
+        assertThat(dao.dirty().single().abandonedAt).isEqualTo(5L)
+    }
+
+    @Test fun `pulled rows preserve newer or equal local progress and accept newer remote progress`() = runTest {
+        val docId = newDoc()
+        val local = ProgressEntity(documentId = docId, locator = "local", percent = 0.2, updatedAt = 10, localUpdatedAt = 10, syncedAt = 0)
+        dao.upsert(local)
+        val stored = checkNotNull(dao.findByDocument(docId))
+        fun incoming(time: Long) = local.copy(locator = "remote", percent = 0.3, updatedAt = time, localUpdatedAt = time, syncedAt = time)
+
+        dao.applyPulledIfNewer(incoming(9))
+        assertThat(dao.findByDocument(docId)).isEqualTo(stored)
+        dao.applyPulledIfNewer(incoming(10))
+        assertThat(dao.findByDocument(docId)).isEqualTo(stored)
+        dao.applyPulledIfNewer(incoming(11))
+        assertThat(dao.findByDocument(docId)).isEqualTo(incoming(11).copy(id = stored.id))
+    }
+
     @Test fun `upsert round-trips finishedAt`() = runTest {
         val docId = newDoc()
         dao.upsert(ProgressEntity(

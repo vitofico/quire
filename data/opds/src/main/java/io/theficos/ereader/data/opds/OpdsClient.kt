@@ -7,9 +7,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.readium.r2.opds.OPDS1Parser
 import org.readium.r2.shared.util.AbsoluteUrl
-import java.io.ByteArrayInputStream
 import java.net.URLEncoder
-import javax.xml.parsers.DocumentBuilderFactory
+import org.w3c.dom.Document
 
 class OpdsClient(
     private val okHttp: OkHttpClient,
@@ -25,21 +24,22 @@ class OpdsClient(
             val feed = parsed.feed ?: error("Parsed OPDS payload had no feed")
             // Readium silently drops links whose href contains template chars like `{searchTerms}`,
             // so we always look for rel="search" ourselves from the raw XML.
-            val searchLink = parseSearchLink(bytes, absoluteUrl)
+            val supplemental = parseXmlOrNull(bytes)
+            val searchLink = parseSearchLink(supplemental, absoluteUrl)
             // Readium also drops opds:image/thumbnail links unless a sibling opds:image link
             // is present, so we pull cover hrefs from the raw XML and join by acquisition href.
-            val coversByEpubHref = parseCoverHrefs(bytes, absoluteUrl)
+            val coversByEpubHref = parseCoverHrefs(supplemental, absoluteUrl)
             // The `rel=alternate type=text/html` link points at the OPDS server's web detail page
             // (e.g. calibre-web's `/book/{id}`); Readium doesn't surface it, so we read raw XML too.
-            val webUrlsByEpubHref = parseWebUrls(bytes, absoluteUrl)
+            val webUrlsByEpubHref = parseWebUrls(supplemental, absoluteUrl)
             // PR7: dc:identifier per entry, used as the opds_dc_id alias hint
             // for the AI catalog-preview lookup. Readium doesn't surface DC
             // elements either.
-            val dcIdsByEpubHref = parseDcIdentifiers(bytes, absoluteUrl)
+            val dcIdsByEpubHref = parseDcIdentifiers(supplemental, absoluteUrl)
             // The entry's blurb (`<summary>` / `<content>`). Readium models it
             // as publication metadata that our OpdsPublication doesn't carry,
             // and it is the only book description a reader-only account has.
-            val descriptionsByEpubHref = parseDescriptions(bytes, absoluteUrl)
+            val descriptionsByEpubHref = parseDescriptions(supplemental, absoluteUrl)
             OpdsFeed(
                 title = feed.metadata.title,
                 navigation = feed.navigation.map { link ->
@@ -114,8 +114,8 @@ class OpdsClient(
      * stripped because `type="html"` entries arrive as escaped tags, which would
      * otherwise be shown verbatim to the reader.
      */
-    private fun parseDescriptions(bytes: ByteArray, feedUrl: String): Map<String, String> {
-        val doc = parseXmlOrNull(bytes) ?: return emptyMap()
+    private fun parseDescriptions(doc: Document?, feedUrl: String): Map<String, String> {
+        if (doc == null) return emptyMap()
         val entries = doc.getElementsByTagNameNS(ATOM_NAMESPACE, "entry")
         val result = mutableMapOf<String, String>()
         for (i in 0 until entries.length) {
@@ -145,13 +145,8 @@ class OpdsClient(
     private fun stripMarkup(raw: String): String =
         raw.replace(HTML_TAG, " ").replace(WHITESPACE_RUN, " ").trim()
 
-    private fun parseCoverHrefs(bytes: ByteArray, feedUrl: String): Map<String, String> {
-        val doc = runCatching {
-            DocumentBuilderFactory.newInstance()
-                .apply { isNamespaceAware = true }
-                .newDocumentBuilder()
-                .parse(ByteArrayInputStream(bytes))
-        }.getOrNull() ?: return emptyMap()
+    private fun parseCoverHrefs(doc: Document?, feedUrl: String): Map<String, String> {
+        if (doc == null) return emptyMap()
         val entries = doc.getElementsByTagNameNS("http://www.w3.org/2005/Atom", "entry")
         val result = mutableMapOf<String, String>()
         for (i in 0 until entries.length) {
@@ -181,13 +176,8 @@ class OpdsClient(
         return result
     }
 
-    private fun parseWebUrls(bytes: ByteArray, feedUrl: String): Map<String, String> {
-        val doc = runCatching {
-            DocumentBuilderFactory.newInstance()
-                .apply { isNamespaceAware = true }
-                .newDocumentBuilder()
-                .parse(ByteArrayInputStream(bytes))
-        }.getOrNull() ?: return emptyMap()
+    private fun parseWebUrls(doc: Document?, feedUrl: String): Map<String, String> {
+        if (doc == null) return emptyMap()
         val entries = doc.getElementsByTagNameNS("http://www.w3.org/2005/Atom", "entry")
         val result = mutableMapOf<String, String>()
         for (i in 0 until entries.length) {
@@ -242,13 +232,8 @@ class OpdsClient(
      * exporters, koreader's CalibreSync, etc.) do emit `<dc:identifier>`,
      * so this parser stays useful even if calibre-web users see nothing.
      */
-    private fun parseDcIdentifiers(bytes: ByteArray, feedUrl: String): Map<String, String> {
-        val doc = runCatching {
-            DocumentBuilderFactory.newInstance()
-                .apply { isNamespaceAware = true }
-                .newDocumentBuilder()
-                .parse(ByteArrayInputStream(bytes))
-        }.getOrNull() ?: return emptyMap()
+    private fun parseDcIdentifiers(doc: Document?, feedUrl: String): Map<String, String> {
+        if (doc == null) return emptyMap()
         val entries = doc.getElementsByTagNameNS("http://www.w3.org/2005/Atom", "entry")
         val result = mutableMapOf<String, String>()
         for (i in 0 until entries.length) {
@@ -286,13 +271,8 @@ class OpdsClient(
         return null
     }
 
-    private fun parseSearchLink(bytes: ByteArray, feedUrl: String): OpdsSearchLink? {
-        val doc = runCatching {
-            DocumentBuilderFactory.newInstance()
-                .apply { isNamespaceAware = true }
-                .newDocumentBuilder()
-                .parse(ByteArrayInputStream(bytes))
-        }.getOrNull() ?: return null
+    private fun parseSearchLink(doc: Document?, feedUrl: String): OpdsSearchLink? {
+        if (doc == null) return null
         val links = doc.getElementsByTagNameNS("http://www.w3.org/2005/Atom", "link")
         for (i in 0 until links.length) {
             val el = links.item(i) as org.w3c.dom.Element
@@ -319,10 +299,8 @@ class OpdsClient(
                 "OpenSearch description fetch ${it.code} for ${redactUrl(descriptionUrl)}"
             }
             val bytes = it.body!!.bytes()
-            val doc = DocumentBuilderFactory.newInstance()
-                .apply { isNamespaceAware = true }
-                .newDocumentBuilder()
-                .parse(ByteArrayInputStream(bytes))
+            val doc = parseXmlOrNull(bytes)
+                ?: error("OpenSearch description is not valid XML")
             val urls = doc.getElementsByTagNameNS("http://a9.com/-/spec/opensearch/1.1/", "Url")
             var atomTemplate: String? = null
             var fallbackTemplate: String? = null

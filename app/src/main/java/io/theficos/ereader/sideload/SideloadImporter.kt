@@ -8,6 +8,7 @@ import android.provider.OpenableColumns
 import android.util.Log
 import io.theficos.ereader.core.identity.extractIdentity
 import io.theficos.ereader.core.metadata.readOpfBundle
+import io.theficos.ereader.core.metadata.validateEpubContainer
 import io.theficos.ereader.core.model.CURRENT_IDENTITY_HASH_VERSION
 import io.theficos.ereader.core.model.DocumentIdentity
 import io.theficos.ereader.data.library.LibraryUploader
@@ -19,14 +20,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import org.w3c.dom.Element
 import java.io.File
-import java.io.IOException
 import java.util.UUID
-import java.util.zip.ZipException
-import java.util.zip.ZipFile
-import javax.xml.parsers.DocumentBuilderFactory
-import org.xml.sax.SAXException
 
 /**
  * Phase-0 / A-3: ingest path for sideloaded EPUBs (share-sheet + `+ Import`).
@@ -236,57 +231,10 @@ class SideloadImporter(
         null
     }
 
-    /**
-     * EPUB structural validation gate. Required because MIME-typed senders
-     * (and bare ACTION_VIEW filters) don't actually prove the bytes are an
-     * EPUB — a sender can claim `application/epub+zip` for any zip, or even
-     * for non-zip content. Without this gate, [extractIdentity] would still
-     * happily hash arbitrary bytes and we'd write garbage rows.
-     *
-     * Checks: opens as ZIP, finds `META-INF/container.xml`, parses out the
-     * rootfile `full-path`, and confirms that OPF entry exists. XML parsing
-     * uses the same XXE-hardened factory pattern as
-     * [io.theficos.ereader.core.identity.extractMetadataId] — sideloaded
-     * EPUBs are user-trusted but not verified, and an attacker-controlled
-     * `container.xml` could otherwise hang the parser or trigger network IO.
-     */
-    private fun validateEpubContainer(file: File): Boolean = try {
-        ZipFile(file).use { zip ->
-            val containerEntry = zip.getEntry("META-INF/container.xml") ?: return@use false
-            val opfPath = zip.getInputStream(containerEntry).use { input ->
-                val doc = newSafeDocumentBuilder().parse(input)
-                val rootfile = doc.getElementsByTagNameNS(CONTAINER_NS, "rootfile").item(0) as? Element
-                    ?: return@use null
-                rootfile.getAttribute("full-path").ifEmpty { return@use null }
-            } ?: return@use false
-            zip.getEntry(opfPath) != null
-        }
-    } catch (_: ZipException) { false
-    } catch (_: IOException) { false
-    } catch (_: SAXException) { false
-    } catch (t: Throwable) {
-        Log.w(TAG, "validateEpubContainer threw", t)
-        false
-    }
-
-    private fun newSafeDocumentBuilder(): javax.xml.parsers.DocumentBuilder {
-        val factory = DocumentBuilderFactory.newInstance().apply {
-            isNamespaceAware = true
-            runCatching { setFeature("http://apache.org/xml/features/disallow-doctype-decl", true) }
-            runCatching { setFeature("http://xml.org/sax/features/external-general-entities", false) }
-            runCatching { setFeature("http://xml.org/sax/features/external-parameter-entities", false) }
-            runCatching { setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false) }
-            runCatching { isXIncludeAware = false }
-            runCatching { isExpandEntityReferences = false }
-        }
-        return factory.newDocumentBuilder()
-    }
-
     companion object {
         private const val TAG = "SideloadImporter"
         private const val SIDELOAD_URL_PREFIX = "sideload://"
         private const val KEY_COVER_BACKFILL_DONE = "sideload.cover_backfill_done"
-        private const val CONTAINER_NS = "urn:oasis:names:tc:opendocument:xmlns:container"
 
         /**
          * Best-effort lookup of a human-readable display name for a content URI,

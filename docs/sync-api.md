@@ -181,7 +181,9 @@ applies the same lookup precedence as the client:
 ### `POST /sync/v1/progress`
 
 Push current progress for one or more documents. Conflict resolution is
-record-level last-writer-wins on the client-provided `updated_at`.
+record-level last-writer-wins on `client_updated_at`. Pushes for the same
+user serialize in one transaction, including first-time document creation,
+so concurrent devices cannot overwrite newer progress with an older state.
 
 ```http
 POST /sync/v1/progress
@@ -194,7 +196,7 @@ Content-Type: application/json
       "document": { "metadata_id": "9780141036144", "content_hash": "8e3a..." },
       "locator": "epubcfi(/6/4!/4/2/2[ch01]/2/1:0)",
       "percent": 0.382,
-      "updated_at": "2026-05-07T09:14:32Z"
+      "client_updated_at": "2026-05-07T09:14:32Z"
     }
   ]
 }
@@ -208,33 +210,28 @@ Response:
     {
       "document": { "metadata_id": "9780141036144", "content_hash": "8e3a..." },
       "status": "accepted",
-      "server_updated_at": "2026-05-07T09:14:32Z"
+      "server_client_updated_at": "2026-05-07T09:14:32Z"
     }
   ]
 }
 ```
 
-`status` values:
-
-- `accepted` — the incoming row was newer; server stored it.
-- `rejected_stale` — server already had a newer row; nothing changed.
-  `server_updated_at` reflects the server's authoritative state.
-- `merged` — server reconciled identities (e.g. a hash-only row was rolled
-  into a metadata-id row).
+`status` is `accepted` for a new or newer row, and `stale` when the server
+already has an equal or newer timestamp. `server_client_updated_at` reflects
+the stored progress timestamp.
 
 ### `GET /sync/v1/progress`
 
-Pull progress rows updated after the client's high-water mark.
+Pull the authenticated user's full progress snapshot. `since` remains a
+required ISO 8601 parameter for existing clients, but does not filter rows.
+An offline device may upload progress whose client timestamp predates a
+previous pull, and an in-flight write may commit after that pull's SELECT.
+Returning the snapshot ensures the next pull can see both kinds of update.
 
 ```http
-GET /sync/v1/progress?since=2026-05-07T09:14:32Z[&document=...]
+GET /sync/v1/progress?since=2026-05-07T09:14:32Z
 Authorization: Basic ...
 ```
-
-- `since` — ISO 8601, required. Server returns rows with `updated_at > since`.
-- `document` — optional. Either a metadata-id or a content-hash; the server
-  resolves it the same way as a push reference. Omit to pull everything for
-  the user.
 
 Response:
 
@@ -245,14 +242,20 @@ Response:
       "document": { "metadata_id": "9780141036144", "content_hash": "8e3a..." },
       "locator": "epubcfi(/6/4!/4/2/2[ch01]/2/1:0)",
       "percent": 0.382,
-      "updated_at": "2026-05-07T09:14:32Z"
+      "client_updated_at": "2026-05-07T09:14:32Z",
+      "finished_at": null,
+      "abandoned_at": null
     }
   ],
-  "high_water_mark": "2026-05-07T09:14:32Z"
+  "server_time": "2026-05-07T09:15:00Z"
 }
 ```
 
-The client persists `high_water_mark` and uses it as `since` next time.
+Existing clients can keep persisting `server_time` and sending it as `since`.
+Clients merge rows using `client_updated_at`, retaining newer local progress.
+This unpaginated response costs O(the user's progress rows) on every pull;
+it favors reliable offline convergence at the current personal-library scale.
+A future delta protocol needs a commit-safe cursor before restoring filtering.
 
 ## Documents (planned)
 

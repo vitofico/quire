@@ -24,6 +24,22 @@ interface ProgressDao {
     @Query("UPDATE progress SET syncedAt = :syncedAt WHERE documentId = :documentId")
     suspend fun markSynced(documentId: Long, syncedAt: Long)
 
+    /** A response acknowledges only the snapshot sent, never a save made during the request. */
+    @Transaction
+    suspend fun markSyncedIfUnchanged(snapshot: ProgressEntity) {
+        if (findByDocument(snapshot.documentId) == snapshot) {
+            markSynced(snapshot.documentId, snapshot.localUpdatedAt)
+        }
+    }
+
+    /** Keep the conflict check and write atomic with respect to reader saves. */
+    @Transaction
+    suspend fun applyPulledIfNewer(incoming: ProgressEntity) {
+        val existing = findByDocument(incoming.documentId)
+        if (existing != null && existing.localUpdatedAt >= incoming.updatedAt) return
+        upsert(incoming.copy(id = existing?.id ?: 0L))
+    }
+
     /**
      * PR-γ: max `updatedAt` across all progress rows. Used to seed the local
      * input-fingerprint approximation (Lock #12, coordinator §3.6). Returns

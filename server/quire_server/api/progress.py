@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field, field_serializer
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from quire_server.core.auth import current_user_id
@@ -144,6 +144,13 @@ async def push_progress(
     user_id: Annotated[str, Depends(current_user_id)],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> ProgressPushResponse:
+    # Serialize identity resolution and LWW decisions for this user's batch.
+    # A row lock cannot protect a document that has not been created yet.
+    # The transaction lock works across processes and is released on rollback.
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": "progress:" + user_id},
+    )
     results: list[ProgressPushResult] = []
     for item in body.items:
         doc = await _resolve_or_create_document(session, user_id, item.document)
@@ -221,12 +228,16 @@ async def pull_progress(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> ProgressPullResponse:
     # Accept ISO-8601 with either +HH:MM or Z; httpx/browsers encode '+' as space in query strings
-    since_dt = datetime.fromisoformat(since.replace(" ", "+"))
+    # Preserve the existing required ISO timestamp parameter, but return a
+    # snapshot. Offline writes can have client timestamps older than `since`,
+    # and writes may commit after a previous pull's SELECT. Clients apply LWW
+    # locally, so replaying unchanged progress is safe and cannot skip updates.
+    datetime.fromisoformat(since.replace(" ", "+"))
     rows = (
         await session.execute(
             select(Progress, Document)
             .join(Document, Document.pk == Progress.document_pk)
-            .where(Document.user_id == user_id, Progress.client_updated_at > since_dt)
+            .where(Document.user_id == user_id)
             .order_by(Progress.client_updated_at)
         )
     ).all()
