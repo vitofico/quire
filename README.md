@@ -29,13 +29,18 @@
 </p>
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/identity-refinement/after-ink.png">
-    <img src="docs/assets/identity-refinement/after-paper.png" alt="Quire's compact library with its marbled background, search, import, sort and filter controls." width="320">
-  </picture>
+  <a href="docs/assets/readme-library-sage.webp"><img src="docs/assets/readme-library-sage.webp" alt="Quire's Sage library with five real imported EPUB covers" width="260"></a>
+  &nbsp;&nbsp;
+  <a href="docs/assets/readme-library-midnight.webp"><img src="docs/assets/readme-library-midnight.webp" alt="The same Quire library in Midnight with a Plain background" width="260"></a>
+  &nbsp;&nbsp;
+  <a href="docs/assets/readme-reader.png"><img src="docs/assets/readme-reader.png" alt="Reading a real Sherlock Holmes EPUB in Quire, with the reader's separate page styling" width="260"></a>
 </p>
 
-<p align="center"><em>Your shelf, in Paper or Ink.</em></p>
+<p align="center"><em>Your shelf, your palette, your reading page. Open a screenshot for the full-resolution view.</em></p>
+
+The library and reader examples use actual EPUBs retrieved read-only from a CWA
+library and imported on a disposable emulator. No book files, server address or
+credentials are included. See the [screenshot notes](docs/assets/README.md).
 
 ## Made for reading
 
@@ -52,27 +57,32 @@
 
 Under **Settings → Appearance**, follow the system or stay light or dark.
 Choose Paper or Sage for light mode, and Ink or Midnight for dark mode.
-These app palettes are separate from the page theme inside a book.
+Choose **Artwork** for the ink background or **Plain** for solid surfaces,
+independently of the palette. These choices are saved for your next launch.
+App palettes are separate from the page theme inside a book: tap the page and
+open **Menu** to adjust the font, spacing, margins and page colours.
 
 <details>
 <summary>See the reader, marbled loading and both library palettes</summary>
 
 The same ink appears during real loading work, without an added waiting period.
-The library screenshots use synthetic books; the reader screenshot shows an
-EPUB page. Open a full-size example:
-[Paper library](docs/assets/identity-refinement/after-paper.png),
-[Ink library](docs/assets/identity-refinement/after-ink.png),
-[Reader page](fastlane/metadata/android/en-US/images/phoneScreenshots/05_reader.png),
+The new library screenshots show five imported books. The reader shows an
+actual Sherlock Holmes page in Sepia and Literata. Open a full-size example:
+[Sage library](docs/assets/readme-library-sage.webp),
+[Midnight library](docs/assets/readme-library-midnight.webp),
+[Reader page](docs/assets/readme-reader.png),
 [Paper loading](docs/assets/identity-refinement/loading-paper.png), or
 [Ink loading](docs/assets/identity-refinement/loading-ink.png).
 
 <p align="center">
-  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/05_reader.png" alt="An EPUB page in Quire, with adjustable typography and a separate reader page theme." width="260">
+  <img src="docs/assets/readme-reader.png" alt="An EPUB page in Quire, with adjustable typography and a separate reader page theme." width="260">
   &nbsp;
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/identity-refinement/loading-ink.png">
     <img src="docs/assets/identity-refinement/loading-paper.png" alt="A real Quire loading state: the italic q amid theme-tinted marbled ink, a progress indicator and loading status." width="260">
   </picture>
+  &nbsp;
+  <a href="docs/assets/readme-reader-preferences.png"><img src="docs/assets/readme-reader-preferences.png" alt="Reader preferences: separate Light, Dark, Sepia and Dark sepia page themes and font families." width="260"></a>
 </p>
 
 </details>
@@ -90,6 +100,12 @@ EPUB page. Open a full-size example:
   calibre-web as the source of books and Quire Server as the source of reading
   state. Onboarding supports calibre-web credentials and compatible Quire
   Server account sign-in, according to the server you run.
+
+On first launch, **Skip — use offline only** opens the local library. Tap **+**
+to import an EPUB with Android's file picker; opening an EPUB shared by another
+app also imports it. **Connect to my server** sets up remote browsing and
+compatible server sign-in. If your Quire sync server has a separate address,
+enter its optional URL in Settings.
 
 Quire is the native Kotlin / Compose / Readium client. Quire Server is an
 optional FastAPI service backed by Postgres, available as
