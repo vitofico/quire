@@ -4,6 +4,7 @@ build/
 *.iml
 local.properties
 .kotlin/
+scripts/**/__pycache__/
 captures/
 .cxx/
 .superpowers/

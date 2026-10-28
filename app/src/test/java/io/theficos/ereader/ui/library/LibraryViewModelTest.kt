@@ -81,11 +81,9 @@ class LibraryViewModelTest {
                 baseUrlProvider = { server.url("/").toString().trimEnd('/') },
                 okHttp = OkHttpClient(),
             ),
-            progressRepo = progress,
             progressDao = db.progressDao(),
             documentRepo = docs,
             syncState = db.syncStateDao(),
-            nowMillis = { 100L },
         )
         vm = track(LibraryViewModel(
             docs = docs,
@@ -143,7 +141,7 @@ class LibraryViewModelTest {
         val row = db.progressDao().findByDocument(doc.id)!!
         assertThat(row.locator).isEmpty()
         assertThat(row.percent).isEqualTo(0.0)
-        assertThat(row.syncedAt).isEqualTo(100L) // nowMillis from orchestrator
+        assertThat(row.syncedAt).isEqualTo(row.localUpdatedAt)
         assertThat(tmp.exists()).isTrue()
         tmp.delete()
     }

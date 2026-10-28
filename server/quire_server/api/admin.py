@@ -483,8 +483,16 @@ def _page_response(request: Request, page_status: dict, **kwargs) -> HTMLRespons
         "background", request.cookies.get("quire_background_style", "artwork")
     )
     style = "plain" if style == "plain" else "artwork"
+    csrf_token = ""
+    if get_settings().auth_backend == "native":
+        from quire_server.api.browser_identity import csrf
+
+        cookie = request.cookies.get(request.app.state.identity_settings.cookie_name)
+        if cookie:
+            csrf_token = csrf(cookie)
     response = HTMLResponse(
-        render_page(page_status, background_style=style, **kwargs), headers=PAGE_HEADERS
+        render_page(page_status, background_style=style, csrf_token=csrf_token, **kwargs),
+        headers=PAGE_HEADERS,
     )
     response.set_cookie(
         "quire_background_style",

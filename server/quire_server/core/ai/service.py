@@ -35,6 +35,7 @@ from sqlalchemy import (
     literal_column,
     or_,
     select,
+    text,
 )
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
@@ -529,8 +530,6 @@ class InsightOrchestrator:
             if existing is not None:
                 previous_ids = list(existing.previous_insight_ids or [])
                 previous_ids.append(existing.id)
-                existing.superseded_at = datetime.now(UTC)
-                await session.commit()
 
             await self._bucket.acquire()
             row = await self._do_generate(
@@ -545,6 +544,7 @@ class InsightOrchestrator:
                 feedback=reason,
                 previous_insight_ids=previous_ids or None,
                 original_hints=original_hints,
+                supersedes=existing,
             )
             return self._row_to_response(row)
 
@@ -691,6 +691,7 @@ class InsightOrchestrator:
         feedback: str | None,
         previous_insight_ids: list[int] | None,
         original_hints: dict[str, str] | None = None,
+        supersedes: BookInsight | None = None,
     ) -> BookInsight:
         async with self._sem:
             bundle = await self._backfill_language(session, bundle)
@@ -782,6 +783,12 @@ class InsightOrchestrator:
         effective_content_hash = ident.content_hash or _synthetic_content_hash(
             ident, original_hints
         )
+        # Keep the previous shared insight live during all external work.
+        # Superseding and inserting the replacement belong to one transaction;
+        # flush the update first so the live-row unique indexes permit insert.
+        if supersedes is not None:
+            supersedes.superseded_at = datetime.now(UTC)
+            await session.flush()
         row = BookInsight(
             metadata_id=ident.metadata_id,
             content_hash=effective_content_hash,
@@ -870,6 +877,12 @@ class InsightOrchestrator:
             if self._monthly_policy is not None:
                 await self._monthly_policy.reserve(user_id)
             return
+        # Distinct books use distinct singleflight locks. Serialize daily
+        # admission by user across workers, including creation of today's row.
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": "ai-daily:" + user_id},
+        )
         today = datetime.now(UTC).date()
         usage = (
             await session.execute(
@@ -1866,6 +1879,12 @@ class InsightOrchestrator:
     ) -> None:
         if self._profile_refresh_daily_limit <= 0:
             return
+        # Book admission also creates this row. Share its transaction lock,
+        # then release before profile retrieval/provider work can take time.
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": "ai-daily:" + principal.subject},
+        )
         today = datetime.now(UTC).date()
         usage = (
             await session.execute(
@@ -1885,27 +1904,31 @@ class InsightOrchestrator:
                 limit=self._profile_refresh_daily_limit,
                 resets_at=_next_utc_midnight(today),
             )
+        await session.commit()
 
     async def _increment_profile_count(
         self,
         session: AsyncSession,
         principal: _PrincipalLike,
     ) -> None:
-        today = datetime.now(UTC).date()
-        usage = (
-            await session.execute(
-                select(AIUsageDaily).where(
-                    AIUsageDaily.user_id == principal.subject,
-                    AIUsageDaily.day == today,
-                )
+        # Charge successful profiles only, atomically with their persisted
+        # payload. Update only this column so book/regen counts are preserved.
+        # The cap may be disabled, so admission need not have created the row.
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": "ai-daily:" + principal.subject},
+        )
+        stmt = pg_insert(AIUsageDaily).values(
+            user_id=principal.subject,
+            day=datetime.now(UTC).date(),
+            profile_count=1,
+        )
+        await session.execute(
+            stmt.on_conflict_do_update(
+                index_elements=[AIUsageDaily.user_id, AIUsageDaily.day],
+                set_={"profile_count": AIUsageDaily.profile_count + 1},
             )
-        ).scalar_one_or_none()
-        if usage is None:
-            usage = AIUsageDaily(user_id=principal.subject, day=today, profile_count=1)
-            session.add(usage)
-            await session.flush()
-            return
-        usage.profile_count += 1
+        )
 
     async def _compute_extended_stats(
         self,

@@ -195,7 +195,7 @@ def _probe_box(probe: dict) -> str:
     )
 
 
-def _ai_section(status: dict, probe: dict | None) -> str:
+def _ai_section(status: dict, probe: dict | None, csrf_field: str) -> str:
     ai = status["ai"]
     if ai is None:
         return (
@@ -236,7 +236,7 @@ def _ai_section(status: dict, probe: dict | None) -> str:
     timeout = _setting(status, "QUIRE_SERVER_AI_TIMEOUT_S")
     seconds = f"{timeout:g}" if isinstance(timeout, int | float) else _value(timeout)
     parts.append(
-        '<form method="post" action="/quire-admin/probe">'
+        f'<form method="post" action="/quire-admin/probe">{csrf_field}'
         '<button type="submit">Test AI connection</button>'
         f'<p class="note">Sends a short test request to the provider and waits up to '
         f"{_e(seconds)} seconds in total (<code>QUIRE_SERVER_AI_TIMEOUT_S</code>).</p></form>"
@@ -337,7 +337,7 @@ def _editable_field(row: dict) -> str:
     )
 
 
-def _editable_section(status: dict, notice: dict | None) -> str:
+def _editable_section(status: dict, notice: dict | None, csrf_field: str) -> str:
     rows = status.get("editable")
     if rows is None:
         return ""
@@ -349,9 +349,10 @@ def _editable_section(status: dict, notice: dict | None) -> str:
         "kept in the database. A value set in the server's environment or <code>.env</code> "
         "wins over one saved here.</p>"
         f"{shown_notice}"
-        f'<form method="post" action="/quire-admin/settings">{fields}'
+        f'<form method="post" action="/quire-admin/settings">{csrf_field}{fields}'
         '<button type="submit">Save AI settings</button></form>'
-        '<form id="reset-settings" method="post" action="/quire-admin/settings"></form>'
+        '<form id="reset-settings" method="post" action="/quire-admin/settings">'
+        f"{csrf_field}</form>"
         "</section>"
     )
 
@@ -401,7 +402,11 @@ def render_page(
     probe: dict | None = None,
     settings_notice: dict | None = None,
     background_style: str = "artwork",
+    csrf_token: str = "",
 ) -> str:
+    csrf_field = (
+        f'<input type="hidden" name="csrf_token" value="{_e(csrf_token)}">' if csrf_token else ""
+    )
     background_style = "plain" if background_style == "plain" else "artwork"
     options = "".join(
         f'<option value="{value}"{" selected" if value == background_style else ""}>'
@@ -421,8 +426,8 @@ def render_page(
         '<label for="background">Background</label>'
         f'<select id="background" name="background">{options}</select>'
         '<button class="quiet" type="submit">Apply</button></form></header>'
-        f"{_warnings_section(status)}{_ai_section(status, probe)}"
-        f"{_editable_section(status, settings_notice)}"
+        f"{_warnings_section(status)}{_ai_section(status, probe, csrf_field)}"
+        f"{_editable_section(status, settings_notice, csrf_field)}"
         f"{_migrations_section(status)}{_settings_section(status)}"
         "</main></body></html>"
     )

@@ -318,8 +318,23 @@ class NativeAuth:
             if request.method not in {"GET", "HEAD", "OPTIONS"}:
                 from quire_server.api.browser_identity import csrf
 
-                if request.headers.get("origin") != self._public_origin or not hmac.compare_digest(
-                    request.headers.get("x-csrf-token", ""), csrf(token)
+                supplied = request.headers.get("x-csrf-token", "")
+                if (
+                    not supplied
+                    and request.headers.get("content-type", "").split(";", 1)[0].strip()
+                    == "application/x-www-form-urlencoded"
+                ):
+                    from urllib.parse import parse_qs
+
+                    values = parse_qs((await request.body()).decode("utf-8", "replace")).get(
+                        "csrf_token", []
+                    )
+                    if len(values) == 1:
+                        supplied = values[0]
+                if (
+                    request.headers.get("origin") != self._public_origin
+                    or not supplied.isascii()
+                    or not hmac.compare_digest(supplied, csrf(token))
                 ):
                     raise HTTPException(403, "invalid_csrf")
         else:

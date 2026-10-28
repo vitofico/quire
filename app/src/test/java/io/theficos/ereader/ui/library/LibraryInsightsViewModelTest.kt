@@ -63,7 +63,6 @@ class LibraryInsightsViewModelTest {
         repo = AiRepository(
             client = aiClient,
             insightDao = insightDao,
-            progressDao = progressDao,
         )
     }
 

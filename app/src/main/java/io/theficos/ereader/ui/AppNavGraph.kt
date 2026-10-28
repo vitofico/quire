@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -37,12 +38,16 @@ import io.theficos.ereader.ui.bookdetail.BookDetailScreen
 import io.theficos.ereader.ui.bookdetail.BookDetailSheet
 import io.theficos.ereader.ui.bookdetail.BookDetailViewModel
 import io.theficos.ereader.ui.bookdetail.InsightAuditScreen
+import io.theficos.ereader.ui.bookdetail.InsightAuditViewModel
 import io.theficos.ereader.ui.catalog.CatalogScreen
 import io.theficos.ereader.ui.catalog.CatalogViewModel
 import io.theficos.ereader.ui.catalogdetail.CatalogDetailScreen
+import io.theficos.ereader.ui.catalogdetail.CatalogDetailViewModel
 import io.theficos.ereader.ui.library.LibraryInsightsScreen
+import io.theficos.ereader.ui.library.LibraryInsightsViewModel
 import io.theficos.ereader.ui.library.LibraryScreen
 import io.theficos.ereader.ui.library.LibraryStatsScreen
+import io.theficos.ereader.ui.library.LibraryStatsViewModel
 import io.theficos.ereader.ui.library.LibraryViewModel
 import io.theficos.ereader.ui.main.MainScaffold
 import io.theficos.ereader.ui.main.Tab
@@ -65,8 +70,11 @@ import io.theficos.quire.R
 import kotlinx.coroutines.launch
 
 @Composable
-fun AppNavGraph(container: AppContainer, appTheme: AppTheme) {
-    val nav = rememberNavController()
+fun AppNavGraph(
+    container: AppContainer,
+    appTheme: AppTheme,
+    nav: NavHostController = rememberNavController(),
+) {
     // First-launch gating (A-2). Computed once per composition — the
     // navgraph rebuilds when the configured account or welcome marker
     // changes (via Compose recomposition driven by AppContainer state), and
@@ -104,9 +112,11 @@ fun AppNavGraph(container: AppContainer, appTheme: AppTheme) {
             }
         }
         composable("connect-server") {
-            val vm = remember {
-                ConnectServerViewModel(credentialStore = container.credentialStore)
-            }
+            val vm: ConnectServerViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer { ConnectServerViewModel(credentialStore = container.credentialStore) }
+                },
+            )
             InsetSurface {
                 ConnectServerScreen(
                     viewModel = vm,
@@ -114,7 +124,10 @@ fun AppNavGraph(container: AppContainer, appTheme: AppTheme) {
                     onCompleted = {
                         container.welcomePreferencesStore.markCompleted()
                         nav.navigate("home") {
-                            popUpTo("welcome") { inclusive = true }
+                            // A returning session starts at home, so welcome may not exist.
+                            // Replace the old stack in either case, including Completed login.
+                            popUpTo(nav.graph.startDestinationId) { inclusive = true }
+                            launchSingleTop = true
                         }
                     },
                 )
@@ -126,24 +139,23 @@ fun AppNavGraph(container: AppContainer, appTheme: AppTheme) {
             }
         }
         composable("home") {
-            val libVm = remember {
-                LibraryViewModel(
-                    docs = container.documentRepository,
-                    progress = container.progressRepository,
-                    syncOrchestrator = container.syncOrchestrator,
-                    booksDir = container.booksDir,
-                    libraryPreferencesStore = container.libraryPreferencesStore,
-                    credentialStore = container.credentialStore,
-                    restoreInProgress = { onProgress -> container.runRestoreInProgress(onProgress) },
-                )
-            }
-            // Scoped to the "home" back-stack entry rather than `remember`ed:
-            // opening a book's detail screen takes "home" out of composition,
-            // and a remembered viewmodel dies with it. The rebuilt one starts at
-            // the catalog root, so coming back from a book landed the user at
-            // the top-level menu instead of the shelf they were looking at
-            // (issue #101). A viewmodel outlives the composition and is cleared
-            // with the entry itself.
+            val libVm: LibraryViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer {
+                        LibraryViewModel(
+                            docs = container.documentRepository,
+                            progress = container.progressRepository,
+                            syncOrchestrator = container.syncOrchestrator,
+                            booksDir = container.booksDir,
+                            libraryPreferencesStore = container.libraryPreferencesStore,
+                            credentialStore = container.credentialStore,
+                            restoreInProgress = { onProgress -> container.runRestoreInProgress(onProgress) },
+                        )
+                    }
+                },
+            )
+            // Destination models survive a detail push and are cleared with the back-stack
+            // entry, so their work is retained on return and cancelled when the entry leaves.
             val catVm: CatalogViewModel = viewModel(
                 factory = viewModelFactory {
                     initializer {
@@ -165,20 +177,24 @@ fun AppNavGraph(container: AppContainer, appTheme: AppTheme) {
                     }
                 },
             )
-            val setVm = remember {
-                SettingsViewModel(
-                    store = container.credentialStore,
-                    readerStore = container.readerPreferencesStore,
-                    appThemeStore = container.appThemePreferencesStore,
-                    syncStateDao = container.syncStateDao,
-                    documentRepo = container.documentRepository,
-                    booksDir = container.booksDir,
-                    aiRepository = container.aiRepository,
-                    insightSyncRepository = container.insightSyncRepository,
-                    insightDao = container.insightDao,
-                    restoreInProgress = { onProgress -> container.runRestoreInProgress(onProgress) },
-                )
-            }
+            val setVm: SettingsViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer {
+                        SettingsViewModel(
+                            store = container.credentialStore,
+                            readerStore = container.readerPreferencesStore,
+                            appThemeStore = container.appThemePreferencesStore,
+                            syncStateDao = container.syncStateDao,
+                            documentRepo = container.documentRepository,
+                            booksDir = container.booksDir,
+                            aiRepository = container.aiRepository,
+                            insightSyncRepository = container.insightSyncRepository,
+                            insightDao = container.insightDao,
+                            restoreInProgress = { onProgress -> container.runRestoreInProgress(onProgress) },
+                        )
+                    }
+                },
+            )
             MainScaffold { tab, padding ->
                 when (tab) {
                     Tab.LIBRARY -> LibraryScreen(
@@ -212,15 +228,19 @@ fun AppNavGraph(container: AppContainer, appTheme: AppTheme) {
             arguments = listOf(navArgument("docId") { type = NavType.LongType }),
         ) { backStack ->
             val docId = backStack.arguments!!.getLong("docId")
-            val vm = remember(docId) {
-                ReaderViewModel(
-                    documentId = docId,
-                    docs = container.documentRepository,
-                    progress = container.progressRepository,
-                    readium = container.readiumFactory,
-                    preferencesStore = container.readerPreferencesStore,
-                )
-            }
+            val vm: ReaderViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer {
+                        ReaderViewModel(
+                            documentId = docId,
+                            docs = container.documentRepository,
+                            progress = container.progressRepository,
+                            readium = container.readiumFactory,
+                            preferencesStore = container.readerPreferencesStore,
+                        )
+                    }
+                },
+            )
             ReaderScreen(
                 viewModel = vm,
                 appTheme = appTheme,
@@ -267,9 +287,11 @@ fun AppNavGraph(container: AppContainer, appTheme: AppTheme) {
             arguments = listOf(navArgument("id") { type = NavType.LongType }),
         ) { backStack ->
             val id = backStack.arguments!!.getLong("id")
-            val vm = remember(id) {
-                container.insightAuditViewModelFactory.create(id)
-            }
+            val vm: InsightAuditViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer { container.insightAuditViewModelFactory.create(id) }
+                },
+            )
             InsightAuditScreen(
                 viewModel = vm,
                 onBack = { nav.popBackStack() },
@@ -285,23 +307,32 @@ fun AppNavGraph(container: AppContainer, appTheme: AppTheme) {
             arguments = listOf(navArgument("key") { type = NavType.StringType }),
         ) { backStack ->
             val key = backStack.arguments!!.getString("key")!!
-            val vm = remember(key) { container.catalogDetailViewModelFactory.create(key) }
+            val publication = remember(key) { container.catalogDetailRegistry.get(key) }
             InsetSurface {
-                if (vm == null) {
+                if (publication == null) {
                     CatalogDetailUnavailable(onBack = { nav.popBackStack() })
                 } else {
+                    val vm: CatalogDetailViewModel = viewModel(
+                        factory = viewModelFactory {
+                            initializer { checkNotNull(container.catalogDetailViewModelFactory.create(key)) }
+                        },
+                    )
                     CatalogDetailScreen(viewModel = vm, onBack = { nav.popBackStack() })
                 }
             }
         }
         composable("scan") {
-            val vm = remember {
-                ScanViewModel(
-                    lookup = { isbn -> container.openLibraryClient.lookupByIsbn(isbn) },
-                    runAffinity = { body -> container.libraryClient.affinity(body) },
-                    onReauth = { container.credentialStore.notifyUnauthorized() },
-                )
-            }
+            val vm: ScanViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer {
+                        ScanViewModel(
+                            lookup = { isbn -> container.openLibraryClient.lookupByIsbn(isbn) },
+                            runAffinity = { body -> container.libraryClient.affinity(body) },
+                            onReauth = { container.credentialStore.notifyUnauthorized() },
+                        )
+                    }
+                },
+            )
             ScanScreen(
                 viewModel = vm,
                 onResult = { data ->
@@ -320,9 +351,13 @@ fun AppNavGraph(container: AppContainer, appTheme: AppTheme) {
             if (data == null) {
                 InsetSurface { CatalogDetailUnavailable(onBack = { nav.popBackStack() }) }
             } else {
-                val vm = remember(key) {
-                    ScanResultViewModel(data = data, ai = container.aiRepository)
-                }
+                val vm: ScanResultViewModel = viewModel(
+                    factory = viewModelFactory {
+                        initializer {
+                            ScanResultViewModel(data = data, ai = container.aiRepository)
+                        }
+                    },
+                )
                 ScanResultScreen(viewModel = vm, onBack = { nav.popBackStack() })
             }
         }
@@ -330,14 +365,18 @@ fun AppNavGraph(container: AppContainer, appTheme: AppTheme) {
             LicensesScreen(onBack = { nav.popBackStack() })
         }
         composable("library/stats") {
-            val vm = remember { container.libraryStatsViewModelFactory.create() }
+            val vm: LibraryStatsViewModel = viewModel(
+                factory = viewModelFactory { initializer { container.libraryStatsViewModelFactory.create() } },
+            )
             LibraryStatsScreen(
                 viewModel = vm,
                 onBack = { nav.popBackStack() },
             )
         }
         composable("library/insights") {
-            val vm = remember { container.libraryInsightsViewModelFactory.create() }
+            val vm: LibraryInsightsViewModel = viewModel(
+                factory = viewModelFactory { initializer { container.libraryInsightsViewModelFactory.create() } },
+            )
             val context = LocalContext.current
             val scope = rememberCoroutineScope()
             LibraryInsightsScreen(

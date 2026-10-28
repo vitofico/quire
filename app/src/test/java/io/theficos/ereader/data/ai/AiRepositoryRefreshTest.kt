@@ -65,6 +65,22 @@ class AiRepositoryRefreshTest {
         assertThat(outcome!!.anyFailed).isTrue()
     }
 
+    @Test fun `partial library preflight reports failure while profile refresh completes`() = runBlocking {
+        val repo = AiRepository(
+            client = client,
+            insightDao = insightDao,
+            syncRunner = { true },
+            libraryRunner = { false },
+        )
+        server.enqueue(MockResponse().setResponseCode(200).setBody(PROFILE_BODY))
+        var outcome: PreflightOutcome? = null
+        val response = repo.refreshProfile(onPreflightDone = { outcome = it })
+        assertThat(response.modelId).isEqualTo("test-model")
+        assertThat(outcome!!.progressSyncOk).isTrue()
+        assertThat(outcome!!.libraryUploadOk).isFalse()
+        assertThat(outcome!!.anyFailed).isTrue()
+    }
+
     @Test fun `refreshProfile fires network when preflight runners are null`() = runBlocking {
         val repo = AiRepository(
             client = client,

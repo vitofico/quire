@@ -8,6 +8,7 @@ import io.theficos.ereader.auth.AccountCredentials
 import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.core.identity.extractIdentity
 import io.theficos.ereader.core.metadata.readOpfBundle
+import io.theficos.ereader.core.metadata.validateEpubContainer
 import io.theficos.ereader.core.model.DocumentIdentity
 import io.theficos.ereader.data.ai.AiRepository
 import io.theficos.ereader.data.ai.CatalogInsightStash
@@ -22,6 +23,7 @@ import io.theficos.ereader.data.opds.OpdsPublication
 import io.theficos.ereader.data.opds.cleartextBlockedMessage
 import io.theficos.ereader.data.opds.redactUrl
 import io.theficos.ereader.data.sync.SyncEnqueuer
+import kotlinx.coroutines.Dispatchers
 import io.theficos.ereader.ui.UiText
 import io.theficos.ereader.ui.uiText
 import io.theficos.quire.R
@@ -34,6 +36,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class CatalogViewModel(
     private val client: OpdsClient,
@@ -62,6 +65,7 @@ class CatalogViewModel(
     fun setSort(next: CatalogSort) = catalogPreferencesStore.update(next)
 
     private val backStack = ArrayDeque<Pair<String, OpdsFeed>>()
+    private var failedSearch: Pair<CatalogUiState.Loaded, String>? = null
 
     val downloadedUrls: StateFlow<Set<String>> = docs.observeLibrary()
         .map { list -> list.map { it.downloadUrl }.toSet() }
@@ -104,6 +108,7 @@ class CatalogViewModel(
     }
 
     fun refresh() {
+        failedSearch = null
         val current = _state.value as? CatalogUiState.Loaded ?: return loadRoot()
         _isRefreshing.value = true
         viewModelScope.launch {
@@ -111,12 +116,13 @@ class CatalogViewModel(
                 .onSuccess { feed ->
                     _state.value = CatalogUiState.Loaded(current.url, feed, canGoBack = backStack.isNotEmpty())
                 }
-                .onFailure { _state.value = CatalogUiState.Error(describeFailure(it, uiText(R.string.common_fetch_failed))) }
+                .onFailure { fail(it, current.url, current, uiText(R.string.common_fetch_failed)) }
             _isRefreshing.value = false
         }
     }
 
     fun load(url: String) {
+        failedSearch = null
         val current = _state.value as? CatalogUiState.Loaded
         _state.value = CatalogUiState.Loading
         viewModelScope.launch {
@@ -125,30 +131,53 @@ class CatalogViewModel(
                     if (current != null) backStack.push(current.url to current.feed)
                     _state.value = CatalogUiState.Loaded(url, feed, canGoBack = backStack.isNotEmpty())
                 }
-                .onFailure { _state.value = CatalogUiState.Error(describeFailure(it, uiText(R.string.common_fetch_failed))) }
+                .onFailure { fail(it, url, current, uiText(R.string.common_fetch_failed)) }
         }
     }
 
     fun back(): Boolean {
         val (url, feed) = backStack.pollFirst() ?: return false
+        failedSearch = null
         _state.value = CatalogUiState.Loaded(url, feed, canGoBack = backStack.isNotEmpty())
         return true
     }
 
+    fun retry() {
+        val failed = _state.value as? CatalogUiState.Error ?: return
+        failedSearch?.let { (parent, query) ->
+            search(parent, query, retainParent = false)
+            return
+        }
+        failed.url?.let(::load) ?: loadRoot()
+    }
+
+    private fun fail(t: Throwable, url: String, previous: CatalogUiState.Loaded?, fallback: UiText) {
+        if (previous != null) backStack.push(previous.url to previous.feed)
+        _state.value = CatalogUiState.Error(describeFailure(t, fallback), url, backStack.isNotEmpty())
+    }
+
     fun search(query: String) {
         val current = _state.value as? CatalogUiState.Loaded ?: return
+        search(current, query, retainParent = true)
+    }
+
+    private fun search(current: CatalogUiState.Loaded, query: String, retainParent: Boolean) {
         val link = current.feed.searchLink ?: return
         if (query.isBlank()) return
         _state.value = CatalogUiState.Loading
         viewModelScope.launch {
+            var retryUrl = current.url
             runCatching {
                 val resolved = client.resolveSearchUrl(link, query.trim())
+                retryUrl = resolved
                 client.fetch(resolved) to resolved
             }.onSuccess { (feed, resolved) ->
-                backStack.push(current.url to current.feed)
-                _state.value = CatalogUiState.Loaded(resolved, feed, canGoBack = true)
+                failedSearch = null
+                if (retainParent) backStack.push(current.url to current.feed)
+                _state.value = CatalogUiState.Loaded(resolved, feed, canGoBack = backStack.isNotEmpty())
             }.onFailure {
-                _state.value = CatalogUiState.Error(describeFailure(it, uiText(R.string.common_search_failed)))
+                failedSearch = current to query
+                fail(it, retryUrl, current.takeIf { retainParent }, uiText(R.string.common_search_failed))
             }
         }
     }
@@ -207,7 +236,8 @@ class CatalogViewModel(
      * policy") reads like a crash report (issue #101).
      */
     private fun describeFailure(t: Throwable, fallback: UiText): UiText =
-        if (cleartextBlockedMessage(t) != null) uiText(R.string.error_cleartext_blocked)
+        if (t is InvalidDownloadedEpub) uiText(R.string.common_not_a_valid_epub)
+        else if (cleartextBlockedMessage(t) != null) uiText(R.string.error_cleartext_blocked)
         else t.message?.let(UiText::Dynamic) ?: fallback
 
     fun download(pub: OpdsPublication, context: Context) {
@@ -227,17 +257,23 @@ class CatalogViewModel(
                     val frac = if (total > 0) sent.toFloat() / total else 0f
                     _state.value = (_state.value as? CatalogUiState.Loaded)?.copy(progress = frac) ?: return@download
                 }
+                val identity = withContext(Dispatchers.IO) {
+                    if (!validateEpubContainer(file)) {
+                        file.delete()
+                        throw InvalidDownloadedEpub()
+                    }
+                    extractIdentity(file)
+                }
                 val coverFile = pub.coverUrl?.let { url ->
                     val coverName = fileName.removeSuffix(".epub") + ".cover"
                     downloader.downloadCover(url, coverName)
                 }
-                val identity = extractIdentity(file)
                 val existing = docs.findByIdentity(identity)
                 if (existing == null) {
                     // Best-effort: read the OPF for series metadata so PR8's
                     // continuity shelf can include this book the moment it lands.
                     // Failures fall back to a title-only bundle (no series).
-                    val opf = readOpfBundle(file, fallbackTitle = pub.title)
+                    val opf = withContext(Dispatchers.IO) { readOpfBundle(file, fallbackTitle = pub.title) }
                     val insertedId = docs.insert(
                         identity = identity,
                         title = pub.title,
@@ -261,8 +297,10 @@ class CatalogViewModel(
                     uploadJob?.join()
                     maybePromoteInsight(pub, identity)
                 } else {
-                    file.delete()
-                    coverFile?.delete()
+                    withContext(Dispatchers.IO) {
+                        file.delete()
+                        coverFile?.delete()
+                    }
                 }
             }.onSuccess {
                 // The book that just landed may have server-side progress that an
@@ -292,10 +330,12 @@ class CatalogViewModel(
     }
 }
 
+private class InvalidDownloadedEpub : Exception()
+
 sealed interface CatalogUiState {
     data object Idle : CatalogUiState
     data object Loading : CatalogUiState
-    data class Error(val message: UiText) : CatalogUiState
+    data class Error(val message: UiText, val url: String? = null, val canGoBack: Boolean = false) : CatalogUiState
     data class Loaded(
         val url: String,
         val feed: OpdsFeed,

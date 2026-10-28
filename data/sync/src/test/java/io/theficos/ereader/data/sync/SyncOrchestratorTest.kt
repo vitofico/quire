@@ -9,9 +9,12 @@ import io.theficos.ereader.data.local.db.DocumentEntity
 import io.theficos.ereader.data.local.db.EReaderDatabase
 import io.theficos.ereader.data.local.db.ProgressEntity
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
+import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -43,11 +46,9 @@ class SyncOrchestratorTest {
                 baseUrlProvider = { server.url("/").toString().trimEnd('/') },
                 okHttp = OkHttpClient(),
             ),
-            progressRepo = progress,
             progressDao = db.progressDao(),
             documentRepo = docs,
             syncState = db.syncStateDao(),
-            nowMillis = { 100L },
         )
     }
 
@@ -103,6 +104,37 @@ class SyncOrchestratorTest {
         val saved = progress.get(docId)
         assertThat(saved?.locator).isEqualTo("server-loc")
         assertThat(saved?.updatedAt).isEqualTo(500L)
+    }
+
+    @Test fun `save during push remains dirty and is sent by the next sync`() = runTest {
+        val docId = seedDoc(metadataId = "m", hash = "h")
+        seedProgress(docId, "before-push", 0.5, 50L)
+        var pushes = 0
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                if (request.method == "POST") {
+                    if (pushes++ == 0) {
+                        // The first snapshot is already on the wire when the reader saves again.
+                        runBlocking { seedProgress(docId, "during-push", 0.6, 75L) }
+                    }
+                    return MockResponse().setBody(
+                        """{"results":[{"document":{"metadata_id":"m","content_hash":"h"},"status":"accepted","server_client_updated_at":"1970-01-01T00:00:00.050Z"}]}"""
+                    )
+                }
+                return MockResponse().setBody(
+                    """{"items":[],"server_time":"1970-01-01T00:00:00.200Z"}"""
+                )
+            }
+        }
+
+        assertThat(orchestrator.runOnce()).isInstanceOf(SyncResult.Success::class.java)
+        assertThat(server.takeRequest().body.readUtf8()).contains("before-push")
+        server.takeRequest() // pull
+        assertThat(progress.dirty().single().locator).isEqualTo("during-push")
+
+        assertThat(orchestrator.runOnce()).isInstanceOf(SyncResult.Success::class.java)
+        assertThat(server.takeRequest().body.readUtf8()).contains("during-push")
+        assertThat(progress.dirty()).isEmpty()
     }
 
     @Test fun `pull defensive read drops abandonedAt when finishedAt is also set`() = runTest {

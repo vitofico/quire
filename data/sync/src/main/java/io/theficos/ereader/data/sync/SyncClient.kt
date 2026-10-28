@@ -1,6 +1,9 @@
 package io.theficos.ereader.data.sync
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
@@ -15,17 +18,17 @@ class SyncClient(
     private val json: Json = Json { ignoreUnknownKeys = true },
 ) {
 
-    suspend fun pushProgress(body: ProgressPushBody): SyncResult<ProgressPushResponse> {
-        val base = baseUrlProvider() ?: return SyncResult.Unauthorized
-        return post(base, SyncApi.PATH_PROGRESS_PUSH, body, ProgressPushBody.serializer(), ProgressPushResponse.serializer())
+    suspend fun pushProgress(body: ProgressPushBody): SyncResult<ProgressPushResponse> = withContext(Dispatchers.IO) {
+        val base = baseUrlProvider() ?: return@withContext SyncResult.Unauthorized
+        post(base, SyncApi.PATH_PROGRESS_PUSH, body, ProgressPushBody.serializer(), ProgressPushResponse.serializer())
     }
 
-    suspend fun pullProgress(sinceIso8601: String): SyncResult<ProgressPullResponse> {
-        val base = baseUrlProvider() ?: return SyncResult.Unauthorized
+    suspend fun pullProgress(sinceIso8601: String): SyncResult<ProgressPullResponse> = withContext(Dispatchers.IO) {
+        val base = baseUrlProvider() ?: return@withContext SyncResult.Unauthorized
         val url = (base.trimEnd('/') + SyncApi.PATH_PROGRESS_PULL).toHttpUrl()
             .newBuilder().addQueryParameter("since", sinceIso8601).build()
         val req = Request.Builder().url(url).get().build()
-        return execute(req, ProgressPullResponse.serializer())
+        execute(req, ProgressPullResponse.serializer())
     }
 
     private fun <Req, Resp> post(
@@ -49,7 +52,11 @@ class SyncClient(
             val raw = resp.body?.string().orEmpty()
             when {
                 resp.code == 401 -> SyncResult.Unauthorized
-                resp.isSuccessful -> SyncResult.Success(json.decodeFromString(serializer, raw))
+                resp.isSuccessful -> try {
+                    SyncResult.Success(json.decodeFromString(serializer, raw))
+                } catch (_: SerializationException) {
+                    SyncResult.HttpFailure(resp.code, "Invalid sync response")
+                }
                 else -> SyncResult.HttpFailure(resp.code, raw)
             }
         }

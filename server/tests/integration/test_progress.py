@@ -194,3 +194,90 @@ async def test_post_progress_lww_overwrites_finished_with_unfinished(app_under_t
     assert len(items) == 1
     assert items[0]["percent"] == 0.0
     assert items[0]["finished_at"] is None
+
+
+async def test_offline_progress_uploaded_after_cursor_is_returned(app_under_test):
+    """A new upload can predate another device's last successful pull."""
+    headers = _basic("alice", "alicepass")
+    transport = ASGITransport(app=app_under_test)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        before = await client.get(
+            "/sync/v1/progress", params={"since": "2026-01-01T00:00:00Z"}, headers=headers
+        )
+        assert before.status_code == 200
+        cursor = before.json()["server_time"]
+        pushed = await client.post(
+            "/sync/v1/progress",
+            headers=headers,
+            json={
+                "items": [
+                    {
+                        "document": {"content_hash": "offline-after-cursor"},
+                        "locator": "offline-chapter",
+                        "percent": 0.7,
+                        "client_updated_at": "2026-05-05T12:00:00Z",
+                    }
+                ]
+            },
+        )
+        assert pushed.status_code == 200, pushed.text
+        pulled = await client.get("/sync/v1/progress", params={"since": cursor}, headers=headers)
+        assert pulled.status_code == 200
+        offline = next(
+            item
+            for item in pulled.json()["items"]
+            if item["document"]["content_hash"] == "offline-after-cursor"
+        )
+        assert offline["locator"] == "offline-chapter"
+        # Snapshot replay stays safe for clients that keep advancing their cursor.
+        again = await client.get(
+            "/sync/v1/progress", params={"since": pulled.json()["server_time"]}, headers=headers
+        )
+        assert offline in again.json()["items"]
+
+
+@pytest.mark.parametrize("existing", [False, True])
+async def test_concurrent_progress_pushes_preserve_newest(app_under_test, existing):
+    """Independent request sessions must handle first creation and later LWW."""
+    import asyncio
+
+    headers = _basic("alice", "alicepass")
+    identity = {"metadata_id": f"concurrent-{existing}", "content_hash": f"concurrent-{existing}"}
+    transport = ASGITransport(app=app_under_test, raise_app_exceptions=False)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+
+        async def push(second):
+            return await client.post(
+                "/sync/v1/progress",
+                headers=headers,
+                json={
+                    "items": [
+                        {
+                            "document": identity,
+                            "locator": f"position-{second}",
+                            "percent": second / 100,
+                            "client_updated_at": f"2026-05-05T12:00:{second:02d}Z",
+                        }
+                    ]
+                },
+            )
+
+        if existing:
+            initial = await push(0)
+            assert initial.status_code == 200, initial.text
+        # Newest is launched first so completion order cannot substitute for LWW.
+        responses = await asyncio.gather(*(push(second) for second in range(12, 0, -1)))
+        assert all(response.status_code == 200 for response in responses), [
+            (response.status_code, response.text) for response in responses
+        ]
+        pulled = await client.get(
+            "/sync/v1/progress", params={"since": "2026-01-01T00:00:00Z"}, headers=headers
+        )
+        rows = [
+            item
+            for item in pulled.json()["items"]
+            if item["document"]["content_hash"] == identity["content_hash"]
+        ]
+        assert len(rows) == 1
+        assert rows[0]["locator"] == "position-12"
+        assert rows[0]["percent"] == 0.12
