@@ -85,6 +85,7 @@ What that does depends on the setting:
 | Setting | An empty value means |
 | --- | --- |
 | `QUIRE_SERVER_AI_BASE_URL`, `QUIRE_SERVER_AI_MODEL`, `QUIRE_SERVER_AI_API_KEY` | Unset, the same as no line. Spaces only count as empty too. |
+| `QUIRE_SERVER_AI_TEMPERATURE` | Omit `temperature` from provider requests. `none` (case-insensitive) does the same. |
 | `QUIRE_SERVER_AI_SOURCES` | Retrieval off. The default applies only when the line is missing. |
 | `QUIRE_SERVER_AI_PROMPT_VERSION` | The built-in prompt version, the same as the default. |
 | Numbers, `true`/`false` settings, fixed-choice settings, `QUIRE_SERVER_AI_TOKEN_SECRETS` | The server refuses to start. |
@@ -347,6 +348,16 @@ the next time one is requested, and that generation counts against the daily
 budget. Very small models sometimes cannot produce the card's structure
 (`provider_invalid_output`); the server's own hint names
 `gpt-oss:120b-cloud` on Ollama as a model known to work.
+
+#### `QUIRE_SERVER_AI_TEMPERATURE`
+
+- Type: number, decimals allowed, or empty / `none` (case-insensitive)
+- Default: `0.2`
+- Example: `QUIRE_SERVER_AI_TEMPERATURE=none`
+
+The sampling temperature sent with each chat-completions request. Set it to
+an empty value or `none` to omit `temperature` entirely for providers that
+reject it. A missing variable keeps the default of `0.2`.
 
 #### `QUIRE_SERVER_AI_API_KEY`
 

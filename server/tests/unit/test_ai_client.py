@@ -519,3 +519,39 @@ async def test_parse_failure_names_kinds_but_never_provider_output(caplog):
     # Nothing chained either: a traceback would print the ValidationError in full.
     assert exc.value.__cause__ is None
     assert exc.value.__suppress_context__ is True
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected"),
+    [
+        ({}, 0.2),
+        ({"temperature": None}, None),
+        ({"temperature": 0.0}, 0.0),
+        ({"temperature": 0.7}, 0.7),
+    ],
+)
+@pytest.mark.asyncio
+async def test_chat_structured_sends_optional_temperature(kwargs, expected):
+    seen: list[httpx.Request] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(req)
+        return httpx.Response(
+            200,
+            json=_make_chat_response(json.dumps({"schema_version": 2, "confidence": "low"})),
+        )
+
+    client = AIClient(
+        base_url="http://fake/v1",
+        api_key=None,
+        model="m",
+        transport=httpx.MockTransport(handler),
+        **kwargs,
+    )
+    await client.chat_structured(system="s", user="u", schema=BookInsightPayload, timeout_s=5.0)
+
+    body = json.loads(seen[0].content)
+    if expected is None:
+        assert "temperature" not in body
+    else:
+        assert body["temperature"] == expected
