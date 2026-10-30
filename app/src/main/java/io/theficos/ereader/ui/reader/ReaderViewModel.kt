@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import io.theficos.ereader.core.model.Document
 import io.theficos.ereader.core.model.Progress
 import io.theficos.ereader.data.local.DocumentRepository
+import io.theficos.ereader.data.local.HighlightRepository
 import io.theficos.ereader.data.local.ProgressRepository
 import io.theficos.ereader.reader.EpubAsset
 import io.theficos.ereader.reader.PAGE_START_ANCHOR_JS
@@ -40,12 +41,24 @@ class ReaderViewModel(
     private val progress: ProgressRepository,
     private val readium: ReadiumFactory,
     private val preferencesStore: ReaderPreferencesStore,
+    highlightRepository: HighlightRepository,
     // How the reader asks Readium whereabouts in the DOM the current page starts. A seam so
     // the re-anchor can be tested without a live WebView; see ReaderViewportResizeTest.
     private val readDomAnchor: suspend (EpubNavigatorFragment?) -> Locator? =
         ::readPageStartAnchor,
     private val nowMs: () -> Long = System::currentTimeMillis,
 ) : ViewModel() {
+
+    internal val highlighting = ReaderHighlights(highlightRepository, viewModelScope)
+
+    fun startHighlightMode() {
+        _chromeAutoHides.value = false
+        _chromeVisible.value = true
+        highlighting.enterMode()
+        highlighting.notify(uiText(R.string.reader_highlight_mode_hint))
+    }
+
+    fun finishHighlightMode() = highlighting.leaveMode()
 
     private val _state = MutableStateFlow<ReaderUiState>(ReaderUiState.Loading)
     val state: StateFlow<ReaderUiState> = _state.asStateFlow()
@@ -129,6 +142,7 @@ class ReaderViewModel(
             val lastSpineHref = publication.readingOrder.lastOrNull()?.url()
             _currentLocator.value = initialLocator
             _state.value = ReaderUiState.Open(doc, publication, initialLocator, savedProgress)
+            highlighting.attach(doc)
             tracker.attach(
                 documentId = doc.id,
                 locatorUpdates = locatorUpdates,

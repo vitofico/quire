@@ -79,6 +79,11 @@ jobs:
         with:
           packages: "platform-tools platforms;android-35 build-tools;34.0.0"
       - uses: gradle/actions/setup-gradle@4c125117fe7c5aed11272ec4213f602f012f89f2 # v5
+      - name: Reader structural-anchor browser tests
+        run: |
+          npm ci --prefix scripts
+          scripts/node_modules/.bin/playwright install --with-deps chromium
+          npm test --prefix scripts
       - name: Release tooling tests
         run: python3 -m unittest discover -s scripts/tests -p 'test_*.py'
       - id: version

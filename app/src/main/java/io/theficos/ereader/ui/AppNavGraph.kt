@@ -237,6 +237,7 @@ fun AppNavGraph(
                             progress = container.progressRepository,
                             readium = container.readiumFactory,
                             preferencesStore = container.readerPreferencesStore,
+                            highlightRepository = container.highlightRepository,
                         )
                     }
                 },

@@ -33,6 +33,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -59,6 +60,8 @@ fun ReaderTopBar(
     onBack: () -> Unit,
     onDetails: () -> Unit,
     onTypeSettings: () -> Unit,
+    highlightMode: Boolean,
+    onHighlightMode: () -> Unit,
     modifier: Modifier = Modifier,
     edgeToEdge: Boolean = false,
 ) {
@@ -96,12 +99,15 @@ fun ReaderTopBar(
                     Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.common_back))
                 }
                 Text(
-                    text = title,
+                    text = if (highlightMode) stringResource(R.string.reader_highlight_mode) else title,
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
                 )
+                TextButton(onClick = onHighlightMode) {
+                    Text(stringResource(if (highlightMode) R.string.reader_done else R.string.reader_highlight))
+                }
                 IconButton(onClick = onDetails) {
                     Icon(Icons.Outlined.Info, contentDescription = stringResource(R.string.common_book_details))
                 }

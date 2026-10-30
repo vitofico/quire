@@ -8,4 +8,23 @@
     <string name="reader_hide_the_status_and_navigation_bars_while">"Ocultar las barras de estado y navegación durante la lectura"</string>
     <string name="reader_sepia">"Sepia"</string>
     <string name="reader_dark_sepia">"Sepia oscuro"</string>
+    <string name="reader_highlight">"Resaltar"</string>
+    <string name="reader_done">"Listo"</string>
+    <string name="reader_highlight_mode">"Modo de resaltado"</string>
+    <string name="reader_highlight_mode_hint">"Selecciona texto para resaltarlo o toca un resaltado guardado. Desliza para pasar de página."</string>
+    <string name="reader_highlight_passage">"Resaltar pasaje"</string>
+    <string name="reader_edit_highlight">"Editar resaltado"</string>
+    <string name="reader_remove_highlight">"Eliminar resaltado"</string>
+    <string name="reader_copy_as_quote">"Copiar como cita"</string>
+    <string name="reader_book_quote">"Cita del libro"</string>
+    <string name="reader_quote_copied">"Cita copiada"</string>
+    <string name="reader_text_copied">"Texto copiado"</string>
+    <string name="reader_copy_failed">"No se pudo copiar el texto. Inténtalo de nuevo."</string>
+    <string name="reader_selection_unavailable">"No se pudo ubicar esta selección. Vuelve a seleccionarla."</string>
+    <string name="reader_highlights_unavailable">"Algunos resaltados ya no coinciden con esta edición y no se pueden mostrar."</string>
+    <string name="reader_highlights_load_failed">"No se pudieron cargar los resaltados. Vuelve a abrir el libro para reintentarlo."</string>
+    <string name="reader_highlight_save_failed">"No se pudo guardar el cambio. Inténtalo de nuevo."</string>
+    <string name="reader_highlight_yellow">"Amarillo"</string>
+    <string name="reader_highlight_green">"Verde"</string>
+    <string name="reader_highlight_pink">"Rosa"</string>
 </resources>

@@ -1,0 +1,13 @@
+{
+  "name": "quire-reader-tests",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/readium-structural-anchors.test.cjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}

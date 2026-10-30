@@ -13,8 +13,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ProgressEntity::class,
         SyncStateEntity::class,
         InsightEntity::class,
+        HighlightEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 abstract class EReaderDatabase : RoomDatabase() {
@@ -22,6 +23,7 @@ abstract class EReaderDatabase : RoomDatabase() {
     abstract fun progressDao(): ProgressDao
     abstract fun syncStateDao(): SyncStateDao
     abstract fun insightDao(): InsightDao
+    abstract fun highlightDao(): HighlightDao
 
     companion object {
         internal val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -170,6 +172,31 @@ abstract class EReaderDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS highlights (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        metadataId TEXT,
+                        contentHash TEXT NOT NULL,
+                        identityHashVersion INTEGER NOT NULL DEFAULT 1,
+                        locator TEXT NOT NULL,
+                        text TEXT NOT NULL,
+                        colour TEXT NOT NULL,
+                        bookTitle TEXT NOT NULL,
+                        bookAuthor TEXT,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL,
+                        deletedAt INTEGER
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_highlights_metadataId_deletedAt ON highlights(metadataId, deletedAt)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_highlights_contentHash_deletedAt ON highlights(contentHash, deletedAt)")
+            }
+        }
+
         fun build(context: Context): EReaderDatabase =
             Room.databaseBuilder(context, EReaderDatabase::class.java, "ereader.db")
                 .addMigrations(
@@ -181,6 +208,7 @@ abstract class EReaderDatabase : RoomDatabase() {
                     MIGRATION_6_7,
                     MIGRATION_7_8,
                     MIGRATION_8_9,
+                    MIGRATION_9_10,
                 )
                 .build()
     }
