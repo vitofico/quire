@@ -44,6 +44,7 @@ async def _truncate_ai_tables_between_tests(request, engine: AsyncEngine):
                 "external_source_cache, ai_usage_daily, "
                 "insight_identity_aliases, library_items, "
                 "reader_profiles, progress, documents, "
+                "highlights, highlight_sync_state, "
                 # Phase 0, task S-1: NativeAuth tables. Listed even when the
                 # test fixture defaults to CalibreWeb backend so opt-in
                 # NativeAuth tests start from a clean slate.

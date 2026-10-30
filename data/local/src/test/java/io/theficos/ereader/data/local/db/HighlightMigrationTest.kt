@@ -116,4 +116,32 @@ class HighlightMigrationTest {
             }
         }
     }
+    @Test fun `migration 10 to 11 keeps snapshots tombstones and progress and permits account UUID reuse`() {
+        helper.createDatabase("highlights-10-11.db", 10).use { db ->
+            db.execSQL("INSERT INTO highlights (id, metadataId, contentHash, locator, text, colour, bookTitle, bookAuthor, createdAt, updatedAt, deletedAt) VALUES ('saved', 'book', 'hash', ' exact locator ', 'quote', 'PINK', 'Title', 'Author', 10, 20, 20)")
+            db.execSQL("INSERT INTO sync_state (tableName, lastPulledAt) VALUES ('progress', 106)")
+        }
+        helper.runMigrationsAndValidate("highlights-10-11.db", 11, true, EReaderDatabase.MIGRATION_10_11).use { db ->
+            db.query("SELECT ownerScope, syncedAt, locator, text, bookAuthor, deletedAt FROM highlights WHERE id='saved'").use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.getString(0)).isEmpty()
+                assertThat(c.isNull(1)).isTrue()
+                assertThat(c.getString(2)).isEqualTo(" exact locator ")
+                assertThat(c.getString(3)).isEqualTo("quote")
+                assertThat(c.getString(4)).isEqualTo("Author")
+                assertThat(c.getLong(5)).isEqualTo(20)
+            }
+            db.execSQL("INSERT INTO highlights (ownerScope, id, contentHash, locator, text, colour, bookTitle, createdAt, updatedAt) VALUES ('account-a', 'saved', 'hash', 'locator', 'A quote', 'GREEN', 'Title', 10, 10)")
+            db.query("SELECT COUNT(*) FROM highlights WHERE id='saved'").use { c ->
+                c.moveToFirst()
+                assertThat(c.getInt(0)).isEqualTo(2)
+            }
+            db.query("SELECT lastPulledAt FROM sync_state WHERE tableName='progress'").use { c ->
+                c.moveToFirst()
+                assertThat(c.getLong(0)).isEqualTo(106)
+            }
+            db.query("PRAGMA foreign_key_list('highlights')").use { c -> assertThat(c.count).isEqualTo(0) }
+        }
+    }
+
 }

@@ -132,7 +132,7 @@ async def test_status_reports_what_the_server_runs_with(admin_client, alice):
     assert isinstance(body["modes"], list)
     assert isinstance(body["warnings"], list)
     assert body["migrations"]["missing"] == []
-    assert body["migrations"]["applied"] == ["ai_009", "auth_003", "progress_003"]
+    assert body["migrations"]["applied"] == ["ai_009", "auth_003", "progress_004"]
     rows = {row["name"]: row for row in body["settings"]}
     assert rows["QUIRE_SERVER_ADMIN_USERS"] == {
         "name": "QUIRE_SERVER_ADMIN_USERS",

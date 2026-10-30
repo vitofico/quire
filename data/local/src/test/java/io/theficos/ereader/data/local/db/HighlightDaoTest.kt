@@ -55,4 +55,76 @@ class HighlightDaoTest {
         assertThat(dao.findById("same")).isEqualTo(tombstone)
         assertThat(dao.observeActive("metadata", "hash").first()).isEmpty()
     }
+    @Test fun `atomic scoped writes cannot edit or delete another account's annotation`() = runTest {
+        dao.insert(row("same").copy(ownerScope = "account-a"))
+        dao.insert(row("same").copy(ownerScope = "account-b", text = "B quote"))
+        dao.setColour("same", "PINK", 20, "account-b")
+        dao.softDelete("same", 21, "account-b")
+        assertThat(dao.findById("same", "account-a")!!.colour).isEqualTo("YELLOW")
+        assertThat(dao.findById("same", "account-a")!!.deletedAt).isNull()
+        assertThat(dao.findById("same", "account-b")!!.deletedAt).isEqualTo(21)
+        assertThat(dao.observeActive("metadata", "hash", "account-a").first().map { it.text }).containsExactly("quote")
+    }
+
+    @Test fun `claim resolves UUID collision deterministically without rebinding foreign rows`() = runTest {
+        dao.insert(row("same").copy(updatedAt = 20, deletedAt = 20))
+        dao.insert(row("same").copy(ownerScope = "account-a", identityHashVersion = 2))
+        dao.insert(row("same").copy(ownerScope = "account-b", text = "B quote"))
+        db.highlightSyncDao().claimUnowned("account-a")
+        assertThat(db.highlightSyncDao().unowned()).isEmpty()
+        assertThat(dao.findById("same", "account-a")!!.deletedAt).isEqualTo(20)
+        assertThat(dao.findById("same", "account-a")!!.identityHashVersion).isEqualTo(2)
+        assertThat(dao.findById("same", "account-b")!!.text).isEqualTo("B quote")
+        assertThat(db.highlightSyncDao().dirty("account-a")).hasSize(1)
+    }
+
+    @Test fun `zero timestamp snapshots are dirty until acknowledged`() = runTest {
+        val zero = row("zero").copy(ownerScope = "account-a", createdAt = 0, updatedAt = 0)
+        dao.insert(zero)
+        assertThat(db.highlightSyncDao().dirty("account-a")).hasSize(1)
+        db.highlightSyncDao().merge(listOf(zero))
+        assertThat(db.highlightSyncDao().dirty("account-a")).isEmpty()
+    }
+
+    @Test fun `UTF8 comparator agrees with Unicode codepoint order beyond BMP and preserves null author tie`() {
+        val supplementary = row("same").copy(text = "\uD800\uDC00")
+        val bmp = row("same").copy(text = "\uE000")
+        assertThat(compareHighlights(supplementary, bmp)).isGreaterThan(0)
+        assertThat(compareHighlights(row("same").copy(bookAuthor = ""), row("same"))).isGreaterThan(0)
+    }
+
+    @Test fun `hash version never regresses and composite payload winners remain dirty`() = runTest {
+        val newer = row("same").copy(ownerScope = "account-a", updatedAt = 20, text = "Local edit", syncedAt = 20)
+        dao.insert(newer)
+        val stale = newer.copy(updatedAt = 10, text = "Stale remote", identityHashVersion = 3)
+        db.highlightSyncDao().merge(listOf(stale))
+        val merged = db.highlightSyncDao().find("account-a", "same")!!
+        assertThat(merged.text).isEqualTo("Local edit")
+        assertThat(merged.identityHashVersion).isEqualTo(3)
+        assertThat(db.highlightSyncDao().dirty("account-a")).hasSize(1)
+        db.highlightSyncDao().merge(listOf(merged.copy(identityHashVersion = 1, text = "New remote", updatedAt = 30)))
+        val latest = db.highlightSyncDao().find("account-a", "same")!!
+        assertThat(latest.identityHashVersion).isEqualTo(3)
+        assertThat(latest.text).isEqualTo("New remote")
+        assertThat(db.highlightSyncDao().dirty("account-a")).hasSize(1)
+        db.highlightSyncDao().merge(listOf(latest))
+        assertThat(db.highlightSyncDao().dirty("account-a")).isEmpty()
+    }
+
+    @Test fun `equal clock payload comparison normalizes both hash versions before deciding winner`() = runTest {
+        val green = row("same").copy(ownerScope = "account-a", identityHashVersion = 2, colour = "GREEN", syncedAt = 10)
+        val yellow = green.copy(identityHashVersion = 1, colour = "YELLOW")
+        dao.insert(green)
+        db.highlightSyncDao().merge(listOf(yellow))
+        val winner = db.highlightSyncDao().find("account-a", "same")!!
+        assertThat(winner.colour).isEqualTo("YELLOW")
+        assertThat(winner.identityHashVersion).isEqualTo(2)
+        assertThat(db.highlightSyncDao().dirty("account-a")).hasSize(1)
+        db.highlightSyncDao().put(yellow)
+        db.highlightSyncDao().merge(listOf(green))
+        val reversed = db.highlightSyncDao().find("account-a", "same")!!
+        assertThat(reversed.colour).isEqualTo(winner.colour)
+        assertThat(reversed.identityHashVersion).isEqualTo(winner.identityHashVersion)
+    }
+
 }

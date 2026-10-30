@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         InsightEntity::class,
         HighlightEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = true,
 )
 abstract class EReaderDatabase : RoomDatabase() {
@@ -24,6 +24,7 @@ abstract class EReaderDatabase : RoomDatabase() {
     abstract fun syncStateDao(): SyncStateDao
     abstract fun insightDao(): InsightDao
     abstract fun highlightDao(): HighlightDao
+    abstract fun highlightSyncDao(): HighlightSyncDao
 
     companion object {
         internal val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -197,6 +198,28 @@ abstract class EReaderDatabase : RoomDatabase() {
             }
         }
 
+        /** Keep existing offline annotations unowned until a successful authenticated sync. */
+        internal val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE highlights_scoped (
+                        id TEXT NOT NULL, metadataId TEXT, contentHash TEXT NOT NULL,
+                        identityHashVersion INTEGER NOT NULL DEFAULT 1,
+                        locator TEXT NOT NULL, text TEXT NOT NULL, colour TEXT NOT NULL,
+                        bookTitle TEXT NOT NULL, bookAuthor TEXT, createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL, deletedAt INTEGER,
+                        ownerScope TEXT NOT NULL DEFAULT '', syncedAt INTEGER DEFAULT NULL,
+                        PRIMARY KEY(ownerScope, id)
+                    )
+                """.trimIndent())
+                db.execSQL("INSERT INTO highlights_scoped (id, metadataId, contentHash, identityHashVersion, locator, text, colour, bookTitle, bookAuthor, createdAt, updatedAt, deletedAt) SELECT id, metadataId, contentHash, identityHashVersion, locator, text, colour, bookTitle, bookAuthor, createdAt, updatedAt, deletedAt FROM highlights")
+                db.execSQL("DROP TABLE highlights")
+                db.execSQL("ALTER TABLE highlights_scoped RENAME TO highlights")
+                db.execSQL("CREATE INDEX index_highlights_metadataId_deletedAt ON highlights(metadataId, deletedAt)")
+                db.execSQL("CREATE INDEX index_highlights_contentHash_deletedAt ON highlights(contentHash, deletedAt)")
+            }
+        }
+
         fun build(context: Context): EReaderDatabase =
             Room.databaseBuilder(context, EReaderDatabase::class.java, "ereader.db")
                 .addMigrations(
@@ -209,6 +232,7 @@ abstract class EReaderDatabase : RoomDatabase() {
                     MIGRATION_7_8,
                     MIGRATION_8_9,
                     MIGRATION_9_10,
+                    MIGRATION_10_11,
                 )
                 .build()
     }

@@ -39,7 +39,7 @@ async def test_readyz_returns_200_when_db_reachable_and_heads_applied(app_under_
     #     `scripts/migrate.py` and `health._required_heads`)
     #   * progress_003 (F-1, added `identity_hash_version` to
     #     `documents` + `library_items`)
-    assert body["heads_applied"] == ["ai_009", "auth_003", "progress_003"]
+    assert body["heads_applied"] == ["ai_009", "auth_003", "progress_004"]
 
 
 async def test_old_sync_health_path_is_404(app_under_test):

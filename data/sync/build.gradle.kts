@@ -17,6 +17,7 @@ android {
     }
     kotlinOptions { jvmTarget = "21" }
     testOptions { unitTests.isIncludeAndroidResources = true }
+    sourceSets.getByName("test").resources.srcDir("../../server/tests/fixtures")
 }
 
 dependencies {

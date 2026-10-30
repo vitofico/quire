@@ -10,8 +10,10 @@ import io.theficos.ereader.core.model.HighlightColour
 import io.theficos.ereader.data.local.db.DocumentEntity
 import io.theficos.ereader.data.local.db.EReaderDatabase
 import java.util.UUID
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -169,4 +171,70 @@ class HighlightRepositoryTest {
         }
         assertThat(repo.observe(document().identity).first()).isEmpty()
     }
+    @Test fun `open book observation follows account changes and edits never reach a foreign account`() = runTest {
+        val scope = MutableStateFlow("account-a")
+        repo = HighlightRepository(db.highlightDao(), nowMs = { now }, scopeProvider = { scope.value }, scopeFlow = scope)
+        val a = repo.create(document(), "locator", "A private quote", HighlightColour.YELLOW)
+        scope.value = "account-b"
+        val b = repo.create(document(), "locator", "B private quote", HighlightColour.GREEN)
+        scope.value = "account-a"
+        repo.observe(document().identity).test {
+            assertThat(awaitItem().map { it.id }).containsExactly(a.id)
+            scope.value = "account-b"
+            assertThat(awaitItem().map { it.id }).containsExactly(b.id)
+            repo.delete(a.id)
+            repo.setColour(a.id, HighlightColour.PINK)
+            assertThat(db.highlightDao().findById(a.id, "account-a")!!.deletedAt).isNull()
+            assertThat(db.highlightDao().findById(a.id, "account-a")!!.colour).isEqualTo("YELLOW")
+            scope.value = ""
+            assertThat(awaitItem()).isEmpty()
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test fun `offline rows stay visible and editable until first authenticated account claims them`() = runTest {
+        val offline = repo.create(document(), "locator", "Offline quote", HighlightColour.YELLOW)
+        val scope = MutableStateFlow("account-a")
+        repo = HighlightRepository(db.highlightDao(), nowMs = { now }, scopeProvider = { scope.value }, scopeFlow = scope)
+        assertThat(repo.observe(document().identity).first().map { it.id }).containsExactly(offline.id)
+        repo.setColour(offline.id, HighlightColour.PINK)
+        assertThat(db.highlightDao().findById(offline.id)!!.colour).isEqualTo("PINK")
+        db.highlightSyncDao().claimUnowned("account-a")
+        scope.value = "account-b"
+        assertThat(repo.observe(document().identity).first()).isEmpty()
+        scope.value = "account-a"
+        assertThat(repo.observe(document().identity).first().map { it.id }).containsExactly(offline.id)
+    }
+
+    @Test fun `OPDS account passages remain local and cannot be claimed by a later Quire account`() = runTest {
+        val scope = MutableStateFlow("local-opds-account")
+        repo = HighlightRepository(db.highlightDao(), nowMs = { now }, scopeProvider = { scope.value }, scopeFlow = scope)
+        val local = repo.create(document(), "locator", "Private OPDS quote", HighlightColour.GREEN)
+        scope.value = "quire-account"
+        db.highlightSyncDao().claimUnowned(scope.value)
+        assertThat(db.highlightSyncDao().dirty(scope.value)).isEmpty()
+        assertThat(repo.observe(document().identity).first()).isEmpty()
+        scope.value = "local-opds-account"
+        assertThat(repo.observe(document().identity).first().single().id).isEqualTo(local.id)
+    }
+
+    @Test fun `offline creation crossing authenticated claim is retained for next run`() = runTest {
+        val scope = MutableStateFlow("")
+        repo = HighlightRepository(
+            db.highlightDao(),
+            scopeProvider = { scope.value }, scopeFlow = scope,
+            nowMs = {
+                // Creation already captured its offline scope, then authentication/claim completes.
+                scope.value = "account-a"
+                runBlocking { db.highlightSyncDao().claimUnowned("account-a") }
+                100L
+            },
+        )
+        val pending = repo.create(document(), "locator", "Created during login", HighlightColour.YELLOW)
+        assertThat(db.highlightSyncDao().unowned().single().id).isEqualTo(pending.id)
+        db.highlightSyncDao().claimUnowned("account-a")
+        assertThat(db.highlightSyncDao().unowned()).isEmpty()
+        assertThat(db.highlightSyncDao().dirty("account-a").single().id).isEqualTo(pending.id)
+    }
+
 }
