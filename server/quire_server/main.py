@@ -440,6 +440,7 @@ def create_app() -> FastAPI:
                 base_url=settings.ai_base_url,
                 api_key=settings.ai_api_key,
                 model=settings.ai_model,
+                temperature=settings.ai_temperature,
             )
             # Issue #102: the admin status page's "test connection" button
             # probes through this same client.

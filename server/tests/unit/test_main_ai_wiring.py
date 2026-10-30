@@ -51,3 +51,17 @@ def test_orchestrator_gets_both_configured_timeouts(monkeypatch):
     orch = app.state.ai_orchestrator
     assert orch._profile_timeout_s == 600.0
     assert orch._ai_timeout_s == 42.0
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"), [(None, 0.2), ("", None), ("none", None), ("NoNe", None), ("0.7", 0.7)]
+)
+def test_ai_temperature_reaches_client(monkeypatch, raw, expected):
+    monkeypatch.setenv("QUIRE_SERVER_AI_BASE_URL", "http://stub/v1")
+    monkeypatch.setenv("QUIRE_SERVER_AI_MODEL", "m")
+    if raw is not None:
+        monkeypatch.setenv("QUIRE_SERVER_AI_TEMPERATURE", raw)
+
+    app = create_app()
+
+    assert app.state.ai_client._temperature == expected

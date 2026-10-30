@@ -184,11 +184,13 @@ class AIClient:
         base_url: str,
         api_key: str | None,
         model: str,
+        temperature: float | None = 0.2,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
         self._model = model
+        self._temperature = temperature
         self._transport = transport  # tests inject MockTransport; prod is None
         self._user_agent = "quire-server"
         # Issue #102: goes False the first time a provider turns down
@@ -337,9 +339,10 @@ class AIClient:
             "model": self._model,
             "messages": messages,
             "response_format": self._response_format(schema),
-            "temperature": 0.2,
             "stream": False,
         }
+        if self._temperature is not None:
+            body["temperature"] = self._temperature
         try:
             r = await http.post(f"{self._base_url}/chat/completions", json=body)
         except httpx.ConnectTimeout as e:
