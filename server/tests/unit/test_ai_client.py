@@ -256,6 +256,49 @@ async def test_provider_that_cannot_do_json_schema_falls_back_to_json_object():
 
 
 @pytest.mark.asyncio
+async def test_provider_that_refuses_json_object_too_gets_no_response_format():
+    # Anthropic's OpenAI-compatible endpoint, verbatim: it refuses schemas with
+    # free-form maps under strict mode, and refuses every non-json_schema type.
+    seen: list[httpx.Request] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(req)
+        fmt = json.loads(req.content).get("response_format")
+        if fmt and fmt["type"] == "json_schema":
+            message = (
+                "response_format.json_schema.schema: For 'object' type, "
+                "'additionalProperties: object' is not supported."
+            )
+        elif fmt:
+            message = "response_format.type: Input should be 'json_schema'"
+        else:
+            return httpx.Response(
+                200,
+                json=_make_chat_response(json.dumps({"schema_version": 2, "confidence": "low"})),
+            )
+        return httpx.Response(
+            400, json={"error": {"code": "invalid_request_error", "message": message}}
+        )
+
+    client = AIClient(
+        base_url="http://fake/v1",
+        api_key=None,
+        model="m",
+        transport=httpx.MockTransport(handler),
+    )
+    for _ in range(2):
+        out = await client.chat_structured(
+            system="s", user="u", schema=BookInsightPayload, timeout_s=5.0
+        )
+        assert isinstance(out, BookInsightPayload)
+
+    bodies = _bodies(seen)
+    modes = [b.get("response_format", {}).get("type") for b in bodies]
+    assert modes == ["json_schema", "json_object", None, None]
+    assert "properties" in bodies[2]["messages"][0]["content"]
+
+
+@pytest.mark.asyncio
 async def test_the_downgrade_is_remembered_so_the_next_call_skips_the_probe():
     seen: list[httpx.Request] = []
 

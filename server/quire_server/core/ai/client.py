@@ -11,8 +11,10 @@ Strategy:
    text tends to hand the schema straight back instead of filling it in
    (issue #102).
 2. If the provider turns that request down in a way that says it does not know
-   the mode, fall back once to `{"type": "json_object"}` with the schema inlined
-   in the system prompt, and keep that shape for the rest of this client's life.
+   the mode, fall back to `{"type": "json_object"}` with the schema inlined in
+   the system prompt. If it turns that down too (Anthropic accepts only strict
+   `json_schema` and refuses some schemas), send no `response_format` at all.
+   The client keeps the last shape that worked for the rest of its life.
    A rejection that reads like a real one (bad key, unknown model, rate limit)
    is never downgraded: it raises ProviderRejected as before.
 3. Parse the assistant message as JSON, then validate against the Pydantic
@@ -163,6 +165,9 @@ class _ResponseFormatUnsupported(ProviderRejected):
     """
 
 
+_WEAKER_FORMAT = {"json_schema": "json_object", "json_object": None}
+
+
 def _looks_like_mode_rejection(status_code: int, body: str) -> bool:
     """Does this 4xx mean "I don't know `json_schema`" or a genuine "no"?
 
@@ -197,7 +202,9 @@ class AIClient:
         # `json_schema` mode, and stays there. One AIClient serves the whole
         # process (see main.create_app), so the probe is paid once per deploy,
         # not once per insight.
-        self._native_schema = True
+        # Steps down json_schema -> json_object -> None (no response_format)
+        # each time the provider refuses the current shape.
+        self._format: str | None = "json_schema"
         # Goes True with the downgrade above, or the first time a provider shows
         # it accepted `json_schema` mode and ignored it, and stays there. Not
         # from the start: the schema text roughly triples the prompt.
@@ -213,15 +220,16 @@ class AIClient:
     ) -> T:
         async with self._build_client(timeout_s) as http:
             messages = self._compose_messages(system, user, schema)
-            try:
-                response_text = await self._do_call(http, messages, schema)
-            except _ResponseFormatUnsupported:
-                # The provider cannot enforce the schema itself, so go back to
-                # asking for any JSON object and paste the schema in the prompt.
-                self._native_schema = False
-                self._schema_in_prompt = True
-                messages = self._compose_messages(system, user, schema)
-                response_text = await self._do_call(http, messages, schema)
+            while True:
+                try:
+                    response_text = await self._do_call(http, messages, schema)
+                    break
+                except _ResponseFormatUnsupported:
+                    # The provider cannot enforce the schema itself, so ask for
+                    # less and paste the schema in the prompt.
+                    self._format = _WEAKER_FORMAT[self._format]
+                    self._schema_in_prompt = True
+                    messages = self._compose_messages(system, user, schema)
             try:
                 return self._parse(response_text, schema)
             except (json.JSONDecodeError, ValidationError) as first_err:
@@ -233,11 +241,11 @@ class AIClient:
                 first_kinds = _error_kinds(first_err, schema)
                 logger.info(
                     "ai.client.validation_retry error_class=%s errors=%d chars=%d "
-                    "native_schema=%s schema_in_prompt=%s kinds=%s",
+                    "format=%s schema_in_prompt=%s kinds=%s",
                     type(first_err).__name__,
                     _error_count(first_err),
                     len(response_text),
-                    self._native_schema,
+                    self._format,
                     self._schema_in_prompt,
                     first_kinds,
                 )
@@ -267,11 +275,11 @@ class AIClient:
                     second_kinds = _error_kinds(second_err, schema)
                     logger.info(
                         "ai.client.validation_failed error_class=%s errors=%d chars=%d "
-                        "native_schema=%s schema_in_prompt=%s kinds=%s",
+                        "format=%s schema_in_prompt=%s kinds=%s",
                         type(second_err).__name__,
                         _error_count(second_err),
                         len(retry_text),
-                        self._native_schema,
+                        self._format,
                         self._schema_in_prompt,
                         second_kinds,
                     )
@@ -306,9 +314,9 @@ class AIClient:
             {"role": "user", "content": user},
         ]
 
-    def _response_format(self, schema: type[T]) -> dict:
-        if not self._native_schema:
-            return {"type": "json_object"}
+    def _response_format(self, schema: type[T]) -> dict | None:
+        if self._format != "json_schema":
+            return {"type": self._format} if self._format else None
         # `strict` is what makes a provider constrain the tokens rather than
         # treat the schema as a hint. A provider that dislikes the schema under
         # strict mode answers 4xx naming `response_format`, which lands on the
@@ -338,9 +346,11 @@ class AIClient:
         body = {
             "model": self._model,
             "messages": messages,
-            "response_format": self._response_format(schema),
             "stream": False,
         }
+        response_format = self._response_format(schema)
+        if response_format is not None:
+            body["response_format"] = response_format
         if self._temperature is not None:
             body["temperature"] = self._temperature
         try:
@@ -360,7 +370,7 @@ class AIClient:
             raise ProviderUnreachable(f"provider {r.status_code}: {r.text[:200]}")
         if r.status_code >= 400:
             message = f"provider {r.status_code}: {r.text[:200]}"
-            if self._native_schema and _looks_like_mode_rejection(r.status_code, r.text):
+            if self._format and _looks_like_mode_rejection(r.status_code, r.text):
                 raise _ResponseFormatUnsupported(r.status_code, message)
             raise ProviderRejected(r.status_code, message)
 
