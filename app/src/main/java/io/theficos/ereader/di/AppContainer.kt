@@ -18,6 +18,7 @@ import io.theficos.ereader.data.library.sync.LibraryMirrorPushDependencies
 import io.theficos.ereader.data.library.sync.LibraryMirrorPushScheduler
 import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.ProgressRepository
+import io.theficos.ereader.data.local.HighlightRepository
 import io.theficos.ereader.data.local.db.EReaderDatabase
 import io.theficos.ereader.data.local.db.ProgressDao
 import io.theficos.ereader.data.opds.BookDownloader
@@ -93,6 +94,7 @@ class AppContainer(context: Context) {
     private val db: EReaderDatabase = EReaderDatabase.build(appContext)
     val documentRepository = DocumentRepository(db.documentDao())
     val progressRepository = ProgressRepository(db.progressDao())
+    val highlightRepository = HighlightRepository(db.highlightDao())
     val syncStateDao = db.syncStateDao()
     val readiumFactory = ReadiumFactory(appContext)
     val readerPreferencesStore = ReaderPreferencesStore(appContext)

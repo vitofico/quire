@@ -3,14 +3,11 @@ package io.theficos.ereader.ui.reader
 import android.app.Activity
 import android.content.Context
 import android.os.Build
-import android.view.GestureDetector
-import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.Window
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityManager
-import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -23,6 +20,8 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -30,6 +29,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -41,6 +41,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -53,10 +54,13 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import io.theficos.ereader.MainActivity
 import io.theficos.ereader.data.sync.SyncEnqueuer
+import io.theficos.ereader.core.model.Highlight
 import io.theficos.ereader.reader.ReaderPreferences
+import io.theficos.ereader.reader.ReaderHighlightSession
 import io.theficos.ereader.reader.declareReaderFonts
 import io.theficos.ereader.reader.toEpubPreferences
 import io.theficos.ereader.ui.components.QuireLoading
+import io.theficos.ereader.ui.uiText
 import io.theficos.ereader.ui.theme.AppTheme
 import io.theficos.quire.R
 import kotlinx.coroutines.delay
@@ -104,6 +108,15 @@ private fun ReaderScreenContent(
     val chromeAutoHides by viewModel.chromeAutoHides.collectAsState()
     val liveLocator by viewModel.currentLocator.collectAsState()
     val positions by viewModel.positions.collectAsState()
+    val highlights by viewModel.highlighting.items.collectAsState()
+    val highlightMode by viewModel.highlighting.mode.collectAsState()
+    val highlightEditor by viewModel.highlighting.editor.collectAsState()
+    val highlightBusy by viewModel.highlighting.busy.collectAsState()
+    val highlightError by viewModel.highlighting.error.collectAsState()
+    val notice by viewModel.highlighting.notice.collectAsState()
+    var selectionController by remember { mutableStateOf<ReaderSelectionController?>(null) }
+    var selectionActive by remember { mutableStateOf(false) }
+    val snackbar = remember { SnackbarHostState() }
     var dragPercent by remember { mutableStateOf<Double?>(null) }
     var dragPreview by remember { mutableStateOf<Locator?>(null) }
     val isDragging = dragPercent != null
@@ -111,6 +124,12 @@ private fun ReaderScreenContent(
     var showDetails by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
+    LaunchedEffect(notice) {
+        notice?.let { message ->
+            snackbar.showSnackbar(message.asString(context))
+            viewModel.highlighting.clearNotice(message)
+        }
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -150,12 +169,20 @@ private fun ReaderScreenContent(
         insetsController.show(WindowInsetsCompat.Type.systemBars())
         onClose()
     }
-    BackHandler { leaveReader() }
+    val handleBack: () -> Unit = {
+        when {
+            highlightEditor != null -> viewModel.highlighting.dismissEditor()
+            selectionActive -> selectionController?.dismissSelection()
+            highlightMode -> viewModel.finishHighlightMode()
+            else -> leaveReader()
+        }
+    }
+    BackHandler { handleBack() }
 
     LaunchedEffect(Unit) { viewModel.load() }
 
     val bookOpen = state is ReaderUiState.Open
-    LaunchedEffect(chromeVisible, chromeAutoHides, bookOpen, isDragging, showFontSheet, showDetails) {
+    LaunchedEffect(chromeVisible, chromeAutoHides, bookOpen, isDragging, showFontSheet, showDetails, highlightMode, selectionActive, highlightEditor) {
         // Only the reveal on opening the book hides itself (see chromeAutoHides), and its clock
         // starts once the book has opened: a book that takes seconds to parse otherwise lost its
         // bars before its first page appeared. Nor while a sheet is open (bars would
@@ -164,7 +191,7 @@ private fun ReaderScreenContent(
         val touchExploring = (context.getSystemService(Context.ACCESSIBILITY_SERVICE)
             as? AccessibilityManager)?.isTouchExplorationEnabled == true
         if (chromeVisible && chromeAutoHides && bookOpen && !isDragging && !showFontSheet && !showDetails &&
-            !touchExploring
+            !touchExploring && !highlightMode && !selectionActive && highlightEditor == null
         ) {
             delay(2_500)
             viewModel.setChromeVisible(false)
@@ -241,15 +268,31 @@ private fun ReaderScreenContent(
                             onToggleChrome = viewModel::toggleChrome,
                             chromeVisible = chromeVisible,
                             onPageLoaded = viewModel::reanchorViewport,
+                            highlights = highlights,
+                            highlightMode = highlightMode,
+                            onHighlightSelected = viewModel.highlighting::select,
+                            onHighlightActivated = viewModel.highlighting::edit,
+                            onSelectionChanged = { selectionActive = it },
+                            onControllerReady = {
+                                selectionController = it
+                                if (it == null) selectionActive = false
+                            },
+                            onMessage = { viewModel.highlighting.notify(uiText(it)) },
+                            bookTitle = s.document.title,
+                            bookAuthor = s.document.author,
                         )
                     }
 
                     ReaderTopBar(
-                        visible = chromeVisible,
+                        visible = chromeVisible || highlightMode,
                         title = s.document.title,
-                        onBack = leaveReader,
+                        onBack = handleBack,
                         onDetails = { showDetails = true },
                         onTypeSettings = { showFontSheet = true },
+                        highlightMode = highlightMode,
+                        onHighlightMode = {
+                            if (highlightMode) viewModel.finishHighlightMode() else viewModel.startHighlightMode()
+                        },
                         modifier = Modifier.align(Alignment.TopCenter),
                         edgeToEdge = immersive,
                     )
@@ -295,9 +338,20 @@ private fun ReaderScreenContent(
                     if (showDetails) {
                         detailsSheet { showDetails = false }
                     }
+                    highlightEditor?.let { editor ->
+                        HighlightEditorSheet(
+                            editor = editor,
+                            busy = highlightBusy,
+                            error = highlightError,
+                            onColour = viewModel.highlighting::saveColour,
+                            onRemove = viewModel.highlighting::remove,
+                            onDismiss = viewModel.highlighting::dismissEditor,
+                        )
+                    }
                 }
             }
         }
+        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(horizontal = 16.dp))
     }
 }
 
@@ -353,11 +407,28 @@ private fun ReaderContent(
     onToggleChrome: () -> Unit,
     chromeVisible: Boolean,
     onPageLoaded: () -> Unit,
+    highlights: List<Highlight>,
+    highlightMode: Boolean,
+    onHighlightSelected: (Locator) -> Unit,
+    onHighlightActivated: (String) -> Boolean,
+    onSelectionChanged: (Boolean) -> Unit,
+    onControllerReady: (ReaderSelectionController?) -> Unit,
+    onMessage: (Int) -> Unit,
+    bookTitle: String,
+    bookAuthor: String?,
 ) {
     val activity = LocalContext.current as FragmentActivity
     val containerId = rememberSaveable { View.generateViewId() }
     val tag = "reader-${publication.metadata.identifier ?: containerId}"
     var fragment by remember { mutableStateOf<EpubNavigatorFragment?>(null) }
+    var highlightSession by remember { mutableStateOf<ReaderHighlightSession?>(null) }
+    var selection by remember { mutableStateOf<ReaderSelectionController?>(null) }
+    val latestMode by rememberUpdatedState(highlightMode)
+    val latestHighlights by rememberUpdatedState(highlights)
+    val latestSelected by rememberUpdatedState(onHighlightSelected)
+    val latestActivated by rememberUpdatedState(onHighlightActivated)
+    val latestSelectionChanged by rememberUpdatedState(onSelectionChanged)
+    val latestMessage by rememberUpdatedState(onMessage)
 
     AndroidView(
         // Fills the page area, which is what ReaderPageArea measures as the viewport.
@@ -385,12 +456,26 @@ private fun ReaderContent(
             wrapper.onToggleChrome = onToggleChrome
             wrapper.chromeVisible = chromeVisible
             wrapper.tapNavigationEnabled = preferences.tapNavigationEnabled
+            wrapper.selectionModeEnabled = highlightMode
         },
     )
 
     DisposableEffect(publication) {
         val fm = activity.supportFragmentManager
         val factory = EpubNavigatorFactory(publication)
+        var session: ReaderHighlightSession? = null
+        val controller = ReaderSelectionController(
+            context = activity,
+            scope = activity.lifecycleScope,
+            navigator = { fragment },
+            captureHighlight = { session?.captureSelection() },
+            highlightMode = { latestMode },
+            onHighlight = { latestSelected(it) },
+            onMessage = { latestMessage(it) },
+            onSelectionChanged = { latestSelectionChanged(it) },
+            bookTitle = bookTitle,
+            bookAuthor = bookAuthor,
+        )
         // onPageChanged fires after the WebView re-paginates (both on user page turns
         // and on resize-driven re-pagination) — that's the moment the navigator can
         // honor go(anchor) precisely. onPageLoaded fires earlier, when chapter HTML
@@ -400,6 +485,7 @@ private fun ReaderContent(
         val paginationListener = object : EpubNavigatorFragment.PaginationListener {
             override fun onPageChanged(pageIndex: Int, totalPages: Int, locator: Locator) {
                 onPageLoaded()
+                session?.pageReady(locator)
             }
             override fun onPageLoaded() {}
         }
@@ -408,6 +494,7 @@ private fun ReaderContent(
             initialPreferences = preferences.toEpubPreferences(),
             paginationListener = paginationListener,
             configuration = EpubNavigatorFragment.Configuration(
+                selectionActionModeCallback = controller,
                 // Quire owns the reader's insets, so Readium must not also apply them.
                 //
                 // Left at its default (on), Readium pads its own page container by the
@@ -440,11 +527,22 @@ private fun ReaderContent(
             activity.classLoader,
             EpubNavigatorFragment::class.java.name,
         ) as EpubNavigatorFragment)
+        fragment = nav
+        session = ReaderHighlightSession(
+            context = activity,
+            navigator = nav,
+            scope = activity.lifecycleScope,
+            onActivated = { latestActivated(it) },
+            onUnavailable = { latestMessage(R.string.reader_highlights_unavailable) },
+        )
+        highlightSession = session
+        session?.submit(latestHighlights)
         fm.beginTransaction()
             .replace(containerId, nav, tag)
             .commitNow()
-        fragment = nav
         onNavigatorReady(nav)
+        selection = controller
+        onControllerReady(controller)
 
         val job = activity.lifecycleScope.launch {
             nav.currentLocator.collect { onLocator(it) }
@@ -452,6 +550,11 @@ private fun ReaderContent(
 
         onDispose {
             job.cancel()
+            controller.close()
+            session?.close()
+            selection = null
+            highlightSession = null
+            onControllerReady(null)
             fragment = null
             onNavigatorReady(null)
             fm.beginTransaction()
@@ -462,6 +565,10 @@ private fun ReaderContent(
 
     LaunchedEffect(preferences) {
         fragment?.submitPreferences(preferences.toEpubPreferences())
+    }
+    LaunchedEffect(highlights, highlightSession) { highlightSession?.submit(highlights) }
+    LaunchedEffect(highlightMode, selection) {
+        if (highlightMode) selection?.refreshMode() else selection?.dismissSelection()
     }
 }
 
@@ -619,49 +726,4 @@ private fun restoreBars(
     controller.isAppearanceLightStatusBars = original.lightStatus
     controller.isAppearanceLightNavigationBars = original.lightNav
     leaveImmersive(window, controller, original)
-}
-
-/**
- * Wraps the Readium [FragmentContainerView] and detects single taps via a
- * [GestureDetector] at the View layer. Tap events fire navigation callbacks;
- * swipes, long-presses and edge gestures flow naturally to children (the
- * Readium WebView gets its swipe-to-page) and to Android's system gesture
- * handler (predictive back). Compose overlays were tried first and don't
- * coexist with the WebView's gesture handling — see commit history.
- */
-private class ReaderTapDispatcher(context: Context) : FrameLayout(context) {
-    var onPrev: () -> Unit = {}
-    var onNext: () -> Unit = {}
-    var onToggleChrome: () -> Unit = {}
-    var chromeVisible: Boolean = false
-    var tapNavigationEnabled: Boolean = true
-
-    private val gesture = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
-        override fun onSingleTapUp(e: MotionEvent): Boolean {
-            val w = width.toFloat()
-            if (w <= 0f) return false
-            val frac = e.x / w
-            // While the controls show, a tap on the page puts them away rather than turning it:
-            // it is most likely a reach for a control that missed.
-            if (chromeVisible) {
-                onToggleChrome()
-            } else if (tapNavigationEnabled) {
-                when {
-                    frac < 0.33f -> onPrev()
-                    frac > 0.67f -> onNext()
-                    else -> onToggleChrome()
-                }
-            } else if (frac in 0.33f..0.67f) {
-                onToggleChrome()
-            }
-            return true
-        }
-    })
-
-    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-        // Observe the event for tap recognition without consuming — children
-        // (Readium's WebView) still receive every touch they need for swipe.
-        gesture.onTouchEvent(ev)
-        return super.dispatchTouchEvent(ev)
-    }
 }

@@ -48,6 +48,10 @@ credentials are included. See the [screenshot notes](docs/assets/README.md).
   OPDS catalog, then keep reading without a connection.
 - **Make the page comfortable.** Adjust the typeface, text size, line spacing
   and page theme. The reader's bars and menus take the page's colours.
+- **Keep passages.** Enter Highlight mode to save coloured passages, change
+  their colour or remove them. From a text selection, Copy as quote includes
+  the book title and author. [Highlights stay on your device](docs/reader-highlights.md),
+  including when you remove a download and later import the same book again.
 - **Keep a useful shelf.** Search, sort, continue reading, and filter finished
   or abandoned books. With Quire Server, Library Stats brings together reading
   counts and authors.

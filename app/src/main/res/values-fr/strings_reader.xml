@@ -8,4 +8,23 @@
     <string name="reader_hide_the_status_and_navigation_bars_while">"Masquer les barres d’état et de navigation pendant la lecture"</string>
     <string name="reader_sepia">"Sépia"</string>
     <string name="reader_dark_sepia">"Sépia sombre"</string>
+    <string name="reader_highlight">"Surligner"</string>
+    <string name="reader_done">"Terminé"</string>
+    <string name="reader_highlight_mode">"Mode surlignage"</string>
+    <string name="reader_highlight_mode_hint">"Sélectionnez le texte à surligner ou touchez un surlignage enregistré. Balayez pour tourner les pages."</string>
+    <string name="reader_highlight_passage">"Surligner le passage"</string>
+    <string name="reader_edit_highlight">"Modifier le surlignage"</string>
+    <string name="reader_remove_highlight">"Supprimer le surlignage"</string>
+    <string name="reader_copy_as_quote">"Copier comme citation"</string>
+    <string name="reader_book_quote">"Citation du livre"</string>
+    <string name="reader_quote_copied">"Citation copiée"</string>
+    <string name="reader_text_copied">"Texte copié"</string>
+    <string name="reader_copy_failed">"Impossible de copier le texte. Réessayez."</string>
+    <string name="reader_selection_unavailable">"Impossible de retrouver cette sélection. Essayez de la sélectionner à nouveau."</string>
+    <string name="reader_highlights_unavailable">"Certains surlignages ne correspondent plus à cette édition et ne peuvent pas être affichés."</string>
+    <string name="reader_highlights_load_failed">"Impossible de charger les surlignages. Rouvrez le livre pour réessayer."</string>
+    <string name="reader_highlight_save_failed">"Impossible d’enregistrer la modification. Réessayez."</string>
+    <string name="reader_highlight_yellow">"Jaune"</string>
+    <string name="reader_highlight_green">"Vert"</string>
+    <string name="reader_highlight_pink">"Rose"</string>
 </resources>

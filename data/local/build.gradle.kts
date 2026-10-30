@@ -27,6 +27,7 @@ android {
 
 dependencies {
     api(project(":core:model"))
+    implementation(project(":core:identity"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
     api(libs.room.runtime)
