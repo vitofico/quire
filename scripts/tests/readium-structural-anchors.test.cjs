@@ -352,3 +352,148 @@ test('XHTML CDATA is included in the structural binding even when native quote t
   assert.deepEqual(result, { count: 0, rejected: ['saved'] });
   await page.close();
 });
+
+async function navigationPage(body, { rtl = false, scroll = false, width = 400 } = {}) {
+  const page = await pageFor(body);
+  await page.setViewportSize({ width: Math.ceil(width), height: 240 });
+  await page.evaluate(({ rtl, scroll, width }) => {
+    document.documentElement.dir = rtl ? 'rtl' : 'ltr';
+    document.body.dir = rtl ? 'rtl' : 'ltr';
+    document.documentElement.style.setProperty('--USER__view', scroll ? 'readium-scroll-on' : 'readium-scroll-off');
+    const style = document.createElement('style');
+    style.textContent = `html{margin:0;overflow:${scroll ? 'auto' : 'hidden'}}body{margin:0;width:${width}px;font:18px/24px serif;` +
+      (scroll ? '' : `height:240px;column-width:${width}px;column-gap:0;column-fill:auto;`) + '}p{margin:0}';
+    document.head.append(style);
+    window.Android = { getViewportWidth: () => width * window.devicePixelRatio };
+    readium.scrollToPosition = value => {
+      if (value < 0 || value > 1) throw new Error('out of range');
+      const root = document.scrollingElement;
+      if (scroll) root.scrollTop = root.scrollHeight * value;
+      else {
+        const offset = root.scrollWidth * value * (rtl ? -1 : 1) + (rtl ? -1 : 1);
+        root.scrollLeft = offset - offset % width;
+      }
+    };
+    readium.scrollToStart = () => { document.scrollingElement.scrollLeft = 0; document.scrollingElement.scrollTop = 0; };
+  }, { rtl, scroll, width });
+  return page;
+}
+
+async function jumpAndProbe(page, anchor, selector, offset) {
+  return page.evaluate(({ locator, selector, offset }) => {
+    const result = window.quireStructuralAnchors.jump(locator);
+    const point = document.createRange();
+    point.setStart(document.querySelector(selector).firstChild, offset);
+    point.setEnd(document.querySelector(selector).firstChild, offset + 1);
+    const rect = point.getBoundingClientRect();
+    return { ...result, x: window.scrollX, y: window.scrollY,
+      targetVisible: rect.right > 0 && rect.left < innerWidth && rect.bottom > 0 && rect.top < innerHeight };
+  }, { locator: decoration(anchor).locator, selector, offset });
+}
+
+test('jump reaches a late identical occurrence in one text node spanning many pages and reflows', async () => {
+  const text = 'The same promise returns beside the river. '.repeat(160);
+  const page = await navigationPage('<p id="long">' + text + '</p>');
+  const offset = text.lastIndexOf('same promise');
+  const saved = await selectAndCapture(page, '#long', '#long', offset, offset + 12);
+  assert.ok(saved);
+  for (const font of [18, 25]) {
+    await page.evaluate(font => { document.body.style.fontSize = font + 'px'; readium.scrollToStart(); }, font);
+    const result = await jumpAndProbe(page, saved.anchor, '#long', offset);
+    assert.equal(result.available, true); assert.equal(result.visible, true); assert.equal(result.targetVisible, true);
+    assert.ok(result.x > 1200, 'must not land at the paragraph or first matching phrase');
+  }
+  await page.close();
+});
+
+test('jump to the second identical cross-paragraph range uses its first character rather than its union box', async () => {
+  const filler = 'A reader continues through another quiet room. '.repeat(90);
+  const page = await navigationPage('<p id="a">alpha starts here</p><p>beta ends here</p><p>' + filler + '</p><p id="c">alpha starts here</p><p id="d">beta ends here</p>');
+  const saved = await selectAndCapture(page, '#c', '#d', 3, 8);
+  const result = await jumpAndProbe(page, saved.anchor, '#c', 3);
+  assert.equal(result.targetVisible, true); assert.equal(result.visible, true); assert.ok(result.x > 800);
+  await page.close();
+});
+
+test('stale and malformed jump targets leave the existing viewport unchanged', async () => {
+  const page = await navigationPage('<p>' + 'A repeated sentence remains in this chapter. '.repeat(100) + '</p>');
+  const saved = await selectAndCapture(page, 'p', 'p', 3, 12);
+  const result = await page.evaluate(anchor => {
+    readium.scrollToPosition(0.5);
+    const x = scrollX;
+    const stale = { ...anchor, documentHash: '0'.repeat(64) };
+    const rejected = window.quireStructuralAnchors.jump({ href:'chapter.xhtml', locations:{quireDomRange:stale} });
+    const malformed = window.quireStructuralAnchors.jump({ href:'chapter.xhtml', locations:{quireDomRange:'{' } });
+    const mixed = window.quireStructuralAnchors.jump({href:'chapter.xhtml', locations:{quireDomRange:stale, quireViewportPosition:window.quireStructuralAnchors.position()}});
+    return { x, after:scrollX, rejected, malformed, mixed };
+  }, saved.anchor);
+  assert.equal(result.x, result.after); assert.equal(result.rejected.available, false); assert.equal(result.malformed.available, false); assert.equal(result.mixed.available, false);
+  await page.close();
+});
+
+test('scroll-mode jump exposes the precise late text rather than the paragraph beginning', async () => {
+  const text = 'A distant selection remains exact after reflow. '.repeat(100);
+  const page = await navigationPage('<p id="long">' + text + '</p>', { scroll:true });
+  const offset = text.lastIndexOf('selection');
+  const saved = await selectAndCapture(page, '#long', '#long', offset, offset + 9);
+  const result = await jumpAndProbe(page, saved.anchor, '#long', offset);
+  assert.equal(result.targetVisible, true); assert.equal(result.visible, true); assert.ok(result.y > 1000);
+  await page.close();
+});
+
+test('RTL negative columns expose the late selected character', async () => {
+  const text = 'A repeated phrase fills this paragraph again. '.repeat(100);
+  const page = await navigationPage('<p id="long">' + text + '</p>', { rtl:true });
+  const offset = text.lastIndexOf('phrase');
+  const saved = await selectAndCapture(page, '#long', '#long', offset, offset + 6);
+  const result = await jumpAndProbe(page, saved.anchor, '#long', offset);
+  assert.equal(result.targetVisible, true); assert.equal(result.visible, true); assert.ok(result.x < -800);
+  await page.close();
+});
+
+test('fractional native viewport widths preserve the selected late column', async () => {
+  const text = 'Fractional columns retain their exact target. '.repeat(100);
+  const page = await navigationPage('<p id="long">' + text + '</p>', { width:411.428571 });
+  const offset = text.lastIndexOf('exact target');
+  const saved = await selectAndCapture(page, '#long', '#long', offset, offset + 12);
+  const result = await jumpAndProbe(page, saved.anchor, '#long', offset);
+  assert.equal(result.targetVisible, true); assert.equal(result.visible, true); assert.ok(result.x > 800);
+  await page.close();
+});
+
+test('a viewport text pin can return to the original page after an exact jump and font reflow', async () => {
+  const text = 'A visible origin can be restored without ambiguous matching. '.repeat(100);
+  const page = await navigationPage('<p id="long">' + text + '</p>');
+  const offset = text.lastIndexOf('origin');
+  const saved = await selectAndCapture(page, '#long', '#long', offset, offset + 6);
+  const origin = await page.evaluate(() => {
+    readium.scrollToPosition(0.35);
+    return window.quireStructuralAnchors.viewport('chapter.xhtml');
+  });
+  assert.ok(origin);
+  await jumpAndProbe(page, saved.anchor, '#long', offset);
+  await page.evaluate(() => { document.body.style.fontSize = '25px'; });
+  const result = await page.evaluate(anchor => window.quireStructuralAnchors.jump({href:'chapter.xhtml',locations:{quireDomRange:anchor}}), origin.anchor);
+  assert.equal(result.visible, true);
+  await page.close();
+});
+
+test('textless image origin has a safe scroll snapshot and rejects changed nonzero layouts', async () => {
+  const page = await navigationPage('<img alt="" style="display:block;width:400px;height:240px"/><img alt="" style="display:block;width:400px;height:240px"/>');
+  const result = await page.evaluate(() => {
+    const api = window.quireStructuralAnchors;
+    const text = api.viewport('chapter.xhtml');
+    const origin = api.position();
+    readium.scrollToPosition(0.5);
+    const returned = api.restorePosition(origin, true);
+    readium.scrollToPosition(0.5);
+    const nonzero = api.position();
+    document.body.style.height = '200px';
+    const unchanged = scrollX;
+    const rejected = api.restorePosition(nonzero, true);
+    return { text, returned, rejected, unchanged, after:scrollX, nonzero };
+  });
+  assert.equal(result.text, null); assert.equal(result.returned.visible, true); assert.notEqual(result.nonzero.x, 0);
+  assert.equal(result.rejected.available, false); assert.equal(result.unchanged, result.after);
+  await page.close();
+});

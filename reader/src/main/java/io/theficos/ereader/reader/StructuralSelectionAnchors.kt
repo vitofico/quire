@@ -25,8 +25,41 @@ internal class StructuralSelectionAnchors(context: Context) {
         val anchor = snapshot.optJSONObject("anchor") ?: return null
         return page.copy(
             text = text,
-            locations = page.locations.copy(otherLocations = page.locations.otherLocations + (KEY to anchor.toString())),
+            locations = page.locations.copy(otherLocations = page.locations.otherLocations.filterKeys { it != VIEWPORT_POSITION_KEY } + (KEY to anchor.toString())),
         )
+    }
+
+    suspend fun viewport(navigator: EpubNavigatorFragment): Locator? {
+        val page = navigator.currentLocator.value
+        val raw = navigator.evaluateJavascript("$script\nJSON.stringify(window.quireStructuralAnchors.viewport(${JSONObject.quote(page.href.toString())}));")
+        if (navigator.currentLocator.value.href != page.href) return null
+        val snapshot = parseObject(raw)
+        if (snapshot == null) {
+            val position = parseObject(navigator.evaluateJavascript("JSON.stringify(window.quireStructuralAnchors.position());")) ?: return null
+            if (navigator.currentLocator.value.href != page.href) return null
+            return page.copy(text = Locator.Text(), locations = page.locations.copy(
+                otherLocations = mapOf(VIEWPORT_POSITION_KEY to position.toString()),
+            ))
+        }
+        val anchor = snapshot.optJSONObject("anchor") ?: return null
+        val text = snapshot.optJSONObject("text")?.let(Locator.Text::fromJSON) ?: return null
+        return page.copy(text = text, locations = page.locations.copy(
+            otherLocations = page.locations.otherLocations + (KEY to anchor.toString()),
+        ))
+    }
+
+    suspend fun navigate(navigator: EpubNavigatorFragment, locator: Locator, apply: Boolean, restoringOrigin: Boolean = false): NavigationProbe? {
+        if (!restoringOrigin && !isHighlightDestination(locator)) return null
+        locator.locations.otherLocations[VIEWPORT_POSITION_KEY]?.takeIf { restoringOrigin }?.let { position ->
+            val saved = JSONObject(position.toString())
+            val raw = navigator.evaluateJavascript("$script\nJSON.stringify(window.quireStructuralAnchors.restorePosition($saved, $apply));")
+            val result = parseObject(raw) ?: return null
+            return NavigationProbe(result.optBoolean("available"), result.optBoolean("visible"), result.optBoolean("moved"))
+        }
+        val method = if (apply) "jump" else "visible"
+        val raw = navigator.evaluateJavascript("$script\nJSON.stringify(window.quireStructuralAnchors.$method(${locator.toJSON()}));")
+        val result = parseObject(raw) ?: return null
+        return NavigationProbe(result.optBoolean("available"), result.optBoolean("visible"), result.optBoolean("moved"))
     }
 
     suspend fun prepare(navigator: EpubNavigatorFragment, group: String): Boolean {
@@ -85,3 +118,5 @@ internal class StructuralSelectionAnchors(context: Context) {
         }.getOrNull()
     }
 }
+
+internal data class NavigationProbe(val available: Boolean, val visible: Boolean, val moved: Boolean)

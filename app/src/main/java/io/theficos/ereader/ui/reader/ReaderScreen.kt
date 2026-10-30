@@ -43,6 +43,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -57,6 +59,7 @@ import io.theficos.ereader.data.sync.SyncEnqueuer
 import io.theficos.ereader.core.model.Highlight
 import io.theficos.ereader.reader.ReaderPreferences
 import io.theficos.ereader.reader.ReaderHighlightSession
+import io.theficos.ereader.reader.ReaderHighlightNavigator
 import io.theficos.ereader.reader.declareReaderFonts
 import io.theficos.ereader.reader.toEpubPreferences
 import io.theficos.ereader.ui.components.QuireLoading
@@ -114,6 +117,12 @@ private fun ReaderScreenContent(
     val highlightBusy by viewModel.highlighting.busy.collectAsState()
     val highlightError by viewModel.highlighting.error.collectAsState()
     val notice by viewModel.highlighting.notice.collectAsState()
+    val highlightsVisible by viewModel.highlightsVisible.collectAsState()
+    val highlightsLoading by viewModel.highlighting.loading.collectAsState()
+    val highlightsLoadError by viewModel.highlighting.loadError.collectAsState()
+    val jumpingHighlight by viewModel.jumpingHighlight.collectAsState()
+    val highlightJumpError by viewModel.highlightJumpError.collectAsState()
+    val highlightPositionUncertain by viewModel.highlightPositionUncertain.collectAsState()
     var selectionController by remember { mutableStateOf<ReaderSelectionController?>(null) }
     var selectionActive by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
@@ -171,6 +180,7 @@ private fun ReaderScreenContent(
     }
     val handleBack: () -> Unit = {
         when {
+            highlightsVisible -> if (highlightPositionUncertain) leaveReader() else viewModel.closeHighlights()
             highlightEditor != null -> viewModel.highlighting.dismissEditor()
             selectionActive -> selectionController?.dismissSelection()
             highlightMode -> viewModel.finishHighlightMode()
@@ -182,7 +192,7 @@ private fun ReaderScreenContent(
     LaunchedEffect(Unit) { viewModel.load() }
 
     val bookOpen = state is ReaderUiState.Open
-    LaunchedEffect(chromeVisible, chromeAutoHides, bookOpen, isDragging, showFontSheet, showDetails, highlightMode, selectionActive, highlightEditor) {
+    LaunchedEffect(chromeVisible, chromeAutoHides, bookOpen, isDragging, showFontSheet, showDetails, highlightMode, selectionActive, highlightEditor, highlightsVisible) {
         // Only the reveal on opening the book hides itself (see chromeAutoHides), and its clock
         // starts once the book has opened: a book that takes seconds to parse otherwise lost its
         // bars before its first page appeared. Nor while a sheet is open (bars would
@@ -191,7 +201,7 @@ private fun ReaderScreenContent(
         val touchExploring = (context.getSystemService(Context.ACCESSIBILITY_SERVICE)
             as? AccessibilityManager)?.isTouchExplorationEnabled == true
         if (chromeVisible && chromeAutoHides && bookOpen && !isDragging && !showFontSheet && !showDetails &&
-            !touchExploring && !highlightMode && !selectionActive && highlightEditor == null
+            !touchExploring && !highlightMode && !selectionActive && highlightEditor == null && !highlightsVisible
         ) {
             delay(2_500)
             viewModel.setChromeVisible(false)
@@ -263,6 +273,7 @@ private fun ReaderScreenContent(
                             preferences = preferences,
                             onLocator = viewModel::publishLocator,
                             onNavigatorReady = viewModel::bindNavigator,
+                            onHighlightNavigatorReady = viewModel::bindHighlightNavigator,
                             onPrev = viewModel::pageBackward,
                             onNext = viewModel::pageForward,
                             onToggleChrome = viewModel::toggleChrome,
@@ -288,6 +299,10 @@ private fun ReaderScreenContent(
                         title = s.document.title,
                         onBack = handleBack,
                         onDetails = { showDetails = true },
+                        onHighlights = {
+                            selectionController?.dismissSelection()
+                            viewModel.openHighlights()
+                        },
                         onTypeSettings = { showFontSheet = true },
                         highlightMode = highlightMode,
                         onHighlightMode = {
@@ -348,6 +363,27 @@ private fun ReaderScreenContent(
                             onDismiss = viewModel.highlighting::dismissEditor,
                         )
                     }
+                    if (highlightsVisible) {
+                        Dialog(
+                            onDismissRequest = handleBack,
+                            properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+                        ) {
+                            HighlightsScreen(
+                                bookTitle = s.document.title,
+                                items = remember(highlights, s.publication, highlightPositionUncertain) {
+                                    highlightListItems(highlights, s.publication.readingOrder).map {
+                                        if (highlightPositionUncertain) it.copy(canJump = false) else it
+                                    }
+                                },
+                                isLoading = highlightsLoading,
+                                jumpingId = jumpingHighlight,
+                                error = highlightJumpError ?: highlightsLoadError,
+                                onHighlightClick = viewModel::jumpToHighlight,
+                                onBack = handleBack,
+                                onRetry = if (highlightJumpError == null && highlightsLoadError != null) viewModel.highlighting::reload else null,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -402,6 +438,7 @@ private fun ReaderContent(
     preferences: ReaderPreferences,
     onLocator: (Locator) -> Unit,
     onNavigatorReady: (EpubNavigatorFragment?) -> Unit,
+    onHighlightNavigatorReady: (ReaderHighlightNavigator?) -> Unit,
     onPrev: () -> Unit,
     onNext: () -> Unit,
     onToggleChrome: () -> Unit,
@@ -464,6 +501,7 @@ private fun ReaderContent(
         val fm = activity.supportFragmentManager
         val factory = EpubNavigatorFactory(publication)
         var session: ReaderHighlightSession? = null
+        var highlightNavigation: ReaderHighlightNavigator? = null
         val controller = ReaderSelectionController(
             context = activity,
             scope = activity.lifecycleScope,
@@ -486,6 +524,7 @@ private fun ReaderContent(
             override fun onPageChanged(pageIndex: Int, totalPages: Int, locator: Locator) {
                 onPageLoaded()
                 session?.pageReady(locator)
+                highlightNavigation?.pageReady(locator)
             }
             override fun onPageLoaded() {}
         }
@@ -536,11 +575,13 @@ private fun ReaderContent(
             onUnavailable = { latestMessage(R.string.reader_highlights_unavailable) },
         )
         highlightSession = session
+        highlightNavigation = ReaderHighlightNavigator(activity, nav, activity.lifecycleScope)
         session?.submit(latestHighlights)
         fm.beginTransaction()
             .replace(containerId, nav, tag)
             .commitNow()
         onNavigatorReady(nav)
+        onHighlightNavigatorReady(highlightNavigation)
         selection = controller
         onControllerReady(controller)
 
@@ -552,6 +593,8 @@ private fun ReaderContent(
             job.cancel()
             controller.close()
             session?.close()
+            highlightNavigation?.close()
+            onHighlightNavigatorReady(null)
             selection = null
             highlightSession = null
             onControllerReady(null)

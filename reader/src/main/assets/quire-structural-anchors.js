@@ -237,5 +237,130 @@
     }
     return { rejectedIds };
   }
-  window.quireStructuralAnchors = { capture, prepare, diagnostics, validate, sha256 };
+  function firstPaintedRect(range) {
+    const nodes = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_CDATA_SECTION);
+    for (let node = nodes.nextNode(); node; node = nodes.nextNode()) {
+      if (insideIgnored(node) || !range.intersectsNode(node)) continue;
+      let hidden = false;
+      for (let element = node.parentElement; element; element = element.parentElement) {
+        const style = getComputedStyle(element);
+        if (style.visibility !== 'visible' || style.display === 'none' || Number(style.opacity) === 0) { hidden = true; break; }
+      }
+      if (hidden) continue;
+      const start = node === range.startContainer ? range.startOffset : 0;
+      const end = node === range.endContainer ? range.endOffset : node.length;
+      for (let offset = start; offset < end;) {
+        const length = node.data.codePointAt(offset) > 0xffff ? 2 : 1;
+        const point = document.createRange();
+        point.setStart(node, offset); point.setEnd(node, Math.min(offset + length, end));
+        // Whitespace at a line boundary can have a misleading zero-area caret rectangle.
+        if (/\S/u.test(point.toString())) {
+          const rect = Array.from(point.getClientRects()).find(r => r.width > 0 && r.height > 0);
+          if (rect) return rect;
+        }
+        offset += length;
+      }
+    }
+    throw new Error('range has no painted text');
+  }
+  function navigation(locator, apply) {
+    try {
+      if (!window.readium || readium.isFixedLayout || typeof readium.scrollToPosition !== 'function')
+        throw new Error('unsupported Readium navigation');
+      const range = resolve(locator);
+      const rect = firstPaintedRect(range);
+      const root = document.scrollingElement;
+      const style = document.documentElement.style;
+      const writing = getComputedStyle(document.body).writingMode;
+      if (!root || writing && writing !== 'horizontal-tb') throw new Error('unsupported writing mode');
+      // These mode/direction predicates and page width mirror the pinned Readium 3.0 script.
+      const scroll = ['--USER__view', '--USER__scroll'].some(k => style.getPropertyValue(k).trim() === 'readium-scroll-on');
+      const rtl = document.body.dir.toLowerCase() === 'rtl';
+      const width = window.Android && typeof Android.getViewportWidth === 'function'
+        ? Android.getViewportWidth() / window.devicePixelRatio : window.innerWidth;
+      let progression;
+      if (scroll) progression = (rect.top + window.scrollY) / root.scrollHeight;
+      else {
+        if (!Number.isFinite(width) || width <= 0) throw new Error('missing viewport');
+        // Choose the column containing the first character, not the paragraph's first column.
+        const leading = (rtl ? rect.right - 1 : rect.left + 1) + window.scrollX;
+        const page = rtl ? Math.max(0, Math.ceil(-leading / width)) : Math.floor(leading / width);
+        progression = page * width / root.scrollWidth;
+      }
+      if (!Number.isFinite(progression) || progression < -0.000001 || progression > 1.000001)
+        throw new Error('range outside navigation bounds');
+      const beforeX = window.scrollX, beforeY = window.scrollY;
+      if (apply) readium.scrollToPosition(Math.max(0, Math.min(1, progression)));
+      const after = firstPaintedRect(resolve(locator));
+      return { available: true, visible: after.right > 0 && after.left < window.innerWidth &&
+        after.bottom > 0 && after.top < window.innerHeight,
+        moved: beforeX !== window.scrollX || beforeY !== window.scrollY };
+    } catch (_) { return { available: false, visible: false, moved: false }; }
+  }
+  function viewport(href) {
+    try {
+      if (typeof document.caretRangeFromPoint !== 'function') return null;
+      const xs = [8, window.innerWidth / 2, window.innerWidth - 8];
+      if (document.body.dir.toLowerCase() === 'rtl') xs.reverse();
+      for (let y = 2; y < window.innerHeight; y += 24) {
+        for (const x of xs) {
+          const caret = document.caretRangeFromPoint(x, y);
+          if (!caret || !characterData(caret.startContainer) || insideIgnored(caret.startContainer)) continue;
+          const node = caret.startContainer;
+          for (let delta = 0; delta < 8; delta++) {
+            for (const offset of [caret.startOffset + delta, caret.startOffset - delta - 1]) {
+              if (offset < 0 || offset >= node.length) continue;
+              const range = document.createRange();
+              range.setStart(node, offset);
+              range.setEnd(node, Math.min(node.length, offset + (node.data.codePointAt(offset) > 0xffff ? 2 : 1)));
+              if (!range.toString().trim()) continue;
+              const rect = firstPaintedRect(range);
+              if (rect.right <= 0 || rect.left >= window.innerWidth || rect.bottom <= 0 || rect.top >= window.innerHeight) continue;
+              return { anchor: { version: VERSION, href, documentHash: contentHash(),
+                start: endpoint(range.startContainer, range.startOffset), end: endpoint(range.endContainer, range.endOffset),
+                quote: range.toString(), rangeText: rangeText(range) }, text: { highlight: range.toString() } };
+            }
+          }
+        }
+      }
+    } catch (_) { /* Unsupported layouts leave the reader's existing position untouched. */ }
+    return null;
+  }
+  function position() {
+    const root = document.scrollingElement;
+    const layout = ['width','height','fontFamily','fontSize','lineHeight','columnWidth','columnGap','columnCount','writingMode']
+      .map(key => getComputedStyle(document.body)[key]);
+    layout.push(Array.from(document.querySelectorAll('img,svg,canvas,video,object')).filter(el => !insideIgnored(el))
+      .map(el => { const r = el.getBoundingClientRect(); return [r.left + scrollX, r.top + scrollY, r.width, r.height]; }));
+    return root ? { documentHash: contentHash(), x: window.scrollX, y: window.scrollY,
+      width: window.innerWidth, height: window.innerHeight, scrollWidth: root.scrollWidth,
+      scrollHeight: root.scrollHeight, direction: document.body.dir.toLowerCase(),
+      scroll: ['--USER__view', '--USER__scroll'].some(k => document.documentElement.style.getPropertyValue(k).trim() === 'readium-scroll-on'),
+      layout: JSON.stringify(layout) } : null;
+  }
+  function restorePosition(saved, apply) {
+    try {
+      const now = position();
+      if (!saved || !now || saved.documentHash !== now.documentHash ||
+          ![saved.x, saved.y, saved.width, saved.height, saved.scrollWidth, saved.scrollHeight].every(Number.isFinite))
+        throw new Error('missing origin position');
+      const atStart = saved.x === 0 && saved.y === 0;
+      if (!atStart && ['width','height','scrollWidth','scrollHeight','direction','scroll','layout'].some(key => saved[key] !== now[key]))
+        throw new Error('origin layout changed');
+      const beforeX = window.scrollX, beforeY = window.scrollY;
+      if (apply) {
+        if (atStart && window.readium && typeof readium.scrollToStart === 'function') readium.scrollToStart();
+        else if (saved.x !== beforeX || saved.y !== beforeY) {
+          const progress = saved.scroll ? saved.y / saved.scrollHeight : Math.abs(saved.x) / saved.scrollWidth;
+          if (!window.readium || typeof readium.scrollToPosition !== 'function' || progress < 0 || progress > 1)
+            throw new Error('unsupported origin navigation');
+          readium.scrollToPosition(progress);
+        }
+      }
+      return { available: true, visible: Math.abs(window.scrollX - saved.x) < 2 && Math.abs(window.scrollY - saved.y) < 2,
+        moved: beforeX !== window.scrollX || beforeY !== window.scrollY };
+    } catch (_) { return { available: false, visible: false, moved: false }; }
+  }
+  window.quireStructuralAnchors = { capture, prepare, diagnostics, validate, sha256,
+    jump: locator => navigation(locator, true), visible: locator => navigation(locator, false), viewport, position, restorePosition };
 })();

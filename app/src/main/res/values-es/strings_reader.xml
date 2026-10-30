@@ -27,4 +27,18 @@
     <string name="reader_highlight_yellow">"Amarillo"</string>
     <string name="reader_highlight_green">"Verde"</string>
     <string name="reader_highlight_pink">"Rosa"</string>
+    <string name="reader_highlights_title">"Resaltados"</string>
+    <string name="reader_highlights_empty">"Aún no hay resaltados"</string>
+    <string name="reader_highlights_empty_hint">"Selecciona texto en el modo de resaltado para guardar pasajes de este libro."</string>
+    <string name="reader_highlights_loading">"Cargando resaltados…"</string>
+    <string name="reader_highlight_open">"Ir al resaltado"</string>
+    <string name="reader_highlight_opening">"Abriendo resaltado…"</string>
+    <string name="reader_highlight_location_unavailable">"Ubicación no disponible en esta edición"</string>
+    <string name="reader_highlight_jump_failed">"No se pudo abrir este resaltado. Inténtalo de nuevo."</string>
+    <string name="reader_highlight_chapter">"Capítulo %1$d"</string>
+    <string name="reader_highlight_show_more">"Mostrar cita completa"</string>
+    <string name="reader_highlight_show_less">"Mostrar menos"</string>
+    <string name="reader_highlights_retry">"Reintentar"</string>
+    <string name="reader_highlights_load_error">"No se pudieron cargar los resaltados. Inténtalo de nuevo."</string>
+    <string name="reader_highlight_return_failed">"No se pudo volver a la página anterior. Cierra el libro y vuelve a abrirlo para regresar a tu posición guardada."</string>
 </resources>

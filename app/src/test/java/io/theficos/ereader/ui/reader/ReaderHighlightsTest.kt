@@ -15,6 +15,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
@@ -34,6 +35,31 @@ class ReaderHighlightsTest {
     private val repository = HighlightRepository(dao, nowMs = { 100L }, newId = { "highlight-${++sequence}" })
     private val book = Document(1L, DocumentIdentity(metadataId = "book", contentHash = "hash"), "Title", "Author", "local:", "unused", null, 0)
     private val selected = Locator(Url("chapter.xhtml")!!, MediaType.XHTML, text = Locator.Text(highlight = "A selected passage."))
+
+    @Test fun `list loading ends only after the identity query emits and a load failure can be retried`() = runTest {
+        val saved = repository.create(book, selected.toJSON().toString(), "Saved quote", HighlightColour.GREEN)
+        val state = ReaderHighlights(repository, backgroundScope)
+        state.attach(book)
+        assertThat(state.loading.value).isTrue()
+        runCurrent()
+        assertThat(state.loading.value).isFalse()
+        assertThat(state.items.value.single().id).isEqualTo(saved.id)
+
+        dao.failLoads = true
+        state.reload()
+        assertThat(state.loading.value).isTrue()
+        runCurrent()
+        assertThat(state.loading.value).isFalse()
+        assertThat(state.loadError.value).isEqualTo(uiText(R.string.reader_highlights_load_error))
+        assertThat(state.items.value.single().text).isEqualTo("Saved quote")
+
+        dao.failLoads = false
+        state.reload()
+        runCurrent()
+        assertThat(state.loadError.value).isNull()
+        assertThat(state.notice.value).isNull()
+        assertThat(state.items.value.single().id).isEqualTo(saved.id)
+    }
 
     @Test fun `selection editing is scoped to highlight mode and Back can close editor before mode`() = runTest {
         val state = ReaderHighlights(repository, backgroundScope)
@@ -153,6 +179,7 @@ class ReaderHighlightsTest {
     private class EditingDao : HighlightDao {
         val rows = MutableStateFlow<List<HighlightEntity>>(emptyList())
         var failWrites = false
+        var failLoads = false
         var insertGate: CompletableDeferred<Unit>? = null
         override suspend fun insert(highlight: HighlightEntity) {
             insertGate?.await()
@@ -160,7 +187,9 @@ class ReaderHighlightsTest {
             rows.value = rows.value + highlight
         }
         override suspend fun findById(id: String) = rows.value.firstOrNull { it.id == id }
-        override fun observeActive(metadataId: String?, contentHash: String?): Flow<List<HighlightEntity>> = rows.map { all ->
+        override fun observeActive(metadataId: String?, contentHash: String?): Flow<List<HighlightEntity>> = if (failLoads) flow {
+            throw IOException("test load failure")
+        } else rows.map { all ->
             all.filter { it.deletedAt == null && ((metadataId != null && it.metadataId == metadataId) ||
                 (contentHash != null && it.contentHash == contentHash)) }
         }

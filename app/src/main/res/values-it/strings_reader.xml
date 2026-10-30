@@ -27,4 +27,18 @@
     <string name="reader_highlight_yellow">"Giallo"</string>
     <string name="reader_highlight_green">"Verde"</string>
     <string name="reader_highlight_pink">"Rosa"</string>
+    <string name="reader_highlights_title">"Evidenziazioni"</string>
+    <string name="reader_highlights_empty">"Nessuna evidenziazione"</string>
+    <string name="reader_highlights_empty_hint">"Seleziona il testo in modalità Evidenziazione per salvare i passaggi di questo libro."</string>
+    <string name="reader_highlights_loading">"Caricamento delle evidenziazioni…"</string>
+    <string name="reader_highlight_open">"Vai all’evidenziazione"</string>
+    <string name="reader_highlight_opening">"Apertura dell’evidenziazione…"</string>
+    <string name="reader_highlight_location_unavailable">"Posizione non disponibile in questa edizione"</string>
+    <string name="reader_highlight_jump_failed">"Impossibile aprire questa evidenziazione. Riprova."</string>
+    <string name="reader_highlight_chapter">"Capitolo %1$d"</string>
+    <string name="reader_highlight_show_more">"Mostra la citazione completa"</string>
+    <string name="reader_highlight_show_less">"Mostra meno"</string>
+    <string name="reader_highlights_retry">"Riprova"</string>
+    <string name="reader_highlights_load_error">"Impossibile caricare le evidenziazioni. Riprova."</string>
+    <string name="reader_highlight_return_failed">"Impossibile tornare alla pagina precedente. Chiudi e riapri il libro per tornare alla posizione salvata."</string>
 </resources>

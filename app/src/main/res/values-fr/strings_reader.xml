@@ -27,4 +27,18 @@
     <string name="reader_highlight_yellow">"Jaune"</string>
     <string name="reader_highlight_green">"Vert"</string>
     <string name="reader_highlight_pink">"Rose"</string>
+    <string name="reader_highlights_title">"Surlignages"</string>
+    <string name="reader_highlights_empty">"Aucun surlignage pour le moment"</string>
+    <string name="reader_highlights_empty_hint">"Sélectionnez du texte en mode Surlignage pour enregistrer des passages de ce livre."</string>
+    <string name="reader_highlights_loading">"Chargement des surlignages…"</string>
+    <string name="reader_highlight_open">"Aller au surlignage"</string>
+    <string name="reader_highlight_opening">"Ouverture du surlignage…"</string>
+    <string name="reader_highlight_location_unavailable">"Emplacement indisponible dans cette édition"</string>
+    <string name="reader_highlight_jump_failed">"Impossible d’ouvrir ce surlignage. Réessayez."</string>
+    <string name="reader_highlight_chapter">"Chapitre %1$d"</string>
+    <string name="reader_highlight_show_more">"Afficher toute la citation"</string>
+    <string name="reader_highlight_show_less">"Afficher moins"</string>
+    <string name="reader_highlights_retry">"Réessayer"</string>
+    <string name="reader_highlights_load_error">"Impossible de charger les surlignages. Réessayez."</string>
+    <string name="reader_highlight_return_failed">"Impossible de revenir à la page précédente. Fermez puis rouvrez le livre pour retrouver votre position enregistrée."</string>
 </resources>
