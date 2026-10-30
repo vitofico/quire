@@ -7,15 +7,26 @@ import io.theficos.ereader.data.local.db.ProgressEntity
 import io.theficos.ereader.data.local.db.SyncStateDao
 import io.theficos.ereader.data.local.db.SyncStateEntity
 import java.time.Instant
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class SyncOrchestrator(
     private val client: SyncClient,
     private val progressDao: ProgressDao,
     private val documentRepo: DocumentRepository,
     private val syncState: SyncStateDao,
+    private val highlights: HighlightSyncer? = null,
 ) {
 
-    suspend fun runOnce(): SyncResult<Unit> {
+    private val runMutex = Mutex()
+
+    suspend fun runOnce(): SyncResult<Unit> = runMutex.withLock {
+        val progress = runProgress()
+        if (progress !is SyncResult.Success) return@withLock progress
+        highlights?.runOnce() ?: progress
+    }
+
+    private suspend fun runProgress(): SyncResult<Unit> {
         // 1) PUSH dirty rows
         val dirty = progressDao.dirty()
         if (dirty.isNotEmpty()) {

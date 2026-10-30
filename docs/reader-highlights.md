@@ -1,7 +1,8 @@
 # Highlights and quotes
 
 Highlights work offline with local EPUBs, OPDS downloads and books from a Quire
-Server. They are stored on this device; they do not sync through Quire Server yet.
+Server. They are saved on the device immediately and sync through Quire Server
+when an account and a compatible server are configured.
 
 Tap the centre of a reading page to show the controls, then choose **Highlight**.
 The title changes to **Highlight mode** and **Done** stays available. Long-press
@@ -41,13 +42,40 @@ Downloading or importing the same book again restores them through its library
 identity. If an edition's chapter content changes, Quire keeps the saved quotation
 but does not guess a new location. A message explains when highlights cannot be
 shown in that edition. The list remains local to the current book; cross-book
-search and syncing highlights are separate follow-up work.
+search is separate follow-up work.
+
+## Sync across devices
+
+Highlights use the same Quire Server account and sync triggers as reading
+progress, including **Sync now**. Saved passages, colours and removals travel
+together. The server retains the quotation and its exact location even when
+that book has not been downloaded on another device. Download the same edition
+to draw its highlights in the reader.
+
+Existing highlights and passages saved before configuring an account join the
+first Quire account that successfully authenticates to the highlight endpoint.
+After that, their account binding is retained. Switching accounts or servers
+shows that account's passages and does not transfer another account's highlights.
+Returning to the original account restores access to its saved passages.
+Passages saved while using a generic OPDS account remain bound to that catalog
+and stay local when a Quire account is configured later.
+
+Offline edits remain pending until sync succeeds. Removing a highlight leaves a
+deletion record so another device can remove its copy too. Concurrent edits use
+the latest update timestamp; a deletion wins a tie. Device clocks therefore
+affect which edit wins. Removing a download keeps the highlights and their
+pending changes.
+
+Older servers without the highlight endpoint continue syncing reading progress;
+highlights remain local and pending until the server is upgraded. Highlight
+sync does not expose an agent API or send passages to an AI provider.
 
 ## Local storage and rendering
 
 Room schema 10 adds the `highlights` table. Its device-generated UUIDs, separate
 selected-text and locator columns, book metadata snapshots, update timestamps and
-soft-deletion tombstones prepare it for a later sync protocol. It has no foreign
+soft-deletion tombstones support the sync protocol. Room schema 11 adds account
+ownership and sync acknowledgement state, preserving existing rows. It has no foreign
 key to `documents`: deleting a download cannot cascade into annotation deletion.
 Lookup uses the existing normalized metadata identifier or content hash.
 

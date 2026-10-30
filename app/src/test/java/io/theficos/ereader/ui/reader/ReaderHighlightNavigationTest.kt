@@ -149,11 +149,11 @@ class ReaderHighlightNavigationTest {
     private class Rows : HighlightDao {
         private val rows = MutableStateFlow<List<HighlightEntity>>(emptyList())
         override suspend fun insert(highlight: HighlightEntity) { rows.value += highlight }
-        override suspend fun findById(id: String) = rows.value.firstOrNull { it.id == id }
-        override fun observeActive(metadataId: String?, contentHash: String?): Flow<List<HighlightEntity>> = rows.map { all ->
+        override suspend fun findById(id: String, ownerScope: String) = rows.value.firstOrNull { it.id == id }
+        override fun observeActive(metadataId: String?, contentHash: String?, ownerScope: String): Flow<List<HighlightEntity>> = rows.map { all ->
             all.filter { it.deletedAt == null && it.contentHash == contentHash }
         }
-        override suspend fun setColour(id: String, colour: String, now: Long) {}
-        override suspend fun softDelete(id: String, now: Long) {}
+        override suspend fun setColour(id: String, colour: String, now: Long, ownerScope: String) {}
+        override suspend fun softDelete(id: String, now: Long, ownerScope: String) {}
     }
 }

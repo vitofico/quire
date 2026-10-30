@@ -50,6 +50,8 @@ async def test_full_mode_mounts_everything(monkeypatch, postgres_url: str, alemb
         stats = await c.get("/library/v1/stats", headers=_basic_header("alice"))
         assert stats.status_code != 404
 
+        assert (await c.get("/sync/v1/highlights")).status_code != 404
+
         # AI router mounted: any response other than 404 confirms routing.
         ai = await c.get("/ai/v1/config", headers=_basic_header("alice"))
         assert ai.status_code != 404
@@ -61,6 +63,8 @@ async def test_sync_only_mode_excludes_ai(monkeypatch, postgres_url: str, alembi
         h = await c.get("/health")
         assert h.status_code == 200
         assert h.json()["modes"] == ["progress"]
+
+        assert (await c.get("/sync/v1/highlights")).status_code != 404
 
         # AI namespace entirely unmounted.
         ai = await c.get("/ai/v1/config", headers=_basic_header("alice"))
@@ -77,6 +81,8 @@ async def test_ai_only_mode_excludes_progress(monkeypatch, postgres_url: str, al
         # Sync namespace unmounted.
         prog = await c.get("/sync/v1/progress", headers=_basic_header("alice"))
         assert prog.status_code == 404
+
+        assert (await c.get("/sync/v1/highlights")).status_code == 404
 
         # Library namespace unmounted in AI-only mode.
         lib = await c.get("/library/v1/items", headers=_basic_header("alice"))
@@ -97,6 +103,7 @@ async def test_neither_mode_only_mounts_health(monkeypatch, postgres_url: str, a
         assert r.status_code == 200
 
         # All mode-gated namespaces unmounted.
+        assert (await c.get("/sync/v1/highlights")).status_code == 404
         prog = await c.get("/sync/v1/progress", headers=_basic_header("alice"))
         assert prog.status_code == 404
         lib = await c.get("/library/v1/items", headers=_basic_header("alice"))

@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
+from uuid import UUID
 
 from sqlalchemy import (
     ARRAY,
@@ -16,6 +17,7 @@ from sqlalchemy import (
     Numeric,
     String,
     UniqueConstraint,
+    Uuid,
     func,
     text,
 )
@@ -25,6 +27,35 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 class Base(DeclarativeBase):
     pass
+
+
+class HighlightSyncState(Base):
+    __tablename__ = "highlight_sync_state"
+
+    user_id: Mapped[str] = mapped_column(String, primary_key=True)
+    revision: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+
+
+class Highlight(Base):
+    """Private annotations survive removal of the downloaded document."""
+
+    __tablename__ = "highlights"
+    __table_args__ = (Index("ix_highlights_user_revision", "user_id", "revision", unique=True),)
+
+    user_id: Mapped[str] = mapped_column(String, primary_key=True)
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    metadata_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    content_hash: Mapped[str] = mapped_column(String, nullable=False)
+    identity_hash_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    locator: Mapped[str] = mapped_column(String, nullable=False)
+    text: Mapped[str] = mapped_column(String, nullable=False)
+    colour: Mapped[str] = mapped_column(String, nullable=False)
+    book_title: Mapped[str] = mapped_column(String, nullable=False)
+    book_author: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    updated_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    deleted_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    revision: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
 
 class Document(Base):

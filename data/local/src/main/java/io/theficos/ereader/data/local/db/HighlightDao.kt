@@ -12,35 +12,35 @@ interface HighlightDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(highlight: HighlightEntity)
 
-    @Query("SELECT * FROM highlights WHERE id = :id LIMIT 1")
-    suspend fun findById(id: String): HighlightEntity?
+    @Query("SELECT * FROM highlights WHERE id = :id AND ownerScope = :ownerScope LIMIT 1")
+    suspend fun findById(id: String, ownerScope: String = ""): HighlightEntity?
 
     @Query(
         """
         SELECT * FROM highlights
-        WHERE deletedAt IS NULL
+        WHERE deletedAt IS NULL AND (ownerScope = :ownerScope OR ownerScope = '')
           AND ((:metadataId IS NOT NULL AND metadataId = :metadataId)
             OR (:contentHash IS NOT NULL AND contentHash = :contentHash))
         ORDER BY createdAt, id
         """
     )
-    fun observeActive(metadataId: String?, contentHash: String?): Flow<List<HighlightEntity>>
+    fun observeActive(metadataId: String?, contentHash: String?, ownerScope: String = ""): Flow<List<HighlightEntity>>
 
     @Query(
         """
         UPDATE highlights
-        SET colour = :colour, updatedAt = MAX(:now, updatedAt + 1)
-        WHERE id = :id AND deletedAt IS NULL AND colour != :colour
+        SET colour = :colour, syncedAt = NULL, updatedAt = MAX(:now, updatedAt + 1)
+        WHERE id = :id AND (ownerScope = :ownerScope OR ownerScope = '') AND deletedAt IS NULL AND colour != :colour
         """
     )
-    suspend fun setColour(id: String, colour: String, now: Long)
+    suspend fun setColour(id: String, colour: String, now: Long, ownerScope: String = "")
 
     @Query(
         """
         UPDATE highlights
-        SET deletedAt = MAX(:now, updatedAt + 1), updatedAt = MAX(:now, updatedAt + 1)
-        WHERE id = :id AND deletedAt IS NULL
+        SET deletedAt = MAX(:now, updatedAt + 1), syncedAt = NULL, updatedAt = MAX(:now, updatedAt + 1)
+        WHERE id = :id AND (ownerScope = :ownerScope OR ownerScope = '') AND deletedAt IS NULL
         """
     )
-    suspend fun softDelete(id: String, now: Long)
+    suspend fun softDelete(id: String, now: Long, ownerScope: String = "")
 }

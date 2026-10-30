@@ -57,7 +57,7 @@ class SyncWorker(
         }
         Log.i(TAG, "doWork: starting sync")
         val outcome = deps.orchestrator.runOnce()
-        Log.i(TAG, "doWork: outcome=$outcome")
+        Log.i(TAG, "doWork: outcome=${outcome.javaClass.simpleName}")
         return when (outcome) {
             is SyncResult.Success -> Result.success()
             is SyncResult.NetworkFailure -> Result.retry()

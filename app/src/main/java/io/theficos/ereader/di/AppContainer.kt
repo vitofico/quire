@@ -25,6 +25,8 @@ import io.theficos.ereader.data.opds.BookDownloader
 import io.theficos.ereader.data.opds.OpdsClient
 import io.theficos.ereader.data.opds.OpdsHttpClient
 import io.theficos.ereader.data.opds.OpenLibraryClient
+import io.theficos.ereader.data.sync.HighlightSyncer
+import io.theficos.ereader.data.sync.HighlightSyncSession
 import io.theficos.ereader.data.sync.SyncClient
 import io.theficos.ereader.data.sync.SyncDependencies
 import io.theficos.ereader.data.sync.SyncEnqueuer
@@ -94,7 +96,12 @@ class AppContainer(context: Context) {
     private val db: EReaderDatabase = EReaderDatabase.build(appContext)
     val documentRepository = DocumentRepository(db.documentDao())
     val progressRepository = ProgressRepository(db.progressDao())
-    val highlightRepository = HighlightRepository(db.highlightDao())
+    val highlightRepository = HighlightRepository(
+        db.highlightDao(),
+        scopeProvider = { credentialStore.getAccount().highlightScope() },
+        scopeFlow = credentialStore.accountFlow.map { it.highlightScope() },
+        onChanged = { SyncEnqueuer.enqueue(appContext) },
+    )
     val syncStateDao = db.syncStateDao()
     val readiumFactory = ReadiumFactory(appContext)
     val readerPreferencesStore = ReaderPreferencesStore(appContext)
@@ -117,6 +124,10 @@ class AppContainer(context: Context) {
         progressDao = db.progressDao(),
         documentRepo = documentRepository,
         syncState = syncStateDao,
+        highlights = HighlightSyncer(
+            syncClient, db.highlightSyncDao(), syncStateDao,
+            sessionProvider = { credentialStore.getAccount().highlightSession() },
+        ),
     )
 
     val aiClient: AiClient = AiClient(

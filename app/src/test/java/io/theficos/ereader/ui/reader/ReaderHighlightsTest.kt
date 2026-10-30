@@ -186,18 +186,18 @@ class ReaderHighlightsTest {
             if (failWrites) throw IOException("test write failure")
             rows.value = rows.value + highlight
         }
-        override suspend fun findById(id: String) = rows.value.firstOrNull { it.id == id }
-        override fun observeActive(metadataId: String?, contentHash: String?): Flow<List<HighlightEntity>> = if (failLoads) flow {
+        override suspend fun findById(id: String, ownerScope: String) = rows.value.firstOrNull { it.id == id }
+        override fun observeActive(metadataId: String?, contentHash: String?, ownerScope: String): Flow<List<HighlightEntity>> = if (failLoads) flow {
             throw IOException("test load failure")
         } else rows.map { all ->
             all.filter { it.deletedAt == null && ((metadataId != null && it.metadataId == metadataId) ||
                 (contentHash != null && it.contentHash == contentHash)) }
         }
-        override suspend fun setColour(id: String, colour: String, now: Long) {
+        override suspend fun setColour(id: String, colour: String, now: Long, ownerScope: String) {
             if (failWrites) throw IOException("test write failure")
             rows.value = rows.value.map { if (it.id == id) it.copy(colour = colour, updatedAt = now) else it }
         }
-        override suspend fun softDelete(id: String, now: Long) {
+        override suspend fun softDelete(id: String, now: Long, ownerScope: String) {
             if (failWrites) throw IOException("test write failure")
             rows.value = rows.value.map { if (it.id == id) it.copy(deletedAt = now, updatedAt = now) else it }
         }

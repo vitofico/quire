@@ -71,7 +71,7 @@ async def test_default_state_upgrades_backbone_then_ai_branch(postgres_url: str)
     #   * auth_003 — S-1 added native_users + native_sessions (always-on
     #     `auth` branch, materialized regardless of mode flags)
     #   * progress_003 — F-1 added the column to `documents` + `library_items`
-    assert versions == {"ai_009", "auth_003", "progress_003"}
+    assert versions == {"ai_009", "auth_003", "progress_004"}
 
 
 async def test_idempotent_second_run(postgres_url: str):
@@ -84,7 +84,7 @@ async def test_idempotent_second_run(postgres_url: str):
     eng = create_async_engine(postgres_url, future=True)
     versions = await _alembic_versions(eng)
     await eng.dispose()
-    assert versions == {"ai_009", "auth_003", "progress_003"}
+    assert versions == {"ai_009", "auth_003", "progress_004"}
 
 
 async def test_synthetic_ai_branch_upgrades_when_enabled(postgres_url: str, tmp_path: Path):
@@ -196,7 +196,7 @@ async def test_synthetic_ai_branch_skipped_when_disabled(postgres_url: str, tmp_
     assert "ai_001" not in versions
     # progress branch advanced (progress_enabled=True). The backbone itself
     # is no longer a head once progress_003 sits on top of 0004.
-    assert "progress_003" in versions
+    assert "progress_004" in versions
     # The always-on `auth` branch advances regardless of mode flags.
     assert "auth_003" in versions
 

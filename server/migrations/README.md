@@ -28,12 +28,20 @@ The current AI head is `ai_009`, adding `ai_usage_monthly` for an optional
 generic authenticated HTTP policy. It follows `ai_008` without rewriting any
 deployed revision. Quotas are inert unless the operator enables that policy.
 
+The current progress head is `progress_004`, following `progress_003` and
+adding caller-scoped `highlights` plus `highlight_sync_state`. Highlights
+have no document foreign key, so removing a downloaded book preserves
+annotations. A unique `(user_id, revision)` index supports safe delta pages;
+writers and readers serialize on the same per-user transaction lock before
+allocating or observing revisions. Both tables are included in native
+account export and purge. This migration is skipped in AI-only deployments.
+
 From the split point onward, every new migration belongs to exactly one branch:
 
 | Branch     | Label        | Owners | Notes                                                                                            |
 | ---------- | ------------ | ------ | ------------------------------------------------------------------------------------------------ |
 | `core`     | `"core"`     | shared | Reserved; no migrations yet.                                                                     |
-| `progress` | `"progress"` | sync   | First and current head: `progress_001_library_items` (PR1, 2026-05-16). Spliced from `0004`.     |
+| `progress` | `"progress"` | sync   | `progress_001` → `progress_002` → `progress_003` → `progress_004` (private highlights). Spliced from `0004`. |
 | `ai`       | `"ai"`       | AI     | Chain: `ai_001_generation_log` (PR-C) → `ai_002_insight_language` (PR4) → `ai_003_identity_aliases` (PR2, 2026-05-16) → `ai_004_themes` (PR3, 2026-05-17). |
 
 ### Adding the FIRST migration on a branch (splice)

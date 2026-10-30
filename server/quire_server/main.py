@@ -394,10 +394,12 @@ def create_app() -> FastAPI:
         # Lazy import: only pull progress + library routers when progress mode
         # is on. The `library_items` migration lives on the `progress` alembic
         # branch, so the gate must match for the table to exist.
+        from quire_server.api.highlights import router as highlights_router
         from quire_server.api.library import router as library_router
         from quire_server.api.progress import router as progress_router
 
         app.include_router(progress_router, prefix="/sync/v1")
+        app.include_router(highlights_router, prefix="/sync/v1")
         app.include_router(library_router, prefix="/library/v1")
 
     if settings.ai_enabled:
