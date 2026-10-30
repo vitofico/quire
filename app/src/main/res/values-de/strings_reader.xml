@@ -27,4 +27,18 @@
     <string name="reader_highlight_yellow">"Gelb"</string>
     <string name="reader_highlight_green">"Grün"</string>
     <string name="reader_highlight_pink">"Rosa"</string>
+    <string name="reader_highlights_title">"Markierungen"</string>
+    <string name="reader_highlights_empty">"Noch keine Markierungen"</string>
+    <string name="reader_highlights_empty_hint">"Wähle im Markierungsmodus Text aus, um Passagen aus diesem Buch zu speichern."</string>
+    <string name="reader_highlights_loading">"Markierungen werden geladen…"</string>
+    <string name="reader_highlight_open">"Zur Markierung"</string>
+    <string name="reader_highlight_opening">"Markierung wird geöffnet…"</string>
+    <string name="reader_highlight_location_unavailable">"Position in dieser Ausgabe nicht verfügbar"</string>
+    <string name="reader_highlight_jump_failed">"Diese Markierung konnte nicht geöffnet werden. Versuche es erneut."</string>
+    <string name="reader_highlight_chapter">"Kapitel %1$d"</string>
+    <string name="reader_highlight_show_more">"Vollständiges Zitat anzeigen"</string>
+    <string name="reader_highlight_show_less">"Weniger anzeigen"</string>
+    <string name="reader_highlights_retry">"Erneut versuchen"</string>
+    <string name="reader_highlights_load_error">"Markierungen konnten nicht geladen werden. Versuche es erneut."</string>
+    <string name="reader_highlight_return_failed">"Die vorherige Seite konnte nicht wiederhergestellt werden. Schließe das Buch und öffne es erneut, um zu deiner gespeicherten Leseposition zurückzukehren."</string>
 </resources>

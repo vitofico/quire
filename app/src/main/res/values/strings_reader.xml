@@ -27,4 +27,18 @@
     <string name="reader_highlight_yellow">"Yellow"</string>
     <string name="reader_highlight_green">"Green"</string>
     <string name="reader_highlight_pink">"Pink"</string>
+    <string name="reader_highlights_title">"Highlights"</string>
+    <string name="reader_highlights_empty">"No highlights yet"</string>
+    <string name="reader_highlights_empty_hint">"Select text in Highlight mode to save passages from this book."</string>
+    <string name="reader_highlights_loading">"Loading highlights…"</string>
+    <string name="reader_highlight_open">"Go to highlight"</string>
+    <string name="reader_highlight_opening">"Opening highlight…"</string>
+    <string name="reader_highlight_location_unavailable">"Location unavailable in this edition"</string>
+    <string name="reader_highlight_jump_failed">"Couldn’t open this highlight. Try again."</string>
+    <string name="reader_highlight_chapter">"Chapter %1$d"</string>
+    <string name="reader_highlight_show_more">"Show full quote"</string>
+    <string name="reader_highlight_show_less">"Show less"</string>
+    <string name="reader_highlights_retry">"Retry"</string>
+    <string name="reader_highlights_load_error">"Couldn’t load highlights. Try again."</string>
+    <string name="reader_highlight_return_failed">"Couldn’t return to your previous page. Close and reopen the book to return to your saved place."</string>
 </resources>

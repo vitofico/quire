@@ -20,12 +20,28 @@ menu. It works in normal reading mode too, and copies the selected passage with
 the title and author, when available. The ordinary Copy and Select all actions
 also remain available. Copying a quote does not save a highlight or contact a server.
 
+## Browse saved passages
+
+Choose **More → Highlights** in the reader controls to see this book's saved passages.
+The list follows reading order and shows each passage's colour and chapter when
+available. Tap a passage to return to the page containing its start. **Back**
+returns to reading without choosing a passage and remains available while a jump
+is in progress.
+
+Jump-to-highlight supports horizontal text in reflowable EPUBs; quotations from
+fixed-layout EPUBs or other writing modes remain readable and selectable in the list.
+
+The list shows the saved quotation independently of its location. Long quotations
+can be expanded with **Show full quote**, and the text can be selected and copied.
+If a location is unavailable in this edition, the quotation stays readable in the
+list. Quire does not guess a different occurrence of repeated text.
+
 Removing a downloaded book, including **Remove all books**, keeps its highlights.
 Downloading or importing the same book again restores them through its library
 identity. If an edition's chapter content changes, Quire keeps the saved quotation
 but does not guess a new location. A message explains when highlights cannot be
-shown in that edition. A highlights list and jump-to-highlight navigation are
-separate follow-up work.
+shown in that edition. The list remains local to the current book; cross-book
+search and syncing highlights are separate follow-up work.
 
 ## Local storage and rendering
 

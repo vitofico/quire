@@ -37,6 +37,10 @@ internal class ReaderHighlights(
     val error = _error.asStateFlow()
     private val _notice = MutableStateFlow<UiText?>(null)
     val notice = _notice.asStateFlow()
+    private val _loading = MutableStateFlow(true)
+    val loading = _loading.asStateFlow()
+    private val _loadError = MutableStateFlow<UiText?>(null)
+    val loadError = _loadError.asStateFlow()
 
     fun attach(book: Document) {
         if (document == book) return
@@ -50,10 +54,23 @@ internal class ReaderHighlights(
         _busy.value = false
         _error.value = null
         _notice.value = null
+        reload()
+    }
+
+    fun reload() {
+        val book = document ?: return
+        observation?.cancel()
+        _loading.value = true
+        _loadError.value = null
+        if (_notice.value == uiText(R.string.reader_highlights_load_failed)) _notice.value = null
         observation = scope.launch {
             repository.observe(book.identity).catch {
+                _loading.value = false
+                _loadError.value = uiText(R.string.reader_highlights_load_error)
                 _notice.value = uiText(R.string.reader_highlights_load_failed)
             }.collect { saved ->
+                _loading.value = false
+                _loadError.value = null
                 _items.value = saved
                 val editing = _editor.value as? HighlightEditor.Existing
                 if (editing != null && saved.none { it.id == editing.highlight.id }) {
