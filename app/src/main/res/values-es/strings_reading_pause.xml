@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="reader_pause_title">Pausar y retomar</string>
+    <string name="reader_pause_saved">Pausar y retomar • marcador guardado</string>
+    <string name="reader_stop_title">Un buen lugar para parar</string>
+    <string name="reader_stop_unavailable">No hay una distancia fiable en esta ubicación.</string>
+    <string name="reader_stop_section">Aproximadamente el %1$d%% del libro hasta la próxima sección localizada</string>
+    <string name="reader_stop_resource">Aproximadamente el %1$d%% del libro hasta el próximo capítulo o recurso</string>
+    <string name="reader_stop_end">Aproximadamente el %1$d%% del libro hasta el final del libro</string>
+    <string name="reader_stop_basis">Distancia aproximada como parte del libro completo, basada en su estructura y las posiciones disponibles, redondeada al porcentaje entero superior. No es una estimación de tiempo; pueden faltar anclas de sección.</string>
+    <string name="reader_memory_title">Un marcador con memoria</string>
+    <string name="reader_memory_local">Guardado solo en este dispositivo, para esta cuenta y libro. No se sincroniza. Al eliminar el libro se elimina su marcador.</string>
+    <string name="reader_memory_saved">Pasaje guardado</string>
+    <string name="reader_memory_no_passage">No hay texto del pasaje; se ha guardado la ubicación de lectura.</string>
+    <string name="reader_memory_unavailable">No se puede abrir esta ubicación. Conserva o copia tu nota, reemplázala en la ubicación actual o elimínala.</string>
+    <string name="reader_memory_return">Volver al pasaje guardado</string>
+    <string name="reader_memory_note">Una frase o pregunta para tu yo futuro (opcional)</string>
+    <string name="reader_memory_error">No se pudo guardar el marcador. Tu nota guardada no ha cambiado. Inténtalo de nuevo cuando la página esté estable.</string>
+    <string name="reader_memory_save">Guardar en la ubicación actual</string>
+    <string name="reader_memory_edit">Guardar nota en la ubicación guardada</string>
+    <string name="reader_memory_replace">Reemplazar con la ubicación actual</string>
+    <string name="reader_memory_remove">Eliminar marcador</string>
+    <string name="reader_memory_note_label">Tu nota</string>
+    <string name="reader_restore_title">Restaurar tu lugar de lectura</string>
+    <string name="reader_restore_body">El nuevo diseño no pudo restaurar tu lugar de lectura. Se conserva la posición guardada. Inténtalo de nuevo o cierra el libro y vuelve a abrirlo.</string>
+    <string name="reader_restore_close">Cerrar libro</string>
+</resources>

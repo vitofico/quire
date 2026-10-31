@@ -1,5 +1,6 @@
 package io.theficos.ereader.ui
 
+import kotlinx.coroutines.flow.map
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
@@ -237,6 +238,16 @@ fun AppNavGraph(
                             progress = container.progressRepository,
                             readium = container.readiumFactory,
                             preferencesStore = container.readerPreferencesStore,
+                            bookmarks = container.memoryBookmarkDao,
+                            accountChanges = container.credentialStore.accountFlow.map { account ->
+                                account?.let { io.theficos.ereader.ui.reader.memoryAccountKey(it.baseUrl, it.subject) }
+                                    ?: "device-local"
+                            },
+                            accountKey = {
+                                container.credentialStore.getAccount()?.let {
+                                    io.theficos.ereader.ui.reader.memoryAccountKey(it.baseUrl, it.subject)
+                                } ?: "device-local"
+                            },
                         )
                     }
                 },

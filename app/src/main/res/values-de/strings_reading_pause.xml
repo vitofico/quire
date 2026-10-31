@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="reader_pause_title">Pausieren und fortsetzen</string>
+    <string name="reader_pause_saved">Pausieren und fortsetzen • Lesezeichen gespeichert</string>
+    <string name="reader_stop_title">Ein guter Punkt zum Aufhören</string>
+    <string name="reader_stop_unavailable">An dieser Stelle ist keine verlässliche Entfernung verfügbar.</string>
+    <string name="reader_stop_section">Etwa %1$d%% des Buchs bis zum nächsten zugeordneten Abschnitt</string>
+    <string name="reader_stop_resource">Etwa %1$d%% des Buchs bis zum nächsten Kapitel oder Dokumentteil</string>
+    <string name="reader_stop_end">Etwa %1$d%% des Buchs bis zum Buchende</string>
+    <string name="reader_stop_basis">Ungefähre Entfernung als Anteil am ganzen Buch, basierend auf Struktur und verfügbaren Lesepositionen, auf volle Prozent aufgerundet. Keine Zeitschätzung; Abschnittsanker können fehlen.</string>
+    <string name="reader_memory_title">Ein Lesezeichen mit Gedächtnis</string>
+    <string name="reader_memory_local">Nur auf diesem Gerät für dieses Konto und Buch gespeichert. Nicht synchronisiert. Beim Entfernen des Buchs wird auch sein Lesezeichen entfernt.</string>
+    <string name="reader_memory_saved">Gespeicherte Passage</string>
+    <string name="reader_memory_no_passage">Kein Passagentext verfügbar; die Leseposition ist gespeichert.</string>
+    <string name="reader_memory_unavailable">Diese Position kann nicht geöffnet werden. Behalte oder kopiere deine Notiz, ersetze sie durch die aktuelle Position oder entferne sie.</string>
+    <string name="reader_memory_return">Zur gespeicherten Passage</string>
+    <string name="reader_memory_note">Ein Satz oder eine Frage an dein zukünftiges Ich (optional)</string>
+    <string name="reader_memory_error">Das Lesezeichen konnte nicht gespeichert werden. Deine gespeicherte Notiz bleibt unverändert. Versuche es erneut, wenn die Seite stabil ist.</string>
+    <string name="reader_memory_save">An aktueller Position speichern</string>
+    <string name="reader_memory_edit">Notiz an gespeicherter Position speichern</string>
+    <string name="reader_memory_replace">Durch aktuelle Position ersetzen</string>
+    <string name="reader_memory_remove">Lesezeichen entfernen</string>
+    <string name="reader_memory_note_label">Deine Notiz</string>
+    <string name="reader_restore_title">Leseposition wiederherstellen</string>
+    <string name="reader_restore_body">Das neue Layout konnte deine Leseposition nicht wiederherstellen. Die gespeicherte Position bleibt erhalten. Versuche es erneut oder schließe und öffne das Buch wieder.</string>
+    <string name="reader_restore_close">Buch schließen</string>
+</resources>

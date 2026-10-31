@@ -62,6 +62,8 @@ class ReaderViewportResizeTest {
             progress = ProgressRepository(db.progressDao()),
             readium = ReadiumFactory(context),
             preferencesStore = ReaderPreferencesStore(context),
+            restoreNavigator = { _, _ -> true },
+            verifyAnchor = { _, _, _ -> true },
         )
     }
 
@@ -155,6 +157,8 @@ class ReaderViewportResizeTest {
         vararg anchors: Locator,
         /** Held open from the second read onwards, to park one in flight across a rotation. */
         gate: CompletableDeferred<Unit>? = null,
+        restore: suspend (Locator) -> Boolean = { true },
+        verify: suspend (Locator, io.theficos.ereader.reader.ReaderPreferences) -> Boolean = { _, _ -> true },
     ): ReaderViewModel {
         val context = ApplicationProvider.getApplicationContext<android.app.Application>()
         var call = 0
@@ -169,6 +173,8 @@ class ReaderViewportResizeTest {
                 anchors[minOf(call++, anchors.size - 1)]
             },
             nowMs = { clock },
+            restoreNavigator = { _, locator -> restore(locator) },
+            verifyAnchor = { _, locator, prefs -> verify(locator, prefs) },
         )
     }
 
@@ -183,6 +189,182 @@ class ReaderViewportResizeTest {
 
     private val Locator?.selector: String?
         get() = this?.locations?.otherLocations?.get("cssSelector") as? String
+
+    @Test fun `font changes suppress drift and restore original DOM anchor after pagination settles`() = runTest {
+        val targets = mutableListOf<Locator>()
+        val model = vmServing(domAnchor(9), domAnchor(9), domAnchor(3), restore = { targets += it; true })
+        model.publishLocator(locatorAt(0.2))
+        model.updatePreferences(model.preferences.value.copy(fontScale = 1.9))
+        model.publishLocator(locatorAt(0.06))
+        assertThat(model.currentLocator.value?.locations?.progression).isEqualTo(0.2)
+        model.onPreferencesApplied()
+        testScheduler.advanceTimeBy(601)
+        testScheduler.runCurrent()
+        assertThat(targets.last().text.highlight).isEqualTo("Paragraph 9.")
+        assertThat(model.currentLocator.value.selector).isEqualTo(domAnchor(9).selector)
+        model.publishLocator(locatorAt(0.3))
+        assertThat(model.currentLocator.value?.locations?.progression).isEqualTo(0.3)
+        model.clearPendingResize()
+    }
+
+    @Test fun `accepted go does not release font reflow until applied font and original paragraph are observed`() = runTest {
+        var applied = false
+        var visible = false
+        val observed = mutableListOf<Double>()
+        val model = vmServing(domAnchor(4), restore = { true }, verify = { _, prefs ->
+            observed += prefs.fontScale
+            applied && visible
+        })
+        model.publishLocator(locatorAt(0.043956))
+        model.updatePreferences(model.preferences.value.copy(fontScale = 0.7))
+        model.onPreferencesApplied()
+        testScheduler.advanceTimeBy(601)
+        testScheduler.runCurrent()
+        model.publishLocator(locatorAt(0.083333))
+        assertThat(model.currentLocator.value?.locations?.progression).isEqualTo(0.043956)
+        applied = true
+        testScheduler.advanceTimeBy(600)
+        testScheduler.runCurrent()
+        model.publishLocator(locatorAt(0.083333))
+        assertThat(model.currentLocator.value?.locations?.progression).isEqualTo(0.043956)
+        visible = true
+        model.reanchorViewport()
+        testScheduler.advanceTimeBy(600)
+        testScheduler.runCurrent()
+        assertThat(observed).containsExactly(0.7, 0.7, 0.7)
+        assertThat(model.currentLocator.value.selector).isEqualTo(domAnchor(4).selector)
+        model.publishLocator(locatorAt(0.1))
+        assertThat(model.currentLocator.value?.locations?.progression).isEqualTo(0.1)
+        model.clearPendingResize()
+    }
+
+    @Test fun `accepted go with permanently invisible target exposes bounded recovery`() = runTest {
+        var checks = 0
+        val model = vmServing(domAnchor(4), restore = { true }, verify = { _, _ -> checks++; false })
+        model.publishLocator(locatorAt(0.04))
+        model.beginViewportResize()
+        model.completeViewportResize()
+        testScheduler.advanceTimeBy(5000)
+        testScheduler.runCurrent()
+        assertThat(checks).isEqualTo(3)
+        assertThat(model.anchorRecovery.value).isTrue()
+        model.publishLocator(locatorAt(0.08))
+        assertThat(model.currentLocator.value?.locations?.progression).isEqualTo(0.04)
+        model.clearPendingResize()
+    }
+
+    @Test fun `deliberate font change captures fresh original paragraph before CSS and coalesces slider events`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val targets = mutableListOf<Locator>()
+        val model = vmServing(domAnchor(9), domAnchor(4), gate = gate, restore = { targets += it; true })
+        model.publishLocator(locatorAt(0.04))
+        val previous = model.preferences.value
+        model.updatePreferences(previous.copy(fontScale = 0.7))
+        assertThat(model.preferences.value).isEqualTo(previous)
+        model.updatePreferences(previous.copy(fontScale = 0.8))
+        gate.complete(Unit)
+        assertThat(model.preferences.value.fontScale).isEqualTo(0.8)
+        model.onPreferencesApplied()
+        testScheduler.advanceTimeBy(601)
+        testScheduler.runCurrent()
+        assertThat(targets.last().text.highlight).isEqualTo("Paragraph 4.")
+        model.clearPendingResize()
+    }
+
+    @Test fun `never returning visual observation times out into bounded recovery`() = runTest {
+        var attempts = 0
+        val model = vmServing(domAnchor(4), restore = { attempts++; true },
+            verify = { _, _ -> kotlinx.coroutines.awaitCancellation() })
+        model.publishLocator(locatorAt(0.04))
+        model.beginViewportResize()
+        model.completeViewportResize()
+        testScheduler.advanceTimeBy(6000)
+        testScheduler.runCurrent()
+        assertThat(attempts).isEqualTo(3)
+        assertThat(model.anchorRecovery.value).isTrue()
+        model.publishLocator(locatorAt(0.08))
+        assertThat(model.currentLocator.value?.locations?.progression).isEqualTo(0.04)
+        model.clearPendingResize()
+    }
+
+    @Test fun `fresh DOM capture timeout preserves preferences and late capture cannot apply them`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val model = vmServing(domAnchor(9), domAnchor(4), gate = gate)
+        model.publishLocator(locatorAt(0.04))
+        val previous = model.preferences.value
+        model.updatePreferences(previous.copy(fontScale = 0.7))
+        testScheduler.advanceTimeBy(1501)
+        testScheduler.runCurrent()
+        assertThat(model.anchorRecovery.value).isTrue()
+        assertThat(model.preferences.value).isEqualTo(previous)
+        model.clearPendingResize()
+        gate.complete(Unit)
+        assertThat(model.preferences.value).isEqualTo(previous)
+    }
+
+    @Test fun `failed final restore recovers through real page callback and scheduled retry`() = runTest {
+        var accepts = false
+        var attempts = 0
+        val model = vmServing(domAnchor(9), restore = { attempts++; accepts })
+        model.publishLocator(locatorAt(0.2))
+        model.beginViewportResize()
+        model.completeViewportResize()
+        model.publishLocator(locatorAt(0.6))
+        assertThat(model.currentLocator.value?.locations?.progression).isEqualTo(0.2)
+        accepts = true
+        // Production onPageChanged callback; no second manual completion call.
+        model.reanchorViewport()
+        testScheduler.advanceTimeBy(601)
+        testScheduler.runCurrent()
+        model.publishLocator(locatorAt(0.3))
+        assertThat(model.currentLocator.value?.locations?.progression).isEqualTo(0.3)
+        assertThat(model.anchorRecovery.value).isFalse()
+        assertThat(attempts).isEqualTo(2)
+        model.clearPendingResize()
+    }
+
+    @Test fun `permanent restore failure is bounded visible and explicitly retryable`() = runTest {
+        var accepts = false
+        var attempts = 0
+        val model = vmServing(domAnchor(9), restore = {
+            attempts++
+            if (!accepts) error("navigator not ready")
+            true
+        })
+        model.publishLocator(locatorAt(0.2))
+        model.beginViewportResize()
+        model.completeViewportResize()
+        testScheduler.advanceTimeBy(5000)
+        testScheduler.runCurrent()
+        assertThat(attempts).isEqualTo(3)
+        assertThat(model.anchorRecovery.value).isTrue()
+        model.publishLocator(locatorAt(0.6))
+        model.reanchorViewport()
+        testScheduler.advanceTimeBy(5000)
+        assertThat(attempts).isEqualTo(3)
+        assertThat(model.currentLocator.value?.locations?.progression).isEqualTo(0.2)
+        accepts = true
+        model.retryViewportRestore()
+        model.publishLocator(locatorAt(0.3))
+        assertThat(model.currentLocator.value?.locations?.progression).isEqualTo(0.3)
+        assertThat(model.anchorRecovery.value).isFalse()
+        model.clearPendingResize()
+    }
+
+    @Test fun `explicit navigation cancels pending automatic restore retries`() = runTest {
+        var attempts = 0
+        val model = vmServing(domAnchor(9), restore = { attempts++; false })
+        model.publishLocator(locatorAt(0.2))
+        model.beginViewportResize()
+        model.completeViewportResize()
+        model.goTo(locatorAt(0.8))
+        testScheduler.advanceTimeBy(5000)
+        testScheduler.runCurrent()
+        assertThat(attempts).isEqualTo(1)
+        assertThat(model.anchorRecovery.value).isFalse()
+        model.publishLocator(locatorAt(0.8))
+        assertThat(model.currentLocator.value?.locations?.progression).isEqualTo(0.8)
+    }
 
     @Test fun `the anchor carries a DOM location, not just a progression`() = runTest {
         val vm = vmServing(domAnchor(23))

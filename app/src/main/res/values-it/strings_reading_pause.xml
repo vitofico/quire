@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="reader_pause_title">Pausa e riprendi</string>
+    <string name="reader_pause_saved">Pausa e riprendi • segnalibro salvato</string>
+    <string name="reader_stop_title">Un buon punto per fermarsi</string>
+    <string name="reader_stop_unavailable">Nessuna distanza affidabile in questa posizione.</string>
+    <string name="reader_stop_section">Circa il %1$d%% del libro alla prossima sezione individuata</string>
+    <string name="reader_stop_resource">Circa il %1$d%% del libro al prossimo capitolo o risorsa</string>
+    <string name="reader_stop_end">Circa il %1$d%% del libro alla fine del libro</string>
+    <string name="reader_stop_basis">Distanza approssimativa come parte del libro intero, basata sulla struttura e sulle posizioni disponibili, arrotondata alla percentuale intera superiore. Non è una stima del tempo; alcune ancore di sezione potrebbero mancare.</string>
+    <string name="reader_memory_title">Un segnalibro che ricorda</string>
+    <string name="reader_memory_local">Salvato solo su questo dispositivo, per questo account e libro. Non sincronizzato. Eliminando il libro si elimina il segnalibro.</string>
+    <string name="reader_memory_saved">Passaggio salvato</string>
+    <string name="reader_memory_no_passage">Testo del passaggio non disponibile; la posizione di lettura è salvata.</string>
+    <string name="reader_memory_unavailable">Impossibile aprire questa posizione. Conserva o copia la nota, sostituiscila nella posizione attuale o rimuovila.</string>
+    <string name="reader_memory_return">Torna al passaggio salvato</string>
+    <string name="reader_memory_note">Una frase o domanda per il tuo io futuro (facoltativa)</string>
+    <string name="reader_memory_error">Impossibile salvare il segnalibro. La nota salvata è invariata. Riprova quando la pagina è stabile.</string>
+    <string name="reader_memory_save">Salva nella posizione attuale</string>
+    <string name="reader_memory_edit">Salva nota nella posizione salvata</string>
+    <string name="reader_memory_replace">Sostituisci con la posizione attuale</string>
+    <string name="reader_memory_remove">Rimuovi segnalibro</string>
+    <string name="reader_memory_note_label">La tua nota</string>
+    <string name="reader_restore_title">Ripristina il punto di lettura</string>
+    <string name="reader_restore_body">La nuova impaginazione non ha ripristinato il punto di lettura. La posizione salvata è conservata. Riprova oppure chiudi e riapri il libro.</string>
+    <string name="reader_restore_close">Chiudi libro</string>
+</resources>

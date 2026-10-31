@@ -24,6 +24,8 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -61,6 +63,8 @@ fun ReaderTopBar(
     onTypeSettings: () -> Unit,
     modifier: Modifier = Modifier,
     edgeToEdge: Boolean = false,
+    onReadingPause: (() -> Unit)? = null,
+    hasMemory: Boolean = false,
 ) {
     AnimatedVisibility(
         visible = visible,
@@ -102,6 +106,12 @@ fun ReaderTopBar(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
                 )
+                if (onReadingPause != null) {
+                    IconButton(onClick = onReadingPause) {
+                        Icon(if (hasMemory) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
+                            contentDescription = stringResource(if (hasMemory) R.string.reader_pause_saved else R.string.reader_pause_title))
+                    }
+                }
                 IconButton(onClick = onDetails) {
                     Icon(Icons.Outlined.Info, contentDescription = stringResource(R.string.common_book_details))
                 }

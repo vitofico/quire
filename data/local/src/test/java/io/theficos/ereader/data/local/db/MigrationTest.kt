@@ -22,6 +22,24 @@ class MigrationTest {
         FrameworkSQLiteOpenHelperFactory(),
     )
 
+    @Test fun `migrate 9 to 10 preserves progress and adds local bookmark cascade`() {
+        helper.createDatabase(DB, 9).use { db ->
+            db.execSQL("INSERT INTO documents (id, metadataId, contentHash, title, author, downloadUrl, localPath, coverPath, downloadedAt) VALUES (91, NULL, 'h91', 'Book', NULL, 'u', 'p', NULL, 0)")
+            db.execSQL("INSERT INTO progress (id, documentId, locator, percent, updatedAt, localUpdatedAt, syncedAt) VALUES (91, 91, 'original', 0.5, 42, 42, 42)")
+        }
+        helper.runMigrationsAndValidate(DB, 10, true, EReaderDatabase.MIGRATION_9_10).use { db ->
+            db.query("SELECT locator, syncedAt FROM progress WHERE documentId=91").use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.getString(0)).isEqualTo("original")
+                assertThat(c.getLong(1)).isEqualTo(42L)
+            }
+            db.execSQL("INSERT INTO memory_bookmarks VALUES (91, 'owner', 'locator', 'question', 'passage', 100)")
+            db.execSQL("PRAGMA foreign_keys=ON")
+            db.execSQL("DELETE FROM documents WHERE id=91")
+            db.query("SELECT * FROM memory_bookmarks").use { assertThat(it.count).isEqualTo(0) }
+        }
+    }
+
     @Test fun `migrate 2 to 3 backfills localUpdatedAt and creates sync_state`() {
         helper.createDatabase(DB, 2).use { db ->
             db.execSQL(

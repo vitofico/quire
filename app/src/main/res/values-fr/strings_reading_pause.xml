@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="reader_pause_title">Pause et reprise</string>
+    <string name="reader_pause_saved">Pause et reprise • signet enregistré</string>
+    <string name="reader_stop_title">Un bon endroit pour arrêter</string>
+    <string name="reader_stop_unavailable">Aucune distance fiable à cet emplacement.</string>
+    <string name="reader_stop_section">Environ %1$d%% du livre avant la prochaine section repérée</string>
+    <string name="reader_stop_resource">Environ %1$d%% du livre avant le prochain chapitre ou fichier</string>
+    <string name="reader_stop_end">Environ %1$d%% du livre avant la fin du livre</string>
+    <string name="reader_stop_basis">Distance approximative en proportion du livre entier, basée sur sa structure et les positions disponibles, arrondie au pourcentage entier supérieur. Ce n’est pas une durée ; certaines ancres de section peuvent manquer.</string>
+    <string name="reader_memory_title">Un signet qui se souvient</string>
+    <string name="reader_memory_local">Enregistré uniquement sur cet appareil, pour ce compte et ce livre. Non synchronisé. Supprimer le livre supprime son signet.</string>
+    <string name="reader_memory_saved">Passage enregistré</string>
+    <string name="reader_memory_no_passage">Texte du passage indisponible ; la position de lecture est enregistrée.</string>
+    <string name="reader_memory_unavailable">Cet emplacement ne peut pas être ouvert. Conservez ou copiez votre note, remplacez-le par la position actuelle ou supprimez-le.</string>
+    <string name="reader_memory_return">Revenir au passage enregistré</string>
+    <string name="reader_memory_note">Une phrase ou question pour votre futur vous (facultatif)</string>
+    <string name="reader_memory_error">Impossible de sauvegarder le signet. Votre note enregistrée est inchangée. Réessayez lorsque la page est stable.</string>
+    <string name="reader_memory_save">Enregistrer à la position actuelle</string>
+    <string name="reader_memory_edit">Enregistrer la note à la position sauvegardée</string>
+    <string name="reader_memory_replace">Remplacer par la position actuelle</string>
+    <string name="reader_memory_remove">Supprimer le signet</string>
+    <string name="reader_memory_note_label">Votre note</string>
+    <string name="reader_restore_title">Retrouver votre position de lecture</string>
+    <string name="reader_restore_body">La nouvelle mise en page n’a pas pu retrouver votre position de lecture. La position enregistrée est conservée. Réessayez ou fermez puis rouvrez le livre.</string>
+    <string name="reader_restore_close">Fermer le livre</string>
+</resources>
