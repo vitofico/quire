@@ -166,6 +166,11 @@ Page rounding can change the first visible word while retaining the requested
 paragraph. Recovery failure paths have automated coverage; a deliberately
 failing native recovery dialog and physical-phone behavior were not exercised.
 
+The pause sheet below uses the synthetic fixture at 320 dp and 1.8 system font
+scale, scrolled to its saved-passage actions.
+
+![Pause sheet actions at large text](images/reader-pause-large-text.png)
+
 The bridge selects a unique visible WebView whose requested URL exactly resolves
 from the expected reading-order href (using the pinned Readium local publication
 server base). Multiple matches fail closed. Both capture and proof return the
