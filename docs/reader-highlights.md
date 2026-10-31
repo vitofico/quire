@@ -68,7 +68,8 @@ pending changes.
 
 Older servers without the highlight endpoint continue syncing reading progress;
 highlights remain local and pending until the server is upgraded. Highlight
-sync does not expose an agent API or send passages to an AI provider.
+sync does not send passages to an AI provider. For read-only agent access to
+synced highlights, see [Agent and MCP access](agent-access.md).
 
 ## Local storage and rendering
 

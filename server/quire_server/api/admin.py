@@ -56,7 +56,7 @@ SECRET_SETTINGS = frozenset({"ai_api_key", "ai_token_secrets"})
 # Settings that hold a URL, masked by `_mask_url` whatever their value looks
 # like. `test_every_url_setting_is_masked` fails if a `*_url` setting is added
 # without being listed here.
-URL_SETTINGS = frozenset({"database_url", "cwa_base_url", "ai_base_url"})
+URL_SETTINGS = frozenset({"database_url", "cwa_base_url", "ai_base_url", "mcp_public_url"})
 UNPARSEABLE_URL = "(not a valid URL; hidden)"
 
 NO_STORE = {"Cache-Control": "no-store"}

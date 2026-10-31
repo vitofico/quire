@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from dotenv import dotenv_values
 from pydantic import field_validator
@@ -54,6 +55,11 @@ class Settings(BaseSettings):
     # `false` to disable a domain entirely (router not mounted, migration
     # branch skipped, lazy provider imports inhibited).
     progress_enabled: bool = True
+
+    # External HTTPS origin allowed to address the read-only /mcp endpoint.
+    # Without one, MCP accepts loopback hosts only. This does not enable any
+    # browser identity features or change the existing authentication backend.
+    mcp_public_url: str | None = None
 
     # Maximum allowed request body size in bytes (default 1 MiB). Bounds the
     # hosted cost surface and protects against accidental large uploads.
@@ -179,6 +185,34 @@ class Settings(BaseSettings):
     # calibre-web username, or `native:<id>` under native auth. Compared
     # case-insensitively. Empty (the default) mounts none of the admin routes.
     admin_users: str = ""
+
+    @field_validator("mcp_public_url")
+    @classmethod
+    def _mcp_public_origin(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        parts = urlsplit(value)
+        try:
+            port = parts.port
+        except ValueError:
+            raise ValueError("MCP public URL must be an HTTPS origin") from None
+        if (
+            parts.scheme != "https"
+            or not parts.hostname
+            or parts.username is not None
+            or parts.password is not None
+            or parts.path not in {"", "/"}
+            or parts.query
+            or parts.fragment
+            or any(char.isspace() for char in value)
+            or parts.netloc.endswith(":")
+            or not re.fullmatch(r"[A-Za-z0-9.\-:\[\]]+", parts.netloc)
+        ):
+            raise ValueError("MCP public URL must be an HTTPS origin")
+        authority = parts.netloc.lower()
+        if port == 443:
+            authority = authority.rsplit(":", 1)[0]
+        return f"https://{authority}"
 
     @field_validator("ai_base_url", "ai_api_key", "ai_model", mode="before")
     @classmethod
