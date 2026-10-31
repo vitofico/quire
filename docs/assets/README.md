@@ -19,4 +19,9 @@ The capture verifies EPUB import, cover/metadata extraction, opening and turning
 pages, saved reading position, app palettes/backgrounds and reader preferences.
 These offline imports do not verify OPDS authentication, a catalog download or
 reading-state synchronization. All selected frames were visually inspected.
-Screenshots describe the current development checkout, not a release or deployment.
+These are historical appearance captures from the checkout identified above,
+not evidence for later reader features or a deployment. For the separate memory
+bookmark and stopping-distance workflow, see [Pause and return](../reader-pause.md);
+its large-text example uses original synthetic text. Highlight screenshots have
+their own provenance in [reader-highlights](reader-highlights/README.md) and
+[reader-highlight-navigation](reader-highlight-navigation/README.md).

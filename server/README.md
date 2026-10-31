@@ -1,6 +1,8 @@
 # Quire Server
 
-Quire sync server. FastAPI + Postgres. Source of truth for reading state.
+Quire sync server. FastAPI + Postgres. Source of truth for synced reading state.
+The Android reader’s memory bookmarks and optional notes remain device-local;
+progress sync, highlight sync and the read-only APIs below do not receive them.
 
 Native mode exposes `GET /auth/v1/me` with the existing `native:N` storage
 identity, current CSRF proof and deployed capabilities. Generic browser identity
@@ -74,7 +76,9 @@ uv run pytest
 uv run uvicorn quire_server.main:app --reload
 ```
 
-Tests require Docker (testcontainers spins up Postgres).
+Development requires Python 3.12 or newer and uv. Tests require Docker
+(testcontainers spins up Postgres). See the
+[development guide](../docs/development.md) for checks and module boundaries.
 
 ### Highlight sync
 
@@ -103,7 +107,8 @@ fixture is `tests/fixtures/highlight-sync.json`.
 
 Quire Server exposes a remote Streamable HTTP MCP endpoint at `/mcp` and
 read-only REST queries at `/agent/v1/highlights`. Clients can list, search and
-retrieve their own synced passages with book attribution. Both surfaces follow
+retrieve their own stored, synced highlights with book attribution. They cannot
+read device-local memory bookmarks or their notes. Both surfaces follow
 the progress/full-mode gate and use the configured primary account backend.
 
 For a public HTTPS host, set `QUIRE_SERVER_MCP_PUBLIC_URL=https://books.example.com`
