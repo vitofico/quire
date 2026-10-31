@@ -99,6 +99,23 @@ highlights and their cursor state. See [`../docs/sync-api.md`](../docs/sync-api.
 for the wire format and tie ordering; the shared Android/Python contract
 fixture is `tests/fixtures/highlight-sync.json`.
 
+### Read-only Agent/MCP access
+
+Quire Server exposes a remote Streamable HTTP MCP endpoint at `/mcp` and
+read-only REST queries at `/agent/v1/highlights`. Clients can list, search and
+retrieve their own synced passages with book attribution. Both surfaces follow
+the progress/full-mode gate and use the configured primary account backend.
+
+For a public HTTPS host, set `QUIRE_SERVER_MCP_PUBLIC_URL=https://books.example.com`
+in `.env`, restart the server, and configure a header-capable MCP client with
+`https://books.example.com/mcp` and its existing Basic or native Bearer
+Authorization header. No OAuth discovery or browser-cookie login is provided
+by this MCP endpoint. The reference Caddy routes are included; other reverse
+proxies must forward `/mcp` and `/agent/*` to Quire Server with Host preserved.
+
+See [Agent and MCP access](../docs/agent-access.md) for authentication, tools,
+preview limits, pagination and REST examples.
+
 ## Self-hosting via docker-compose
 
 Two reference composes ship in this directory. Pick one:
@@ -144,10 +161,10 @@ the server does not recognise is listed under `warnings` in
 
 ### Full-stack reference compose
 
-A Caddy front-end with path-based routing that mirrors the production
-Kubernetes ingress, so the Android app only needs to know one base URL
+A Caddy front-end with path-based routing, so the Android app only needs
+to know one base URL
 (the Caddy hostname) — calibre-web's OPDS catalog AND quire-server's
-`/sync/*`, `/library/*`, `/ai/*` endpoints and the `/quire-admin` status
+`/sync/*`, `/library/*`, `/ai/*`, `/agent/*`, `/mcp` endpoints and the `/quire-admin` status
 page all live under the same origin.
 
 ```sh
@@ -170,7 +187,7 @@ Routing inside the Caddy front-end (`caddy/Caddyfile`):
 {$QUIRE_SITE_ADDRESS:localhost} {
     tls internal
 
-    @quire path /sync/* /ai/* /library/* /quire-admin /quire-admin/* /health /readyz
+    @quire path /sync/* /ai/* /library/* /agent/* /mcp /mcp/* /quire-admin /quire-admin/* /health /readyz
     handle @quire {
         reverse_proxy quire-server:8000
     }

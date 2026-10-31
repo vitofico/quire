@@ -53,6 +53,7 @@ credentials are included. See the [screenshot notes](docs/assets/README.md).
   and return to their exact pages. From a text selection, Copy as quote includes
   the book title and author. [Highlights work offline and sync with Quire Server](docs/reader-highlights.md),
   including when you remove a download and later import the same book again.
+  Quire Server also offers [read-only Agent/MCP access](docs/agent-access.md) to synced passages.
 - **Keep a useful shelf.** Search, sort, continue reading, and filter finished
   or abandoned books. With Quire Server, Library Stats brings together reading
   counts and authors.
