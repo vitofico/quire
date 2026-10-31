@@ -497,3 +497,40 @@ test('textless image origin has a safe scroll snapshot and rejects changed nonze
   assert.equal(result.rejected.available, false); assert.equal(result.unchanged, result.after);
   await page.close();
 });
+
+test('pause page-start anchor remains on the same paragraph across highlight decoration update and removal', async () => {
+  const pauseKotlin = fs.readFileSync(path.join(__dirname, '../../reader/src/main/java/io/theficos/ereader/reader/PageStartAnchor.kt'), 'utf8');
+  const pauseScript = pauseKotlin.match(/const val PAGE_START_ANCHOR_JS = """([\s\S]*?)"""/)[1];
+  const page = await pageFor('<p id="pause">Original pause paragraph with a selected quote and a question to revisit.</p><p>Another paragraph.</p>');
+  const paused = await page.evaluate(script => (0, eval)(script), pauseScript);
+  assert.ok(paused && paused.text.includes('Original pause paragraph'));
+  const { anchor } = await selectAndCapture(page, '#pause', '#pause', 31, 45);
+  const result = await page.evaluate(({ dec, paused }) => {
+    const api = window.quireStructuralAnchors;
+    api.prepare('pause-integration');
+    const group = readium.getDecorations('pause-integration');
+    group.add(dec);
+    window.getSelection().removeAllRanges(); // Opening Pause dismisses native selection.
+    const retainedBefore = document.querySelector(paused.cssSelector).textContent === paused.text;
+    const quoteBefore = group.items[0].range.toString();
+    group.update({ ...dec, style: { tint: '#00ff00' } });
+    const retainedAfter = document.querySelector(paused.cssSelector).textContent === paused.text;
+    const quoteAfter = group.items[0].range.toString();
+    const target = document.querySelector(paused.cssSelector);
+    target.scrollIntoView();
+    const rect = target.getBoundingClientRect();
+    const visible = rect.right > 0 && rect.left < innerWidth && rect.bottom > 0 && rect.top < innerHeight;
+    const rejected = api.diagnostics('pause-integration').rejectedIds;
+    group.remove(dec.id);
+    return { retainedBefore, retainedAfter, quoteBefore, quoteAfter, visible, rejected,
+      retainedAfterRemoval: document.querySelector(paused.cssSelector).textContent === paused.text };
+  }, { dec: decoration(anchor), paused });
+  assert.equal(result.retainedBefore, true);
+  assert.equal(result.retainedAfter, true);
+  assert.equal(result.retainedAfterRemoval, true);
+  assert.equal(result.quoteBefore, anchor.quote);
+  assert.equal(result.quoteAfter, anchor.quote);
+  assert.equal(result.visible, true);
+  assert.deepEqual(result.rejected, []);
+  await page.close();
+});

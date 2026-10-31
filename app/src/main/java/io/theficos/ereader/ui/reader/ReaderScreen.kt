@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -38,6 +40,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
@@ -131,6 +134,13 @@ private fun ReaderScreenContent(
     val isDragging = dragPercent != null
     var showFontSheet by remember { mutableStateOf(false) }
     var showDetails by remember { mutableStateOf(false) }
+    var showReadingPause by rememberSaveable { mutableStateOf(false) }
+    val memory by viewModel.memory.collectAsState()
+    val memoryError by viewModel.memoryError.collectAsState()
+    val memoryReady by viewModel.memoryReady.collectAsState()
+    val memoryBusy by viewModel.memoryBusy.collectAsState()
+    val memoryScope by viewModel.memoryScope.collectAsState()
+    val anchorRecovery by viewModel.anchorRecovery.collectAsState()
 
     val context = LocalContext.current
     LaunchedEffect(notice) {
@@ -192,7 +202,7 @@ private fun ReaderScreenContent(
     LaunchedEffect(Unit) { viewModel.load() }
 
     val bookOpen = state is ReaderUiState.Open
-    LaunchedEffect(chromeVisible, chromeAutoHides, bookOpen, isDragging, showFontSheet, showDetails, highlightMode, selectionActive, highlightEditor, highlightsVisible) {
+    LaunchedEffect(chromeVisible, chromeAutoHides, bookOpen, isDragging, showFontSheet, showDetails, showReadingPause, highlightMode, selectionActive, highlightEditor, highlightsVisible) {
         // Only the reveal on opening the book hides itself (see chromeAutoHides), and its clock
         // starts once the book has opened: a book that takes seconds to parse otherwise lost its
         // bars before its first page appeared. Nor while a sheet is open (bars would
@@ -200,7 +210,7 @@ private fun ReaderScreenContent(
         // hides the OS navigation bar, which a TalkBack user cannot re-summon on a 2.5s timer).
         val touchExploring = (context.getSystemService(Context.ACCESSIBILITY_SERVICE)
             as? AccessibilityManager)?.isTouchExplorationEnabled == true
-        if (chromeVisible && chromeAutoHides && bookOpen && !isDragging && !showFontSheet && !showDetails &&
+        if (chromeVisible && chromeAutoHides && bookOpen && !isDragging && !showFontSheet && !showDetails && !showReadingPause &&
             !touchExploring && !highlightMode && !selectionActive && highlightEditor == null && !highlightsVisible
         ) {
             delay(2_500)
@@ -269,7 +279,7 @@ private fun ReaderScreenContent(
                     ) {
                         ReaderContent(
                             publication = s.publication,
-                            initialLocator = s.initialLocator,
+                            initialLocator = viewModel.recreationLocator() ?: s.initialLocator,
                             preferences = preferences,
                             onLocator = viewModel::publishLocator,
                             onNavigatorReady = viewModel::bindNavigator,
@@ -279,6 +289,7 @@ private fun ReaderScreenContent(
                             onToggleChrome = viewModel::toggleChrome,
                             chromeVisible = chromeVisible,
                             onPageLoaded = viewModel::reanchorViewport,
+                            onPreferencesApplied = viewModel::onPreferencesApplied,
                             highlights = highlights,
                             highlightMode = highlightMode,
                             onHighlightSelected = viewModel.highlighting::select,
@@ -304,6 +315,11 @@ private fun ReaderScreenContent(
                             viewModel.openHighlights()
                         },
                         onTypeSettings = { showFontSheet = true },
+                        onReadingPause = {
+                            selectionController?.dismissSelection()
+                            if (viewModel.finishHighlightMode()) showReadingPause = true
+                        },
+                        hasMemory = memory != null,
                         highlightMode = highlightMode,
                         onHighlightMode = {
                             if (highlightMode) viewModel.finishHighlightMode() else viewModel.startHighlightMode()
@@ -343,6 +359,21 @@ private fun ReaderScreenContent(
                         edgeToEdge = immersive,
                     )
 
+                    if (showReadingPause) {
+                        ReadingPauseSheet(
+                            memory = memory,
+                            busy = memoryBusy,
+                            accountScope = memoryScope,
+                            canReturn = viewModel.memoryLocator() != null,
+                            canSave = liveLocator != null && memoryReady,
+                            error = memoryError,
+                            stoppingPoint = stoppingPoint(s.publication, liveLocator, positions),
+                            onSave = viewModel::saveMemory,
+                            onReturn = { viewModel.returnToMemory(); showReadingPause = false },
+                            onRemove = viewModel::removeMemory,
+                            onDismiss = { showReadingPause = false },
+                        )
+                    }
                     if (showFontSheet) {
                         FontSettingsSheet(
                             prefs = preferences,
@@ -389,6 +420,20 @@ private fun ReaderScreenContent(
         }
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(horizontal = 16.dp))
     }
+    if (anchorRecovery) {
+        AlertDialog(
+            onDismissRequest = { },
+            title = { Text(stringResource(R.string.reader_restore_title)) },
+            text = { Text(stringResource(R.string.reader_restore_body)) },
+            confirmButton = {
+                TextButton(onClick = viewModel::retryViewportRestore) { Text(stringResource(R.string.common_retry)) }
+            },
+            dismissButton = {
+                TextButton(onClick = leaveReader) { Text(stringResource(R.string.reader_restore_close)) }
+            },
+        )
+    }
+
 }
 
 /**
@@ -444,6 +489,7 @@ private fun ReaderContent(
     onToggleChrome: () -> Unit,
     chromeVisible: Boolean,
     onPageLoaded: () -> Unit,
+    onPreferencesApplied: () -> Unit,
     highlights: List<Highlight>,
     highlightMode: Boolean,
     onHighlightSelected: (Locator) -> Unit,
@@ -608,6 +654,7 @@ private fun ReaderContent(
 
     LaunchedEffect(preferences) {
         fragment?.submitPreferences(preferences.toEpubPreferences())
+        onPreferencesApplied()
     }
     LaunchedEffect(highlights, highlightSession) { highlightSession?.submit(highlights) }
     LaunchedEffect(highlightMode, selection) {

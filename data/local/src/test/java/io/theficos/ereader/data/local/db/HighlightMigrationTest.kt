@@ -19,6 +19,38 @@ class HighlightMigrationTest {
         emptyList(), FrameworkSQLiteOpenHelperFactory(),
     )
 
+    @Test fun `shipped 9 and 10 upgrade through canonical highlight migrations before memory 12`() {
+        for (version in listOf(9, 10)) {
+            val name = "highlights-$version-12.db"
+            helper.createDatabase(name, version).use { db ->
+                db.execSQL("INSERT INTO documents (id, contentHash, title, downloadUrl, localPath, downloadedAt) VALUES (1, 'hash', 'Book', 'u', 'p', 1)")
+                db.execSQL("INSERT INTO progress (id, documentId, locator, percent, updatedAt, localUpdatedAt, syncedAt) VALUES (1, 1, 'kept-progress', .5, 1, 2, 1)")
+                if (version == 10) db.execSQL("INSERT INTO highlights (id, contentHash, locator, text, colour, bookTitle, createdAt, updatedAt) VALUES ('saved', 'hash', 'kept-highlight', 'Retained quote', 'YELLOW', 'Book', 1, 2)")
+            }
+            val migrations = if (version == 9) arrayOf(EReaderDatabase.MIGRATION_9_10, EReaderDatabase.MIGRATION_10_11, EReaderDatabase.MIGRATION_11_12)
+                else arrayOf(EReaderDatabase.MIGRATION_10_11, EReaderDatabase.MIGRATION_11_12)
+            helper.runMigrationsAndValidate(name, 12, true, *migrations).use { db ->
+                db.query("SELECT locator, localUpdatedAt, syncedAt FROM progress WHERE documentId=1").use { c ->
+                    assertThat(c.moveToFirst()).isTrue()
+                    assertThat(c.getString(0)).isEqualTo("kept-progress")
+                    assertThat(c.getLong(1)).isEqualTo(2L)
+                    assertThat(c.getLong(2)).isEqualTo(1L)
+                }
+                if (version == 10) db.query("SELECT ownerScope, locator, text FROM highlights WHERE id='saved'").use { c ->
+                    assertThat(c.moveToFirst()).isTrue()
+                    assertThat(c.getString(0)).isEmpty()
+                    assertThat(c.getString(1)).isEqualTo("kept-highlight")
+                    assertThat(c.getString(2)).isEqualTo("Retained quote")
+                }
+                db.execSQL("INSERT INTO memory_bookmarks VALUES (1, 'owner', 'memory-location', 'Question', 'Passage', 5)")
+                db.query("SELECT note FROM memory_bookmarks").use { c ->
+                    assertThat(c.moveToFirst()).isTrue()
+                    assertThat(c.getString(0)).isEqualTo("Question")
+                }
+            }
+        }
+    }
+
     @Test fun `migration 9 to 10 preserves existing library progress insights and sync state`() {
         helper.createDatabase("highlights-9-10.db", 9).use { db ->
             db.execSQL(

@@ -1,5 +1,6 @@
 package io.theficos.ereader.ui.reader
 
+import io.theficos.ereader.reader.evaluateReaderJavascript
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.theficos.ereader.core.model.Document
@@ -25,6 +26,8 @@ import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -50,6 +53,17 @@ class ReaderViewModel(
     private val readDomAnchor: suspend (EpubNavigatorFragment?) -> Locator? =
         ::readPageStartAnchor,
     private val nowMs: () -> Long = System::currentTimeMillis,
+    private val bookmarks: io.theficos.ereader.data.local.db.MemoryBookmarkDao? = null,
+    private val accountKey: () -> String = { "device-local" },
+    private val accountChanges: kotlinx.coroutines.flow.Flow<String>? = null,
+    private val restoreNavigator: suspend (EpubNavigatorFragment?, Locator) -> Boolean = { nav, anchor ->
+        nav?.go(anchor, false) ?: false
+    },
+    private val navigateExplicit: suspend (EpubNavigatorFragment?, Locator) -> Boolean = { nav, target -> nav?.go(target, false) ?: false },
+    private val verifyAnchor: suspend (EpubNavigatorFragment?, Locator, ReaderPreferences) -> Boolean = ::verifyReaderAnchor,
+    private val openPublication: suspend (Document) -> Publication = { doc ->
+        readium.open(EpubAsset(doc.id, File(doc.localPath), doc.title))
+    },
 ) : ViewModel() {
 
     internal val highlighting = ReaderHighlights(highlightRepository, viewModelScope)
@@ -63,6 +77,7 @@ class ReaderViewModel(
     internal val highlightPositionUncertain = _highlightPositionUncertain.asStateFlow()
     private var highlightNavigator: HighlightNavigator? = null
     private var highlightJumpJob: Job? = null
+    private var explicitNavigationJob: Job? = null
     private var highlightJumpGeneration = 0L
     private var closingHighlights = false
     private var highlightProgressBlocked = false
@@ -113,6 +128,7 @@ class ReaderViewModel(
         val target = HighlightLocation.parse(item.locator)?.locator ?: return
         val driver = highlightNavigator ?: return
         val nav = navigator
+        explicitNavigationJob?.cancel()
         val generation = ++highlightJumpGeneration
         _jumpingHighlight.value = id
         _highlightJumpError.value = null
@@ -205,8 +221,163 @@ class ReaderViewModel(
     }
 
     fun updatePreferences(next: ReaderPreferences) {
-        preferencesStore.update { next }
+        val previous = preferences.value
+        val layoutChanged = previous.copy(theme = next.theme, tapNavigationEnabled = next.tapNavigationEnabled) != next
+        if (!layoutChanged) {
+            preferencesStore.update { next }
+            return
+        }
+        pendingPreferenceTarget = next
+        if (preferenceCaptureJob?.isActive == true) return
+        if (pendingRotationAnchor != null) {
+            preferenceReflowPending = true
+            pendingPreferenceTarget = null
+            preferencesStore.update { next }
+            return
+        }
+        val live = _currentLocator.value
+        beginViewportResize()
+        preferenceReflowPending = pendingRotationAnchor != null
+        if (live == null || pendingRotationAnchor == null) {
+            pendingPreferenceTarget = null
+            preferencesStore.update { next }
+            return
+        }
+        val generation = anchorGeneration
+        // A deliberate preference change can await the current DOM before changing it. Keep
+        // the original point across a slider gesture, coalescing events while JS is in flight.
+        preferenceCaptureJob = viewModelScope.launch {
+            val fresh = try {
+                withTimeoutOrNull(ANCHOR_OBSERVATION_TIMEOUT_MS) { readDomAnchor(navigator) }
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (_: Exception) { null }
+            if (generation != anchorGeneration || pendingRotationAnchor == null) return@launch
+            if (fresh == null) {
+                pendingPreferenceTarget = null
+                _anchorRecovery.value = true
+                return@launch
+            }
+            pendingRotationAnchor = resizeAnchor(live, fresh.takeIf { !it.text.highlight.isNullOrBlank() } ?: domAnchor)
+            if (fresh?.href == live.href && !fresh.text.highlight.isNullOrBlank()) domAnchor = fresh
+            val target = pendingPreferenceTarget ?: next
+            pendingPreferenceTarget = null
+            preferencesStore.update { target }
+        }
     }
+
+    /** Preference re-pagination changes the page grid without changing the Compose viewport. */
+    fun onPreferencesApplied() {
+        if (!preferenceReflowPending) return
+        schedulePreferenceReanchor()
+    }
+
+    private fun schedulePreferenceReanchor() {
+        preferenceReflowJob?.cancel()
+        preferenceReflowJob = viewModelScope.launch {
+            delay(600)
+            completeViewportResize()
+        }
+    }
+
+    fun recreationLocator(): Locator? = _currentLocator.value?.let { resizeAnchor(it, domAnchor) }
+
+
+    private val _memoryScope = MutableStateFlow(accountKey())
+    val memoryScope = _memoryScope.asStateFlow()
+    private val _memory = MutableStateFlow<io.theficos.ereader.data.local.db.MemoryBookmark?>(null)
+    val memory = _memory.asStateFlow()
+    private val _memoryReady = MutableStateFlow(false)
+    val memoryReady = _memoryReady.asStateFlow()
+    private val _memoryBusy = MutableStateFlow(false)
+    val memoryBusy = _memoryBusy.asStateFlow()
+    private val _memoryError = MutableStateFlow(false)
+    val memoryError = _memoryError.asStateFlow()
+    private var memoryJob: Job? = null
+    private var loadedAccount: String? = null
+
+    init {
+        viewModelScope.launch {
+            accountChanges?.collect { owner ->
+                _memoryScope.value = owner
+                if (loadedAccount != null && loadedAccount != owner) {
+                    loadedAccount = null
+                    _memoryReady.value = false
+                    memoryJob?.cancel()
+                    _memory.value = null
+                    explicitNavigationJob?.cancel()
+                    cancelHighlightJump()
+                    clearPendingResize()
+                    invalidateDomAnchor()
+                }
+            }
+        }
+    }
+
+    /** Existing notes keep their original anchor; replacement at the live point is deliberate. */
+    fun saveMemory(note: String, atCurrentPoint: Boolean = false) {
+        val dao = bookmarks ?: return
+        if (!_memoryReady.value || _memoryBusy.value) return
+        val owner = loadedAccount ?: return
+        if (owner != accountKey()) return
+        _memoryBusy.value = true
+        viewModelScope.launch {
+            _memoryError.value = false
+            runCatching {
+                check(docs.findById(documentId) != null)
+                check(!highlightProgressBlocked && _jumpingHighlight.value == null)
+                val existing = _memory.value
+                val saved = existing?.locator?.let(ProgressTracker::parseOrNull)
+                // Corrupt notes remain readable/removable. Never silently replace their anchor.
+                check(existing == null || saved != null || atCurrentPoint)
+                check(!suppressLocatorPublishing)
+                val live = _currentLocator.value
+                val generation = anchorGeneration
+                val locator = if (existing != null && !atCurrentPoint) saved else {
+                    val dom = if (!suppressLocatorPublishing) runCatching { readDomAnchor(navigator) }.getOrNull() else null
+                    check(!suppressLocatorPublishing && live == _currentLocator.value && generation == anchorGeneration)
+                    live?.let { resizeAnchor(it, dom) }
+                }
+                check(locator != null)
+                val open = _state.value as? ReaderUiState.Open
+                check(open?.publication?.readingOrder?.any {
+                    it.href.toString().substringBefore('#') == locator.href.toString().substringBefore('#')
+                } == true)
+                val passage = if (existing != null && !atCurrentPoint) existing.passage else
+                    listOfNotNull(locator.text.before, locator.text.highlight, locator.text.after)
+                        .joinToString(" ").trim().take(1500)
+                check(owner == accountKey() && !highlightProgressBlocked && _jumpingHighlight.value == null)
+                dao.save(io.theficos.ereader.data.local.db.MemoryBookmark(documentId, owner,
+                    ProgressTracker.serialize(locator), note.trim().take(2000), passage, nowMs()))
+            }.onFailure {
+                if (it is kotlinx.coroutines.CancellationException) throw it
+                _memoryError.value = true
+            }
+            _memoryBusy.value = false
+        }
+    }
+
+    fun removeMemory() {
+        if (_memoryBusy.value) return
+        val owner = loadedAccount ?: return
+        if (owner != accountKey()) return
+        viewModelScope.launch {
+            _memoryError.value = false
+            runCatching { bookmarks?.remove(documentId, owner) }
+                .onFailure { _memoryError.value = true }
+        }
+    }
+
+    fun memoryLocator(): Locator? {
+        if (loadedAccount != accountKey()) return null
+        val locator = _memory.value?.locator?.let(ProgressTracker::parseOrNull) ?: return null
+        val publication = (_state.value as? ReaderUiState.Open)?.publication ?: return null
+        return locator.takeIf { publication.readingOrder.any { link ->
+            link.href.toString().substringBefore('#') == locator.href.toString().substringBefore('#')
+        } }
+    }
+
+    fun returnToMemory() { memoryLocator()?.let(::goTo) }
 
     private val tracker = ProgressTracker(
         save = { progress.save(it) },
@@ -216,8 +387,17 @@ class ReaderViewModel(
     private var navigator: EpubNavigatorFragment? = null
 
     fun bindNavigator(nav: EpubNavigatorFragment?) {
-        if (navigator !== nav) cancelHighlightJump()
+        if (navigator !== nav) {
+            explicitNavigationJob?.cancel()
+            cancelHighlightJump()
+        }
         navigator = nav
+        if (nav == null) {
+            anchorRestoreJob?.cancel()
+            paginationRestoreJob?.cancel()
+        }
+        else if (finalRestoreRequested && !_anchorRecovery.value) completeViewportResize()
+        else if (preferenceReflowPending) schedulePreferenceReanchor()
     }
 
     fun pageForward() {
@@ -228,23 +408,54 @@ class ReaderViewModel(
         viewModelScope.launch { navigator?.goBackward() }
     }
 
-    fun goTo(locator: Locator) {
+    fun goTo(locator: Locator) = navigateTo(locator, publishPreview = false)
+
+    /** A highlight transaction must finish its rollback before another deliberate jump lands. */
+    private fun navigateTo(target: Locator, publishPreview: Boolean) {
+        val rollback = highlightJumpJob
+        cancelHighlightJump()
         clearPendingResize()
         invalidateDomAnchor()
-        viewModelScope.launch { navigator?.go(locator, false) }
+        explicitNavigationJob?.cancel()
+        explicitNavigationJob = viewModelScope.launch {
+            rollback?.join()
+            if (highlightProgressBlocked || highlightNavigator?.let { it.isAlive && !it.safeToPublish } == true) return@launch
+            if (publishPreview) {
+                _currentLocator.value = target
+                _locatorUpdates.tryEmit(target)
+            }
+            navigateExplicit(navigator, target)
+        }
     }
 
+    private var loadJob: Job? = null
+
     fun load() {
-        viewModelScope.launch {
+        if (_state.value is ReaderUiState.Open || loadJob?.isActive == true) return
+        loadJob = viewModelScope.launch {
             val doc = docs.findById(documentId) ?: run {
                 _state.value = ReaderUiState.Error(uiText(R.string.common_document_not_found))
                 return@launch
             }
             val publication = runCatching {
-                readium.open(EpubAsset(doc.id, File(doc.localPath), doc.title))
+                openPublication(doc)
             }.getOrElse {
                 _state.value = ReaderUiState.Error(it.message?.let(UiText::Dynamic) ?: uiText(R.string.common_failed_to_open_book))
                 return@launch
+            }
+            val owner = accountKey()
+            loadedAccount = owner
+            _memoryScope.value = owner
+            memoryJob?.cancel()
+            _memory.value = null
+            _memoryReady.value = false
+            memoryJob = viewModelScope.launch {
+                bookmarks?.observe(documentId, owner)?.collect {
+                    if (loadedAccount == owner && accountKey() == owner) {
+                        _memory.value = it
+                        _memoryReady.value = true
+                    }
+                }
             }
             val savedProgress = progress.get(doc.id)
             val initialLocator = savedProgress?.locator?.let { ProgressTracker.parseOrNull(it) }
@@ -293,19 +504,33 @@ class ReaderViewModel(
      */
     private fun refreshDomAnchor() {
         if (nowMs() < anchorPinnedUntil) return
+        val generation = domAnchorGeneration
+        val point = _currentLocator.value
         viewModelScope.launch {
             val nav = navigator
             val dom = runCatching { readDomAnchor(nav) }.getOrNull()
             // A resize may have armed while that round trip was in flight, in which case the
             // answer describes the re-paginated page. Drop it and keep the pre-resize anchor.
-            if (!suppressLocatorPublishing && nowMs() >= anchorPinnedUntil) domAnchor = dom
+            if (!suppressLocatorPublishing && !highlightProgressBlocked && generation == domAnchorGeneration &&
+                point == _currentLocator.value && nowMs() >= anchorPinnedUntil) domAnchor = dom
         }
     }
 
+    private val _anchorRecovery = MutableStateFlow(false)
+    val anchorRecovery = _anchorRecovery.asStateFlow()
+    private var finalRestoreRequested = false
+    private var anchorRestoreJob: Job? = null
+    private var paginationRestoreJob: Job? = null
+    private var preferenceCaptureJob: Job? = null
+    private var pendingPreferenceTarget: ReaderPreferences? = null
+    private var preferenceReflowPending = false
+    private var preferenceReflowJob: Job? = null
+    private var anchorGeneration: Long = 0
     private var pendingRotationAnchor: Locator? = null
     private var suppressLocatorPublishing: Boolean = false
     private var viewportSize: Pair<Int, Int>? = null
     private var domAnchor: Locator? = null
+    private var domAnchorGeneration = 0L
     private var anchorPinnedUntil: Long = 0L
 
     /**
@@ -347,6 +572,7 @@ class ReaderViewModel(
      * and send the reader straight back to the page they just jumped away from.
      */
     private fun invalidateDomAnchor() {
+        domAnchorGeneration++
         domAnchor = null
     }
 
@@ -360,10 +586,13 @@ class ReaderViewModel(
         // first of those still sees the page the reader is leaving, so it wins.
         if (pendingRotationAnchor == null) {
             val live = _currentLocator.value ?: return
+            anchorGeneration++
+            _anchorRecovery.value = false
+            finalRestoreRequested = false
             pendingRotationAnchor = resizeAnchor(live, domAnchor)
             suppressLocatorPublishing = true
         }
-        // Arm the original committed position before cancellation can run jump cleanup.
+        // Protect the original committed point before cancelling highlight staging/rollback.
         if (_jumpingHighlight.value != null) cancelHighlightJump()
     }
 
@@ -386,35 +615,91 @@ class ReaderViewModel(
      * little by every application, which is why it could only ever be applied once.
      */
     fun reanchorViewport() {
-        if (_jumpingHighlight.value != null) return
+        if (_jumpingHighlight.value != null || highlightProgressBlocked) return
         val anchor = pendingRotationAnchor ?: return
-        viewModelScope.launch { navigator?.go(anchor, false) }
+        if (_anchorRecovery.value) return
+        if (finalRestoreRequested) {
+            completeViewportResize()
+            return
+        }
+        paginationRestoreJob?.cancel()
+        paginationRestoreJob = viewModelScope.launch { tryRestore(anchor) }
+        if (preferenceReflowPending) schedulePreferenceReanchor()
     }
 
-    // Called when the viewport has stopped changing (and from the immersive transition's own
-    // settle timer). No-op if no resize is pending. Re-anchors one last time, now that the
-    // layout is final, re-seeds the current-locator flow and re-enables publishing.
+    private suspend fun tryRestore(anchor: Locator): Boolean = try {
+        restoreNavigator(navigator, anchor)
+    } catch (error: kotlinx.coroutines.CancellationException) {
+        throw error
+    } catch (_: Exception) {
+        false
+    }
+
+    // Both viewport and preference reflows share bounded final restoration. Keeping the anchor
+    // after a failed go is safe only if readiness callbacks/retries can eventually release it.
     fun completeViewportResize() {
         val anchor = pendingRotationAnchor ?: return
-        pendingRotationAnchor = null
-        // Readium reports the restored position of its own accord a moment after the jump —
-        // measured at around half a second. That report is the resize finishing, not the reader
-        // moving, so it must not be allowed to re-read the anchor from the page it just landed
-        // on. Hold the anchor over that window; the next page the reader actually turns to
-        // refreshes it normally.
-        anchorPinnedUntil = nowMs() + ANCHOR_PIN_MS
-        viewModelScope.launch {
-            navigator?.go(anchor, false)
-            _currentLocator.value = anchor
-            _locatorUpdates.tryEmit(anchor)
-            suppressLocatorPublishing = false
+        finalRestoreRequested = true
+        if (highlightProgressBlocked || _jumpingHighlight.value != null) return
+        if (_anchorRecovery.value || anchorRestoreJob?.isActive == true) return
+        val generation = anchorGeneration
+        finalRestoreRequested = true
+        paginationRestoreJob?.cancel()
+        anchorRestoreJob = viewModelScope.launch {
+            repeat(3) { attempt ->
+                val requestedPreferences = preferences.value
+                val accepted = tryRestore(anchor)
+                val restored = accepted && try {
+                    withTimeoutOrNull(ANCHOR_OBSERVATION_TIMEOUT_MS) {
+                        verifyAnchor(navigator, anchor, requestedPreferences)
+                    } == true
+                } catch (error: kotlinx.coroutines.CancellationException) {
+                    throw error
+                } catch (_: Exception) { false }
+                if (generation != anchorGeneration || pendingRotationAnchor != anchor || highlightProgressBlocked) return@launch
+                if (restored && preferences.value == requestedPreferences) {
+                    pendingRotationAnchor = null
+                    finalRestoreRequested = false
+                    preferenceReflowPending = false
+                    preferenceReflowJob?.cancel()
+                    _anchorRecovery.value = false
+                    anchorPinnedUntil = nowMs() + ANCHOR_PIN_MS
+                    _currentLocator.value = anchor
+                    _locatorUpdates.tryEmit(anchor)
+                    suppressLocatorPublishing = false
+                    return@launch
+                }
+                if (attempt < 2) delay(600)
+            }
+            // Never silently persist the drift. Offer deliberate retry/close recovery instead
+            // of leaving a permanent, invisible progress lockout or retrying without a bound.
+            if (generation == anchorGeneration && pendingRotationAnchor == anchor) {
+                _anchorRecovery.value = true
+            }
         }
+    }
+
+    fun retryViewportRestore() {
+        anchorRestoreJob?.cancel()
+        anchorRestoreJob = null
+        _anchorRecovery.value = false
+        completeViewportResize()
     }
 
     // Safety valve for the immersive decor-fits transitions: if a resize was armed
     // (beginViewportResize) but no re-pagination completed it — e.g. the reader is torn
     // down mid-transition — clear the anchor so publishing is never left suppressed.
     fun clearPendingResize() {
+        preferenceCaptureJob?.cancel()
+        pendingPreferenceTarget = null
+        paginationRestoreJob?.cancel()
+        anchorRestoreJob?.cancel()
+        anchorRestoreJob = null
+        finalRestoreRequested = false
+        _anchorRecovery.value = false
+        preferenceReflowPending = false
+        preferenceReflowJob?.cancel()
+        anchorGeneration++
         pendingRotationAnchor = null
         suppressLocatorPublishing = false
     }
@@ -426,28 +711,19 @@ class ReaderViewModel(
 
     fun seek(percent: Double) {
         val target = previewLocator(percent) ?: return
-        val nav = navigator ?: return
-        // An explicit jump supersedes any armed re-anchor: the anchor predates the seek, so
-        // honouring it afterwards would yank the reader back out of the page they just chose.
-        clearPendingResize()
-        invalidateDomAnchor()
-        // Surface the target on the HUD synchronously, before the suspending nav.go()
-        // call dispatches. This avoids a one-frame window where the slider thumb
-        // would snap back to the pre-seek liveLocator after the UI clears its drag
-        // preview but before Readium emits the post-seek locator. Routing through
-        // _locatorUpdates here also persists the jump via ProgressTracker even if
-        // Readium's own emission is delayed. The later emission re-flushes the same
-        // row — idempotent. On the rare failure of go(), Readium's next emission
-        // corrects any drift.
-        _currentLocator.value = target
-        _locatorUpdates.tryEmit(target)
-        viewModelScope.launch {
-            nav.go(target, animated = false)
-        }
+        if (navigator == null) return
+        navigateTo(target, publishPreview = true)
     }
 
     override fun onCleared() {
         positionsJob?.cancel()
+        memoryJob?.cancel()
+        preferenceReflowJob?.cancel()
+        anchorRestoreJob?.cancel()
+        paginationRestoreJob?.cancel()
+        preferenceCaptureJob?.cancel()
+        explicitNavigationJob?.cancel()
+        highlightJumpJob?.cancel()
         tracker.detach()
         super.onCleared()
     }
@@ -459,6 +735,7 @@ class ReaderViewModel(
  * practice), short enough that a page the reader turns to just after a rotation still registers.
  */
 private const val ANCHOR_PIN_MS = 1_500L
+private const val ANCHOR_OBSERVATION_TIMEOUT_MS = 1_500L
 
 sealed interface ReaderUiState {
     data object Loading : ReaderUiState
@@ -485,12 +762,16 @@ sealed interface ReaderUiState {
 private suspend fun readPageStartAnchor(navigator: EpubNavigatorFragment?): Locator? {
     val nav = navigator ?: return null
     val current = nav.currentLocator.value
-    val fromScript = runCatching {
-        parsePageStartAnchor(
-            json = nav.evaluateJavascript(PAGE_START_ANCHOR_JS),
-            href = current.href,
-            mediaType = current.mediaType,
-        )
-    }.getOrNull()
-    return fromScript ?: runCatching { nav.firstVisibleElementLocator() }.getOrNull()
+    val expectedHref = current.href.toString()
+    val primary = evaluateReaderJavascript(nav, PAGE_START_ANCHOR_JS, expectedHref) ?: return null
+    if (nav.currentLocator.value.href.toString().substringBefore('#') != expectedHref.substringBefore('#')) return null
+    val fromScript = parsePageStartAnchor(primary.value, current.href, current.mediaType)
+    if (fromScript != null) return fromScript
+    val fallback = evaluateReaderJavascript(nav, "readium.findFirstVisibleLocator();", expectedHref) ?: return null
+    if (nav.currentLocator.value.href.toString().substringBefore('#') != expectedHref.substringBefore('#')) return null
+    // The DOM URL envelope has already proved which publication resource supplied this value.
+    // Readium's JS locator omits the publication href, so bind it only after that proof.
+    return runCatching {
+        Locator.fromJSON(org.json.JSONObject(fallback.value))?.copy(href = current.href, mediaType = current.mediaType)
+    }.getOrNull() ?: current.takeIf { it.text.highlight.isNullOrBlank() }
 }

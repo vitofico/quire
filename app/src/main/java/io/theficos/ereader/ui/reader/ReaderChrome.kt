@@ -25,6 +25,8 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -70,6 +72,8 @@ fun ReaderTopBar(
     onHighlightMode: () -> Unit,
     modifier: Modifier = Modifier,
     edgeToEdge: Boolean = false,
+    onReadingPause: (() -> Unit)? = null,
+    hasMemory: Boolean = false,
     onHighlights: () -> Unit = {},
 ) {
     var moreExpanded by remember { mutableStateOf(false) }
@@ -121,6 +125,16 @@ fun ReaderTopBar(
                         Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.common_more))
                     }
                     DropdownMenu(expanded = moreExpanded, onDismissRequest = { moreExpanded = false }) {
+                        if (onReadingPause != null) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.reader_pause_title)) },
+                                leadingIcon = {
+                                    Icon(if (hasMemory) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
+                                        contentDescription = if (hasMemory) stringResource(R.string.reader_memory_saved) else null)
+                                },
+                                onClick = { moreExpanded = false; onReadingPause() },
+                            )
+                        }
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.reader_highlights_title)) },
                             onClick = { moreExpanded = false; onHighlights() },

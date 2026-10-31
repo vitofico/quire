@@ -15,3 +15,10 @@ The PR 2 candidate APK SHA-256 was
 `70d7e70dfff6f43351d151445eedb59e6f5ff8b5289f06f564d872287a4ec046`.
 These screenshots contain no seeded quote rows, personal books or credentials.
 Later programmatic fixture cases are separate QA evidence.
+
+These are historical highlight-feature screenshots. The integrated reader now
+adds **Pause & resume** to this existing More menu, with a filled bookmark icon
+when a device-local memory bookmark exists; the direct Highlight/Done and type
+controls retain their positions. Integrated native acceptance must capture the
+updated menu and exercise both kinds of saved-location return before these
+historical images are treated as evidence for the combined reader.

@@ -15,9 +15,20 @@ import org.readium.r2.shared.publication.Locator
 internal class StructuralSelectionAnchors(context: Context) {
     private val script = context.assets.open("quire-structural-anchors.js").bufferedReader().use { it.readText() }
 
+    private suspend fun evaluate(
+        navigator: EpubNavigatorFragment,
+        expression: String,
+        href: String = navigator.currentLocator.value.href.toString(),
+        install: Boolean = true,
+    ): String? {
+        val setup = if (install) script else ""
+        val operation = "(function () { $setup\n return $expression; })();"
+        return evaluateReaderJavascript(navigator, operation, href)?.value
+    }
+
     suspend fun capture(navigator: EpubNavigatorFragment): Locator? {
         val page = navigator.currentLocator.value
-        val raw = navigator.evaluateJavascript("$script\nJSON.stringify(window.quireStructuralAnchors.capture(${JSONObject.quote(page.href.toString())}));")
+        val raw = evaluate(navigator, "JSON.stringify(window.quireStructuralAnchors.capture(${JSONObject.quote(page.href.toString())}))", page.href.toString())
         val snapshot = parseObject(raw) ?: return null
         if (navigator.currentLocator.value.href != page.href) return null
         val text = snapshot.optJSONObject("text")?.let(Locator.Text::fromJSON) ?: return null
@@ -31,11 +42,11 @@ internal class StructuralSelectionAnchors(context: Context) {
 
     suspend fun viewport(navigator: EpubNavigatorFragment): Locator? {
         val page = navigator.currentLocator.value
-        val raw = navigator.evaluateJavascript("$script\nJSON.stringify(window.quireStructuralAnchors.viewport(${JSONObject.quote(page.href.toString())}));")
+        val raw = evaluate(navigator, "JSON.stringify(window.quireStructuralAnchors.viewport(${JSONObject.quote(page.href.toString())}))", page.href.toString())
         if (navigator.currentLocator.value.href != page.href) return null
         val snapshot = parseObject(raw)
         if (snapshot == null) {
-            val position = parseObject(navigator.evaluateJavascript("JSON.stringify(window.quireStructuralAnchors.position());")) ?: return null
+            val position = parseObject(evaluate(navigator, "JSON.stringify(window.quireStructuralAnchors.position())", page.href.toString(), install = false)) ?: return null
             if (navigator.currentLocator.value.href != page.href) return null
             return page.copy(text = Locator.Text(), locations = page.locations.copy(
                 otherLocations = mapOf(VIEWPORT_POSITION_KEY to position.toString()),
@@ -52,27 +63,27 @@ internal class StructuralSelectionAnchors(context: Context) {
         if (!restoringOrigin && !isHighlightDestination(locator)) return null
         locator.locations.otherLocations[VIEWPORT_POSITION_KEY]?.takeIf { restoringOrigin }?.let { position ->
             val saved = JSONObject(position.toString())
-            val raw = navigator.evaluateJavascript("$script\nJSON.stringify(window.quireStructuralAnchors.restorePosition($saved, $apply));")
+            val raw = evaluate(navigator, "JSON.stringify(window.quireStructuralAnchors.restorePosition($saved, $apply))", locator.href.toString())
             val result = parseObject(raw) ?: return null
             return NavigationProbe(result.optBoolean("available"), result.optBoolean("visible"), result.optBoolean("moved"))
         }
         val method = if (apply) "jump" else "visible"
-        val raw = navigator.evaluateJavascript("$script\nJSON.stringify(window.quireStructuralAnchors.$method(${locator.toJSON()}));")
+        val raw = evaluate(navigator, "JSON.stringify(window.quireStructuralAnchors.$method(${locator.toJSON()}))", locator.href.toString())
         val result = parseObject(raw) ?: return null
         return NavigationProbe(result.optBoolean("available"), result.optBoolean("visible"), result.optBoolean("moved"))
     }
 
     suspend fun prepare(navigator: EpubNavigatorFragment, group: String): Boolean {
-        val result = navigator.evaluateJavascript("$script\nJSON.stringify(window.quireStructuralAnchors.prepare(${JSONObject.quote(group)}));")
+        val result = evaluate(navigator, "JSON.stringify(window.quireStructuralAnchors.prepare(${JSONObject.quote(group)}))")
         return parseObject(result)?.optBoolean("ready") == true
     }
 
     /** Cheap page-turn probe; a replacement WebView must install its adapter before rendering. */
     suspend fun isPrepared(navigator: EpubNavigatorFragment, group: String): Boolean {
-        val result = navigator.evaluateJavascript(
+        val result = evaluate(navigator,
             "JSON.stringify((() => { const status = window.quireStructuralAnchors && " +
                 "window.quireStructuralAnchors.diagnostics(${JSONObject.quote(group)});" +
-                "return {ready:!!(status && status.ready && status.contentCurrent)}; })());"
+                "return {ready:!!(status && status.ready && status.contentCurrent)}; })())", install = false
         )
         return parseObject(result)?.optBoolean("ready") == true
     }
@@ -81,16 +92,16 @@ internal class StructuralSelectionAnchors(context: Context) {
         val input = JSONArray().apply {
             decorations.forEach { put(JSONObject().put("id", it.id).put("locator", it.locator.toJSON())) }
         }
-        val result = navigator.evaluateJavascript(
-            "JSON.stringify(window.quireStructuralAnchors.validate(${JSONObject.quote(group)}, $input));"
+        val result = evaluate(navigator,
+            "JSON.stringify(window.quireStructuralAnchors.validate(${JSONObject.quote(group)}, $input))", install = false
         )
         val ids = parseObject(result)?.optJSONArray("rejectedIds") ?: return null
         return (0 until ids.length()).map { ids.getString(it) }.toSet()
     }
 
     suspend fun clearRejections(navigator: EpubNavigatorFragment, group: String) {
-        navigator.evaluateJavascript(
-            "window.quireStructuralAnchors && window.quireStructuralAnchors.validate(${JSONObject.quote(group)}, []);"
+        evaluate(navigator,
+            "window.quireStructuralAnchors && window.quireStructuralAnchors.validate(${JSONObject.quote(group)}, [])", install = false
         )
     }
 

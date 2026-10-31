@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="reader_pause_title">Pause &amp; resume</string>
+    <string name="reader_pause_saved">Pause &amp; resume • saved bookmark</string>
+    <string name="reader_stop_title">A good place to stop</string>
+    <string name="reader_stop_unavailable">No reliable distance available at this location.</string>
+    <string name="reader_stop_section">About %1$d%% of the book to the next mapped section break</string>
+    <string name="reader_stop_resource">About %1$d%% of the book to the next chapter or resource</string>
+    <string name="reader_stop_end">About %1$d%% of the book to the end</string>
+    <string name="reader_stop_basis">Rough distance as a share of the whole book, based on its structure and available reading positions, rounded up to a whole percent. Not a time estimate; section anchors may be missing.</string>
+    <string name="reader_memory_title">A bookmark that remembers</string>
+    <string name="reader_memory_local">Saved on this device only, for this account and book. Not synced. Removing the book removes its bookmark.</string>
+    <string name="reader_memory_saved">Saved passage</string>
+    <string name="reader_memory_no_passage">No passage text available; your reading location is saved.</string>
+    <string name="reader_memory_unavailable">This saved location cannot be opened. Keep or copy your note, replace it at the current location, or remove it.</string>
+    <string name="reader_memory_return">Return to saved passage</string>
+    <string name="reader_memory_note">A sentence or question for your future self (optional)</string>
+    <string name="reader_memory_error">Could not save the bookmark. Your saved note is unchanged. Try again at a settled reading location.</string>
+    <string name="reader_memory_save">Save at current location</string>
+    <string name="reader_memory_edit">Save note at saved location</string>
+    <string name="reader_memory_replace">Replace with current location</string>
+    <string name="reader_memory_remove">Remove bookmark</string>
+    <string name="reader_memory_note_label">Your note</string>
+    <string name="reader_restore_title">Restore your reading place</string>
+    <string name="reader_restore_body">The new layout could not restore your reading place. Your saved position is kept. Try again, or close the book and reopen it.</string>
+    <string name="reader_restore_close">Close book</string>
+</resources>

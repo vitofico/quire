@@ -14,8 +14,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SyncStateEntity::class,
         InsightEntity::class,
         HighlightEntity::class,
+        MemoryBookmark::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = true,
 )
 abstract class EReaderDatabase : RoomDatabase() {
@@ -23,6 +24,7 @@ abstract class EReaderDatabase : RoomDatabase() {
     abstract fun progressDao(): ProgressDao
     abstract fun syncStateDao(): SyncStateDao
     abstract fun insightDao(): InsightDao
+    abstract fun memoryBookmarkDao(): MemoryBookmarkDao
     abstract fun highlightDao(): HighlightDao
     abstract fun highlightSyncDao(): HighlightSyncDao
 
@@ -220,6 +222,24 @@ abstract class EReaderDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS memory_bookmarks (
+                        documentId INTEGER NOT NULL,
+                        accountKey TEXT NOT NULL,
+                        locator TEXT NOT NULL,
+                        note TEXT NOT NULL,
+                        passage TEXT NOT NULL,
+                        updatedAt INTEGER NOT NULL,
+                        PRIMARY KEY(documentId, accountKey),
+                        FOREIGN KEY(documentId) REFERENCES documents(id) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_memory_bookmarks_documentId ON memory_bookmarks(documentId)")
+            }
+        }
+
         fun build(context: Context): EReaderDatabase =
             Room.databaseBuilder(context, EReaderDatabase::class.java, "ereader.db")
                 .addMigrations(
@@ -233,6 +253,7 @@ abstract class EReaderDatabase : RoomDatabase() {
                     MIGRATION_8_9,
                     MIGRATION_9_10,
                     MIGRATION_10_11,
+                    MIGRATION_11_12,
                 )
                 .build()
     }

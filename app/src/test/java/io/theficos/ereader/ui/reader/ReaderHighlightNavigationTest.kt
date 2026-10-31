@@ -59,7 +59,8 @@ class ReaderHighlightNavigationTest {
         db.openHelper.writableDatabase
         repository = HighlightRepository(Rows(), newId = { "saved" })
         vm = ReaderViewModel(1, DocumentRepository(db.documentDao()), ProgressRepository(db.progressDao()),
-            ReadiumFactory(context), ReaderPreferencesStore(context), repository, readDomAnchor = { null })
+            ReadiumFactory(context), ReaderPreferencesStore(context), repository, readDomAnchor = { null },
+            restoreNavigator = { _, _ -> true }, verifyAnchor = { _, _, _ -> true })
         store = ViewModelStore().apply { put("reader", vm) }
         vm.highlighting.attach(book)
         vm.onViewportChanged(1080, 2400)

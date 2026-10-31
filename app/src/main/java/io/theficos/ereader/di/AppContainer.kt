@@ -94,6 +94,7 @@ class AppContainer(context: Context) {
     )
 
     private val db: EReaderDatabase = EReaderDatabase.build(appContext)
+    val memoryBookmarkDao = db.memoryBookmarkDao()
     val documentRepository = DocumentRepository(db.documentDao())
     val progressRepository = ProgressRepository(db.progressDao())
     val highlightRepository = HighlightRepository(

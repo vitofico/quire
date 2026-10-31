@@ -16,15 +16,9 @@
         android:fullBackupContent="@xml/backup_rules"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:theme="@style/Theme.Quire">
-        <!-- configChanges keeps the Activity alive across rotation/keyboard/navigation
-             changes. Required because EpubNavigatorFragment has no no-arg constructor:
-             on Activity recreation, FragmentManager.restoreSaveStateInternal tries to
-             instantiate it via reflection before our custom FragmentFactory has been
-             installed (the factory is set inside Compose, well after super.onCreate),
-             and the restore crashes with Fragment$InstantiationException. Compose
-             handles configuration changes natively via LocalConfiguration, so keeping
-             the Activity alive is safe. uiMode/locale/density/fontScale intentionally
-             stay off the list so theme and locale changes still recreate. -->
+        <!-- Rotation keeps the live Readium viewport so its DOM anchor survives re-pagination.
+             Other configuration changes recreate normally; MainActivity removes only Readium's
+             non-restorable FragmentManager state and preserves Compose/navigation saved state. -->
         <activity
             android:name="io.theficos.ereader.MainActivity"
             android:theme="@style/Theme.Quire.Launch"

@@ -21,7 +21,7 @@ class MainActivity : FragmentActivity() {
     var onBeforeReaderConfigChange: (() -> Unit)? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
+        super.onCreate(readerRecreationState(savedInstanceState))
         // The whole app is edge-to-edge: the single Activity window keeps a stable geometry,
         // so entering/leaving the immersive reader never resizes the shared window (which used
         // to show a visible jump on Back). Screens own their insets: Material3 Scaffold/TopAppBar/

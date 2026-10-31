@@ -1,6 +1,7 @@
 package io.theficos.ereader.reader
 
 import com.google.common.truth.Truth.assertThat
+import android.webkit.ValueCallback
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
@@ -30,6 +31,25 @@ class HighlightJumpTransactionTest {
         var show: suspend (Locator) -> Boolean = { true }
         override suspend fun origin() = snapshot
         override suspend fun show(locator: Locator): Boolean { shown += locator; return show.invoke(locator) }
+    }
+
+    @Test fun `cancelled transaction waits for bounded missing rollback callback and remains unsafe`() = runTest {
+        val callbacks = mutableListOf<ValueCallback<String>>()
+        val driver = Driver().apply { show = { awaitReaderJavascript { callbacks += it } == "true" } }
+        val transaction = HighlightJumpTransaction(driver)
+        val work = launch { transaction.jump(target) { true } }
+        runCurrent()
+        assertThat(callbacks).hasSize(1)
+        work.cancel(); runCurrent()
+        assertThat(callbacks).hasSize(2)
+        assertThat(work.isCompleted).isFalse()
+        testScheduler.advanceTimeBy(1501); runCurrent()
+        work.join()
+        assertThat(work.isCompleted).isTrue()
+        assertThat(driver.shown).containsExactly(target, origin).inOrder()
+        assertThat(transaction.safeToPublish).isFalse()
+        callbacks.forEach { it.onReceiveValue("true") }
+        assertThat(transaction.safeToPublish).isFalse()
     }
 
     @Test fun `successful exact navigation does not roll back`() = runTest {
