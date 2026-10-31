@@ -18,6 +18,7 @@ exists.
 - [How settings reach the server](#how-settings-reach-the-server)
 - [Required](#required)
 - [Deploy modes](#deploy-modes)
+- [Remote MCP access](#remote-mcp-access)
 - [AI provider](#ai-provider)
 - [Status page](#status-page)
 - [Docker Compose variables](#docker-compose-variables)
@@ -280,6 +281,33 @@ An AI-only server still checks logins against calibre-web, so it still needs
 `QUIRE_SERVER_CWA_BASE_URL`. Running without calibre-web would need
 [`QUIRE_SERVER_AUTH_BACKEND=native`](#quire_server_auth_backend), which has
 no way to create accounts yet.
+
+## Remote MCP access
+
+### `QUIRE_SERVER_MCP_PUBLIC_URL`
+
+| Property | Value |
+| --- | --- |
+| Default | unset (loopback-only MCP) |
+| Applies to | Remote `/mcp` endpoint when progress is enabled |
+| Example | `https://books.example.com` |
+| Takes effect | Server restart |
+
+Set the public HTTPS origin through which clients reach Quire Server. An optional
+port is allowed; paths, credentials, query strings and fragments are rejected.
+A trailing slash and an explicit standard port `:443` are normalized away.
+The accepted Host and supplied Origin must match the configured authority/origin.
+Loopback hosts remain available for local native/server-side clients.
+
+Add the value to `.env`, restart Quire Server, and have your reverse proxy
+forward `/mcp` and `/agent/*` to it with Host preserved. The reference Caddyfile
+includes these routes. Existing custom proxies or ingress rules need their own
+routing update; this setting does not configure them.
+
+Authentication still uses an explicit existing Basic or NativeAuth Bearer
+Authorization header. Cookie-only clients and OAuth-discovery-only clients
+cannot use this endpoint. This setting does not enable browser pairing or AI.
+See [Agent and MCP access](agent-access.md) for tools and examples.
 
 ## AI provider
 

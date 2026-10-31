@@ -1,11 +1,11 @@
 # Sync API
 
-REST surface of the `quire-server` server. Endpoints live under four
+REST surface of the `quire-server` server. Endpoints live under
 prefixes — `/sync/v1` (progress, highlights + planned bookmarks), `/library/v1`
 (per-user library mirror, including the Phase 0 push-model
 `POST /library/v1/sync` bulk endpoint), `/ai/v1` (optional book insights
-and reader profile), and the unprefixed `/health` / `/readyz` operational
-probes. All request and response bodies are JSON. Authenticated
+and reader profile), `/agent/v1` (read-only highlights), and the unprefixed
+`/health` / `/readyz` operational probes. All request and response bodies are JSON. Authenticated
 endpoints accept the same credential as calibre-web by default; see
 [Authentication](#authentication) for the Phase 0 pluggable backend.
 
@@ -134,6 +134,9 @@ the operator migrates. Plan cutover within the two-minor-release window.
 | `GET` | `/quire-admin` | admin | The status as an HTML page with a "Test AI connection" button (`POST /quire-admin/probe`) and an AI settings form (`POST /quire-admin/settings`) |
 | `POST` | `/sync/v1/progress` | yes | Push progress for one or more documents |
 | `GET` | `/sync/v1/progress` | yes | Pull progress deltas |
+| `POST` | `/mcp` | yes | Remote read-only highlight MCP tools (Streamable HTTP) |
+| `GET` | `/agent/v1/highlights` | yes | List/search active highlight previews |
+| `GET` | `/agent/v1/highlights/{highlight_id}` | yes | Read one full active highlight |
 | `POST` | `/sync/v1/highlights` | yes | Push saved passages and tombstones |
 | `GET` | `/sync/v1/highlights` | yes | Pull per-user highlights by revision cursor |
 | `POST` | `/sync/v1/documents/alias` | yes | Reconcile a hash-keyed record with a newly-known metadata-id (planned) |
@@ -159,6 +162,21 @@ the operator migrates. Plan cutover within the two-minor-release window.
 
 `/sync/v1/documents/alias` and `/sync/v1/bookmarks` are designed but not
 shipped. Everything else above is on `main`.
+
+## Read-only Agent and MCP access
+
+`GET /agent/v1/highlights` lists or searches the authenticated account's active
+highlights using bounded previews and UUID pagination. `GET
+/agent/v1/highlights/{highlight_id}` retrieves one complete saved quotation and
+locator. The remote `/mcp` Streamable HTTP endpoint exposes the same service
+through `list_highlights`, `search_highlights` and `get_highlight` tools.
+
+Both surfaces follow the progress/full-mode gate. MCP requires an explicit
+existing Basic or NativeAuth Bearer Authorization header on every request;
+cookie authentication and OAuth discovery are not provided by that endpoint.
+Public deployments configure `QUIRE_SERVER_MCP_PUBLIC_URL` and proxy both routes.
+See [Agent and MCP access](agent-access.md) for filters, previews, cursors, errors
+and client setup. These reads do not advance sync cursors or expose tombstones.
 
 ## Document references
 
