@@ -248,6 +248,7 @@ fun AppNavGraph(
                                     io.theficos.ereader.ui.reader.memoryAccountKey(it.baseUrl, it.subject)
                                 } ?: "device-local"
                             },
+                            highlightRepository = container.highlightRepository,
                         )
                     }
                 },

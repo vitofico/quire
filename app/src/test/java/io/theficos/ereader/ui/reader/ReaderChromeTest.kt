@@ -4,6 +4,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
 import io.theficos.ereader.data.local.DocumentRepository
+import io.theficos.ereader.data.local.HighlightRepository
 import io.theficos.ereader.data.local.ProgressRepository
 import io.theficos.ereader.data.local.db.EReaderDatabase
 import io.theficos.ereader.reader.ReaderPreferencesStore
@@ -42,6 +43,7 @@ class ReaderChromeTest {
             progress = ProgressRepository(db.progressDao()),
             readium = ReadiumFactory(context),
             preferencesStore = ReaderPreferencesStore(context),
+            highlightRepository = HighlightRepository(db.highlightDao()),
         )
     }
 

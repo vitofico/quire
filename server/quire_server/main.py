@@ -394,10 +394,12 @@ def create_app() -> FastAPI:
         # Lazy import: only pull progress + library routers when progress mode
         # is on. The `library_items` migration lives on the `progress` alembic
         # branch, so the gate must match for the table to exist.
+        from quire_server.api.highlights import router as highlights_router
         from quire_server.api.library import router as library_router
         from quire_server.api.progress import router as progress_router
 
         app.include_router(progress_router, prefix="/sync/v1")
+        app.include_router(highlights_router, prefix="/sync/v1")
         app.include_router(library_router, prefix="/library/v1")
 
     if settings.ai_enabled:
@@ -440,6 +442,7 @@ def create_app() -> FastAPI:
                 base_url=settings.ai_base_url,
                 api_key=settings.ai_api_key,
                 model=settings.ai_model,
+                temperature=settings.ai_temperature,
             )
             # Issue #102: the admin status page's "test connection" button
             # probes through this same client.

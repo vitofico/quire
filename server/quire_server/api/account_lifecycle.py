@@ -12,6 +12,8 @@ from quire_server.db.models import NativeUser
 router = APIRouter()
 
 PRIVATE = {
+    "highlights": "user_id",
+    "highlight_sync_state": "user_id",
     "documents": "user_id",
     "library_items": "user_id",
     "user_ai_preferences": "user_id",

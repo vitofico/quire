@@ -22,21 +22,36 @@ class MigrationTest {
         FrameworkSQLiteOpenHelperFactory(),
     )
 
-    @Test fun `migrate 9 to 10 preserves progress and adds local bookmark cascade`() {
-        helper.createDatabase(DB, 9).use { db ->
+    @Test fun `migrate 11 to 12 preserves scoped highlights progress and adds local bookmark cascade`() {
+        helper.createDatabase(DB, 11).use { db ->
             db.execSQL("INSERT INTO documents (id, metadataId, contentHash, title, author, downloadUrl, localPath, coverPath, downloadedAt) VALUES (91, NULL, 'h91', 'Book', NULL, 'u', 'p', NULL, 0)")
             db.execSQL("INSERT INTO progress (id, documentId, locator, percent, updatedAt, localUpdatedAt, syncedAt) VALUES (91, 91, 'original', 0.5, 42, 42, 42)")
+            db.execSQL("INSERT INTO highlights (ownerScope, id, contentHash, locator, text, colour, bookTitle, createdAt, updatedAt, syncedAt, deletedAt) VALUES ('account', 'kept', 'h91', 'exact-highlight', 'Retained quote', 'GREEN', 'Book', 10, 20, 20, 20)")
+            db.execSQL("INSERT INTO sync_state VALUES ('highlights:account', 123)")
         }
-        helper.runMigrationsAndValidate(DB, 10, true, EReaderDatabase.MIGRATION_9_10).use { db ->
+        helper.runMigrationsAndValidate(DB, 12, true, EReaderDatabase.MIGRATION_11_12).use { db ->
             db.query("SELECT locator, syncedAt FROM progress WHERE documentId=91").use { c ->
                 assertThat(c.moveToFirst()).isTrue()
                 assertThat(c.getString(0)).isEqualTo("original")
                 assertThat(c.getLong(1)).isEqualTo(42L)
             }
+            db.query("SELECT locator, text, ownerScope, syncedAt, deletedAt FROM highlights WHERE id='kept'").use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.getString(0)).isEqualTo("exact-highlight")
+                assertThat(c.getString(1)).isEqualTo("Retained quote")
+                assertThat(c.getString(2)).isEqualTo("account")
+                assertThat(c.getLong(3)).isEqualTo(20L)
+                assertThat(c.getLong(4)).isEqualTo(20L)
+            }
+            db.query("SELECT lastPulledAt FROM sync_state WHERE tableName='highlights:account'").use {
+                assertThat(it.moveToFirst()).isTrue()
+                assertThat(it.getLong(0)).isEqualTo(123L)
+            }
             db.execSQL("INSERT INTO memory_bookmarks VALUES (91, 'owner', 'locator', 'question', 'passage', 100)")
             db.execSQL("PRAGMA foreign_keys=ON")
             db.execSQL("DELETE FROM documents WHERE id=91")
             db.query("SELECT * FROM memory_bookmarks").use { assertThat(it.count).isEqualTo(0) }
+            db.query("SELECT * FROM highlights WHERE id='kept'").use { assertThat(it.count).isEqualTo(1) }
         }
     }
 

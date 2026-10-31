@@ -1,6 +1,7 @@
 package io.theficos.ereader.ui.reader
 
 import android.app.Application
+import io.theficos.ereader.reader.awaitReaderJavascript
 import android.webkit.ValueCallback
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeoutOrNull

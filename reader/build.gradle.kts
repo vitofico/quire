@@ -24,6 +24,7 @@ dependencies {
     api(project(":core:model"))
     api(project(":data:local"))
     implementation(libs.androidx.core.ktx)
+    implementation("androidx.fragment:fragment-ktx:1.8.4")
     implementation(libs.kotlinx.coroutines.android)
     api(libs.readium.shared)
     api(libs.readium.streamer)

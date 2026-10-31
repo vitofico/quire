@@ -82,7 +82,7 @@ async def test_readyz_200_when_at_ai_head(monkeypatch, postgres_url, alembic_upg
     assert body["ready"] is True
     # Phase 0, task S-1 added the always-materialized `auth` branch:
     # `auth_003` joins `ai_009` / `progress_003` in `heads_applied`.
-    assert body["heads_applied"] == ["ai_009", "auth_003", "progress_003"]
+    assert body["heads_applied"] == ["ai_009", "auth_003", "progress_004"]
 
 
 async def test_readyz_503_when_db_below_backbone(

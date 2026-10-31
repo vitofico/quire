@@ -5,6 +5,7 @@ build/
 local.properties
 .kotlin/
 scripts/**/__pycache__/
+scripts/node_modules/
 captures/
 .cxx/
 .superpowers/

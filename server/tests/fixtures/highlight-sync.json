@@ -1,0 +1,369 @@
+{
+  "push": {
+    "items": [
+      {
+        "id": "14300000-0000-4000-8000-000000000001",
+        "document": {
+          "metadata_id": "9780553293357",
+          "content_hash": "abc123",
+          "identity_hash_version": 1
+        },
+        "locator": "  { \"href\": \"chapter\\\"1.xhtml\", \"text\": {\"highlight\":\"Café \\u263a\"} }\n",
+        "text": "“Café ☺ — 读书”",
+        "colour": "YELLOW",
+        "book_title": "Fóundation",
+        "book_author": null,
+        "created_at": 1700000000000,
+        "updated_at": 1700000000100,
+        "deleted_at": null
+      },
+      {
+        "id": "14300000-0000-4000-8000-000000000001",
+        "document": {
+          "metadata_id": "9780553293357",
+          "content_hash": "abc123",
+          "identity_hash_version": 1
+        },
+        "locator": "  { \"href\": \"chapter\\\"1.xhtml\", \"text\": {\"highlight\":\"Café \\u263a\"} }\n",
+        "text": "“Café ☺ — 读书”",
+        "colour": "PINK",
+        "book_title": "Fóundation",
+        "book_author": null,
+        "created_at": 1700000000000,
+        "updated_at": 1700000000200,
+        "deleted_at": 1700000000200
+      }
+    ]
+  },
+  "expected_results": {
+    "results": [
+      {
+        "status": "accepted",
+        "item": {
+          "id": "14300000-0000-4000-8000-000000000001",
+          "document": {
+            "metadata_id": "9780553293357",
+            "content_hash": "abc123",
+            "identity_hash_version": 1
+          },
+          "locator": "  { \"href\": \"chapter\\\"1.xhtml\", \"text\": {\"highlight\":\"Café \\u263a\"} }\n",
+          "text": "“Café ☺ — 读书”",
+          "colour": "YELLOW",
+          "book_title": "Fóundation",
+          "book_author": null,
+          "created_at": 1700000000000,
+          "updated_at": 1700000000100,
+          "deleted_at": null
+        }
+      },
+      {
+        "status": "accepted",
+        "item": {
+          "id": "14300000-0000-4000-8000-000000000001",
+          "document": {
+            "metadata_id": "9780553293357",
+            "content_hash": "abc123",
+            "identity_hash_version": 1
+          },
+          "locator": "  { \"href\": \"chapter\\\"1.xhtml\", \"text\": {\"highlight\":\"Café \\u263a\"} }\n",
+          "text": "“Café ☺ — 读书”",
+          "colour": "PINK",
+          "book_title": "Fóundation",
+          "book_author": null,
+          "created_at": 1700000000000,
+          "updated_at": 1700000000200,
+          "deleted_at": 1700000000200
+        }
+      }
+    ]
+  },
+  "pull": {
+    "items": [
+      {
+        "id": "14300000-0000-4000-8000-000000000001",
+        "document": {
+          "metadata_id": "9780553293357",
+          "content_hash": "abc123",
+          "identity_hash_version": 1
+        },
+        "locator": "  { \"href\": \"chapter\\\"1.xhtml\", \"text\": {\"highlight\":\"Café \\u263a\"} }\n",
+        "text": "“Café ☺ — 读书”",
+        "colour": "PINK",
+        "book_title": "Fóundation",
+        "book_author": null,
+        "created_at": 1700000000000,
+        "updated_at": 1700000000200,
+        "deleted_at": 1700000000200
+      }
+    ],
+    "next_cursor": "2",
+    "has_more": false
+  },
+  "normalization_input": {
+    "metadata_id": " URN:ISBN:978-0-553-29335-7 ",
+    "content_hash": " abc123 ",
+    "identity_hash_version": 1
+  },
+  "conflict_cases": [
+    {
+      "name": "later_clock",
+      "left": {
+        "id": "14300000-0000-4000-8000-000000000001",
+        "document": {
+          "metadata_id": "9780553293357",
+          "content_hash": "abc123",
+          "identity_hash_version": 1
+        },
+        "locator": "  { \"href\": \"chapter\\\"1.xhtml\", \"text\": {\"highlight\":\"Café \\u263a\"} }\n",
+        "text": "“Café ☺ — 读书”",
+        "colour": "YELLOW",
+        "book_title": "Fóundation",
+        "book_author": null,
+        "created_at": 1700000000000,
+        "updated_at": 1700000000100,
+        "deleted_at": null
+      },
+      "right": {
+        "id": "14300000-0000-4000-8000-000000000001",
+        "document": {
+          "metadata_id": "9780553293357",
+          "content_hash": "abc123",
+          "identity_hash_version": 1
+        },
+        "locator": "  { \"href\": \"chapter\\\"1.xhtml\", \"text\": {\"highlight\":\"Café \\u263a\"} }\n",
+        "text": "“Café ☺ — 读书”",
+        "colour": "YELLOW",
+        "book_title": "Fóundation",
+        "book_author": null,
+        "created_at": 1700000000000,
+        "updated_at": 1700000000101,
+        "deleted_at": null
+      },
+      "winner": {
+        "id": "14300000-0000-4000-8000-000000000001",
+        "document": {
+          "metadata_id": "9780553293357",
+          "content_hash": "abc123",
+          "identity_hash_version": 1
+        },
+        "locator": "  { \"href\": \"chapter\\\"1.xhtml\", \"text\": {\"highlight\":\"Café \\u263a\"} }\n",
+        "text": "“Café ☺ — 读书”",
+        "colour": "YELLOW",
+        "book_title": "Fóundation",
+        "book_author": null,
+        "created_at": 1700000000000,
+        "updated_at": 1700000000101,
+        "deleted_at": null
+      },
+      "expected_order": -1
+    },
+    {
+      "name": "equal_clock_deletion",
+      "left": {
+        "id": "14300000-0000-4000-8000-000000000001",
+        "document": {
+          "metadata_id": "9780553293357",
+          "content_hash": "abc123",
+          "identity_hash_version": 1
+        },
+        "locator": "  { \"href\": \"chapter\\\"1.xhtml\", \"text\": {\"highlight\":\"Café \\u263a\"} }\n",
+        "text": "“Café ☺ — 读书”",
+        "colour": "YELLOW",
+        "book_title": "Fóundation",
+        "book_author": null,
+        "created_at": 1700000000000,
+        "updated_at": 1700000000100,
+        "deleted_at": null
+      },
+      "right": {
+        "id": "14300000-0000-4000-8000-000000000001",
+        "document": {
+          "metadata_id": "9780553293357",
+          "content_hash": "abc123",
+          "identity_hash_version": 1
+        },
+        "locator": "  { \"href\": \"chapter\\\"1.xhtml\", \"text\": {\"highlight\":\"Café \\u263a\"} }\n",
+        "text": "“Café ☺ — 读书”",
+        "colour": "YELLOW",
+        "book_title": "Fóundation",
+        "book_author": null,
+        "created_at": 1700000000000,
+        "updated_at": 1700000000100,
+        "deleted_at": 1700000000100
+      },
+      "winner": {
+        "id": "14300000-0000-4000-8000-000000000001",
+        "document": {
+          "metadata_id": "9780553293357",
+          "content_hash": "abc123",
+          "identity_hash_version": 1
+        },
+        "locator": "  { \"href\": \"chapter\\\"1.xhtml\", \"text\": {\"highlight\":\"Café \\u263a\"} }\n",
+        "text": "“Café ☺ — 读书”",
+        "colour": "YELLOW",
+        "book_title": "Fóundation",
+        "book_author": null,
+        "created_at": 1700000000000,
+        "updated_at": 1700000000100,
+        "deleted_at": 1700000000100
+      },
+      "expected_order": -1
+    },
+    {
+      "name": "equal_clock_colour",
+      "left": {
+        "id": "14300000-0000-4000-8000-000000000001",
+        "document": {
+          "metadata_id": "9780553293357",
+          "content_hash": "abc123",
+          "identity_hash_version": 1
+        },
+        "locator": "  { \"href\": \"chapter\\\"1.xhtml\", \"text\": {\"highlight\":\"Café \\u263a\"} }\n",
+        "text": "“Café ☺ — 读书”",
+        "colour": "GREEN",
+        "book_title": "Fóundation",
+        "book_author": null,
+        "created_at": 1700000000000,
+        "updated_at": 1700000000100,
+        "deleted_at": null
+      },
+      "right": {
+        "id": "14300000-0000-4000-8000-000000000001",
+        "document": {
+          "metadata_id": "9780553293357",
+          "content_hash": "abc123",
+          "identity_hash_version": 1
+        },
+        "locator": "  { \"href\": \"chapter\\\"1.xhtml\", \"text\": {\"highlight\":\"Café \\u263a\"} }\n",
+        "text": "“Café ☺ — 读书”",
+        "colour": "YELLOW",
+        "book_title": "Fóundation",
+        "book_author": null,
+        "created_at": 1700000000000,
+        "updated_at": 1700000000100,
+        "deleted_at": null
+      },
+      "winner": {
+        "id": "14300000-0000-4000-8000-000000000001",
+        "document": {
+          "metadata_id": "9780553293357",
+          "content_hash": "abc123",
+          "identity_hash_version": 1
+        },
+        "locator": "  { \"href\": \"chapter\\\"1.xhtml\", \"text\": {\"highlight\":\"Café \\u263a\"} }\n",
+        "text": "“Café ☺ — 读书”",
+        "colour": "YELLOW",
+        "book_title": "Fóundation",
+        "book_author": null,
+        "created_at": 1700000000000,
+        "updated_at": 1700000000100,
+        "deleted_at": null
+      },
+      "expected_order": -1
+    },
+    {
+      "name": "nullable_author",
+      "left": {
+        "id": "14300000-0000-4000-8000-000000000001",
+        "document": {
+          "metadata_id": "9780553293357",
+          "content_hash": "abc123",
+          "identity_hash_version": 1
+        },
+        "locator": "  { \"href\": \"chapter\\\"1.xhtml\", \"text\": {\"highlight\":\"Café \\u263a\"} }\n",
+        "text": "“Café ☺ — 读书”",
+        "colour": "YELLOW",
+        "book_title": "Fóundation",
+        "book_author": null,
+        "created_at": 1700000000000,
+        "updated_at": 1700000000100,
+        "deleted_at": null
+      },
+      "right": {
+        "id": "14300000-0000-4000-8000-000000000001",
+        "document": {
+          "metadata_id": "9780553293357",
+          "content_hash": "abc123",
+          "identity_hash_version": 1
+        },
+        "locator": "  { \"href\": \"chapter\\\"1.xhtml\", \"text\": {\"highlight\":\"Café \\u263a\"} }\n",
+        "text": "“Café ☺ — 读书”",
+        "colour": "YELLOW",
+        "book_title": "Fóundation",
+        "book_author": "",
+        "created_at": 1700000000000,
+        "updated_at": 1700000000100,
+        "deleted_at": null
+      },
+      "winner": {
+        "id": "14300000-0000-4000-8000-000000000001",
+        "document": {
+          "metadata_id": "9780553293357",
+          "content_hash": "abc123",
+          "identity_hash_version": 1
+        },
+        "locator": "  { \"href\": \"chapter\\\"1.xhtml\", \"text\": {\"highlight\":\"Café \\u263a\"} }\n",
+        "text": "“Café ☺ — 读书”",
+        "colour": "YELLOW",
+        "book_title": "Fóundation",
+        "book_author": "",
+        "created_at": 1700000000000,
+        "updated_at": 1700000000100,
+        "deleted_at": null
+      },
+      "expected_order": -1
+    },
+    {
+      "name": "unicode_codepoints",
+      "left": {
+        "id": "14300000-0000-4000-8000-000000000001",
+        "document": {
+          "metadata_id": "9780553293357",
+          "content_hash": "abc123",
+          "identity_hash_version": 1
+        },
+        "locator": "  { \"href\": \"chapter\\\"1.xhtml\", \"text\": {\"highlight\":\"Café \\u263a\"} }\n",
+        "text": "",
+        "colour": "YELLOW",
+        "book_title": "Fóundation",
+        "book_author": null,
+        "created_at": 1700000000000,
+        "updated_at": 1700000000100,
+        "deleted_at": null
+      },
+      "right": {
+        "id": "14300000-0000-4000-8000-000000000001",
+        "document": {
+          "metadata_id": "9780553293357",
+          "content_hash": "abc123",
+          "identity_hash_version": 1
+        },
+        "locator": "  { \"href\": \"chapter\\\"1.xhtml\", \"text\": {\"highlight\":\"Café \\u263a\"} }\n",
+        "text": "😀",
+        "colour": "YELLOW",
+        "book_title": "Fóundation",
+        "book_author": null,
+        "created_at": 1700000000000,
+        "updated_at": 1700000000100,
+        "deleted_at": null
+      },
+      "winner": {
+        "id": "14300000-0000-4000-8000-000000000001",
+        "document": {
+          "metadata_id": "9780553293357",
+          "content_hash": "abc123",
+          "identity_hash_version": 1
+        },
+        "locator": "  { \"href\": \"chapter\\\"1.xhtml\", \"text\": {\"highlight\":\"Café \\u263a\"} }\n",
+        "text": "😀",
+        "colour": "YELLOW",
+        "book_title": "Fóundation",
+        "book_author": null,
+        "created_at": 1700000000000,
+        "updated_at": 1700000000100,
+        "deleted_at": null
+      },
+      "expected_order": -1
+    }
+  ]
+}

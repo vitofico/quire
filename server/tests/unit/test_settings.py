@@ -23,6 +23,7 @@ def _clear_settings_cache(monkeypatch):
     """Ensure each test sees a fresh settings instance (no env-bleed)."""
     for var in (
         "QUIRE_SERVER_AI_ENABLED",
+        "QUIRE_SERVER_AI_TEMPERATURE",
         "QUIRE_SERVER_PROGRESS_ENABLED",
         "QUIRE_SERVER_MAX_REQUEST_BYTES",
         "QUIRE_SERVER_AI_AUTH_MODE",
@@ -53,6 +54,27 @@ def test_ai_enabled_env_override(monkeypatch):
     monkeypatch.setenv("QUIRE_SERVER_AI_ENABLED", "false")
     s = Settings()
     assert s.ai_enabled is False
+
+
+def test_ai_temperature_defaults_to_point_two():
+    assert Settings().ai_temperature == 0.2
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("", None),
+        ("   ", None),
+        ("none", None),
+        ("NoNe", None),
+        (" NONE ", None),
+        ("0.7", 0.7),
+        ("0", 0.0),
+    ],
+)
+def test_ai_temperature_env_override(monkeypatch, raw, expected):
+    monkeypatch.setenv("QUIRE_SERVER_AI_TEMPERATURE", raw)
+    assert Settings().ai_temperature == expected
 
 
 def test_max_request_bytes_env_override(monkeypatch):

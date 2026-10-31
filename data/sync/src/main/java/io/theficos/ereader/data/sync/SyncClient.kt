@@ -31,6 +31,26 @@ class SyncClient(
         execute(req, ProgressPullResponse.serializer())
     }
 
+    // Redirects can replay a private POST body; this endpoint never follows them.
+    private val highlightHttp = okHttp.newBuilder().followRedirects(false).followSslRedirects(false).build()
+
+    suspend fun pullHighlights(session: HighlightSyncSession, cursor: Long): SyncResult<HighlightPullResponse> =
+        withContext(Dispatchers.IO) {
+            val url = (session.baseUrl.trimEnd('/') + SyncApi.PATH_HIGHLIGHTS).toHttpUrl()
+                .newBuilder().addQueryParameter("since", cursor.toString()).addQueryParameter("limit", "500").build()
+            execute(Request.Builder().url(url).header("Authorization", session.authorization).get().build(),
+                HighlightPullResponse.serializer(), highlightHttp)
+        }
+
+    suspend fun pushHighlights(session: HighlightSyncSession, items: List<HighlightItemDto>): SyncResult<HighlightPushResponse> =
+        withContext(Dispatchers.IO) {
+            val body = json.encodeToString(HighlightPushBody.serializer(), HighlightPushBody(items))
+                .toRequestBody("application/json".toMediaType())
+            val request = Request.Builder().url(session.baseUrl.trimEnd('/') + SyncApi.PATH_HIGHLIGHTS)
+                .header("Authorization", session.authorization).post(body).build()
+            execute(request, HighlightPushResponse.serializer(), highlightHttp)
+        }
+
     private fun <Req, Resp> post(
         baseUrl: String,
         path: String,
@@ -47,8 +67,8 @@ class SyncClient(
         return execute(req, respSerializer)
     }
 
-    private fun <T> execute(req: Request, serializer: KSerializer<T>): SyncResult<T> = try {
-        okHttp.newCall(req).execute().use { resp ->
+    private fun <T> execute(req: Request, serializer: KSerializer<T>, http: OkHttpClient = okHttp): SyncResult<T> = try {
+        http.newCall(req).execute().use { resp ->
             val raw = resp.body?.string().orEmpty()
             when {
                 resp.code == 401 -> SyncResult.Unauthorized

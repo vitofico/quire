@@ -32,12 +32,21 @@ class MemoryBookmarkTest {
             updatedAt = 4, localUpdatedAt = 4, syncedAt = 4)
         db.progressDao().upsert(progress)
         val before = db.progressDao().findByDocument(id)
+        val highlight = HighlightEntity("highlight", null, "one", locator = "exact-highlight", text = "Selected quote",
+            colour = "YELLOW", bookTitle = "Book", bookAuthor = null, createdAt = 30, updatedAt = 40,
+            ownerScope = "owner", syncedAt = 40)
+        db.highlightDao().insert(highlight)
         val bookmark = MemoryBookmark(id, "owner", "{locator}", "Why does she avoid this?", "Nearby text", 50)
         db.memoryBookmarkDao().save(bookmark)
         db.close(); db = open()
         assertThat(db.memoryBookmarkDao().observe(id, "owner").first()).isEqualTo(bookmark)
         assertThat(db.progressDao().findByDocument(id)).isEqualTo(before)
         assertThat(db.progressDao().dirty()).isEmpty()
+        assertThat(db.highlightDao().findById("highlight", "owner")).isEqualTo(highlight)
+        assertThat(db.highlightSyncDao().dirty("owner")).isEmpty()
+        db.highlightDao().setColour("highlight", "GREEN", 50, "owner")
+        assertThat(db.memoryBookmarkDao().observe(id, "owner").first()).isEqualTo(bookmark)
+        assertThat(db.highlightSyncDao().dirty("owner").single().colour).isEqualTo("GREEN")
     }
 
     @Test fun `books accounts edits and removals are isolated and corrupt locators remain recoverable`() = runTest {

@@ -77,6 +77,7 @@ class Settings(BaseSettings):
     ai_base_url: str | None = None
     ai_api_key: str | None = None
     ai_model: str | None = None
+    ai_temperature: float | None = 0.2
     ai_timeout_s: float = 120.0
     ai_max_concurrency: int = 4
     # CSV; "" disables retrieval. Read it through `parse_ai_sources`.
@@ -188,6 +189,13 @@ class Settings(BaseSettings):
         variable more often than they omit it. Issue #104.
         """
         if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @field_validator("ai_temperature", mode="before")
+    @classmethod
+    def _optional_temperature(cls, value: object) -> object:
+        if isinstance(value, str) and value.strip().lower() in ("", "none"):
             return None
         return value
 

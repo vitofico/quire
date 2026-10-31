@@ -1,12 +1,16 @@
 package io.theficos.ereader.ui.reader
 
+import io.theficos.ereader.reader.evaluateReaderJavascript
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.theficos.ereader.core.model.Document
 import io.theficos.ereader.core.model.Progress
 import io.theficos.ereader.data.local.DocumentRepository
+import io.theficos.ereader.data.local.HighlightRepository
 import io.theficos.ereader.data.local.ProgressRepository
 import io.theficos.ereader.reader.EpubAsset
+import io.theficos.ereader.reader.HighlightLocation
+import io.theficos.ereader.reader.HighlightNavigator
 import io.theficos.ereader.reader.PAGE_START_ANCHOR_JS
 import io.theficos.ereader.reader.ProgressTracker
 import io.theficos.ereader.reader.ReaderPreferences
@@ -20,6 +24,7 @@ import io.theficos.ereader.ui.uiText
 import io.theficos.quire.R
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
@@ -42,6 +47,7 @@ class ReaderViewModel(
     private val progress: ProgressRepository,
     private val readium: ReadiumFactory,
     private val preferencesStore: ReaderPreferencesStore,
+    highlightRepository: HighlightRepository,
     // How the reader asks Readium whereabouts in the DOM the current page starts. A seam so
     // the re-anchor can be tested without a live WebView; see ReaderViewportResizeTest.
     private val readDomAnchor: suspend (EpubNavigatorFragment?) -> Locator? =
@@ -53,11 +59,130 @@ class ReaderViewModel(
     private val restoreNavigator: suspend (EpubNavigatorFragment?, Locator) -> Boolean = { nav, anchor ->
         nav?.go(anchor, false) ?: false
     },
+    private val navigateExplicit: suspend (EpubNavigatorFragment?, Locator) -> Boolean = { nav, target -> nav?.go(target, false) ?: false },
     private val verifyAnchor: suspend (EpubNavigatorFragment?, Locator, ReaderPreferences) -> Boolean = ::verifyReaderAnchor,
     private val openPublication: suspend (Document) -> Publication = { doc ->
         readium.open(EpubAsset(doc.id, File(doc.localPath), doc.title))
     },
 ) : ViewModel() {
+
+    internal val highlighting = ReaderHighlights(highlightRepository, viewModelScope)
+    private val _highlightsVisible = MutableStateFlow(false)
+    internal val highlightsVisible = _highlightsVisible.asStateFlow()
+    private val _jumpingHighlight = MutableStateFlow<String?>(null)
+    internal val jumpingHighlight = _jumpingHighlight.asStateFlow()
+    private val _highlightJumpError = MutableStateFlow<UiText?>(null)
+    internal val highlightJumpError = _highlightJumpError.asStateFlow()
+    private val _highlightPositionUncertain = MutableStateFlow(false)
+    internal val highlightPositionUncertain = _highlightPositionUncertain.asStateFlow()
+    private var highlightNavigator: HighlightNavigator? = null
+    private var highlightJumpJob: Job? = null
+    private var explicitNavigationJob: Job? = null
+    private var highlightJumpGeneration = 0L
+    private var closingHighlights = false
+    private var highlightProgressBlocked = false
+
+    init {
+        viewModelScope.launch {
+            highlighting.items.collect { items ->
+                _jumpingHighlight.value?.let { id ->
+                    if (items.none { it.id == id }) cancelHighlightJump()
+                }
+            }
+        }
+    }
+
+    internal fun openHighlights() {
+        _chromeAutoHides.value = false
+        _chromeVisible.value = true
+        _highlightJumpError.value = null
+        _highlightsVisible.value = true
+        closingHighlights = false
+    }
+
+    internal fun closeHighlights() {
+        if (_highlightPositionUncertain.value) return
+        if (_jumpingHighlight.value != null) {
+            closingHighlights = true
+            cancelHighlightJump()
+        } else _highlightsVisible.value = false
+    }
+
+    internal fun bindHighlightNavigator(next: HighlightNavigator?) {
+        if (highlightNavigator !== next) {
+            cancelHighlightJump()
+            highlightProgressBlocked = false
+            _highlightPositionUncertain.value = false
+        }
+        highlightNavigator = next
+    }
+
+    private fun cancelHighlightJump() {
+        highlightJumpGeneration++
+        highlightJumpJob?.cancel()
+    }
+
+    internal fun jumpToHighlight(id: String) {
+        if (_jumpingHighlight.value != null || _highlightPositionUncertain.value) return
+        val item = highlighting.items.value.firstOrNull { it.id == id } ?: return
+        val target = HighlightLocation.parse(item.locator)?.locator ?: return
+        val driver = highlightNavigator ?: return
+        val nav = navigator
+        explicitNavigationJob?.cancel()
+        val generation = ++highlightJumpGeneration
+        _jumpingHighlight.value = id
+        _highlightJumpError.value = null
+        highlightProgressBlocked = true
+        clearPendingResize()
+        highlightJumpJob = viewModelScope.launch {
+            try {
+                val success = driver.jump(target) {
+                    generation == highlightJumpGeneration && highlightNavigator === driver &&
+                        highlighting.items.value.any { it.id == id && it.locator == item.locator }
+                }
+                if (generation == highlightJumpGeneration) {
+                    if (success) _highlightsVisible.value = false
+                    else _highlightJumpError.value = uiText(R.string.reader_highlight_jump_failed)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                if (generation == highlightJumpGeneration)
+                    _highlightJumpError.value = uiText(R.string.reader_highlight_jump_failed)
+            } finally {
+                if (highlightNavigator === driver && navigator === nav) {
+                    if (driver.safeToPublish) {
+                        highlightProgressBlocked = false
+                        // Cancellation before staging can race the pre-configuration callback.
+                        // A safe unchanged transaction does not mean that resize has settled.
+                        if (pendingRotationAnchor == null) {
+                            invalidateDomAnchor()
+                            driver.currentLocator?.let(::publishLocator)
+                        }
+                        _highlightPositionUncertain.value = false
+                        if (closingHighlights) _highlightsVisible.value = false
+                    } else if (driver.isAlive) {
+                        _highlightPositionUncertain.value = true
+                        _highlightJumpError.value = uiText(R.string.reader_highlight_return_failed)
+                        _highlightsVisible.value = true
+                    }
+                }
+                _jumpingHighlight.value = null
+                closingHighlights = false
+                if (highlightNavigator === driver && driver.safeToPublish && pendingRotationAnchor != null)
+                    reanchorViewport()
+            }
+        }
+    }
+
+    fun startHighlightMode() {
+        _chromeAutoHides.value = false
+        _chromeVisible.value = true
+        highlighting.enterMode()
+        highlighting.notify(uiText(R.string.reader_highlight_mode_hint))
+    }
+
+    fun finishHighlightMode() = highlighting.leaveMode()
 
     private val _state = MutableStateFlow<ReaderUiState>(ReaderUiState.Loading)
     val state: StateFlow<ReaderUiState> = _state.asStateFlow()
@@ -180,6 +305,8 @@ class ReaderViewModel(
                     _memoryReady.value = false
                     memoryJob?.cancel()
                     _memory.value = null
+                    explicitNavigationJob?.cancel()
+                    cancelHighlightJump()
                     clearPendingResize()
                     invalidateDomAnchor()
                 }
@@ -198,6 +325,7 @@ class ReaderViewModel(
             _memoryError.value = false
             runCatching {
                 check(docs.findById(documentId) != null)
+                check(!highlightProgressBlocked && _jumpingHighlight.value == null)
                 val existing = _memory.value
                 val saved = existing?.locator?.let(ProgressTracker::parseOrNull)
                 // Corrupt notes remain readable/removable. Never silently replace their anchor.
@@ -218,7 +346,7 @@ class ReaderViewModel(
                 val passage = if (existing != null && !atCurrentPoint) existing.passage else
                     listOfNotNull(locator.text.before, locator.text.highlight, locator.text.after)
                         .joinToString(" ").trim().take(1500)
-                check(owner == accountKey())
+                check(owner == accountKey() && !highlightProgressBlocked && _jumpingHighlight.value == null)
                 dao.save(io.theficos.ereader.data.local.db.MemoryBookmark(documentId, owner,
                     ProgressTracker.serialize(locator), note.trim().take(2000), passage, nowMs()))
             }.onFailure {
@@ -259,6 +387,10 @@ class ReaderViewModel(
     private var navigator: EpubNavigatorFragment? = null
 
     fun bindNavigator(nav: EpubNavigatorFragment?) {
+        if (navigator !== nav) {
+            explicitNavigationJob?.cancel()
+            cancelHighlightJump()
+        }
         navigator = nav
         if (nav == null) {
             anchorRestoreJob?.cancel()
@@ -276,10 +408,24 @@ class ReaderViewModel(
         viewModelScope.launch { navigator?.goBackward() }
     }
 
-    fun goTo(locator: Locator) {
+    fun goTo(locator: Locator) = navigateTo(locator, publishPreview = false)
+
+    /** A highlight transaction must finish its rollback before another deliberate jump lands. */
+    private fun navigateTo(target: Locator, publishPreview: Boolean) {
+        val rollback = highlightJumpJob
+        cancelHighlightJump()
         clearPendingResize()
         invalidateDomAnchor()
-        viewModelScope.launch { navigator?.go(locator, false) }
+        explicitNavigationJob?.cancel()
+        explicitNavigationJob = viewModelScope.launch {
+            rollback?.join()
+            if (highlightProgressBlocked || highlightNavigator?.let { it.isAlive && !it.safeToPublish } == true) return@launch
+            if (publishPreview) {
+                _currentLocator.value = target
+                _locatorUpdates.tryEmit(target)
+            }
+            navigateExplicit(navigator, target)
+        }
     }
 
     private var loadJob: Job? = null
@@ -316,6 +462,7 @@ class ReaderViewModel(
             val lastSpineHref = publication.readingOrder.lastOrNull()?.url()
             _currentLocator.value = initialLocator
             _state.value = ReaderUiState.Open(doc, publication, initialLocator, savedProgress)
+            highlighting.attach(doc)
             tracker.attach(
                 documentId = doc.id,
                 locatorUpdates = locatorUpdates,
@@ -334,7 +481,7 @@ class ReaderViewModel(
     }
 
     fun publishLocator(locator: Locator) {
-        if (suppressLocatorPublishing) return
+        if (suppressLocatorPublishing || highlightProgressBlocked) return
         _currentLocator.value = locator
         _locatorUpdates.tryEmit(locator)
         refreshDomAnchor()
@@ -357,12 +504,15 @@ class ReaderViewModel(
      */
     private fun refreshDomAnchor() {
         if (nowMs() < anchorPinnedUntil) return
+        val generation = domAnchorGeneration
+        val point = _currentLocator.value
         viewModelScope.launch {
             val nav = navigator
             val dom = runCatching { readDomAnchor(nav) }.getOrNull()
             // A resize may have armed while that round trip was in flight, in which case the
             // answer describes the re-paginated page. Drop it and keep the pre-resize anchor.
-            if (!suppressLocatorPublishing && nowMs() >= anchorPinnedUntil) domAnchor = dom
+            if (!suppressLocatorPublishing && !highlightProgressBlocked && generation == domAnchorGeneration &&
+                point == _currentLocator.value && nowMs() >= anchorPinnedUntil) domAnchor = dom
         }
     }
 
@@ -380,6 +530,7 @@ class ReaderViewModel(
     private var suppressLocatorPublishing: Boolean = false
     private var viewportSize: Pair<Int, Int>? = null
     private var domAnchor: Locator? = null
+    private var domAnchorGeneration = 0L
     private var anchorPinnedUntil: Long = 0L
 
     /**
@@ -407,6 +558,9 @@ class ReaderViewModel(
         val previous = viewportSize
         viewportSize = width to height
         if (previous == null || previous == viewportSize) return
+        if (_jumpingHighlight.value != null) {
+            highlightNavigator?.viewportChanged()
+        }
         beginViewportResize()
     }
 
@@ -418,6 +572,7 @@ class ReaderViewModel(
      * and send the reader straight back to the page they just jumped away from.
      */
     private fun invalidateDomAnchor() {
+        domAnchorGeneration++
         domAnchor = null
     }
 
@@ -429,13 +584,16 @@ class ReaderViewModel(
         // A single rotation arms this several times over — MainActivity as the configuration
         // change is dispatched, then onViewportChanged as the measured size follows. Only the
         // first of those still sees the page the reader is leaving, so it wins.
-        if (pendingRotationAnchor != null) return
-        val live = _currentLocator.value ?: return
-        anchorGeneration++
-        _anchorRecovery.value = false
-        finalRestoreRequested = false
-        pendingRotationAnchor = resizeAnchor(live, domAnchor)
-        suppressLocatorPublishing = true
+        if (pendingRotationAnchor == null) {
+            val live = _currentLocator.value ?: return
+            anchorGeneration++
+            _anchorRecovery.value = false
+            finalRestoreRequested = false
+            pendingRotationAnchor = resizeAnchor(live, domAnchor)
+            suppressLocatorPublishing = true
+        }
+        // Protect the original committed point before cancelling highlight staging/rollback.
+        if (_jumpingHighlight.value != null) cancelHighlightJump()
     }
 
     /**
@@ -457,6 +615,7 @@ class ReaderViewModel(
      * little by every application, which is why it could only ever be applied once.
      */
     fun reanchorViewport() {
+        if (_jumpingHighlight.value != null || highlightProgressBlocked) return
         val anchor = pendingRotationAnchor ?: return
         if (_anchorRecovery.value) return
         if (finalRestoreRequested) {
@@ -480,6 +639,8 @@ class ReaderViewModel(
     // after a failed go is safe only if readiness callbacks/retries can eventually release it.
     fun completeViewportResize() {
         val anchor = pendingRotationAnchor ?: return
+        finalRestoreRequested = true
+        if (highlightProgressBlocked || _jumpingHighlight.value != null) return
         if (_anchorRecovery.value || anchorRestoreJob?.isActive == true) return
         val generation = anchorGeneration
         finalRestoreRequested = true
@@ -495,7 +656,7 @@ class ReaderViewModel(
                 } catch (error: kotlinx.coroutines.CancellationException) {
                     throw error
                 } catch (_: Exception) { false }
-                if (generation != anchorGeneration || pendingRotationAnchor != anchor) return@launch
+                if (generation != anchorGeneration || pendingRotationAnchor != anchor || highlightProgressBlocked) return@launch
                 if (restored && preferences.value == requestedPreferences) {
                     pendingRotationAnchor = null
                     finalRestoreRequested = false
@@ -550,24 +711,8 @@ class ReaderViewModel(
 
     fun seek(percent: Double) {
         val target = previewLocator(percent) ?: return
-        val nav = navigator ?: return
-        // An explicit jump supersedes any armed re-anchor: the anchor predates the seek, so
-        // honouring it afterwards would yank the reader back out of the page they just chose.
-        clearPendingResize()
-        invalidateDomAnchor()
-        // Surface the target on the HUD synchronously, before the suspending nav.go()
-        // call dispatches. This avoids a one-frame window where the slider thumb
-        // would snap back to the pre-seek liveLocator after the UI clears its drag
-        // preview but before Readium emits the post-seek locator. Routing through
-        // _locatorUpdates here also persists the jump via ProgressTracker even if
-        // Readium's own emission is delayed. The later emission re-flushes the same
-        // row — idempotent. On the rare failure of go(), Readium's next emission
-        // corrects any drift.
-        _currentLocator.value = target
-        _locatorUpdates.tryEmit(target)
-        viewModelScope.launch {
-            nav.go(target, animated = false)
-        }
+        if (navigator == null) return
+        navigateTo(target, publishPreview = true)
     }
 
     override fun onCleared() {
@@ -577,6 +722,8 @@ class ReaderViewModel(
         anchorRestoreJob?.cancel()
         paginationRestoreJob?.cancel()
         preferenceCaptureJob?.cancel()
+        explicitNavigationJob?.cancel()
+        highlightJumpJob?.cancel()
         tracker.detach()
         super.onCleared()
     }

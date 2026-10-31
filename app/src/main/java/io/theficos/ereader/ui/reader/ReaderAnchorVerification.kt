@@ -1,5 +1,6 @@
 package io.theficos.ereader.ui.reader
 
+import io.theficos.ereader.reader.evaluateReaderJavascript
 import io.theficos.ereader.reader.ReaderPreferences
 import org.json.JSONObject
 import org.readium.r2.navigator.epub.EpubNavigatorFragment

@@ -1,7 +1,7 @@
 # Reader pause and return
 
-The reader’s bookmark icon opens **Pause & resume**. A filled icon means a memory
-bookmark exists. This is a deliberate action: opening a book or rotating never
+The reader’s **More → Pause & resume** action opens the pause sheet. Its filled
+bookmark icon in the menu means a memory bookmark exists. This is a deliberate action: opening a book or rotating never
 opens the sheet automatically. The scrollable sheet opens fully expanded so its
 actions remain reachable on narrow screens and with large text.
 
@@ -56,12 +56,12 @@ resources, a nested TOC entry and stable paragraph markers. Regenerate it with:
 python3 scripts/make-reader-pause-fixture.py app/src/test/resources/reader-pause.epub
 ```
 
-1. Import the fixture and open it. Reveal controls, tap the bookmark icon, and
+1. Import the fixture and open it. Reveal controls, open **More → Pause & resume**, and
    inspect the labelled stopping distance. Its nested TOC fragment may be
    unavailable in Readium’s generated positions; the next resource fallback is
    expected in that case.
 2. At a marker in the middle of part one, save “Why is the narrator avoiding
-   this?” Verify the saved passage and filled bookmark icon. Close/reopen the
+   this?” Verify the saved passage and filled bookmark icon in More. Close/reopen the
    sheet, move several pages, and use **Return to saved passage**. Check the saved
    marker, question and passage. Save an empty note too: a location alone is valid.
 3. Force-stop and relaunch the app offline. Reopen the book and deliberately open
@@ -80,7 +80,7 @@ python3 scripts/make-reader-pause-fixture.py app/src/test/resources/reader-pause
    credentials without changing subject/catalog and verify it is retained.
 8. Remove the downloaded book and reimport it: its old local bookmark must be
    gone. Database tests additionally cover malformed locators, cascade deletion,
-   restart persistence, namespace isolation and v9→v10 migration preserving progress.
+   restart persistence, namespace isolation and v11→v12 migration preserving progress.
 
 Automated checks live in `StoppingPointTest`, `MemoryBookmarkTest`,
 `MigrationTest`, and `ReadingPauseSheetTest`; existing viewport resize tests
@@ -147,20 +147,26 @@ cannot supply an anchor labelled as the current one.
 ## Local verification
 
 On 2026-10-31, the complete Android test, lint and unsigned release-build gate
-passed on the final reviewed source: 1,590 tests across 194 suites, zero failures,
-errors or skips, and zero lint errors. The unchanged release tooling's 20 tests
-also passed. Database coverage includes migration, restart persistence, account
+passed on the integrated reviewed source: 1,791 tests across 228 suites, zero failures,
+errors or skips, and zero lint errors. All 27 structural-anchor browser tests and
+20 release-tool tests passed; the AboutLibraries export matched the bundled JSON.
+Database coverage includes canonical shipped-schema upgrades, coexistence, restart persistence, account
 isolation and cascade deletion. Anchor tests cover queued-but-unobserved moves,
 late callbacks, timeouts, coalesced preferences and adjacent-resource races.
 
-Final native acceptance on a disposable emulator used original synthetic text
-and image-only books. The original paragraph remained visible after exact
+Final integrated native acceptance on a fresh disposable emulator used original
+synthetic text and image-only books. Highlight creation, list navigation, quote
+copying and independent memory save/edit/replace/return/remove passed. Each kind
+of saved location remained reachable after returning to the other. The original
+paragraph remained visible after exact
 1.9 to 0.7 and 1.9 to 0.8 font changes, with the actual CSS and loaded fonts
 confirmed. Rapid font changes, a resource jump followed by resize and a new
 bookmark save/return, image-only resizing, and continued progress navigation
-passed. Narrow large-text labels and actions remained readable and reachable.
-Earlier unchanged draft, configuration, offline and edit/replace/remove results
-were retained; the changed capture and return bridge was exercised again.
+passed. Narrow large-text More-menu and sheet actions remained readable and
+reachable. Drafts survived rotation and system-font recreation. An offline
+restart retained both records, and removing the memory bookmark left the
+highlight unchanged. Live server synchronization was covered by automated
+contracts rather than claimed as a native network exercise.
 
 Page rounding can change the first visible word while retaining the requested
 paragraph. Recovery failure paths have automated coverage; a deliberately
@@ -179,3 +185,38 @@ that requested URL and the unchanged current reading resource after the callback
 An adjacent resource or a requested-URL/old-DOM transition cannot be relabelled as
 the current book resource. The Readium server URL contract is regression-tested
 and must be reconsidered when upgrading Readium or adding non-local publications.
+
+## Integration with highlights and shipped databases
+
+The direct Highlight/Done and type controls remain on the toolbar. More contains
+Pause & resume, Highlights and Book details, keeping the same action count at
+320dp and large system fonts. Opening Pause dismisses selection mode; selected
+text, Copy quote, saved highlights and their existing account-scoped sync remain
+separate from the device-local memory bookmark.
+
+Incoming shipped schemas 10 (highlights) and 11 (scoped highlights) and their
+migrations remain canonical and unchanged. Version 12 adds memory_bookmarks.
+Migration tests cover shipped 9→12, 10→12 and 11→12 while retaining progress,
+highlight text/locators, tombstones, ownership, sync stamps and cursors. Version12
+restart tests retain both annotations independently. Removing a download removes
+its local memory bookmark; highlights retain their incoming download-independent
+behavior. The old unmerged development build’s alternative memory-only schema10
+was never a shipped production schema and is not a supported production upgrade
+path; use a fresh disposable development installation for that collision.
+
+Explicit memory/slider navigation cancels a highlight transaction and waits for
+its safe rollback before navigating, while a new highlight jump cancels pending
+resize/preference capture work. Resize completion waits until highlight rollback
+is safe; clearing its guard cannot release the independent highlight guard.
+Native integration acceptance must exercise both kinds of saved-location return,
+selected-text/copy-quote, scoped highlight sync retention, font0.7/0.8, and large
+More-menu actions on a fresh integrated APK.
+
+Pause capture/proof and structural highlight navigation now share the :reader
+platform bridge. Each real JavaScript callback wait has its own cancellable
+1500ms bound, including NonCancellable highlight rollback cleanup. A missing
+callback makes rollback fail safely and exposes the existing uncertain-position
+recovery; explicit memory/slider navigation then remains blocked instead of
+waiting forever or committing a staged page. Late callbacks cannot release that
+guard. Transaction, bridge and combined navigation tests exercise missing and
+late callbacks through this production wait rather than only cancellable fakes.

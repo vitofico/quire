@@ -1,5 +1,7 @@
 import asyncio
+import json
 import time
+from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
@@ -8,7 +10,7 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from sqlalchemy import select, text
 
-from quire_server.db.models import LibraryItem, NativeUser
+from quire_server.db.models import Highlight, HighlightSyncState, LibraryItem, NativeUser
 
 ORIGIN = "https://reader.example.test"
 SERVICE = "synthetic-account-service-token-00000000"
@@ -251,10 +253,33 @@ async def test_export_close_purge_isolation_and_shared_cache(
         assert (
             await client.post("/ai/v1/insights/lookup", headers=auth, json=payload)
         ).status_code == 200
+        highlights = json.loads(
+            (Path(__file__).parents[1] / "fixtures/highlight-sync.json").read_text()
+        )["push"]
+        assert (
+            await client.post("/sync/v1/highlights", headers=auth, json=highlights)
+        ).status_code == 200
+        bob_token = (
+            await client.post(
+                "/auth/v1/login",
+                json={"email": "synthetic-bob@example.test", "password": "synthetic-password"},
+            )
+        ).json()["token"]
+        assert (
+            await client.post(
+                "/sync/v1/highlights",
+                headers={"Authorization": "Bearer " + bob_token},
+                json=highlights,
+            )
+        ).status_code == 200
         exported_response = await client.get("/auth/v1/account/export", headers=auth)
         assert exported_response.headers["Cache-Control"] == "no-store"
         exported = exported_response.json()
         assert [r["title"] for r in exported["library_items"]] == ["Alice private"]
+        assert len(exported["highlights"]) == 1
+        assert exported["highlights"][0]["user_id"] == account
+        assert exported["highlights"][0]["deleted_at"] is not None
+        assert exported["highlight_sync_state"] == [{"user_id": account, "revision": 2}]
         assert "password_hash" not in str(exported) and "token_hash" not in str(exported)
         path = "/internal/v1/accounts/" + account
         assert (await client.post(path + "/close")).status_code == 403
@@ -267,12 +292,21 @@ async def test_export_close_purge_isolation_and_shared_cache(
         assert (
             await session.execute(select(LibraryItem).where(LibraryItem.user_id == f"native:{bob}"))
         ).scalar_one().title == "Bob private"
-        bob_token = (
-            await client.post(
-                "/auth/v1/login",
-                json={"email": "synthetic-bob@example.test", "password": "synthetic-password"},
+        assert await session.get(HighlightSyncState, account) is None
+        assert (
+            await session.scalars(select(Highlight).where(Highlight.user_id == account))
+        ).all() == []
+        assert (
+            len(
+                (
+                    await session.scalars(
+                        select(Highlight).where(Highlight.user_id == f"native:{bob}")
+                    )
+                ).all()
             )
-        ).json()["token"]
+            == 1
+        )
+
         assert (
             await client.post(
                 "/ai/v1/insights/get",

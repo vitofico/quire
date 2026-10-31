@@ -76,6 +76,29 @@ uv run uvicorn quire_server.main:app --reload
 
 Tests require Docker (testcontainers spins up Postgres).
 
+### Highlight sync
+
+`POST /sync/v1/highlights` pushes up to 500 private annotations; `GET
+/sync/v1/highlights?since=0&limit=500` pulls revision-ordered pages including
+deletion tombstones. Both use the existing calibre-web Basic authentication
+(or configured native backend) and are mounted only in full and sync-only
+deployments. UUIDs are scoped to the authenticated user. Quotes, opaque
+locators, colours and book metadata are separate fields; no EPUB upload is
+required and removing a download does not delete its highlights.
+
+Push results include each authoritative winning row. Equal client timestamps
+use a deterministic complete-payload ordering, with tombstones winning over
+live rows. Identity hash versions are promoted to the maximum learned value
+independently of which payload wins. The decimal `next_cursor` belongs to one server/account; clients
+save it after applying a page and continue while `has_more` is true. A 409
+`highlight_cursor_reset_required` requires restarting the pull at zero.
+Per-user transaction locks order revision allocation, commit and reads, so
+offline client clocks and in-flight writes cannot create cursor gaps.
+Tombstones are retained indefinitely. Native account export and purge include
+highlights and their cursor state. See [`../docs/sync-api.md`](../docs/sync-api.md)
+for the wire format and tie ordering; the shared Android/Python contract
+fixture is `tests/fixtures/highlight-sync.json`.
+
 ## Self-hosting via docker-compose
 
 Two reference composes ship in this directory. Pick one:

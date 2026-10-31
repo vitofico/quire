@@ -1,7 +1,7 @@
 # Sync API
 
 REST surface of the `quire-server` server. Endpoints live under four
-prefixes — `/sync/v1` (progress + planned bookmarks), `/library/v1`
+prefixes — `/sync/v1` (progress, highlights + planned bookmarks), `/library/v1`
 (per-user library mirror, including the Phase 0 push-model
 `POST /library/v1/sync` bulk endpoint), `/ai/v1` (optional book insights
 and reader profile), and the unprefixed `/health` / `/readyz` operational
@@ -134,6 +134,8 @@ the operator migrates. Plan cutover within the two-minor-release window.
 | `GET` | `/quire-admin` | admin | The status as an HTML page with a "Test AI connection" button (`POST /quire-admin/probe`) and an AI settings form (`POST /quire-admin/settings`) |
 | `POST` | `/sync/v1/progress` | yes | Push progress for one or more documents |
 | `GET` | `/sync/v1/progress` | yes | Pull progress deltas |
+| `POST` | `/sync/v1/highlights` | yes | Push saved passages and tombstones |
+| `GET` | `/sync/v1/highlights` | yes | Pull per-user highlights by revision cursor |
 | `POST` | `/sync/v1/documents/alias` | yes | Reconcile a hash-keyed record with a newly-known metadata-id (planned) |
 | `POST` | `/sync/v1/bookmarks` | yes | Push bookmark create/delete (planned) |
 | `GET` | `/sync/v1/bookmarks` | yes | Pull bookmark deltas (planned) |
@@ -256,6 +258,80 @@ Clients merge rows using `client_updated_at`, retaining newer local progress.
 This unpaginated response costs O(the user's progress rows) on every pull;
 it favors reliable offline convergence at the current personal-library scale.
 A future delta protocol needs a commit-safe cursor before restoring filtering.
+
+## Highlights
+
+These endpoints use the configured authentication backend and are available in
+full and sync-only deployments (`QUIRE_SERVER_PROGRESS_ENABLED=true`). They are
+not mounted in AI-only mode. Rows belong to the authenticated user; the client
+cannot choose a user ID. Highlights have no dependency on a downloaded document.
+
+### `POST /sync/v1/highlights`
+
+Push up to 500 items in one transaction. Example:
+
+```json
+{
+  "items": [
+    {
+      "id": "14300000-0000-4000-8000-000000000001",
+      "document": {
+        "metadata_id": "9780553293357",
+        "content_hash": "abc123",
+        "identity_hash_version": 1
+      },
+      "locator": "  { \"href\": \"chapter\\\"1.xhtml\", \"text\": {\"highlight\":\"Café \\u263a\"} }\n",
+      "text": "“Café ☺ — 读书”",
+      "colour": "YELLOW",
+      "book_title": "Fóundation",
+      "book_author": null,
+      "created_at": 1700000000000,
+      "updated_at": 1700000000100,
+      "deleted_at": null
+    }
+  ]
+}
+```
+
+`id` is a canonical UUID. `document` follows the existing normalized identity
+rules. `locator` is an opaque string, preserved byte for byte; `text` is the
+selected quotation. Colours are `YELLOW`, `GREEN` or `PINK`. Timestamps are
+nonnegative signed 64-bit epoch milliseconds; `created_at` and a non-null
+`deleted_at` must not exceed `updated_at`. `book_author` and `metadata_id` may be
+null. Quote text and locator must be nonblank.
+
+The response is `{"results":[{"status":"accepted","item":{...}}]}` in input
+order. A losing mutation has status `stale`; both statuses include the complete
+winning row. An identical replay is accepted without allocating a new revision.
+Acknowledgement must match the exact sent local snapshot so an edit made during
+the request remains pending.
+
+Before comparison, both candidates use the maximum of their
+`identity_hash_version` values, so older clients cannot lower the learned version.
+Conflicts then select the maximum tuple `(updated_at, deleted_at != null,
+deleted_at or 0, metadata_id or "", content_hash, identity_hash_version,
+locator, text, colour, book_title, book_author != null, book_author or "",
+created_at)` after identity normalization. Strings compare by unsigned UTF-8
+order. This makes deletion win an equal-time tie and makes replay order
+irrelevant. A version-only upgrade preserves the winning payload and allocates
+a new revision even when the incoming edit is stale. Device clocks affect
+conflict resolution. Tombstones are retained.
+
+### `GET /sync/v1/highlights?since=0&limit=500`
+
+`since` is a decimal integer revision cursor, initially `0`; `limit` is 1–500.
+The response is `{"items":[...],"next_cursor":"2","has_more":false}`.
+Continue with `next_cursor` while `has_more` is true. Each changed row receives
+a distinct per-user revision under the same transaction lock used by pulls.
+This prevents a later commit from appearing behind an already returned cursor.
+Persist the cursor only after applying the complete page locally. Always pull
+after pushing; a push response does not advance the pull cursor.
+
+`409` with detail `highlight_cursor_reset_required` means the server's revision
+history is behind the supplied cursor: reset to `0` and pull again. An older
+server returning `404` leaves local edits pending while progress sync continues.
+The shared contract fixture is `server/tests/fixtures/highlight-sync.json`;
+Python and Kotlin tests consume the same Unicode quote and opaque locator.
 
 ## Documents (planned)
 

@@ -8,6 +8,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -26,7 +27,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Bookmark
-import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -35,8 +38,12 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -61,11 +68,15 @@ fun ReaderTopBar(
     onBack: () -> Unit,
     onDetails: () -> Unit,
     onTypeSettings: () -> Unit,
+    highlightMode: Boolean,
+    onHighlightMode: () -> Unit,
     modifier: Modifier = Modifier,
     edgeToEdge: Boolean = false,
     onReadingPause: (() -> Unit)? = null,
     hasMemory: Boolean = false,
+    onHighlights: () -> Unit = {},
 ) {
+    var moreExpanded by remember { mutableStateOf(false) }
     AnimatedVisibility(
         visible = visible,
         enter = slideInVertically { -it } + fadeIn(),
@@ -100,20 +111,39 @@ fun ReaderTopBar(
                     Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.common_back))
                 }
                 Text(
-                    text = title,
+                    text = if (highlightMode) stringResource(R.string.reader_highlight_mode) else title,
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
                 )
-                if (onReadingPause != null) {
-                    IconButton(onClick = onReadingPause) {
-                        Icon(if (hasMemory) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
-                            contentDescription = stringResource(if (hasMemory) R.string.reader_pause_saved else R.string.reader_pause_title))
-                    }
+                TextButton(onClick = onHighlightMode) {
+                    Text(stringResource(if (highlightMode) R.string.reader_done else R.string.reader_highlight))
                 }
-                IconButton(onClick = onDetails) {
-                    Icon(Icons.Outlined.Info, contentDescription = stringResource(R.string.common_book_details))
+                Box {
+                    IconButton(onClick = { moreExpanded = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.common_more))
+                    }
+                    DropdownMenu(expanded = moreExpanded, onDismissRequest = { moreExpanded = false }) {
+                        if (onReadingPause != null) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.reader_pause_title)) },
+                                leadingIcon = {
+                                    Icon(if (hasMemory) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
+                                        contentDescription = if (hasMemory) stringResource(R.string.reader_memory_saved) else null)
+                                },
+                                onClick = { moreExpanded = false; onReadingPause() },
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.reader_highlights_title)) },
+                            onClick = { moreExpanded = false; onHighlights() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.common_book_details)) },
+                            onClick = { moreExpanded = false; onDetails() },
+                        )
+                    }
                 }
                 // "Aa" is how reading apps label their type settings; it is the most used action
                 // here, so it gets a button of its own rather than a slot in an overflow menu.

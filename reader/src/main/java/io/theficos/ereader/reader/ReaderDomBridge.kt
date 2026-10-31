@@ -1,4 +1,4 @@
-package io.theficos.ereader.ui.reader
+package io.theficos.ereader.reader
 
 import android.graphics.Rect
 import android.view.View
@@ -9,12 +9,13 @@ import java.net.URI
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import org.readium.r2.navigator.epub.EpubNavigatorFragment
 
 internal data class ReaderWebViewCandidate<T>(val view: T, val url: String?)
-internal data class VerifiedReaderScript(val documentUrl: String, val value: String)
+data class VerifiedReaderScript(val documentUrl: String, val value: String)
 
 // Pinned Readium 3.0 WebViewServer.publicationBaseHref. Quire opens local EPUB assets;
 // Readium resolves their relative reading-order hrefs against this exact server URL.
@@ -75,7 +76,7 @@ internal suspend fun <T> evaluateReaderResource(
 }
 
 /** Readium's own JS wait is not cancellation-aware. Platform callbacks permit bounded waits. */
-internal suspend fun evaluateReaderJavascript(
+suspend fun evaluateReaderJavascript(
     navigator: EpubNavigatorFragment, script: String, expectedHref: String,
 ): VerifiedReaderScript? {
     val root = runCatching { navigator.publicationView }.getOrNull() ?: return null
@@ -85,14 +86,15 @@ internal suspend fun evaluateReaderJavascript(
     }
 }
 
-internal suspend fun awaitReaderJavascript(evaluate: (ValueCallback<String>) -> Unit): String? =
-    suspendCancellableCoroutine { continuation ->
+/** Every platform round trip is bounded, including highlight rollback in NonCancellable cleanup. */
+suspend fun awaitReaderJavascript(evaluate: (ValueCallback<String>) -> Unit): String? =
+    withTimeoutOrNull(1_500L) { suspendCancellableCoroutine { continuation ->
         try {
             evaluate(ValueCallback { result -> if (continuation.isActive) continuation.resume(result) })
         } catch (error: Exception) {
             if (continuation.isActive) continuation.resumeWithException(error)
         }
-    }
+    } }
 
 private fun visibleWebViews(view: View): List<WebView> {
     if (!view.isShown || !view.getGlobalVisibleRect(Rect())) return emptyList()

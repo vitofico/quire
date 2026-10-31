@@ -1,6 +1,7 @@
-package io.theficos.ereader.ui.reader
+package io.theficos.ereader.reader
 
 import android.app.Application
+import android.webkit.ValueCallback
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
@@ -20,6 +21,16 @@ class ReaderDomBridgeTest {
     private fun envelope(url: String, value: Any, after: String = url) = JSONObject()
         .put("documentUrl", url).put("afterDocumentUrl", after).put("value", value).toString()
 
+    @Test fun `production callback wait has its own bound and ignores missing or late response`() = runTest {
+        var callback: ValueCallback<String>? = null
+        val before = testScheduler.currentTime
+        val result = awaitReaderJavascript { callback = it }
+        assertThat(result).isNull()
+        assertThat(testScheduler.currentTime - before).isEqualTo(1500L)
+        callback!!.onReceiveValue("true")
+        assertThat(result).isNull()
+    }
+
     @Test fun `capture and proof choose matching current resource even when adjacent view comes first`() = runTest {
         val urls = mapOf("adjacent" to adjacentUrl, "current" to currentUrl)
         val selected = mutableListOf<String>()
@@ -31,7 +42,7 @@ class ReaderDomBridgeTest {
                 envelope(urls.getValue(view), if (script == "true") true else JSONObject().put("cssSelector", "#p4"))
             }
             assertThat(result?.documentUrl).isEqualTo(currentUrl)
-            if (script == "true") assertThat(strictJavascriptTrue(result?.value)).isTrue()
+            if (script == "true") assertThat(result?.value).isEqualTo("true")
             else assertThat(JSONObject(result!!.value).getString("cssSelector")).isEqualTo("#p4")
         }
         assertThat(selected).containsExactly("current", "current")
