@@ -49,11 +49,23 @@ credentials are included. See the [screenshot notes](docs/assets/README.md).
 - **Make the page comfortable.** Adjust the typeface, text size, line spacing
   and page theme. The reader's bars and menus take the page's colours.
 - **Keep passages.** Enter Highlight mode to save coloured passages, change
-  their colour or remove them. Open Highlights to browse the book's saved passages
+  their colour or remove them. Open **More → Highlights** to browse the book's saved passages
   and return to their exact pages. From a text selection, Copy as quote includes
   the book title and author. [Highlights work offline and sync with Quire Server](docs/reader-highlights.md),
   including when you remove a download and later import the same book again.
-  Quire Server also offers [read-only Agent/MCP access](docs/agent-access.md) to synced passages.
+  Quire Server also offers [read-only Agent/MCP access](docs/agent-access.md) to
+  authorized stored highlights; device-local memory bookmarks are never exposed.
+- **Leave yourself a way back.** Open **More → Pause & resume** in the reader
+  to save a memory bookmark with an optional sentence or question and nearby
+  passage context. Return explicitly, edit the note, replace its location or
+  remove it. It stays on this device, scoped to the book and account/catalog;
+  local-only reading has its own scope. Removing the download removes this
+  bookmark, while highlights remain separate.
+- **Find a place to stop.** The same sheet shows the approximate percentage of
+  the whole book ahead to the next mapped section, chapter/resource or book end.
+  It is a coarse distance, never a minutes or reading-pace estimate; insufficient
+  publication structure produces an unavailable message. See
+  [Pause and return](docs/reader-pause.md) for the boundaries and controls.
 - **Keep a useful shelf.** Search, sort, continue reading, and filter finished
   or abandoned books. With Quire Server, Library Stats brings together reading
   counts and authors.
@@ -66,7 +78,7 @@ Choose Paper or Sage for light mode, and Ink or Midnight for dark mode.
 Choose **Artwork** for the ink background or **Plain** for solid surfaces,
 independently of the palette. These choices are saved for your next launch.
 App palettes are separate from the page theme inside a book: tap the page and
-open **Menu** to adjust the font, spacing, margins and page colours.
+open **Aa** to adjust the font, spacing, margins and page colours.
 
 <details>
 <summary>See the reader, marbled loading and both library palettes</summary>
@@ -159,6 +171,8 @@ server deployments. See [AI configuration](docs/configuration.md) and the
   model endpoint and the public Wikipedia and OpenLibrary APIs for grounding
   and discovery. The endpoint may be local or a third-party provider chosen
   by your administrator.
+- Memory bookmarks and their notes stay in the device database, separate from
+  reading-progress and highlight sync. They make no AI calls or book uploads.
 - Stored credentials are encrypted with keys protected by **Android Keystore**,
   hardware-backed where the device supports it.
 
@@ -239,6 +253,9 @@ Dockerfile            Reproducible Android build environment (linux/amd64)
 - [`docs/development.md`](docs/development.md) — module layout, build
   commands, testing, CI, releases.
 - [`docs/sync-api.md`](docs/sync-api.md) — REST surface of Quire Server.
+- [Reader highlights](docs/reader-highlights.md) and
+  [Pause and return](docs/reader-pause.md) — separate saved-passage workflows.
+- [Agent access](docs/agent-access.md) — read-only highlight REST/MCP setup.
 
 ## Make Quire speak your language
 

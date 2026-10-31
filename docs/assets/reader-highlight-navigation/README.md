@@ -19,6 +19,7 @@ Later programmatic fixture cases are separate QA evidence.
 These are historical highlight-feature screenshots. The integrated reader now
 adds **Pause & resume** to this existing More menu, with a filled bookmark icon
 when a device-local memory bookmark exists; the direct Highlight/Done and type
-controls retain their positions. Integrated native acceptance must capture the
-updated menu and exercise both kinds of saved-location return before these
-historical images are treated as evidence for the combined reader.
+controls retain their positions. These historical images do not show the combined menu. See
+[Pause and return](../../reader-pause.md) for the current workflow and its
+acceptance boundaries. Highlights and their sync remain separate from the local
+memory bookmark.

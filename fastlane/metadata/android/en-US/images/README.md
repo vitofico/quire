@@ -1,8 +1,8 @@
 # F-Droid metadata images
 
-These directories must contain real assets before submitting to F-Droid.
-Until then, the listing has no graphics — F-Droid will accept the
-submission but the page looks barren.
+This directory contains the icon, feature graphic and phone screenshots used
+by F-Droid metadata. Keep replacements as real app captures and review them
+against the current interface; historical images do not verify newer features.
 
 ## icon.png — required
 
