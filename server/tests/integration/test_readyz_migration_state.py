@@ -60,9 +60,9 @@ async def restore_after(postgres_url: str, alembic_upgrade):
 
 
 async def test_readyz_200_when_at_ai_head(monkeypatch, postgres_url, alembic_upgrade):
-    """With ai@head (ai_009) + progress@head (progress_003) materialized,
+    """With ai@head (ai_010) + progress@head (progress_003) materialized,
     /readyz reports both heads. (progress_003 added by Phase 0 task F-1;
-    ai_009 by the optional monthly allowance migration.)
+    ai_010 by the provider preference migration.)
     """
     # Some earlier test in the session may have downgraded the DB
     # (test_migrate_script.py exercises rollback). Ensure both branches are
@@ -81,15 +81,15 @@ async def test_readyz_200_when_at_ai_head(monkeypatch, postgres_url, alembic_upg
     body = r.json()
     assert body["ready"] is True
     # Phase 0, task S-1 added the always-materialized `auth` branch:
-    # `auth_003` joins `ai_009` / `progress_003` in `heads_applied`.
-    assert body["heads_applied"] == ["ai_009", "auth_003", "progress_004"]
+    # `auth_003` joins `ai_010` / `progress_003` in `heads_applied`.
+    assert body["heads_applied"] == ["ai_010", "auth_003", "progress_004"]
 
 
 async def test_readyz_503_when_db_below_backbone(
     monkeypatch, postgres_url, alembic_upgrade, restore_after
 ):
     """DB stamped below backbone; with both modes enabled, required heads
-    include ai_009 (ai@head since monthly allowance) and auth_003 (auth@head
+    include ai_010 (ai@head since provider preference) and auth_003 (auth@head
     after Phase 0 / S-1) — both should be reported missing.
     """
     await _stamp(postgres_url, "0003")
@@ -99,7 +99,7 @@ async def test_readyz_503_when_db_below_backbone(
     assert r.status_code == 503
     body = r.json()
     assert body["ready"] is False
-    assert "ai_009" in body["missing"]
+    assert "ai_010" in body["missing"]
     assert "auth_003" in body["missing"]
 
 

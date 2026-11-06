@@ -61,15 +61,16 @@ class AiClient(
         get("/ai/v1/preferences")
 
     /** Operational health snapshot for the AI provider + retrieval sources. */
-    suspend fun getHealth(): AiHealthResponse =
-        get("/ai/v1/health")
+    suspend fun getHealth(providerId: String = "default"): AiHealthResponse =
+        get(if (providerId == "default") "/ai/v1/health" else "/ai/v1/health?provider_id=${java.net.URLEncoder.encode(providerId, "UTF-8")}")
 
     /** PUT preferences. Either or both fields may be sent; pass nulls for unchanged. */
     suspend fun setPreferences(
         enabled: Boolean? = null,
         style: AiStyle? = null,
+        providerId: String? = null,
     ): AiPreferences =
-        put("/ai/v1/preferences", AiPreferencesBody(aiEnabled = enabled, style = style))
+        put("/ai/v1/preferences", AiPreferencesBody(aiEnabled = enabled, style = style, providerId = providerId))
 
     /** Lookup-or-generate. May block for minutes while a model runs; see [longCallHttp]. */
     suspend fun lookupInsight(

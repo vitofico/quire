@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_ai_provider">Proveedor de IA</string>
+    <string name="settings_ai_provider_description">Elige el proveedor para esta cuenta. Las nuevas solicitudes de IA envían los datos del libro al servicio seleccionado. La información ya generada se conserva.</string>
+    <string name="settings_ai_provider_unavailable">Proveedor no disponible. Elige otro.</string>
+    <string name="settings_ai_provider_change_failed">No se pudo cambiar el proveedor de IA. Inténtalo de nuevo.</string>
+</resources>

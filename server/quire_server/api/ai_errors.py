@@ -27,7 +27,9 @@ def register_provider_error_handler(app: FastAPI, *, model: str | None) -> None:
     async def _handle(request: Request, exc: Exception) -> JSONResponse:
         assert isinstance(exc, ProviderError)  # registered for this class only
         timeout_s = runtime_settings(request.app).get("ai_timeout_s")
-        info = describe(exc, timeout_s=timeout_s, model=model)
+        info = describe(
+            exc, timeout_s=timeout_s, model=getattr(request.state, "ai_model_id", model)
+        )
         return JSONResponse(status_code=info.http_status, content={"detail": info.as_detail()})
 
     app.add_exception_handler(ProviderError, _handle)

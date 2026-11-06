@@ -2,4 +2,8 @@
 <resources>
     <string name="app_name" translatable="false">Quire</string>
     <string name="brand_name" translatable="false">Quire</string>
+    <string name="settings_ai_provider">AI provider</string>
+    <string name="settings_ai_provider_description">Choose the provider for this account. New AI requests send book details to the selected service. Existing insights stay saved.</string>
+    <string name="settings_ai_provider_unavailable">Provider unavailable. Choose another.</string>
+    <string name="settings_ai_provider_change_failed">Could not change the AI provider. Try again.</string>
 </resources>

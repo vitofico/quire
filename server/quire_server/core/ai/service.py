@@ -21,6 +21,7 @@ import logging
 import re
 import time
 from collections.abc import Callable
+from copy import copy
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import Protocol
@@ -359,6 +360,14 @@ class InsightOrchestrator:
         self._profile_refresh_daily_limit = profile_refresh_daily_limit
         self._profile_timeout_s = profile_timeout_s
         self._monthly_policy = monthly_policy
+
+    def with_provider(self, *, ai: _AIClientLike, model_id: str, health_state: AiHealthState):
+        # Share locks, concurrency, rate and quota guards across provider choices.
+        selected = copy(self)
+        selected.ai = ai
+        selected.model_id = model_id
+        selected._health = health_state
+        return selected
 
     def apply_tunables(
         self,

@@ -53,6 +53,8 @@ data class AiState(
     /** Wall-clock millis of the last successful local insight upsert; null if never synced. */
     val lastInsightSyncMs: Long? = null,
     val syncStatus: InsightSyncStatus = InsightSyncStatus.Idle,
+    val selectingProvider: Boolean = false,
+    val providerChangeFailed: Boolean = false,
 )
 
 /** UI state for the Settings → "Refresh insights" button. */
@@ -145,19 +147,26 @@ class SettingsViewModel(
     private val _restoreProgress = MutableStateFlow<RestoreProgress?>(null)
     val restoreProgress: StateFlow<RestoreProgress?> = _restoreProgress.asStateFlow()
 
+    private val _selectingProvider = MutableStateFlow(false)
+    private val _providerChangeFailed = MutableStateFlow(false)
+
     val ai: StateFlow<AiState> = combine(
         combine(aiRepository.config, aiRepository.preferences, _aiHealth) { c, p, h ->
             Triple(c, p, h)
         },
         _lastInsightSync,
         _syncStatus,
-    ) { (c, p, h), lastSync, syncStatus ->
+        _selectingProvider,
+        _providerChangeFailed,
+    ) { (c, p, h), lastSync, syncStatus, selecting, failed ->
         AiState(
             config = c,
             preferences = p,
             health = h,
             lastInsightSyncMs = lastSync,
             syncStatus = syncStatus,
+            selectingProvider = selecting,
+            providerChangeFailed = failed,
         )
     }.stateIn(
         viewModelScope,
@@ -299,6 +308,22 @@ class SettingsViewModel(
     fun removeAllBooks() {
         viewModelScope.launch {
             documentRepo.deleteAll(booksDir)
+        }
+    }
+
+    fun setAiProvider(providerId: String) {
+        if (_selectingProvider.value) return
+        _selectingProvider.value = true
+        _providerChangeFailed.value = false
+        viewModelScope.launch {
+            try {
+                aiRepository.setProvider(providerId)
+                _aiHealth.value = aiRepository.fetchHealth()
+            } catch (_: Exception) {
+                _providerChangeFailed.value = true
+            } finally {
+                _selectingProvider.value = false
+            }
         }
     }
 
