@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_ai_provider">Fournisseur d’IA</string>
+    <string name="settings_ai_provider_description">Choisissez le fournisseur pour ce compte. Les nouvelles requêtes d’IA envoient les détails du livre au service sélectionné. Les analyses existantes restent enregistrées.</string>
+    <string name="settings_ai_provider_unavailable">Fournisseur indisponible. Choisissez-en un autre.</string>
+    <string name="settings_ai_provider_change_failed">Impossible de changer de fournisseur d’IA. Réessayez.</string>
+</resources>

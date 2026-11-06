@@ -1410,3 +1410,36 @@ docker compose up -d quire-server
 
 There is no server changelog today, and the server does not tell you when a
 newer image exists.
+
+
+### `QUIRE_SERVER_AI_PROVIDERS`
+
+Optional JSON array of additional provider connections. Keep the existing
+`AI_BASE_URL`, `AI_MODEL` and `AI_API_KEY` as the server default. Each additional
+connection has `id`, `label`, `base_url`, `model`, `key_env` and an optional
+`temperature` (omitted by default). IDs must be unique, lowercase, at most 32
+characters, and cannot be `default`. Set `key_env` to the name of a separate
+server environment variable holding that provider's key. Never put keys in the
+JSON, the app, or source control. At most 15 additional connections are allowed.
+
+For example, with a separately supplied `OPENAI_API_KEY`:
+
+```json
+[{"id":"openai","label":"OpenAI · GPT-6.1 Terra","base_url":"https://api.openai.com/v1","model":"gpt-6.1-terra","key_env":"OPENAI_API_KEY"}]
+```
+
+In **Settings → AI features → AI provider**, choose a connection for the signed-in
+account. Selection persists on the server and applies across devices. The app
+shows the selected service before AI use; selecting a provider does not enable
+AI or send book content. Existing clients keep using the default unless that
+account has selected another provider. Removing a selected connection makes AI
+requests fail with `ai_provider_unavailable` until the user chooses another.
+
+`GET /ai/v1/config` lists approved connections without credentials and reports
+the account's `provider_id`, model and service host. `PUT /ai/v1/preferences`
+accepts a configured `provider_id`; omitted or null preserves the selection and
+`default` restores the server default. Additional connections qualify the cache
+`model_id` as `provider_id:model` so identically named models at different
+endpoints cannot share an insight accidentally. Rate limits, concurrency and
+quota guards remain shared. Migration `ai_010` adds the nullable provider choice;
+apply the normal migration wrapper before starting the updated server.

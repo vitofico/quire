@@ -188,6 +188,8 @@ class BookInsight(Base):
 class UserAIPreference(Base):
     __tablename__ = "user_ai_preferences"
 
+    provider_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
     user_id: Mapped[str] = mapped_column(String, primary_key=True)
     ai_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false"), default=False

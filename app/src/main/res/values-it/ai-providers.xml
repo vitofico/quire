@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_ai_provider">Fornitore IA</string>
+    <string name="settings_ai_provider_description">Scegli il fornitore per questo account. Le nuove richieste IA inviano i dettagli del libro al servizio selezionato. Gli approfondimenti esistenti restano salvati.</string>
+    <string name="settings_ai_provider_unavailable">Fornitore non disponibile. Scegline un altro.</string>
+    <string name="settings_ai_provider_change_failed">Impossibile cambiare il fornitore IA. Riprova.</string>
+</resources>

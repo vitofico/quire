@@ -15,6 +15,7 @@ from paying the cost of the other domain's modules.
 from __future__ import annotations
 
 import logging
+import os
 import warnings
 
 import httpx
@@ -499,6 +500,35 @@ def create_app() -> FastAPI:
                 monthly_policy=hosted_policy,
             )
             app.state.ai_orchestrator = orch
+            provider_orchestrators = {}
+            provider_health = {"default": ai_health}
+            for provider in settings.ai_providers:
+                provider_state = AiHealthState()
+                provider_health[provider.id] = provider_state
+                provider_orchestrators[provider.id] = orch.with_provider(
+                    ai=AIClient(
+                        base_url=provider.base_url,
+                        api_key=os.environ[provider.key_env],
+                        model=provider.model,
+                        temperature=provider.temperature,
+                    ),
+                    # Different endpoints can serve identically named models.
+                    model_id=f"{provider.id}:{provider.model}",
+                    health_state=provider_state,
+                )
+            app.state.ai_provider_orchestrators = provider_orchestrators
+            app.state.ai_provider_health = provider_health
+            for provider_orch in provider_orchestrators.values():
+                runtime.on_change(
+                    lambda target=provider_orch: target.apply_tunables(
+                        ai_timeout_s=runtime.get("ai_timeout_s"),
+                        profile_timeout_s=runtime.get("ai_profile_timeout_s"),
+                        sources_enabled=runtime.sources,
+                        rate_per_min=runtime.get("ai_rate_per_min"),
+                        daily_budget=runtime.get("ai_daily_budget"),
+                        regen_daily_limit=runtime.get("ai_regen_daily_limit"),
+                    )
+                )
             runtime.on_change(
                 lambda: orch.apply_tunables(
                     ai_timeout_s=runtime.get("ai_timeout_s"),

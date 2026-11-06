@@ -52,11 +52,27 @@ class AiRepository(
     val preferences: StateFlow<AiPreferences?> = _prefs.asStateFlow()
 
     private val refreshMutex = Mutex()
+    @Volatile private var changingProvider = false
 
     /** Pull the latest config + preferences from the server. Silent on failure. */
     suspend fun refresh() = refreshMutex.withLock {
         runCatching { client.getConfig() }.getOrNull()?.let { _config.value = it }
         runCatching { client.getPreferences() }.getOrNull()?.let { _prefs.value = it }
+    }
+
+    suspend fun setProvider(providerId: String) = refreshMutex.withLock {
+        // Keep Settings stable while fencing cached output during provider selection.
+        changingProvider = true
+        try {
+            _prefs.value = client.setPreferences(providerId = providerId)
+            _config.value = client.getConfig()
+        } catch (failure: Exception) {
+            // Reconcile ambiguous network failures before serving cached model output.
+            _config.value = runCatching { client.getConfig() }.getOrNull()
+            throw failure
+        } finally {
+            changingProvider = false
+        }
     }
 
     suspend fun setEnabled(enabled: Boolean) {
@@ -170,7 +186,7 @@ class AiRepository(
      * status row" — never surfaces a stack trace.
      */
     suspend fun fetchHealth(): AiHealthResponse? =
-        runCatching { client.getHealth() }.getOrNull()
+        runCatching { client.getHealth(_config.value?.providerId ?: "default") }.getOrNull()
 
     // ---------- Reader Profile (pr-α / Bundle 3) ----------
 
@@ -236,6 +252,7 @@ class AiRepository(
 
     /** Exact-identity cache read keyed on the current `(model, prompt, style)`. */
     private suspend fun readLocal(identity: DocumentIdentity): InsightEntity? {
+        if (changingProvider) return null
         val cfg = _config.value ?: return null
         val prefs = _prefs.value ?: return null
         val key = identity.metadataId ?: identity.contentHash ?: return null

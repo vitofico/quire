@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from quire_server.api.ai_auth import AiPrincipal, get_ai_principal
 from quire_server.api.ai_schemas import (
     AiHealthResponse,
+    AIProviderView,
     AiStyle,
     BookInsightPayload,
     BookInsightResponse,
@@ -64,20 +65,58 @@ from quire_server.db.session import get_session
 router = APIRouter(tags=["ai"])
 
 
-def _orchestrator(request: Request) -> InsightOrchestrator | None:
-    return getattr(request.app.state, "ai_orchestrator", None)
+async def _provider_id(session: AsyncSession, principal: AiPrincipal) -> str:
+    value = await session.scalar(
+        select(UserAIPreference.provider_id).where(UserAIPreference.user_id == principal.subject)
+    )
+    return value or "default"
+
+
+async def _orchestrator(
+    request: Request, session: AsyncSession, principal: AiPrincipal
+) -> InsightOrchestrator | None:
+    default = getattr(request.app.state, "ai_orchestrator", None)
+    if default is None:
+        return None
+    selected = await _provider_id(session, principal)
+    orch = (
+        default
+        if selected == "default"
+        else getattr(request.app.state, "ai_provider_orchestrators", {}).get(selected)
+    )
+    if orch is None:
+        raise HTTPException(409, detail="ai_provider_unavailable")
+    request.state.ai_provider_id = selected
+    request.state.ai_model_id = get_settings().ai_model if selected == "default" else orch.model_id
+    return orch
+
+
+def _provider_views() -> list[AIProviderView]:
+    settings = get_settings()
+    if not settings.ai_enabled or not settings.ai_base_url or not settings.ai_model:
+        return []
+    return [
+        AIProviderView(
+            id="default",
+            label=settings.ai_model,
+            base_url_host=urlparse(settings.ai_base_url).hostname or "",
+            model_id=settings.ai_model,
+        ),
+        *[
+            AIProviderView(
+                id=p.id,
+                label=p.label,
+                base_url_host=urlparse(p.base_url).hostname or "",
+                model_id=f"{p.id}:{p.model}",
+            )
+            for p in settings.ai_providers
+        ],
+    ]
 
 
 def _enabled_sources(app: FastAPI) -> list[str]:
     """The sources retrieval queries, the same list the orchestrator uses."""
     return list(runtime_settings(app).sources)
-
-
-def _base_url_host() -> str | None:
-    base = get_settings().ai_base_url
-    if not base:
-        return None
-    return urlparse(base).hostname
 
 
 async def _require_opt_in(session: AsyncSession, user_id: str) -> UserAIPreference:
@@ -266,13 +305,19 @@ def _quota_http_exception(exc: QuotaExceeded) -> HTTPException:
 @router.get("/config", response_model=ConfigResponse)
 async def get_config(
     request: Request,
+    response: Response,
     principal: Annotated[AiPrincipal, Depends(get_ai_principal)],
+    session: Annotated[AsyncSession, Depends(get_session)],
 ) -> ConfigResponse:
     """Public to authed users; the app needs this to render the AI toggle."""
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Vary"] = "Authorization"
     settings = get_settings()
     # Issue #102: the status page can change these, so report the values in force.
     runtime = runtime_settings(request.app)
-    _ = principal  # auth gate only; config is non-personalized.
+    selected_id = await _provider_id(session, principal)
+    providers = _provider_views()
+    selected = next((p for p in providers if p.id == selected_id), None)
     # PR-η / Lock #24: expose the runtime-resolved PROMPT_VERSION so the
     # Android client can key its local-cache PK on the same value the
     # server uses. The helper applies Lock #19 sentinel semantics (legacy
@@ -281,9 +326,11 @@ async def get_config(
     from quire_server.core.ai._compat import _resolve_prompt_version
 
     return ConfigResponse(
+        providers=providers,
+        provider_id=selected_id,
         configured=bool(settings.ai_enabled and settings.ai_base_url and settings.ai_model),
-        base_url_host=_base_url_host() if settings.ai_enabled else None,
-        model_id=settings.ai_model if settings.ai_enabled else None,
+        base_url_host=selected.base_url_host if selected else None,
+        model_id=selected.model_id if selected else None,
         sources_enabled=_enabled_sources(request.app) if settings.ai_enabled else [],
         daily_budget=runtime.get("ai_daily_budget"),
         regen_daily_limit=runtime.get("ai_regen_daily_limit"),
@@ -315,6 +362,7 @@ async def get_preferences(
     return PreferencesResponse(
         ai_enabled=pref.ai_enabled,
         style=_style_from_pref(pref),
+        provider_id=pref.provider_id or "default",
     )
 
 
@@ -324,6 +372,8 @@ async def put_preferences(
     principal: Annotated[AiPrincipal, Depends(get_ai_principal)],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> PreferencesResponse:
+    if body.provider_id is not None and body.provider_id not in {p.id for p in _provider_views()}:
+        raise HTTPException(422, detail="ai_provider_unknown")
     pref = (
         await session.execute(
             select(UserAIPreference).where(UserAIPreference.user_id == principal.subject)
@@ -334,6 +384,7 @@ async def put_preferences(
             user_id=principal.subject,
             ai_enabled=body.ai_enabled if body.ai_enabled is not None else False,
             style=body.style.model_dump() if body.style else None,
+            provider_id=body.provider_id if body.provider_id != "default" else None,
         )
         session.add(pref)
     else:
@@ -341,11 +392,14 @@ async def put_preferences(
             pref.ai_enabled = body.ai_enabled
         if body.style is not None:
             pref.style = body.style.model_dump()
+        if body.provider_id is not None:
+            pref.provider_id = body.provider_id if body.provider_id != "default" else None
     await session.commit()
     await session.refresh(pref)
     return PreferencesResponse(
         ai_enabled=pref.ai_enabled,
         style=_style_from_pref(pref),
+        provider_id=pref.provider_id or "default",
     )
 
 
@@ -356,7 +410,7 @@ async def lookup_insight(
     principal: Annotated[AiPrincipal, Depends(get_ai_principal)],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> BookInsightResponse:
-    orch = _orchestrator(request)
+    orch = await _orchestrator(request, session, principal)
     if orch is None:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="ai_disabled")
     pref = await _require_opt_in(session, principal.subject)
@@ -394,7 +448,7 @@ async def regenerate_insight(
 ) -> BookInsightResponse:
     """Mark the existing live row as superseded and generate a fresh one
     incorporating the user's `reason`. Counts against regen budget."""
-    orch = _orchestrator(request)
+    orch = await _orchestrator(request, session, principal)
     if orch is None:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="ai_disabled")
     pref = await _require_opt_in(session, principal.subject)
@@ -431,7 +485,7 @@ async def get_insight(
     principal: Annotated[AiPrincipal, Depends(get_ai_principal)],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> BookInsightResponse:
-    orch = _orchestrator(request)
+    orch = await _orchestrator(request, session, principal)
     if orch is None:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="ai_disabled")
     pref = (
@@ -459,7 +513,7 @@ async def invalidate_insight(
     principal: Annotated[AiPrincipal, Depends(get_ai_principal)],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict:
-    orch = _orchestrator(request)
+    orch = await _orchestrator(request, session, principal)
     if orch is None:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="ai_disabled")
     await _require_opt_in(session, principal.subject)
@@ -481,7 +535,7 @@ async def promote_insight(
     call. Returns ``204`` when there's nothing to promote (no source row at
     ``from`` for the requested variant).
     """
-    orch = _orchestrator(request)
+    orch = await _orchestrator(request, session, principal)
     if orch is None:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="ai_disabled")
     pref = await _require_opt_in(session, principal.subject)
@@ -536,7 +590,7 @@ async def sync_insights(
     last item returned (Lock #23). Weight=0: never touches the daily budget,
     never acquires a generation lock, never calls the model.
     """
-    orch = _orchestrator(request)
+    orch = await _orchestrator(request, session, principal)
     if orch is None:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="ai_disabled")
     pref = await _require_opt_in(session, principal.subject)
@@ -555,7 +609,9 @@ async def sync_insights(
     # the contract is single-sourced via the helper).
     from quire_server.core.ai._compat import _resolve_prompt_version
 
-    current_model = settings.ai_model
+    current_model = (
+        settings.ai_model if request.state.ai_provider_id == "default" else orch.model_id
+    )
     current_pv = _resolve_prompt_version(settings.ai_prompt_version)
 
     if not current_model:
@@ -736,7 +792,7 @@ async def refresh_profile(
     serialize through a per-user in-process lock; collapsed waiters each
     receive a ``status='hit'`` audit row in ``ai_generation_log``.
     """
-    orch = _orchestrator(request)
+    orch = await _orchestrator(request, session, principal)
     if orch is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="ai_disabled")
     settings = get_settings()
@@ -767,7 +823,7 @@ async def refresh_profile(
             info = describe(
                 cause,
                 timeout_s=runtime_settings(request.app).get("ai_profile_timeout_s"),
-                model=settings.ai_model,
+                model=request.state.ai_model_id,
                 timeout_var="QUIRE_SERVER_AI_PROFILE_TIMEOUT_S",
             )
             raise HTTPException(status_code=info.http_status, detail=info.as_detail()) from exc
@@ -820,7 +876,7 @@ async def delete_profile(
     Lock #3, coordinator §3.8). No audit-log row is written (PR-β owns
     profile audit-log emission).
     """
-    orch = _orchestrator(request)
+    orch = await _orchestrator(request, session, principal)
     if orch is None:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="ai_disabled")
     await _require_opt_in(session, principal.subject)
@@ -835,7 +891,7 @@ async def delete_profile(
 
 
 @router.get("/health", response_model=AiHealthResponse)
-async def get_ai_health(request: Request) -> AiHealthResponse:
+async def get_ai_health(request: Request, provider_id: str = "default") -> AiHealthResponse:
     """Operational visibility for AI provider + retrieval reachability.
 
     Unauthenticated by design — operators and the Android Settings screen
@@ -851,12 +907,17 @@ async def get_ai_health(request: Request) -> AiHealthResponse:
       * Tri-state ``reachable``: see ``AiHealthResponse`` and
         ``RetrievalSourceHealth`` for the contract.
     """
-    return await ai_health_payload(request.app)
+    return await ai_health_payload(request.app, provider_id=provider_id)
 
 
-async def ai_health_payload(app: FastAPI) -> AiHealthResponse:
+async def ai_health_payload(app: FastAPI, *, provider_id: str = "default") -> AiHealthResponse:
     """Body of ``GET /ai/v1/health``; the admin status page embeds it too."""
-    state: AiHealthState | None = getattr(app.state, "ai_health", None)
+    states = getattr(app.state, "ai_provider_health", {})
+    state: AiHealthState | None = (
+        getattr(app.state, "ai_health", None)
+        if provider_id == "default"
+        else states.get(provider_id)
+    )
     sources_seed = _enabled_sources(app)
     if state is None:
         # AI router mounted but no health holder was wired (the

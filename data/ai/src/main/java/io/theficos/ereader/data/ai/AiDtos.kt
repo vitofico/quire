@@ -6,6 +6,14 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
+data class AiProviderOption(
+    val id: String,
+    val label: String,
+    @SerialName("base_url_host") val baseUrlHost: String,
+    @SerialName("model_id") val modelId: String,
+)
+
+@Serializable
 data class AiConfig(
     val configured: Boolean,
     @SerialName("base_url_host") val baseUrlHost: String? = null,
@@ -33,6 +41,8 @@ data class AiConfig(
     // field omits it, and AiClient then sizes the profile refresh call from
     // generation_timeout_s instead, exactly as it did before this field existed.
     @SerialName("profile_timeout_s") val profileTimeoutS: Int? = null,
+    val providers: List<AiProviderOption> = emptyList(),
+    @SerialName("provider_id") val providerId: String = "default",
 )
 
 @Serializable
@@ -45,12 +55,14 @@ data class AiStyle(
 data class AiPreferences(
     @SerialName("ai_enabled") val aiEnabled: Boolean,
     val style: AiStyle = AiStyle(),
+    @SerialName("provider_id") val providerId: String = "default",
 )
 
 @Serializable
 data class AiPreferencesBody(
     @SerialName("ai_enabled") val aiEnabled: Boolean? = null,
     val style: AiStyle? = null,
+    @SerialName("provider_id") val providerId: String? = null,
 )
 
 @Serializable

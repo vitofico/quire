@@ -7,7 +7,7 @@ from typing import Literal
 from urllib.parse import urlsplit
 
 from dotenv import dotenv_values
-from pydantic import field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ENV_PREFIX = "QUIRE_SERVER_"
@@ -29,6 +29,33 @@ _K8S_SERVICE_LINK = re.compile(
 # The retrieval sources the AI service knows how to query, by the names
 # `QUIRE_SERVER_AI_SOURCES` uses. Anything else in that setting is ignored.
 KNOWN_AI_SOURCES: tuple[str, ...] = ("wikipedia", "openlibrary")
+
+
+class AIProviderSettings(BaseModel):
+    """Operator-approved connections. Credentials are read from named environment variables."""
+
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
+    label: str = Field(min_length=1, max_length=100)
+    base_url: str
+    model: str = Field(min_length=1, max_length=200)
+    key_env: str = Field(pattern=r"^[A-Z][A-Z0-9_]{0,100}$")
+    temperature: float | None = None
+
+    @field_validator("base_url")
+    @classmethod
+    def valid_url(cls, value):
+        url = urlsplit(value)
+        if (
+            url.scheme not in {"http", "https"}
+            or not url.hostname
+            or url.username
+            or url.password
+            or url.query
+            or url.fragment
+        ):
+            raise ValueError("must be an HTTP(S) URL without credentials or query")
+        return value.rstrip("/")
 
 
 class Settings(BaseSettings):
@@ -83,6 +110,19 @@ class Settings(BaseSettings):
     ai_base_url: str | None = None
     ai_api_key: str | None = None
     ai_model: str | None = None
+    ai_providers: list[AIProviderSettings] = Field(default_factory=list, max_length=15)
+
+    @field_validator("ai_providers")
+    @classmethod
+    def distinct_providers(cls, providers):
+        ids = [p.id for p in providers]
+        if len(ids) != len(set(ids)) or "default" in ids:
+            raise ValueError("provider IDs must be distinct; default is reserved")
+        for provider in providers:
+            if not os.environ.get(provider.key_env, "").strip():
+                raise ValueError("every AI provider needs its configured key environment variable")
+        return providers
+
     ai_temperature: float | None = 0.2
     ai_timeout_s: float = 120.0
     ai_max_concurrency: int = 4

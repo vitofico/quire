@@ -4,6 +4,8 @@ import com.google.common.truth.Truth.assertThat
 import io.theficos.ereader.core.metadata.MetadataBundle
 import io.theficos.ereader.core.model.DocumentIdentity
 import io.theficos.ereader.data.local.db.InsightEntity
+import kotlinx.coroutines.async
+import kotlinx.coroutines.yield
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
@@ -91,6 +93,43 @@ class AiRepositoryLocalFirstTest {
                 syncedAt = 1_000L,
             )
         )
+    }
+
+    @Test fun `selecting another provider stops serving the previous model cache`() = runTest {
+        bootstrapPrefs()
+        seedRow()
+        val releasePreference = java.util.concurrent.CountDownLatch(1)
+        server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse = when (request.path) {
+                "/ai/v1/preferences" -> {
+                    check(releasePreference.await(5, TimeUnit.SECONDS))
+                    MockResponse().setResponseCode(200).setBody(
+                        """{"ai_enabled":true,"provider_id":"openai","style":{"tone":"neutral","language":"auto"}}""",
+                    )
+                }
+                "/ai/v1/config" -> MockResponse().setResponseCode(200).setBody(
+                    """{"configured":true,"model_id":"openai:gpt-6.1-terra","provider_id":"openai","prompt_version":"4"}""",
+                )
+                else -> MockResponse().setResponseCode(404).setBody("{}")
+            }
+        }
+        val change = async { repo.setProvider("openai") }
+        yield()
+        assertThat(server.awaitRequest().body.readUtf8()).contains("\"provider_id\":\"openai\"")
+        try {
+            // Keeping the current config avoids a false unconfigured state and scroll jump.
+            assertThat(repo.config.value?.modelId).isEqualTo("llama3.1")
+            // Its cached response must nevertheless stay fenced while the write is in flight.
+            assertThat(repo.getCachedInsight(identity)).isNull()
+            assertThat(server.awaitRequest().path).isEqualTo("/ai/v1/insights/get")
+        } finally {
+            releasePreference.countDown()
+        }
+        change.await()
+        assertThat(server.awaitRequest().path).isEqualTo("/ai/v1/config")
+        assertThat(repo.config.value?.providerId).isEqualTo("openai")
+        // The old generation stays saved, available when its model is selected again.
+        assertThat(dao.getByIdentity("m1", "llama3.1", "4", "neutral", "auto")).isNotNull()
     }
 
     @Test fun `lookupInsight short-circuits on cache hit`() = runTest {

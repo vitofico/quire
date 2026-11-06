@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_ai_provider">KI-Anbieter</string>
+    <string name="settings_ai_provider_description">Wähle den Anbieter für dieses Konto. Neue KI-Anfragen senden Buchdetails an den ausgewählten Dienst. Vorhandene Einblicke bleiben gespeichert.</string>
+    <string name="settings_ai_provider_unavailable">Anbieter nicht verfügbar. Wähle einen anderen.</string>
+    <string name="settings_ai_provider_change_failed">Der KI-Anbieter konnte nicht geändert werden. Versuche es erneut.</string>
+</resources>

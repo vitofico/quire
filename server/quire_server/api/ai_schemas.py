@@ -569,7 +569,16 @@ class AiStyle(BaseModel):
         return v
 
 
+class AIProviderView(BaseModel):
+    id: str
+    label: str
+    base_url_host: str
+    model_id: str
+
+
 class ConfigResponse(BaseModel):
+    providers: list[AIProviderView] = Field(default_factory=list)
+    provider_id: str = "default"
     configured: bool
     base_url_host: str | None = None
     model_id: str | None = None
@@ -601,6 +610,7 @@ class ConfigResponse(BaseModel):
 
 
 class PreferencesResponse(BaseModel):
+    provider_id: str = "default"
     ai_enabled: bool
     style: AiStyle
 
@@ -610,6 +620,7 @@ class PreferencesBody(BaseModel):
 
     ai_enabled: bool | None = None
     style: AiStyle | None = None
+    provider_id: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_-]{0,31}$")
 
 
 class QuotaResponse(BaseModel):

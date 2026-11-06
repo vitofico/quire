@@ -510,6 +510,44 @@ fun SettingsScreen(
                         )
                     }
 
+                    if (cfg.providers.size > 1) {
+                        var providerMenuOpen by remember { mutableStateOf(false) }
+                        Column {
+                            Text(stringResource(R.string.settings_ai_provider), style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                stringResource(R.string.settings_ai_provider_description),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            TextButton(
+                                onClick = { providerMenuOpen = true },
+                                enabled = !aiState.selectingProvider,
+                            ) {
+                                Text(cfg.providers.firstOrNull { it.id == cfg.providerId }?.label
+                                    ?: stringResource(R.string.settings_ai_provider_unavailable))
+                            }
+                            DropdownMenu(expanded = providerMenuOpen, onDismissRequest = { providerMenuOpen = false }) {
+                                cfg.providers.forEach { provider ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column {
+                                                Text(provider.label)
+                                                Text(provider.baseUrlHost, style = MaterialTheme.typography.bodySmall)
+                                            }
+                                        },
+                                        onClick = {
+                                            providerMenuOpen = false
+                                            viewModel.setAiProvider(provider.id)
+                                        },
+                                    )
+                                }
+                            }
+                            if (aiState.providerChangeFailed) {
+                                Text(stringResource(R.string.settings_ai_provider_change_failed), color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    }
+
                     if (enabled) {
                         val tone = aiState.preferences?.style?.tone ?: "neutral"
                         var menuOpen by remember { mutableStateOf(false) }
