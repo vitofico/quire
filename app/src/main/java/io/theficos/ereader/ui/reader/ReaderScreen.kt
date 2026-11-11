@@ -86,6 +86,8 @@ fun ReaderScreen(
     viewModel: ReaderViewModel,
     appTheme: AppTheme,
     onClose: () -> Unit,
+    highlightsAreNew: Boolean,
+    onHighlightsOpened: () -> Unit,
     detailsSheet: @Composable (onDismiss: () -> Unit) -> Unit,
 ) {
     val preferences by viewModel.preferences.collectAsState()
@@ -97,7 +99,7 @@ fun ReaderScreen(
     } else MaterialTheme.colorScheme
     MaterialTheme(colorScheme = colors) {
         Surface(Modifier.fillMaxSize()) {
-            ReaderScreenContent(viewModel, onClose, detailsSheet)
+            ReaderScreenContent(viewModel, onClose, highlightsAreNew, onHighlightsOpened, detailsSheet)
         }
     }
 }
@@ -106,6 +108,8 @@ fun ReaderScreen(
 private fun ReaderScreenContent(
     viewModel: ReaderViewModel,
     onClose: () -> Unit,
+    highlightsAreNew: Boolean,
+    onHighlightsOpened: () -> Unit,
     detailsSheet: @Composable (onDismiss: () -> Unit) -> Unit,
 ) {
     val state by viewModel.state.collectAsState()
@@ -313,7 +317,9 @@ private fun ReaderScreenContent(
                         onHighlights = {
                             selectionController?.dismissSelection()
                             viewModel.openHighlights()
+                            onHighlightsOpened()
                         },
+                        highlightsAreNew = highlightsAreNew,
                         onTypeSettings = { showFontSheet = true },
                         onReadingPause = {
                             selectionController?.dismissSelection()

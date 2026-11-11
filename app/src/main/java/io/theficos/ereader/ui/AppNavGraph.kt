@@ -66,9 +66,14 @@ import io.theficos.ereader.ui.scan.ScanViewModel
 import io.theficos.ereader.ui.settings.LicensesScreen
 import io.theficos.ereader.ui.settings.SettingsScreen
 import io.theficos.ereader.ui.settings.SettingsViewModel
+import io.theficos.ereader.ui.settings.WHATS_NEW_LATEST_ENTRY_ID
+import io.theficos.ereader.ui.settings.WhatsNewScreen
 import io.theficos.ereader.ui.theme.AppTheme
 import io.theficos.quire.R
 import kotlinx.coroutines.launch
+
+// The contextual label belongs to the first edition of What's new.
+private const val HIGHLIGHTS_DISCOVERY_ENTRY_ID = "reading-pause"
 
 @Composable
 fun AppNavGraph(
@@ -216,11 +221,16 @@ fun AppNavGraph(
                         },
                         onScan = { nav.navigate("scan") },
                     )
-                    Tab.SETTINGS -> SettingsScreen(
-                        viewModel = setVm,
-                        contentPadding = padding,
-                        onNavigateToLicenses = { nav.navigate("licenses") },
-                    )
+                    Tab.SETTINGS -> {
+                        val lastSeen by container.whatsNewPreferencesStore.lastSeenEntryId.collectAsState()
+                        SettingsScreen(
+                            viewModel = setVm,
+                            contentPadding = padding,
+                            onNavigateToLicenses = { nav.navigate("licenses") },
+                            hasUnreadUpdates = lastSeen != WHATS_NEW_LATEST_ENTRY_ID,
+                            onNavigateToWhatsNew = { nav.navigate("whats-new") { launchSingleTop = true } },
+                        )
+                    }
                 }
             }
         }
@@ -253,10 +263,13 @@ fun AppNavGraph(
                     }
                 },
             )
+            val highlightsOpened by container.whatsNewPreferencesStore.highlightsOpened.collectAsState()
             ReaderScreen(
                 viewModel = vm,
                 appTheme = appTheme,
                 onClose = { nav.popBackStack() },
+                highlightsAreNew = WHATS_NEW_LATEST_ENTRY_ID == HIGHLIGHTS_DISCOVERY_ENTRY_ID && !highlightsOpened,
+                onHighlightsOpened = container.whatsNewPreferencesStore::markHighlightsOpened,
                 detailsSheet = { onDismiss ->
                     // Scoped to the reader's back-stack entry: built the first time the sheet
                     // opens (so no insight lookup runs for a book nobody asked about), kept
@@ -375,6 +388,10 @@ fun AppNavGraph(
         }
         composable("licenses") {
             LicensesScreen(onBack = { nav.popBackStack() })
+        }
+        composable("whats-new") {
+            LaunchedEffect(Unit) { container.whatsNewPreferencesStore.markSeen(WHATS_NEW_LATEST_ENTRY_ID) }
+            WhatsNewScreen(onBack = { nav.popBackStack() })
         }
         composable("library/stats") {
             val vm: LibraryStatsViewModel = viewModel(

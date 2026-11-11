@@ -5,6 +5,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.Modifier
@@ -78,5 +82,31 @@ class ReaderHighlightsMenuTest {
         compose.onNodeWithContentDescription(label(R.string.common_more)).performClick()
         compose.onNodeWithText("Book details").assertIsDisplayed().performSemanticsAction(SemanticsActions.OnClick) { it() }
         compose.runOnIdle { assertThat(chosen).containsExactly("details") }
+    }
+
+    @Test fun `new highlight label is available only while the feature is undiscovered`() {
+        compose.setContent {
+            var highlightsAreNew by remember { mutableStateOf(true) }
+            MaterialTheme {
+                ReaderTopBar(
+                    visible = true,
+                    title = "Book",
+                    onBack = {},
+                    onDetails = {},
+                    onTypeSettings = {},
+                    highlightMode = false,
+                    onHighlightMode = {},
+                    onHighlights = { highlightsAreNew = false },
+                    highlightsAreNew = highlightsAreNew,
+                )
+            }
+        }
+        compose.onNodeWithContentDescription(label(R.string.common_more)).performClick()
+        compose.onNodeWithText(label(R.string.whats_new_badge)).assertIsDisplayed()
+        compose.onNodeWithText(label(R.string.reader_highlights_title))
+            .performSemanticsAction(SemanticsActions.OnClick) { it() }
+        compose.onNodeWithContentDescription(label(R.string.common_more)).performClick()
+        compose.onNodeWithText(label(R.string.reader_highlights_title)).assertIsDisplayed()
+        compose.onNodeWithText(label(R.string.whats_new_badge)).assertDoesNotExist()
     }
 }

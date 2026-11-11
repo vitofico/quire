@@ -80,6 +80,8 @@ independently of the palette. These choices are saved for your next launch.
 App palettes are separate from the page theme inside a book: tap the page and
 open **Aa** to adjust the font, spacing, margins and page colours.
 
+Open **Settings → What’s new** for recent reader features and where to find them.
+
 <details>
 <summary>See the reader, marbled loading and both library palettes</summary>
 

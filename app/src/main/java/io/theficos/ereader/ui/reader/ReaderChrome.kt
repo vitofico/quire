@@ -75,6 +75,7 @@ fun ReaderTopBar(
     onReadingPause: (() -> Unit)? = null,
     hasMemory: Boolean = false,
     onHighlights: () -> Unit = {},
+    highlightsAreNew: Boolean = false,
 ) {
     var moreExpanded by remember { mutableStateOf(false) }
     AnimatedVisibility(
@@ -137,6 +138,15 @@ fun ReaderTopBar(
                         }
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.reader_highlights_title)) },
+                            trailingIcon = if (highlightsAreNew) {
+                                {
+                                    Text(
+                                        stringResource(R.string.whats_new_badge),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                            } else null,
                             onClick = { moreExpanded = false; onHighlights() },
                         )
                         DropdownMenuItem(
