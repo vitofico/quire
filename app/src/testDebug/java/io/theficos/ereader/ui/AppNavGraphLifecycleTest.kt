@@ -1,6 +1,12 @@
 package io.theficos.ereader.ui
 
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavHostController
@@ -12,7 +18,10 @@ import com.google.common.truth.Truth.assertThat
 import io.theficos.ereader.di.AppContainer
 import io.theficos.ereader.ui.catalog.FakeAndroidKeyStore
 import io.theficos.ereader.ui.onboarding.ConnectServerViewModel
+import io.theficos.ereader.ui.settings.WHATS_NEW_LATEST_ENTRY_ID
+import io.theficos.ereader.ui.settings.WhatsNewPreferencesStore
 import io.theficos.ereader.ui.theme.AppTheme
+import io.theficos.quire.R
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
@@ -95,6 +104,31 @@ class AppNavGraphLifecycleTest {
 
     @Test fun `successful first connection removes welcome and the completed connection`() {
         assertSuccessfulConnectionReplacesBackStack(startAtHome = false)
+    }
+
+    @Test fun `opening Whats new clears the settings dot and records the latest entry`() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        FakeAndroidKeyStore.setup()
+        container = AppContainer(context).also {
+            it.credentialStore.clear()
+            it.welcomePreferencesStore.markCompleted()
+            it.whatsNewPreferencesStore.markSeen("previous-entry")
+        }
+        composeRule.setContent { AppNavGraph(container, AppTheme()) }
+
+        val settings = context.getString(R.string.common_settings)
+        val whatsNew = context.getString(R.string.whats_new_title)
+        val unread = SemanticsMatcher.expectValue(
+            SemanticsProperties.StateDescription,
+            context.getString(R.string.whats_new_unread),
+        )
+        composeRule.onNodeWithText(settings).performClick()
+        composeRule.onNodeWithText(whatsNew).assert(unread).performClick()
+        composeRule.onNodeWithText(context.getString(R.string.whats_new_reading_pause_title)).assertExists()
+        composeRule.onNodeWithText(context.getString(R.string.whats_new_highlights_title)).assertExists()
+        composeRule.onNodeWithContentDescription(context.getString(R.string.common_back)).performClick()
+        composeRule.onNodeWithText(whatsNew).assert(!unread)
+        assertThat(WhatsNewPreferencesStore(context).lastSeenEntryId.value).isEqualTo(WHATS_NEW_LATEST_ENTRY_ID)
     }
 
     private fun assertSuccessfulConnectionReplacesBackStack(startAtHome: Boolean) {

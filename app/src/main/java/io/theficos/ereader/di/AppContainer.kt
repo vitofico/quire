@@ -49,6 +49,7 @@ import io.theficos.ereader.ui.library.LibraryPreferencesStore
 import io.theficos.ereader.ui.library.LibraryStatsCache
 import io.theficos.ereader.ui.library.LibraryStatsViewModel
 import io.theficos.ereader.ui.onboarding.WelcomePreferencesStore
+import io.theficos.ereader.ui.settings.WhatsNewPreferencesStore
 import io.theficos.ereader.ui.scan.ScanResultRegistry
 import io.theficos.ereader.ui.theme.AppThemePreferencesStore
 import java.io.File
@@ -115,6 +116,7 @@ class AppContainer(context: Context) {
      * the navgraph's start destination.
      */
     val welcomePreferencesStore = WelcomePreferencesStore(appContext)
+    internal val whatsNewPreferencesStore = WhatsNewPreferencesStore(appContext)
 
     val syncClient: SyncClient = SyncClient(
         baseUrlProvider = { credentialStore.getAccount()?.quireServerUrlOrNull() },

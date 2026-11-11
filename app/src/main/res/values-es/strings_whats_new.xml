@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="whats_new_title">Novedades</string>
+    <string name="whats_new_unread">Novedades sin leer</string>
+    <string name="whats_new_latest">Lo último</string>
+    <string name="whats_new_earlier">Anteriores</string>
+    <string name="whats_new_badge">Nuevo</string>
+    <string name="whats_new_reading_pause_title">Retoma la lectura donde la dejaste</string>
+    <string name="whats_new_reading_pause_description">Mientras lees, abre %1$s → %2$s para guardar tu posición con una nota opcional.</string>
+    <string name="whats_new_highlights_title">Encuentra tus pasajes guardados</string>
+    <string name="whats_new_highlights_description">En un libro, abre %1$s → %2$s para volver a los pasajes que has resaltado.</string>
+</resources>

@@ -115,6 +115,8 @@ private val LANGUAGE_OPTIONS: List<Pair<String, String>> = listOf(
 fun SettingsScreen(
     viewModel: SettingsViewModel,
     contentPadding: PaddingValues,
+    hasUnreadUpdates: Boolean,
+    onNavigateToWhatsNew: () -> Unit,
     onNavigateToLicenses: () -> Unit = {},
 ) {
     val calibre by viewModel.calibre.collectAsState()
@@ -156,6 +158,8 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         Text(stringResource(R.string.common_settings), style = MaterialTheme.typography.displaySmall)
+
+        WhatsNewSettingsRow(hasUnreadUpdates, onNavigateToWhatsNew)
 
         SectionLabel(stringResource(R.string.common_appearance))
         QuireCard(modifier = Modifier.fillMaxWidth()) {

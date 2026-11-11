@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="whats_new_title">Was gibt’s Neues?</string>
+    <string name="whats_new_unread">Ungelesene Neuerungen</string>
+    <string name="whats_new_latest">Aktuell</string>
+    <string name="whats_new_earlier">Früher</string>
+    <string name="whats_new_badge">Neu</string>
+    <string name="whats_new_reading_pause_title">Leichter ins Buch zurückfinden</string>
+    <string name="whats_new_reading_pause_description">Öffne beim Lesen %1$s → %2$s, um deine Stelle mit einer optionalen Notiz zu speichern.</string>
+    <string name="whats_new_highlights_title">Markierte Passagen wiederfinden</string>
+    <string name="whats_new_highlights_description">Öffne in einem Buch %1$s → %2$s, um zu deinen markierten Passagen zurückzukehren.</string>
+</resources>
