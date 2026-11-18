@@ -1,0 +1,41 @@
+name: Reader structural-anchor tests
+description: Run the reader's Chromium tests using its locked Playwright version.
+runs:
+  using: composite
+  steps:
+    - name: Install test dependencies
+      shell: bash
+      run: npm ci --prefix scripts
+    - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+      with:
+        path: ~/.cache/ms-playwright
+        key: reader-chromium-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/package-lock.json') }}
+    - name: Prepare Chromium
+      shell: bash
+      working-directory: scripts
+      run: |
+        node_modules/.bin/playwright install chromium
+        if ! node -e "require('playwright').chromium.launch().then(browser => browser.close()).catch(() => process.exit(1))"; then
+          node_modules/.bin/playwright install-deps chromium
+        fi
+    - name: Run browser tests
+      shell: bash
+      env:
+        NODE_OPTIONS: >-
+          --test-reporter=spec --test-reporter-destination=stdout
+          --test-reporter=junit --test-reporter-destination=${{ runner.temp }}/reader-junit.xml
+      run: npm test --prefix scripts
+    - name: Check browser test counts
+      shell: bash
+      run: |
+        python3 - "${{ runner.temp }}/reader-junit.xml" <<'PYTHON'
+        import sys
+        import xml.etree.ElementTree as ET
+
+        report = ET.parse(sys.argv[1])
+        cases = report.findall(".//testcase")
+        assert cases, "empty browser report"
+        for tag in ("failure", "error", "skipped"):
+            assert report.find(".//" + tag) is None, f"unexpected browser {tag}"
+        print(f"Reader Chromium: {len(cases)} passed")
+        PYTHON

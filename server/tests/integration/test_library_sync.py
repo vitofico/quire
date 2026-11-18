@@ -20,7 +20,7 @@ import uuid
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-pytestmark = pytest.mark.requires_progress
+pytestmark = [pytest.mark.requires_progress, pytest.mark.ci_lane("sync_only")]
 
 
 def _basic(user: str, pw: str) -> dict[str, str]:

@@ -6,7 +6,7 @@ import base64
 
 import pytest
 
-pytestmark = pytest.mark.requires_ai
+pytestmark = [pytest.mark.requires_ai, pytest.mark.ci_lane("ai_only")]
 
 
 def _basic_header(user: str, password: str = "p") -> dict:

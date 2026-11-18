@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from quire_server.api.highlights import HighlightItem, conflict_key, lock_user
 from quire_server.db.models import Document, Highlight, HighlightSyncState
 
-pytestmark = pytest.mark.requires_progress
+pytestmark = [pytest.mark.requires_progress, pytest.mark.ci_lane("sync_only")]
 FIXTURE = json.loads((Path(__file__).parents[1] / "fixtures/highlight-sync.json").read_text())
 PATH = "/sync/v1/highlights"
 

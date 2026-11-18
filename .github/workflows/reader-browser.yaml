@@ -1,0 +1,27 @@
+name: Reader browser
+on:
+  pull_request:
+    paths:
+      - reader/**
+      - scripts/**
+      - .github/actions/reader-browser/**
+      - .github/workflows/reader-browser.yaml
+      - .github/workflows/android-ci.yaml
+permissions:
+  contents: read
+concurrency:
+  group: reader-browser-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: ./.github/actions/reader-browser
+      - name: Retain Chromium JUnit
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: reader-chromium-junit
+          path: ${{ runner.temp }}/reader-junit.xml
