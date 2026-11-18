@@ -19,6 +19,7 @@ on:
       - "gradlew"
       - "scripts/**"
       - ".github/workflows/android-ci.yaml"
+      - ".github/actions/reader-browser/**"
   pull_request:
     paths:
       - "app/**"
@@ -33,6 +34,7 @@ on:
       - "gradlew"
       - "scripts/**"
       - ".github/workflows/android-ci.yaml"
+      - ".github/actions/reader-browser/**"
   # "Run workflow" on main releases main as it stands, no commit needed.
   # "Push version bump + tag" below also dispatches a run this way when a
   # merge lands while it builds.
@@ -79,11 +81,10 @@ jobs:
         with:
           packages: "platform-tools platforms;android-35 build-tools;34.0.0"
       - uses: gradle/actions/setup-gradle@4c125117fe7c5aed11272ec4213f602f012f89f2 # v5
+      # PRs run this in a path-filtered parallel job. Main must pass it before tagging.
       - name: Reader structural-anchor browser tests
-        run: |
-          npm ci --prefix scripts
-          scripts/node_modules/.bin/playwright install --with-deps chromium
-          npm test --prefix scripts
+        if: github.event_name != 'pull_request'
+        uses: ./.github/actions/reader-browser
       - name: Release tooling tests
         run: python3 -m unittest discover -s scripts/tests -p 'test_*.py'
       - id: version
