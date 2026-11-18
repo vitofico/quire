@@ -135,12 +135,13 @@ class HighlightMigrationTest {
                 assertThat(c.isNull(2)).isTrue()
                 assertThat(c.getInt(3)).isEqualTo(1)
             }
-            db.query("SELECT locator, localUpdatedAt, syncedAt, abandonedAt FROM progress WHERE id=1").use { c ->
+            db.query("SELECT locator, localUpdatedAt, syncedAt, abandonedAt, finishedAt FROM progress WHERE id=1").use { c ->
                 assertThat(c.moveToFirst()).isTrue()
                 assertThat(c.getString(0)).isEqualTo("early-locator")
                 assertThat(c.getLong(1)).isEqualTo(42L)
                 assertThat(c.getLong(2)).isEqualTo(0L)
                 assertThat(c.isNull(3)).isTrue()
+                assertThat(c.isNull(4)).isTrue()
             }
             db.query("SELECT COUNT(*) FROM highlights").use { c ->
                 assertThat(c.moveToFirst()).isTrue()

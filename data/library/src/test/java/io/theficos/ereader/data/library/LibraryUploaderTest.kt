@@ -1,11 +1,13 @@
 package io.theficos.ereader.data.library
 
+import androidx.room.Room
+import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
 import io.theficos.ereader.data.local.db.DocumentDao
 import io.theficos.ereader.data.local.db.DocumentEntity
+import io.theficos.ereader.data.local.db.EReaderDatabase
+import io.theficos.ereader.testing.awaitRequest
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
@@ -24,7 +26,8 @@ import java.util.concurrent.TimeUnit
 class LibraryUploaderTest {
     private lateinit var server: MockWebServer
     private lateinit var client: LibraryClient
-    private lateinit var dao: FakeDocumentDao
+    private lateinit var db: EReaderDatabase
+    private lateinit var dao: DocumentDao
     private lateinit var scope: CoroutineScope
 
     @Before fun setUp() {
@@ -34,13 +37,23 @@ class LibraryUploaderTest {
             baseUrlProvider = { server.url("").toString().trimEnd('/') },
             http = OkHttpClient.Builder().callTimeout(5, TimeUnit.SECONDS).build(),
         )
-        dao = FakeDocumentDao()
+        db = Room.inMemoryDatabaseBuilder(
+            ApplicationProvider.getApplicationContext(), EReaderDatabase::class.java,
+        ).allowMainThreadQueries().build()
+        db.openHelper.writableDatabase
+        dao = db.documentDao()
         // `enqueueOne` launches into this scope; in tests we don't actually
         // need it to do anything because we drive `runOnce` directly.
         scope = CoroutineScope(StandardTestDispatcher())
     }
 
-    @After fun tearDown() = server.shutdown()
+    @After fun tearDown() {
+        try {
+            if (::db.isInitialized) db.close()
+        } finally {
+            if (::server.isInitialized) server.shutdown()
+        }
+    }
 
     private fun successBody(contentHash: String): String = """
         {
@@ -62,7 +75,7 @@ class LibraryUploaderTest {
 
     @Test
     fun `runOnce sends nothing and keeps rows unsynced when no server is configured`() = runTest {
-        dao.rows.add(docEntity(id = 1, contentHash = "h1"))
+        dao.insert(docEntity(id = 1, contentHash = "h1"))
         val offline = LibraryClient(
             baseUrlProvider = { null },
             http = OkHttpClient.Builder().callTimeout(5, TimeUnit.SECONDS).build(),
@@ -77,12 +90,8 @@ class LibraryUploaderTest {
 
     @Test
     fun `runOnce puts every unsynced doc and marks each synced`() = runTest {
-        dao.rows.addAll(
-            listOf(
-                docEntity(id = 1, contentHash = "h1"),
-                docEntity(id = 2, contentHash = "h2"),
-            )
-        )
+        dao.insert(docEntity(id = 1, contentHash = "h1"))
+        dao.insert(docEntity(id = 2, contentHash = "h2"))
         server.enqueue(MockResponse().setResponseCode(200).setBody(successBody("h1")))
         server.enqueue(MockResponse().setResponseCode(200).setBody(successBody("h2")))
 
@@ -92,7 +101,8 @@ class LibraryUploaderTest {
         assertThat(result.attempted).isEqualTo(2)
         assertThat(result.succeeded).isEqualTo(2)
         assertThat(result.abortedOnAuth).isFalse()
-        assertThat(dao.synced).containsExactly(1L to 1000L, 2L to 1000L)
+        assertThat(dao.findById(1)?.librarySyncedAt).isEqualTo(1000L)
+        assertThat(dao.findById(2)?.librarySyncedAt).isEqualTo(1000L)
         assertThat(server.requestCount).isEqualTo(2)
     }
 
@@ -101,12 +111,8 @@ class LibraryUploaderTest {
         // DAO orders newest-first (downloadedAt DESC); id=2 was downloaded
         // later, so it's PUT first and gets the 500 response. id=1 follows
         // and succeeds.
-        dao.rows.addAll(
-            listOf(
-                docEntity(id = 1, contentHash = "h1", downloadedAt = 100L),
-                docEntity(id = 2, contentHash = "h2", downloadedAt = 200L),
-            )
-        )
+        dao.insert(docEntity(id = 1, contentHash = "h1", downloadedAt = 100L))
+        dao.insert(docEntity(id = 2, contentHash = "h2", downloadedAt = 200L))
         server.enqueue(MockResponse().setResponseCode(500).setBody("boom"))
         server.enqueue(MockResponse().setResponseCode(200).setBody(successBody("h1")))
 
@@ -117,17 +123,14 @@ class LibraryUploaderTest {
         assertThat(result.succeeded).isEqualTo(1)
         assertThat(result.abortedOnAuth).isFalse()
         // Only the second-attempted doc (id=1) was marked.
-        assertThat(dao.synced).containsExactly(1L to 2000L)
+        assertThat(dao.findById(1)?.librarySyncedAt).isEqualTo(2000L)
+        assertThat(dao.findById(2)?.librarySyncedAt).isNull()
     }
 
     @Test
     fun `runOnce aborts the whole batch on 401 and marks nothing`() = runTest {
-        dao.rows.addAll(
-            listOf(
-                docEntity(id = 1, contentHash = "h1"),
-                docEntity(id = 2, contentHash = "h2"),
-            )
-        )
+        dao.insert(docEntity(id = 1, contentHash = "h1"))
+        dao.insert(docEntity(id = 2, contentHash = "h2"))
         server.enqueue(MockResponse().setResponseCode(401).setBody("nope"))
         // Second response intentionally never enqueued — the uploader must not
         // attempt the second row after a 401.
@@ -137,16 +140,18 @@ class LibraryUploaderTest {
 
         assertThat(result.abortedOnAuth).isTrue()
         assertThat(result.succeeded).isEqualTo(0)
-        assertThat(dao.synced).isEmpty()
+        assertThat(dao.findById(1)?.librarySyncedAt).isNull()
+        assertThat(dao.findById(2)?.librarySyncedAt).isNull()
         assertThat(server.requestCount).isEqualTo(1)
     }
 
     @Test
-    fun `runOnce skips rows already marked synced (DAO returns only unsynced)`() = runTest {
-        // Synced row stays in dao.rows but is filtered out by findUnsyncedToLibrary.
-        dao.rows.add(docEntity(id = 1, contentHash = "h1", librarySyncedAt = 999L))
-        dao.rows.add(docEntity(id = 2, contentHash = "h2", librarySyncedAt = null))
+    fun `runOnce skips rows already marked synced`() = runTest {
+        dao.insert(docEntity(id = 1, contentHash = "h1", librarySyncedAt = 999L))
+        dao.insert(docEntity(id = 2, contentHash = "h2", librarySyncedAt = null))
         server.enqueue(MockResponse().setResponseCode(200).setBody(successBody("h2")))
+        // A regression must fail the count assertion without waiting for an empty response queue.
+        server.enqueue(MockResponse().setResponseCode(200).setBody(successBody("h1")))
 
         val uploader = LibraryUploader(client = client, dao = dao, scope = scope, nowMillis = { 4000L })
         val result = uploader.runOnce()
@@ -154,7 +159,8 @@ class LibraryUploaderTest {
         assertThat(result.attempted).isEqualTo(1)
         assertThat(result.succeeded).isEqualTo(1)
         // Only the unsynced row was PUT and marked.
-        assertThat(dao.synced).containsExactly(2L to 4000L)
+        assertThat(dao.findById(1)?.librarySyncedAt).isEqualTo(999L)
+        assertThat(dao.findById(2)?.librarySyncedAt).isEqualTo(4000L)
         assertThat(server.requestCount).isEqualTo(1)
     }
 
@@ -174,12 +180,8 @@ class LibraryUploaderTest {
     fun `runOnce skips a 409 (metadata_id_conflict) like any other non-401 and continues`() = runTest {
         // Per the DAO order (downloadedAt DESC), id=2 is PUT first → 409, id=1
         // is PUT second → 200.
-        dao.rows.addAll(
-            listOf(
-                docEntity(id = 1, contentHash = "h1", downloadedAt = 100L),
-                docEntity(id = 2, contentHash = "h2", downloadedAt = 200L),
-            )
-        )
+        dao.insert(docEntity(id = 1, contentHash = "h1", downloadedAt = 100L))
+        dao.insert(docEntity(id = 2, contentHash = "h2", downloadedAt = 200L))
         server.enqueue(
             MockResponse().setResponseCode(409).setBody(
                 """{"detail":{"error":"metadata_id_conflict"}}"""
@@ -193,7 +195,10 @@ class LibraryUploaderTest {
         assertThat(result.abortedOnAuth).isFalse()
         assertThat(result.succeeded).isEqualTo(1)
         // The 409'd row (id=2) is NOT marked synced — it stays in the next pass's queue.
-        assertThat(dao.synced).containsExactly(1L to 5000L)
+        assertThat(dao.findById(1)?.librarySyncedAt).isEqualTo(5000L)
+        assertThat(dao.findById(2)?.librarySyncedAt).isNull()
+        assertThat(server.awaitRequest().body.readUtf8()).contains("h2")
+        assertThat(server.awaitRequest().body.readUtf8()).contains("h1")
     }
 
     @Test
@@ -226,42 +231,3 @@ private fun docEntity(
     seriesIndex = null,
     librarySyncedAt = librarySyncedAt,
 )
-
-/**
- * Minimal in-memory stand-in for [DocumentDao]. Only the methods the uploader
- * uses are implemented; the rest throw so accidental future calls are loud.
- */
-private class FakeDocumentDao : DocumentDao {
-    val rows: MutableList<DocumentEntity> = mutableListOf()
-    val synced: MutableList<Pair<Long, Long>> = mutableListOf()
-
-    override suspend fun findUnsyncedToLibrary(): List<DocumentEntity> =
-        rows.filter { it.librarySyncedAt == null }
-            .sortedWith(compareByDescending<DocumentEntity> { it.downloadedAt }.thenByDescending { it.id })
-
-    override suspend fun markLibrarySynced(id: Long, at: Long) {
-        synced.add(id to at)
-        rows.replaceAll { row -> if (row.id == id) row.copy(librarySyncedAt = at) else row }
-    }
-
-    // ---- everything else is unused in these tests ----
-
-    override suspend fun insert(doc: DocumentEntity): Long = throw notImplemented("insert")
-    override suspend fun update(doc: DocumentEntity): Unit = throw notImplemented("update")
-    override suspend fun findByMetadataId(id: String): DocumentEntity? = throw notImplemented("findByMetadataId")
-    override suspend fun findByContentHash(hash: String): DocumentEntity? = throw notImplemented("findByContentHash")
-    override suspend fun findByDownloadUrl(url: String): DocumentEntity? = throw notImplemented("findByDownloadUrl")
-    override suspend fun findById(id: Long): DocumentEntity? = throw notImplemented("findById")
-    override fun observeAll(): Flow<List<DocumentEntity>> = flowOf(emptyList())
-    override fun observeSeriesContinuationCandidates(
-        startedThreshold: Double,
-        maxItems: Int,
-    ): Flow<List<DocumentEntity>> = flowOf(emptyList())
-    override suspend fun deleteById(id: Long): Int = throw notImplemented("deleteById")
-    override suspend fun deleteAll(): Unit = throw notImplemented("deleteAll")
-    override suspend fun setCoverPathIfMissing(id: Long, coverPath: String): Int =
-        throw notImplemented("setCoverPathIfMissing")
-
-    private fun notImplemented(name: String) =
-        UnsupportedOperationException("FakeDocumentDao.$name not implemented for this test")
-}

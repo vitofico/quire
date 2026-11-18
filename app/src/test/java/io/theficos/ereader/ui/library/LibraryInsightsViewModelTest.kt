@@ -207,22 +207,16 @@ class LibraryInsightsViewModelTest {
         assertThat(s.stale).isFalse()
     }
 
-    @Test fun `mapErrorToState routes AiHttpException 409 to OptedOut`() = runBlocking {
-        val vm = newVm()
-        vm.mapErrorToState(io.theficos.ereader.data.ai.AiHttpException(409, "ai_not_opted_in"))
-        assertThat(vm.state.value).isEqualTo(LibraryInsightsUiState.Disabled.OptedOut)
-    }
-
-    @Test fun `mapErrorToState routes a read timeout to Timeout`() = runBlocking {
-        val vm = newVm()
-        vm.mapErrorToState(java.net.SocketTimeoutException("timeout"))
-        assertThat(vm.state.value).isEqualTo(LibraryInsightsUiState.Error.Timeout)
-    }
-
-    @Test fun `mapErrorToState keeps other io errors on Network`() = runBlocking {
-        val vm = newVm()
-        vm.mapErrorToState(java.net.ConnectException("refused"))
-        assertThat(vm.state.value).isInstanceOf(LibraryInsightsUiState.Error.Network::class.java)
+    @Test fun `error mapping distinguishes read timeouts from other network failures`() {
+        val cases = listOf(
+            java.net.SocketTimeoutException("timeout") to LibraryInsightsUiState.Error.Timeout::class.java,
+            java.net.ConnectException("refused") to LibraryInsightsUiState.Error.Network::class.java,
+        )
+        for ((failure, expected) in cases) {
+            val vm = newVm()
+            vm.mapErrorToState(failure)
+            assertThat(vm.state.value).isInstanceOf(expected)
+        }
     }
 
     @Test fun `409 on refresh maps to Disabled OptedOut`() = runBlocking {

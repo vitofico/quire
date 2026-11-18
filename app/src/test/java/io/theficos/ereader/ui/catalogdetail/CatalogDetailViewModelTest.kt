@@ -69,56 +69,37 @@ class CatalogDetailViewModelTest {
     // -- buildIdentity contract -------------------------------------------------
 
     @Test
-    fun `buildIdentity sets metadataId and opdsHref to the same opds-href sha`() {
+    fun `buildIdentity keeps metadata and aliases before download`() {
         val ident = CatalogDetailViewModel.buildIdentity(publication)
-        assertThat(ident.metadataId).isNotNull()
-        assertThat(ident.metadataId!!).startsWith("opds-href:")
-        // sha256 hex length = 64; plus prefix length
-        assertThat(ident.metadataId!!.length).isEqualTo("opds-href:".length + 64)
-        // opds_href is identical — same value, different scheme for symmetry.
-        assertThat(ident.opdsHref).isEqualTo(ident.metadataId)
-        // content_hash stays null pre-download.
+        val metadataId = checkNotNull(ident.metadataId)
+        assertThat(metadataId).startsWith("opds-href:")
+        assertThat(metadataId.length).isEqualTo("opds-href:".length + 64)
+        assertThat(ident.opdsHref).isEqualTo(metadataId)
         assertThat(ident.contentHash).isNull()
-    }
-
-    @Test
-    fun `buildIdentity includes opdsDcId when present`() {
-        val ident = CatalogDetailViewModel.buildIdentity(publication)
         assertThat(ident.opdsDcId).isEqualTo("urn:uuid:abc-123")
-    }
-
-    @Test
-    fun `buildIdentity omits opdsDcId when null`() {
-        val ident = CatalogDetailViewModel.buildIdentity(publication.copy(opdsDcId = null))
-        assertThat(ident.opdsDcId).isNull()
-    }
-
-    @Test
-    fun `buildIdentity includes calibreBookId when present`() {
-        val ident = CatalogDetailViewModel.buildIdentity(publication)
         assertThat(ident.calibreBookId).isEqualTo("42")
     }
 
     @Test
-    fun `buildIdentity omits calibreBookId when null`() {
-        val ident = CatalogDetailViewModel.buildIdentity(publication.copy(calibreBookId = null))
-        assertThat(ident.calibreBookId).isNull()
+    fun `buildIdentity omits missing optional catalog aliases`() {
+        val withoutDcId = CatalogDetailViewModel.buildIdentity(publication.copy(opdsDcId = null))
+        assertThat(withoutDcId.opdsDcId).isNull()
+        assertThat(withoutDcId.calibreBookId).isEqualTo("42")
+
+        val withoutCalibre = CatalogDetailViewModel.buildIdentity(publication.copy(calibreBookId = null))
+        assertThat(withoutCalibre.calibreBookId).isNull()
+        assertThat(withoutCalibre.opdsDcId).isEqualTo("urn:uuid:abc-123")
     }
 
     @Test
-    fun `buildIdentity metadataId is stable across calls for same href`() {
-        val a = CatalogDetailViewModel.buildIdentity(publication)
-        val b = CatalogDetailViewModel.buildIdentity(publication)
-        assertThat(a.metadataId).isEqualTo(b.metadataId)
-    }
-
-    @Test
-    fun `buildIdentity metadataId differs across different hrefs`() {
-        val a = CatalogDetailViewModel.buildIdentity(publication)
-        val b = CatalogDetailViewModel.buildIdentity(
+    fun `buildIdentity is stable for an href and distinguishes different hrefs`() {
+        val original = CatalogDetailViewModel.buildIdentity(publication)
+        val same = CatalogDetailViewModel.buildIdentity(publication)
+        val different = CatalogDetailViewModel.buildIdentity(
             publication.copy(epubDownloadHref = "https://other.example/book.epub"),
         )
-        assertThat(a.metadataId).isNotEqualTo(b.metadataId)
+        assertThat(original.metadataId).isEqualTo(same.metadataId)
+        assertThat(original.metadataId).isNotEqualTo(different.metadataId)
     }
 
     // -- state machine ---------------------------------------------------------

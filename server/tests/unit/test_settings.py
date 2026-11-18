@@ -23,6 +23,8 @@ def _clear_settings_cache(monkeypatch):
     """Ensure each test sees a fresh settings instance (no env-bleed)."""
     for var in (
         "QUIRE_SERVER_AI_ENABLED",
+        "QUIRE_SERVER_AUTH_BACKEND",
+        "QUIRE_SERVER_NATIVE_SESSION_TTL_S",
         "QUIRE_SERVER_AI_TEMPERATURE",
         "QUIRE_SERVER_PROGRESS_ENABLED",
         "QUIRE_SERVER_MAX_REQUEST_BYTES",
@@ -42,18 +44,32 @@ def test_defaults_match_pr_a_contract(monkeypatch):
     assert s.ai_enabled is True
     assert s.progress_enabled is True
     assert s.max_request_bytes == 1_048_576
+    assert s.auth_backend == "calibreweb"
+    assert s.native_session_ttl_s == 30 * 24 * 3600
 
 
-def test_progress_enabled_env_override(monkeypatch):
-    monkeypatch.setenv("QUIRE_SERVER_PROGRESS_ENABLED", "false")
-    s = Settings()
-    assert s.progress_enabled is False
-
-
-def test_ai_enabled_env_override(monkeypatch):
-    monkeypatch.setenv("QUIRE_SERVER_AI_ENABLED", "false")
-    s = Settings()
-    assert s.ai_enabled is False
+@pytest.mark.parametrize(
+    "env,expected",
+    [
+        pytest.param(
+            {"PROGRESS_ENABLED": "false"}, {"progress_enabled": False}, id="progress-disabled"
+        ),
+        pytest.param({"AI_ENABLED": "false"}, {"ai_enabled": False}, id="ai-disabled"),
+        pytest.param({"MAX_REQUEST_BYTES": "2048"}, {"max_request_bytes": 2048}, id="request-size"),
+        pytest.param({"AI_AUTH_MODE": "token"}, {"ai_auth_mode": "token"}, id="token-mode"),
+        pytest.param({"AUTH_BACKEND": "native"}, {"auth_backend": "native"}, id="native-backend"),
+        pytest.param(
+            {"AI_TOKEN_ISSUER": "quire-cloud", "AI_TOKEN_AUDIENCE": "quire-server"},
+            {"ai_token_issuer": "quire-cloud", "ai_token_audience": "quire-server"},
+            id="issuer-and-audience",
+        ),
+    ],
+)
+def test_settings_env_overrides(monkeypatch, env, expected):
+    for name, raw in env.items():
+        monkeypatch.setenv(f"QUIRE_SERVER_{name}", raw)
+    settings = Settings()
+    assert {field: getattr(settings, field) for field in expected} == expected
 
 
 def test_ai_temperature_defaults_to_point_two():
@@ -77,12 +93,6 @@ def test_ai_temperature_env_override(monkeypatch, raw, expected):
     assert Settings().ai_temperature == expected
 
 
-def test_max_request_bytes_env_override(monkeypatch):
-    monkeypatch.setenv("QUIRE_SERVER_MAX_REQUEST_BYTES", "2048")
-    s = Settings()
-    assert s.max_request_bytes == 2048
-
-
 # --- PR-B: AI auth abstraction --------------------------------------------
 
 
@@ -94,24 +104,10 @@ def test_ai_auth_mode_defaults_to_basic(monkeypatch):
     assert s.ai_token_audience is None
 
 
-def test_ai_auth_mode_env_override(monkeypatch):
-    monkeypatch.setenv("QUIRE_SERVER_AI_AUTH_MODE", "token")
-    s = Settings()
-    assert s.ai_auth_mode == "token"
-
-
 def test_ai_token_secrets_parses_json_object(monkeypatch):
     monkeypatch.setenv("QUIRE_SERVER_AI_TOKEN_SECRETS", '{"k1": "a" , "k2": "b"}')
     s = Settings()
     assert s.ai_token_secrets == {"k1": "a", "k2": "b"}
-
-
-def test_ai_token_issuer_audience_env_override(monkeypatch):
-    monkeypatch.setenv("QUIRE_SERVER_AI_TOKEN_ISSUER", "quire-cloud")
-    monkeypatch.setenv("QUIRE_SERVER_AI_TOKEN_AUDIENCE", "quire-server")
-    s = Settings()
-    assert s.ai_token_issuer == "quire-cloud"
-    assert s.ai_token_audience == "quire-server"
 
 
 # --- Issue #104: unknown QUIRE_SERVER_* variable detection -----------------

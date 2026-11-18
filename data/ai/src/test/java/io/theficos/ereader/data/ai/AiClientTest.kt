@@ -258,12 +258,16 @@ class AiClientTest {
         ))
         client.getConfig()
         assertThat(client.profileRefreshBudgetS).isEqualTo(150)
+
+        server.enqueue(MockResponse().setBody("""{"configured":true}"""))
+        client.getConfig()
+        assertThat(client.profileRefreshBudgetS).isNull()
+        assertThat(AiClient.computeLongCallTimeoutS(client.profileRefreshBudgetS)).isEqualTo(270L)
     }
 
     @Test
-    fun `refreshProfile sizes its client from profile_timeout_s when advertised`() = runTest {
-        // Issue #102: a profile refresh must wait no longer than the server's
-        // own profile budget, not the (larger) generation budget.
+    fun `refreshProfile posts its request and outlives the shared read timeout`() = runTest {
+        // Issue #102: the shared OPDS client would time out before this body arrives.
         val impatient = AiClient(
             baseUrlProvider = { server.url("").toString().trimEnd('/') },
             http = OkHttpClient.Builder().readTimeout(1, TimeUnit.SECONDS).build(),
@@ -274,6 +278,7 @@ class AiClientTest {
             )
         )
         impatient.getConfig()
+        assertThat(server.awaitRequest().requestUrl?.encodedPath).isEqualTo("/ai/v1/config")
         server.enqueue(
             MockResponse().setResponseCode(200)
                 .setBodyDelay(2, TimeUnit.SECONDS)
@@ -281,28 +286,10 @@ class AiClientTest {
         )
         val resp = impatient.refreshProfile()
         assertThat(resp.modelId).isEqualTo("m")
-    }
-
-    @Test
-    fun `refreshProfile falls back to the generation budget when profile_timeout_s is absent`() = runTest {
-        // Today's behaviour, preserved for servers that predate profile_timeout_s.
-        val impatient = AiClient(
-            baseUrlProvider = { server.url("").toString().trimEnd('/') },
-            http = OkHttpClient.Builder().readTimeout(1, TimeUnit.SECONDS).build(),
-        )
-        server.enqueue(
-            MockResponse().setResponseCode(200).setBody(
-                """{"configured":true,"generation_timeout_s":30}"""
-            )
-        )
-        impatient.getConfig()
-        server.enqueue(
-            MockResponse().setResponseCode(200)
-                .setBodyDelay(2, TimeUnit.SECONDS)
-                .setBody(profileBody)
-        )
-        val resp = impatient.refreshProfile()
-        assertThat(resp.modelId).isEqualTo("m")
+        val request = server.awaitRequest()
+        assertThat(request.method).isEqualTo("POST")
+        assertThat(request.requestUrl?.encodedPath).isEqualTo("/ai/v1/profile/refresh")
+        assertThat(request.body.readUtf8()).isEqualTo("{}")
     }
 
     @Test
