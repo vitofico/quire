@@ -1,0 +1,113 @@
+name: Quire partial schema evidence
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "server/**"
+      - ".github/workflows/quire-mode-evidence.yaml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quire-mode-evidence-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    if: >-
+      github.event.pull_request.head.ref == 'perf/mode-matrix' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: server
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: sync_only
+            disabled: ai
+            selector: tests/integration/test_stats_sync_only.py::test_stats_returns_200_without_ai_tables
+          - mode: ai_only
+            disabled: progress
+            selector: tests/integration/test_ai_only_deployment.py::test_ai_only_lookup_without_progress_tables
+    env:
+      CI_MODE: ${{ matrix.mode }}
+      DISABLED_BRANCH: ${{ matrix.disabled }}
+      SMOKE_TEST: ${{ matrix.selector }}
+      QUIRE_SERVER_PROGRESS_ENABLED: ${{ matrix.mode == 'sync_only' && 'true' || 'false' }}
+      QUIRE_SERVER_AI_ENABLED: ${{ matrix.mode == 'ai_only' && 'true' || 'false' }}
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Install
+        run: |
+          uv venv
+          uv pip install -e ".[dev]"
+      - name: Confirm the partial smoke catches a full-schema fixture
+        run: |
+          uv run python - <<'PY'
+          import os
+          import subprocess
+          import sys
+          import time
+          from pathlib import Path
+          from xml.etree import ElementTree as ET
+
+          evidence = Path(os.environ["RUNNER_TEMP"]) / "partial-schema-evidence"
+          evidence.mkdir()
+          mode = os.environ["CI_MODE"]
+          target = os.environ["SMOKE_TEST"]
+          disabled = os.environ["DISABLED_BRANCH"]
+
+          def run(label, expected):
+              started = time.monotonic()
+              report = evidence / f"{label}.xml"
+              with (evidence / f"{label}.log").open("w") as log:
+                  result = subprocess.run(
+                      [sys.executable, "-m", "pytest", "-q",
+                       f"--ci-mode={mode}", f"--junitxml={report}", target],
+                      stdout=log, stderr=subprocess.STDOUT, timeout=180, check=False,
+                  )
+              elapsed = time.monotonic() - started
+              print(f"{label} wall time: {elapsed:.2f}s")
+              assert result.returncode == expected, (label, result.returncode)
+              suite = ET.parse(report).getroot().find("testsuite")
+              assert suite is not None
+              assert {key: suite.attrib[key] for key in ("tests", "failures", "errors", "skipped")} == {
+                  "tests": "1", "failures": str(expected), "errors": "0", "skipped": "0"
+              }, suite.attrib
+              if expected:
+                  failure = suite.find(".//failure")
+                  assert failure is not None and f"disabled {disabled} branch has tables" in (
+                      failure.attrib["message"]
+                  ), failure
+
+          run("control", 0)
+
+          source = Path("tests/conftest.py")
+          original = source.read_bytes()
+          old = b"_migrate_test_database(postgres_url, progress_enabled=progress_enabled, ai_enabled=ai_enabled)"
+          new = b"_migrate_test_database(postgres_url, progress_enabled=True, ai_enabled=True)"
+          assert original.count(old) == 1
+          try:
+              source.write_bytes(original.replace(old, new))
+              run("hardcoded-full-schema", 1)
+          finally:
+              source.write_bytes(original)
+          PY
+      - name: Retain control and mutation evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: quire-partial-schema-${{ matrix.mode }}
+          path: ${{ runner.temp }}/partial-schema-evidence/
+          if-no-files-found: error
+          retention-days: 7

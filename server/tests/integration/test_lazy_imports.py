@@ -78,6 +78,7 @@ def _run_in_subprocess(env_overrides: dict[str, str], postgres_url: str) -> set[
     return set(json.loads(lines[-1]))
 
 
+@pytest.mark.ci_lane("sync_only")
 def test_sync_only_does_not_import_ai_modules(postgres_url: str):
     loaded = _run_in_subprocess(
         {
@@ -90,6 +91,7 @@ def test_sync_only_does_not_import_ai_modules(postgres_url: str):
         assert forbidden not in loaded, f"sync-only mode loaded forbidden module: {forbidden}"
 
 
+@pytest.mark.ci_lane("sync_only")
 def test_sync_only_with_admin_users_does_not_import_ai_modules(postgres_url: str):
     """Issue #102: the status page must not drag the AI modules into sync-only."""
     loaded = _run_in_subprocess(
@@ -105,6 +107,7 @@ def test_sync_only_with_admin_users_does_not_import_ai_modules(postgres_url: str
         assert forbidden not in loaded, f"sync-only mode loaded forbidden module: {forbidden}"
 
 
+@pytest.mark.ci_lane("ai_only")
 def test_ai_only_does_not_import_progress_router(postgres_url: str):
     loaded = _run_in_subprocess(
         {

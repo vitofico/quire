@@ -7,7 +7,11 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 # All tests in this file hit /sync/v1/* and so require the progress router.
-pytestmark = [pytest.mark.requires_progress, pytest.mark.usefixtures("session")]
+pytestmark = [
+    pytest.mark.requires_progress,
+    pytest.mark.usefixtures("session"),
+    pytest.mark.ci_lane("sync_only"),
+]
 
 
 def _basic(user: str, pw: str) -> dict[str, str]:

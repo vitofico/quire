@@ -37,23 +37,24 @@ async def _truncate_ai_tables_between_tests(request, engine: AsyncEngine):
     """
     if "session" not in request.fixturenames:
         return
+    # The backbone owns these tables even when a feature branch is absent.
+    tables = [
+        "book_insights",
+        "user_ai_preferences",
+        "external_source_cache",
+        "ai_usage_daily",
+        "progress",
+        "documents",
+        "native_sessions",
+        "native_users",
+    ]
+    lane = request.config.getoption("ci_mode")
+    if lane != "sync_only":
+        tables.extend(["insight_identity_aliases", "reader_profiles", "server_settings"])
+    if lane != "ai_only":
+        tables.extend(["library_items", "highlights", "highlight_sync_state"])
     async with engine.begin() as conn:
-        await conn.execute(
-            text(
-                "TRUNCATE TABLE book_insights, user_ai_preferences, "
-                "external_source_cache, ai_usage_daily, "
-                "insight_identity_aliases, library_items, "
-                "reader_profiles, progress, documents, "
-                "highlights, highlight_sync_state, "
-                # Phase 0, task S-1: NativeAuth tables. Listed even when the
-                # test fixture defaults to CalibreWeb backend so opt-in
-                # NativeAuth tests start from a clean slate.
-                "native_sessions, native_users, "
-                # Issue #102: AI settings saved on the status page.
-                "server_settings "
-                "RESTART IDENTITY CASCADE"
-            )
-        )
+        await conn.execute(text(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE"))
 
 
 class _AppProxy:

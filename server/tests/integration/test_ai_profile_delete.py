@@ -22,7 +22,7 @@ from sqlalchemy import select
 from quire_server.api.ai_schemas import ReaderProfilePayload, ReaderStats
 from quire_server.db.models import ReaderProfile, UserAIPreference
 
-pytestmark = [pytest.mark.requires_ai]
+pytestmark = [pytest.mark.requires_ai, pytest.mark.ci_lane("ai_only")]
 
 
 def _basic_header(user: str, password: str = "p") -> dict[str, str]:

@@ -17,7 +17,7 @@ from quire_server.core.ai.health_state import AiHealthState
 from quire_server.core.ai.service import InsightOrchestrator
 
 # All tests in this file hit /ai/v1/* and so require the ai router.
-pytestmark = pytest.mark.requires_ai
+pytestmark = [pytest.mark.requires_ai, pytest.mark.ci_lane("ai_only")]
 
 
 # ---------------------------------------------------------------------------
