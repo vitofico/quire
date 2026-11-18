@@ -1,0 +1,71 @@
+name: Quire Android slim-suite evidence
+
+on: pull_request
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quire-slim-android-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  evidence:
+    if: >-
+      github.event.pull_request.head.ref == 'test/streamline-suites' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    name: Android slim evidence (${{ matrix.check }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [timed-suites, functional-mutations]
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+        with:
+          packages: "platform-tools platforms;android-35 build-tools;34.0.0"
+      - uses: gradle/actions/setup-gradle@4c125117fe7c5aed11272ec4213f602f012f89f2 # v5
+        with:
+          cache-read-only: true
+      - name: Restore Robolectric SDK jars
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.m2/repository/org/robolectric
+          key: robolectric-${{ github.sha }}
+          restore-keys: robolectric-
+      - name: Measure fresh full Android suites on one runner
+        if: matrix.check == 'timed-suites'
+        env:
+          NET_BASE: 38208865d35b746dc93b442567bf2bb1e65d1dc4
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/quire-net-baseline" "$NET_BASE"
+          python3 .github/slim-android-evidence/suite.py "$RUNNER_TEMP/quire-slim-android" \
+            --baseline "$RUNNER_TEMP/quire-net-baseline"
+      - name: Replay exact mutant controls and their restored tests
+        if: matrix.check == 'functional-mutations'
+        run: |
+          python3 .github/slim-android-evidence/mutate.py "$RUNNER_TEMP/quire-slim-android/mutations"
+          git diff --exit-code
+      - name: Run the full Android suite after restoring all mutants
+        if: matrix.check == 'functional-mutations'
+        run: python3 .github/slim-android-evidence/suite.py "$RUNNER_TEMP/quire-slim-android"
+      - name: Retain XML reports and timing logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: quire-slim-android-${{ matrix.check }}
+          path: |
+            ${{ runner.temp }}/quire-slim-android/**/*.xml
+            ${{ runner.temp }}/quire-slim-android/**/*.log
+            ${{ runner.temp }}/quire-slim-android/**/*.tsv
+          retention-days: 7
