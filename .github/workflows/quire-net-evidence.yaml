@@ -3,7 +3,7 @@ name: quire-net-evidence
 on:
   pull_request:
     branches: [main]
-    types: [opened]
+    types: [synchronize]
 
 permissions:
   contents: read
@@ -14,6 +14,7 @@ jobs:
       github.repository == 'vitofico/quire' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.head_ref == 'test/lean-safety-net' &&
+      github.event.before == '72cc8e68628a52553ffc3198a3bca5278542a8dc' &&
       github.run_attempt == 1
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -21,6 +22,7 @@ jobs:
       PYTHONDONTWRITEBYTECODE: "1"
       QUIRE_SERVER_PROGRESS_ENABLED: "true"
       QUIRE_SERVER_AI_ENABLED: "true"
+      QUIRE_EVIDENCE_CASES: A1-P4-attribution-retention A9-hosted-sync-denies-valid-write
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:

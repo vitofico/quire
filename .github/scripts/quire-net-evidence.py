@@ -65,7 +65,7 @@ MUTATIONS = [
         "A1-P4-attribution-retention",
         "server/quire_server/api/account_lifecycle.py",
         "UPDATE book_insights SET generated_by='deleted' WHERE generated_by=:id",
-        "SELECT 1 WHERE :id IS NOT NULL",
+        "SELECT 1 WHERE CAST(:id AS text) IS NOT NULL",
         (PURGE,),
         'assert await session.scalar(attribution) == "deleted"',
     ),
@@ -310,8 +310,14 @@ def run(out):
     )
     unexpected = Counter()
     summary = [f"BLOCKED {reason}" for reason in BLOCKED]
+    requested = set(os.environ.get("QUIRE_EVIDENCE_CASES", "").split())
+    available = {mutation.label for mutation in MUTATIONS} | {case[0] for case in SMOKE}
+    if requested - available:
+        raise RuntimeError(f"Unknown evidence cases: {sorted(requested - available)}")
 
     for label, selectors, cwd, extra in SMOKE:
+        if requested and label not in requested:
+            continue
         try:
             require_green(execute(out, label, selectors, cwd, extra))
             summary.append(f"PASS {label}")
@@ -320,6 +326,8 @@ def run(out):
             unexpected[label.split("-")[0]] += 1
 
     for mutation in MUTATIONS:
+        if requested and mutation.label not in requested:
+            continue
         packet = mutation.label.split("-")[0]
         if unexpected[packet] >= 2:
             summary.append(f"SKIP {mutation.label}: two unexpected failures in {packet}")

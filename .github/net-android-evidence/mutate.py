@@ -84,7 +84,8 @@ def verify(m, label, suite, status, expect_failure):
     if expect_failure:
         assert status == 1 and int(suite.attrib["failures"]) == 1 and failure is not None, label
         if label.startswith("Q3-"):
-            assert "AssertionError" in failure.attrib.get("type", ""), failure.attrib
+            failure_type = failure.attrib.get("type", "")
+            assert any(marker in failure_type for marker in ("AssertionError", "ComparisonFailure")), failure.attrib
             assert float(case.attrib["time"]) < 30, (label, case.attrib)
     else:
         assert status == int(suite.attrib["failures"]) == 0 and failure is None, label
@@ -111,21 +112,30 @@ def execute(m, label, out, expect_failure):
     verify(m, label, ET.fromstring(xml), status, expect_failure)
 
 
+def controls_for(mutations):
+    controls = {}
+    for m in mutations:
+        controls.setdefault((m.module, m.test_class, m.method), m)
+    return controls.values()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("out", type=Path)
     parser.add_argument("names", nargs="*")
-    parser.add_argument("--only-control", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--only-control", action="store_true")
+    mode.add_argument("--resume", action="store_true", help="Replay named unfinished mutants and all restored controls")
     options = parser.parse_args()
     out = options.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     selected = [m for m in mutants if not options.names or m.name in options.names]
     assert not set(options.names).difference(m.name for m in selected)
-    controls = {}
-    for m in selected:
-        controls.setdefault((m.module, m.test_class, m.method), m)
-    for m in controls.values():
-        execute(m, f"control-{m.name}", out, False)
+    if options.resume:
+        assert options.names, "--resume needs explicit unfinished mutant names"
+    else:
+        for m in controls_for(selected):
+            execute(m, f"control-{m.name}", out, False)
     if options.only_control:
         return
     for m in selected:
@@ -137,7 +147,7 @@ def main():
             execute(m, m.name, out, True)
         finally:
             path.write_bytes(original)
-    for m in controls.values():
+    for m in controls_for(mutants if options.resume else selected):
         execute(m, f"restored-{m.name}", out, False)
 
 if __name__ == "__main__":
