@@ -227,7 +227,7 @@ async def test_hosted_policy_fences_sync_and_library_writes(
     )
     highlight_rows = await session.scalars(select(Highlight.id).where(Highlight.user_id == account))
     library_rows = await session.scalars(
-        select(LibraryItem.id).where(LibraryItem.user_id == account)
+        select(LibraryItem.pk).where(LibraryItem.user_id == account)
     )
     assert len(highlight_rows.all()) == len(library_rows.all()) == int(sync_writes)
 
