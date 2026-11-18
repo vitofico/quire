@@ -10,7 +10,13 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from sqlalchemy import select, text
 
-from quire_server.db.models import Highlight, HighlightSyncState, LibraryItem, NativeUser
+from quire_server.db.models import (
+    Highlight,
+    HighlightSyncState,
+    LibraryItem,
+    NativeSession,
+    NativeUser,
+)
 
 ORIGIN = "https://reader.example.test"
 SERVICE = "synthetic-account-service-token-00000000"
@@ -217,16 +223,36 @@ async def test_oidc_callback_issuer_subject_mapping_and_replay(
             service = {"Authorization": "Bearer " + SERVICE}
             assert (await client.post(path + "/close", headers=service)).status_code == 200
             assert (await client.post(path + "/purge", headers=service)).status_code == 200
-            start = await client.get("/auth/v1/oidc/start", follow_redirects=False)
-            query = parse_qs(urlsplit(start.headers["location"]).query)
-            nonce[0] = query["nonce"][0]
-            refused = await client.get(
-                "/auth/v1/oidc/callback",
-                params={"code": "synthetic", "state": query["state"][0]},
-                follow_redirects=False,
+            purged_id = int(me["user"]["id"].split(":")[1])
+            purged_sessions = select(NativeSession.token_hash).where(
+                NativeSession.user_id == purged_id
             )
-            assert refused.status_code == 401
+            assert (await session.scalars(purged_sessions)).all() == []
+
+            async def fresh_callback():
+                client.cookies.clear()
+                start = await client.get("/auth/v1/oidc/start", follow_redirects=False)
+                assert start.status_code == 303, start.text
+                query = parse_qs(urlsplit(start.headers["location"]).query)
+                nonce[0] = query["nonce"][0]
+                return await client.get(
+                    "/auth/v1/oidc/callback",
+                    params={"code": "synthetic", "state": query["state"][0]},
+                    follow_redirects=False,
+                )
+
+            refused = await fresh_callback()
+            assert refused.status_code == 401, refused.text
             assert refused.json()["detail"] == "account_closed"
+            assert "__Host-quire-session" not in refused.cookies
+            assert (await session.scalars(purged_sessions)).all() == []
+
+            subject[0] = "synthetic-bystander-subject"
+            accepted = await fresh_callback()
+            assert accepted.status_code == 303, accepted.text
+            assert "__Host-quire-session" in accepted.cookies
+            bystander = (await client.get("/auth/v1/me")).json()["user"]["id"]
+            assert bystander not in {me["user"]["id"], f"native:{local_id}"}
 
 
 # Kept independent of the export/purge list so a dropped table still has a witness.

@@ -1,0 +1,90 @@
+name: Quire OIDC purge evidence
+on:
+  pull_request:
+    branches: [main]
+    types: [synchronize]
+permissions:
+  contents: read
+jobs:
+  verify:
+    if: >-
+      github.repository == 'vitofico/quire' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'test/lean-safety-net' &&
+      github.event.before == 'fc2a7e7091c56c7b2188d18348d55d387dafcfaa' &&
+      github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    defaults:
+      run:
+        working-directory: server
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      QUIRE_SERVER_PROGRESS_ENABLED: "true"
+      QUIRE_SERVER_AI_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: false
+      - name: Install server test dependencies
+        run: |
+          uv python install 3.12
+          uv venv --python 3.12
+          uv pip install -e '.[dev]'
+      - name: Test purged identity and independent bystander
+        run: |
+          .venv/bin/python - <<'PY'
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+          import xml.etree.ElementTree as ET
+
+          out = Path(os.environ["RUNNER_TEMP"]) / "quire-oidc-evidence"
+          out.mkdir()
+          fixture = Path("tests/integration/test_browser_identity.py")
+          selector = f"{fixture}::test_oidc_callback_issuer_subject_mapping_and_replay"
+          original = fixture.read_bytes()
+          token_route = b'        if request.url.path == "/token":\n'
+          assert original.count(token_route) == 1
+          restrictive_provider = (
+              token_route
+              + b'            if subject[0] == "synthetic-bystander-subject":\n'
+              + b'                return httpx.Response(400, json={"error": "invalid_grant"})\n'
+          )
+
+          for label, expected_failures in (("control", 0), ("restrictive-bystander-provider", 1)):
+              report = out / f"{label}.xml"
+              if expected_failures:
+                  fixture.write_bytes(original.replace(token_route, restrictive_provider, 1))
+              try:
+                  with (out / f"{label}.log").open("wb") as log:
+                      outcome = subprocess.run(
+                          [sys.executable, "-B", "-m", "pytest", "-q",
+                           "-p", "no:cacheprovider", f"--junitxml={report}", selector],
+                          stdout=log, stderr=subprocess.STDOUT, timeout=120,
+                      )
+              finally:
+                  fixture.write_bytes(original)
+
+              suite, = ET.parse(report).getroot().findall("testsuite")
+              counts = tuple(int(suite.attrib[key]) for key in ("tests", "failures", "errors", "skipped"))
+              print(f"{label} tests/failures/errors/skips {counts} in {suite.attrib['time']} s")
+              assert outcome.returncode == expected_failures
+              assert counts == (1, expected_failures, 0, 0)
+              if expected_failures:
+                  failure, = suite.findall("testcase/failure")
+                  assert "assert accepted.status_code == 303" in failure.text
+                  assert "AssertionError" in failure.attrib["message"]
+          PY
+      - name: Retain OIDC evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: quire-oidc-evidence
+          path: ${{ runner.temp }}/quire-oidc-evidence
+          if-no-files-found: error
+          retention-days: 3
