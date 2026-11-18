@@ -118,23 +118,6 @@ async def test_alias_reconciliation_backfills_metadata_id(session: AsyncSession,
 
 
 @pytest.mark.asyncio
-async def test_concurrent_generations_collapse_to_one_model_call(
-    session: AsyncSession, make_orchestrator
-):
-    orch = make_orchestrator()
-    ident = DocumentIdentity(metadata_id=None, content_hash="ch-coalesce")
-    bundle = MetadataBundle(title="Coalesce")
-
-    results = await asyncio.gather(
-        orch.generate(session, ident, bundle, user_id="u1"),
-        orch.generate(session, ident, bundle, user_id="u2"),
-        orch.generate(session, ident, bundle, user_id="u3"),
-    )
-    assert len(orch.ai.calls) == 1
-    assert {r.payload.intro for r in results} == {"A foundational sci-fi novel."}
-
-
-@pytest.mark.asyncio
 async def test_invalidate_drops_cached_row(session: AsyncSession, make_orchestrator):
     orch = make_orchestrator()
     ident = DocumentIdentity(metadata_id=None, content_hash="ch-invalidate")
@@ -283,107 +266,41 @@ async def test_style_threaded_into_prompt(session, make_orchestrator):
 
 
 @pytest.mark.asyncio
-async def test_different_tones_generate_separate_cache_rows(session, make_orchestrator):
-    """Two users with different tones must get their own rows — no cross-tone leak."""
+@pytest.mark.parametrize(
+    "styles",
+    [
+        pytest.param([("neutral", "auto"), ("scholarly", "auto")], id="different-tones"),
+        pytest.param([("scholarly", "auto"), ("scholarly", "auto")], id="same-tone"),
+        pytest.param([("neutral", "auto"), ("neutral", "it")], id="different-languages"),
+        pytest.param([("neutral", "it"), ("neutral", "it")], id="same-language"),
+        pytest.param(
+            [("neutral", "auto"), ("neutral", "it"), ("scholarly", "auto"), ("scholarly", "it")],
+            id="orthogonal-tone-and-language",
+        ),
+    ],
+)
+async def test_style_dimensions_key_insight_cache(session, make_orchestrator, styles):
     orch = make_orchestrator()
-    ident = DocumentIdentity(metadata_id=None, content_hash="ch-tones")
+    identity = DocumentIdentity(metadata_id=None, content_hash="ch-style-cache")
     bundle = MetadataBundle(title="X")
 
-    await orch.generate(session, ident, bundle, user_id="u1", style=AiStyle(tone="neutral"))
-    await orch.generate(session, ident, bundle, user_id="u2", style=AiStyle(tone="scholarly"))
-
-    rows = (
-        (await session.execute(select(BookInsight).where(BookInsight.content_hash == "ch-tones")))
-        .scalars()
-        .all()
-    )
-    assert {r.tone for r in rows} == {"neutral", "scholarly"}
-    assert len(orch.ai.calls) == 2
-
-
-@pytest.mark.asyncio
-async def test_same_tone_shares_cache_across_users(session, make_orchestrator):
-    orch = make_orchestrator()
-    ident = DocumentIdentity(metadata_id=None, content_hash="ch-shared-tone")
-    bundle = MetadataBundle(title="X")
-
-    await orch.generate(session, ident, bundle, user_id="u1", style=AiStyle(tone="scholarly"))
-    await orch.generate(session, ident, bundle, user_id="u2", style=AiStyle(tone="scholarly"))
-
-    assert len(orch.ai.calls) == 1
-
-
-@pytest.mark.asyncio
-async def test_different_languages_generate_separate_cache_rows(session, make_orchestrator):
-    """Two users with different languages must get their own rows — no cross-language leak."""
-    orch = make_orchestrator()
-    ident = DocumentIdentity(metadata_id=None, content_hash="ch-languages")
-    bundle = MetadataBundle(title="X")
-
-    await orch.generate(session, ident, bundle, user_id="u1", style=AiStyle(language="auto"))
-    await orch.generate(session, ident, bundle, user_id="u2", style=AiStyle(language="it"))
-
-    rows = (
-        (
-            await session.execute(
-                select(BookInsight).where(BookInsight.content_hash == "ch-languages")
-            )
+    for index, (tone, language) in enumerate(styles):
+        await orch.generate(
+            session,
+            identity,
+            bundle,
+            user_id=f"u{index + 1}",
+            style=AiStyle(tone=tone, language=language),
         )
-        .scalars()
-        .all()
-    )
-    assert {r.language for r in rows} == {"auto", "it"}
-    assert len(orch.ai.calls) == 2
-
-
-@pytest.mark.asyncio
-async def test_same_language_shares_cache_across_users(session, make_orchestrator):
-    orch = make_orchestrator()
-    ident = DocumentIdentity(metadata_id=None, content_hash="ch-shared-language")
-    bundle = MetadataBundle(title="X")
-
-    await orch.generate(session, ident, bundle, user_id="u1", style=AiStyle(language="it"))
-    await orch.generate(session, ident, bundle, user_id="u2", style=AiStyle(language="it"))
-
-    assert len(orch.ai.calls) == 1
-
-
-@pytest.mark.asyncio
-async def test_tone_and_language_orthogonal(session, make_orchestrator):
-    """Same identity, different (tone, language) combos → separate cache rows."""
-    orch = make_orchestrator()
-    ident = DocumentIdentity(metadata_id=None, content_hash="ch-orthogonal")
-    bundle = MetadataBundle(title="X")
-
-    await orch.generate(
-        session, ident, bundle, user_id="u1", style=AiStyle(tone="neutral", language="auto")
-    )
-    await orch.generate(
-        session, ident, bundle, user_id="u2", style=AiStyle(tone="neutral", language="it")
-    )
-    await orch.generate(
-        session, ident, bundle, user_id="u3", style=AiStyle(tone="scholarly", language="auto")
-    )
-    await orch.generate(
-        session, ident, bundle, user_id="u4", style=AiStyle(tone="scholarly", language="it")
-    )
 
     rows = (
-        (
-            await session.execute(
-                select(BookInsight).where(BookInsight.content_hash == "ch-orthogonal")
-            )
+        await session.scalars(
+            select(BookInsight).where(BookInsight.content_hash == "ch-style-cache")
         )
-        .scalars()
-        .all()
-    )
-    assert len(rows) == 4
-    assert {(r.tone, r.language) for r in rows} == {
-        ("neutral", "auto"),
-        ("neutral", "it"),
-        ("scholarly", "auto"),
-        ("scholarly", "it"),
-    }
+    ).all()
+    expected = set(styles)
+    assert {(row.tone, row.language) for row in rows} == expected
+    assert len(rows) == len(orch.ai.calls) == len(expected)
 
 
 @pytest.mark.asyncio
@@ -606,12 +523,13 @@ async def test_concurrent_generations_emit_one_miss_and_n_minus_one_hits(
     ident = DocumentIdentity(metadata_id=None, content_hash="ch-coalesce-log")
     bundle = MetadataBundle(title="Coalesce")
 
-    await asyncio.gather(
+    results = await asyncio.gather(
         orch.generate(session, ident, bundle, user_id="u1"),
         orch.generate(session, ident, bundle, user_id="u2"),
         orch.generate(session, ident, bundle, user_id="u3"),
     )
 
+    assert {result.payload.intro for result in results} == {"A foundational sci-fi novel."}
     assert len(orch.ai.calls) == 1
 
     rows = (
@@ -643,17 +561,6 @@ async def test_log_carries_request_id_when_set(session: AsyncSession, make_orche
     rows = (await session.execute(select(AIGenerationLog))).scalars().all()
     assert len(rows) == 1
     assert rows[0].request_id == "test-req-abc123"
-
-
-@pytest.mark.asyncio
-async def test_log_default_tenant_id_is_local(session: AsyncSession, make_orchestrator):
-    orch = make_orchestrator()
-    ident = DocumentIdentity(metadata_id=None, content_hash="ch-tenant-default")
-    await orch.generate(session, ident, MetadataBundle(title="X"), user_id="alice")
-
-    rows = (await session.execute(select(AIGenerationLog))).scalars().all()
-    assert len(rows) == 1
-    assert rows[0].tenant_id == "local"
 
 
 class _ExplodingAIClient:

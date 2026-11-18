@@ -215,21 +215,31 @@ def _ai_chat_response(payload: dict) -> dict:
 
 
 @pytest.fixture
-def configure_ai():
+def model_transport():
+    def create(payload, before_reply=None):
+        async def reply(request):
+            if before_reply is not None:
+                await before_reply(request)
+            return httpx.Response(200, json=_ai_chat_response(payload))
+
+        return httpx.MockTransport(reply)
+
+    return create
+
+
+@pytest.fixture
+def configure_ai(model_transport):
     """Return a helper that installs a fake AI orchestrator on app.state."""
 
     from quire_server.core.ai.client import AIClient
     from quire_server.core.ai.service import InsightOrchestrator
 
     def _apply(app, fake_ai_payload: dict, sources_enabled: tuple[str, ...] = ()):
-        def fake_handler(req: httpx.Request) -> httpx.Response:
-            return httpx.Response(200, json=_ai_chat_response(fake_ai_payload))
-
         ai = AIClient(
             base_url="http://fake/v1",
             api_key=None,
             model="test-model",
-            transport=httpx.MockTransport(fake_handler),
+            transport=model_transport(fake_ai_payload),
         )
 
         class _NoOpRetriever:

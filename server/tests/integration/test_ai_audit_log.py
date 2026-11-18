@@ -1,230 +1,155 @@
-"""Multi-tenant convergence + concurrent-coalesce: integration tests using
-SEPARATE AsyncSession instances per waiter.
-
-Two tests:
-1. Sequential two-tenant convergence — cross-session FK visibility (tenant B's
-   session must see the committed book_insights row from tenant A's session).
-2. Concurrent N-waiter coalesce — N waiters with separate sessions race for
-   the per-identity lock; only one model call fires; N log rows are produced.
-"""
+"""HTTP coverage of shared insights and per-tenant generation audit rows."""
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+import json
 
 import pytest
-from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy import select
 
-from quire_server.api.ai_schemas import DocumentIdentity, MetadataBundle
-from quire_server.core.ai.service import InsightOrchestrator
 from quire_server.db.models import AIGenerationLog, BookInsight
 
+from .test_ai_auth_modes import _AUD, _ISS, _SECRET_1, _good_claims, _sign_token
 
-class _FakeAIClient:
-    def __init__(self) -> None:
-        self.calls: list[dict] = []
-        self.next_payload = {
-            "schema_version": 2,
-            "intro": "Two-tenant convergence.",
-            "confidence": "high",
-        }
-
-    async def chat_structured(self, *, system, user, schema, timeout_s):
-        self.calls.append({"system": system, "user": user})
-        return schema.model_validate(self.next_payload)
+pytestmark = pytest.mark.requires_ai
 
 
-class _SlowAIClient:
-    """Fake AI client that blocks until released, then returns once.
-
-    Lets us prove that concurrent generate() calls actually serialize through
-    the per-identity lock (rather than racing to multiple model calls).
-    """
-
-    def __init__(self) -> None:
-        self.calls: list[dict] = []
-        self.release = asyncio.Event()
-        self.next_payload = {
-            "schema_version": 2,
-            "intro": "Coalesced.",
-            "confidence": "high",
-        }
-
-    async def chat_structured(self, *, system, user, schema, timeout_s):
-        self.calls.append({"system": system, "user": user})
-        await self.release.wait()
-        return schema.model_validate(self.next_payload)
-
-
-class _FakeRetriever:
-    async def lookup_wikipedia(self, **kw):
-        return []
-
-    async def lookup_openlibrary(self, **kw):
-        return []
-
-
-@pytest.fixture
-async def session_factory(engine) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
-    yield async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
-
-
-async def _wipe(session_factory) -> None:
-    async with session_factory() as cleanup:
-        await cleanup.execute(
-            text(
-                "TRUNCATE TABLE ai_generation_log, external_source_cache, "
-                "book_insights, ai_usage_daily CASCADE"
-            )
-        )
-        await cleanup.commit()
-
-
-@pytest.mark.requires_ai
-@pytest.mark.asyncio
-async def test_two_tenants_share_one_insight_two_log_rows(session_factory):
-    """Tenant A misses + generates; Tenant B hits the same row. Two log entries."""
-    await _wipe(session_factory)
-
-    orch = InsightOrchestrator(
-        ai=_FakeAIClient(),
-        retriever_factory=lambda s: _FakeRetriever(),
-        sources_enabled=(),
-        model_id="multi-tenant-model",
-        prompt_version="mt1",
-        max_concurrency=2,
-        ai_timeout_s=5.0,
+def _token_client(client_factory, *, model, prompt_version):
+    return client_factory(
+        auth_backend="calibreweb",
+        ai_enabled=True,
+        ai_auth_mode="token",
+        ai_token_secrets=json.dumps({"k1": _SECRET_1}),
+        ai_token_issuer=_ISS,
+        ai_token_audience=_AUD,
+        ai_base_url="http://model.example.test/v1",
+        ai_model=model,
+        ai_prompt_version=prompt_version,
+        ai_sources="",
+        skip_auth_overrides=True,
     )
 
-    ident = DocumentIdentity(metadata_id="tenant-shared", content_hash="ch-multi")
-    bundle = MetadataBundle(title="Shared")
 
-    # Tenant A: cold miss (own session)
-    async with session_factory() as s_a:
-        out_a = await orch.generate(
-            s_a, ident, bundle, user_id="alice@tenant-a", tenant_id="tenant-a"
-        )
-
-    # Tenant B: hits A's cache row (own session)
-    async with session_factory() as s_b:
-        out_b = await orch.generate(
-            s_b, ident, bundle, user_id="bob@tenant-b", tenant_id="tenant-b"
-        )
-
-    # Cross-tenant cache hit confirmed
-    assert out_a.payload.intro == out_b.payload.intro
-    assert len(orch.ai.calls) == 1  # one model call total
-    # (generated_by is grandfathered: don't assert on it — keeps the "no read
-    # sites" grep clean.)
-
-    # Inspect the persisted state from a third session
-    async with session_factory() as s_check:
-        insights = (
-            (
-                await s_check.execute(
-                    select(BookInsight).where(BookInsight.content_hash == "ch-multi")
-                )
-            )
-            .scalars()
-            .all()
-        )
-        assert len(insights) == 1
-        insight = insights[0]
-        # generated_by intentionally NOT asserted: PR-C stops READING the
-        # column; an assertion here would re-introduce a read site that the
-        # cache-key audit grep is meant to catch.
-
-        logs = (
-            (await s_check.execute(select(AIGenerationLog).order_by(AIGenerationLog.id)))
-            .scalars()
-            .all()
-        )
-        assert len(logs) == 2
-        assert {log.tenant_id for log in logs} == {"tenant-a", "tenant-b"}
-        assert [log.status for log in logs] == ["miss", "hit"]
-        assert {log.book_insight_id for log in logs} == {insight.id}
-        assert {log.subject for log in logs} == {"alice@tenant-a", "bob@tenant-b"}
+async def _opt_in(client, subject, tenant):
+    token = _sign_token(_good_claims(sub=subject, tenant=tenant), secret=_SECRET_1)
+    headers = {"Authorization": f"Bearer {token}"}
+    response = await client.put("/ai/v1/preferences", headers=headers, json={"ai_enabled": True})
+    assert response.status_code == 200, response.text
+    return headers
 
 
-@pytest.mark.requires_ai
-@pytest.mark.asyncio
-async def test_concurrent_waiters_coalesce_across_sessions(session_factory):
-    """N concurrent waiters with separate sessions → 1 miss + (N-1) hits.
-
-    The slow fake AI client blocks on an asyncio.Event so all waiters reach
-    the lock at the same time. We poll until exactly one model call is
-    in-flight (proving lock contention rather than racing), then release.
-    """
-    await _wipe(session_factory)
-
-    slow_client = _SlowAIClient()
-    orch = InsightOrchestrator(
-        ai=slow_client,
-        retriever_factory=lambda s: _FakeRetriever(),
-        sources_enabled=(),
-        model_id="coalesce-model",
-        prompt_version="c1",
-        max_concurrency=4,
-        ai_timeout_s=5.0,
+async def _lookup(client, headers, identity, title):
+    response = await client.post(
+        "/ai/v1/insights/lookup",
+        headers=headers,
+        json={"identity": identity, "bundle": {"title": title}},
     )
+    assert response.status_code == 200, response.text
+    return response.json()["payload"]
 
-    ident = DocumentIdentity(metadata_id=None, content_hash="ch-conc-coalesce")
-    bundle = MetadataBundle(title="Conc")
 
-    async def _one_waiter(user_id: str, tenant_id: str):
-        async with session_factory() as s:
-            return await orch.generate(s, ident, bundle, user_id=user_id, tenant_id=tenant_id)
+async def _read_audit(session, content_hash):
+    insight = (
+        await session.scalars(select(BookInsight).where(BookInsight.content_hash == content_hash))
+    ).one()
+    logs = (await session.scalars(select(AIGenerationLog).order_by(AIGenerationLog.id))).all()
+    assert {log.book_insight_id for log in logs} == {insight.id}
+    return logs
 
-    # Launch three waiters concurrently. They will all queue on the lock;
-    # the lock-holder will block on slow_client.release.
-    tasks = [
-        asyncio.create_task(_one_waiter("u1", "t1")),
-        asyncio.create_task(_one_waiter("u2", "t2")),
-        asyncio.create_task(_one_waiter("u3", "t3")),
+
+async def test_two_tenants_share_one_insight_two_log_rows(
+    client_factory, app, session, model_transport, monkeypatch
+):
+    calls = []
+
+    async def count(request):
+        calls.append(request.url.path)
+
+    intro = "Two-tenant convergence."
+    identity = {"metadata_id": "tenant-shared", "content_hash": "ch-multi"}
+    async with _token_client(
+        client_factory, model="multi-tenant-model", prompt_version="mt1"
+    ) as client:
+        monkeypatch.setattr(
+            app.state.ai_client,
+            "_transport",
+            model_transport({"schema_version": 2, "intro": intro, "confidence": "high"}, count),
+        )
+        alice = await _opt_in(client, "alice@tenant-a", "tenant-a")
+        bob = await _opt_in(client, "bob@tenant-b", "tenant-b")
+
+        generated = await _lookup(client, alice, identity, "Shared")
+        cached = await _lookup(client, bob, identity, "Shared")
+
+    assert generated["intro"] == cached["intro"] == intro
+    assert calls == ["/v1/chat/completions"]
+    logs = await _read_audit(session, "ch-multi")
+    assert [(log.tenant_id, log.subject, log.status) for log in logs] == [
+        ("tenant-a", "alice@tenant-a", "miss"),
+        ("tenant-b", "bob@tenant-b", "hit"),
     ]
 
-    # Wait until exactly one model call is in flight (the lock-holder reached
-    # chat_structured). Bounded loop avoids `sleep(0.05)` flakiness.
-    deadline = asyncio.get_event_loop().time() + 5.0
-    while len(slow_client.calls) == 0 and asyncio.get_event_loop().time() < deadline:  # noqa: ASYNC110 — poll a counter, not a single Event
-        await asyncio.sleep(0.005)
-    # Give other tasks one more scheduling slice so any racing waiter would
-    # have had time to also enter chat_structured. Then assert exactly one.
-    await asyncio.sleep(0.02)
-    assert len(slow_client.calls) == 1, (
-        f"expected 1 in-flight model call, got {len(slow_client.calls)}; "
-        "waiters didn't coalesce on the lock"
-    )
 
-    # Release the lock-holder so it can complete; the two waiters then hit.
-    slow_client.release.set()
-    results = await asyncio.gather(*tasks)
-    assert len(results) == 3
-    # Still exactly one model call total.
-    assert len(slow_client.calls) == 1
+async def test_concurrent_waiters_coalesce_across_sessions(
+    client_factory, app, session, model_transport, monkeypatch
+):
+    identities = [("u1", "t1"), ("u2", "t2"), ("u3", "t3")]
+    calls = []
+    provider_entered = asyncio.Event()
+    release_provider = asyncio.Event()
+    cold_reads = set()
+    all_requests_cold = asyncio.Event()
 
-    async with session_factory() as s_check:
-        insights = (
-            (
-                await s_check.execute(
-                    select(BookInsight).where(BookInsight.content_hash == "ch-conc-coalesce")
-                )
-            )
-            .scalars()
-            .all()
+    async def hold_provider(request):
+        calls.append(request.url.path)
+        provider_entered.set()
+        await release_provider.wait()
+
+    intro = "Coalesced."
+    identity = {"content_hash": "ch-conc-coalesce"}
+    async with _token_client(client_factory, model="coalesce-model", prompt_version="c1") as client:
+        monkeypatch.setattr(
+            app.state.ai_client,
+            "_transport",
+            model_transport(
+                {"schema_version": 2, "intro": intro, "confidence": "high"}, hold_provider
+            ),
         )
-        assert len(insights) == 1
+        real_cache_lookup = app.state.ai_orchestrator._cache_lookup
 
-        logs = (
-            (await s_check.execute(select(AIGenerationLog).order_by(AIGenerationLog.id)))
-            .scalars()
-            .all()
-        )
-        assert len(logs) == 3
-        statuses = sorted(log.status for log in logs)
-        assert statuses == ["hit", "hit", "miss"]
-        assert {log.book_insight_id for log in logs} == {insights[0].id}
-        assert sorted(log.subject for log in logs) == ["u1", "u2", "u3"]
-        assert sorted(log.tenant_id for log in logs) == ["t1", "t2", "t3"]
+        async def observe_cache_lookup(request_session, *args, **kwargs):
+            result = await real_cache_lookup(request_session, *args, **kwargs)
+            if result is None:
+                cold_reads.add(request_session)
+                if len(cold_reads) == len(identities):
+                    all_requests_cold.set()
+            return result
+
+        # Observe the real cache reads so the provider stays blocked until
+        # every request has missed with its own request-scoped DB session.
+        monkeypatch.setattr(app.state.ai_orchestrator, "_cache_lookup", observe_cache_lookup)
+        headers = [await _opt_in(client, subject, tenant) for subject, tenant in identities]
+        tasks = [
+            asyncio.create_task(_lookup(client, header, identity, "Conc")) for header in headers
+        ]
+        try:
+            async with asyncio.timeout(15):
+                await provider_entered.wait()
+                await all_requests_cold.wait()
+                assert calls == ["/v1/chat/completions"]
+                release_provider.set()
+                payloads = await asyncio.gather(*tasks)
+        finally:
+            release_provider.set()
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    assert len(cold_reads) == len(payloads) == len(identities)
+    assert all(payload["intro"] == intro for payload in payloads)
+    assert calls == ["/v1/chat/completions"]
+    logs = await _read_audit(session, "ch-conc-coalesce")
+    assert sorted(log.status for log in logs) == ["hit", "hit", "miss"]
+    assert sorted((log.subject, log.tenant_id) for log in logs) == identities

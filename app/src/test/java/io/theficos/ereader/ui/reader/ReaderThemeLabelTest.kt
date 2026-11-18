@@ -12,19 +12,14 @@ import org.robolectric.annotation.Config
 @Config(sdk = [33], application = android.app.Application::class)
 class ReaderThemeLabelTest {
 
-    @Test fun `multi-word theme names read as words, not as enum constants`() {
-        assertThat(ReaderTheme.DARK_SEPIA.displayLabel().asString(englishContext())).isEqualTo("Dark sepia")
-    }
-
-    @Test fun `single-word theme names are unchanged`() {
-        assertThat(ReaderTheme.LIGHT.displayLabel().asString(englishContext())).isEqualTo("Light")
-        assertThat(ReaderTheme.DARK.displayLabel().asString(englishContext())).isEqualTo("Dark")
-        assertThat(ReaderTheme.SEPIA.displayLabel().asString(englishContext())).isEqualTo("Sepia")
-    }
-
-    @Test fun `no theme label leaks an underscore into the UI`() {
-        ReaderTheme.values().forEach { theme ->
-            assertThat(theme.displayLabel().asString(englishContext())).doesNotContain("_")
-        }
+    @Test fun `every reader theme has its English display label`() {
+        val context = englishContext()
+        val labels = ReaderTheme.entries.associateWith { it.displayLabel().asString(context) }
+        assertThat(labels).containsExactly(
+            ReaderTheme.LIGHT, "Light",
+            ReaderTheme.DARK, "Dark",
+            ReaderTheme.SEPIA, "Sepia",
+            ReaderTheme.DARK_SEPIA, "Dark sepia",
+        )
     }
 }

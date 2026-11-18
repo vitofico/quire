@@ -175,7 +175,6 @@ jobs:
                 -g '!server/alembic.ini' \
                 -g '!server/migrations/env.py' \
                 -g '!server/tests/conftest.py' \
-                -g '!server/tests/unit/test_no_stale_opds_sync_imports.py' \
                 . ; then
             echo "::error::Rename guard found un-allowlisted OPDS_SYNC / opds-sync / opds_sync references."
             exit 1

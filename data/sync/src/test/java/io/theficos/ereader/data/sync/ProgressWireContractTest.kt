@@ -61,4 +61,11 @@ class ProgressWireContractTest {
             assertThat(pullRequest.requestUrl?.encodedPath).isEqualTo("/sync/v1/progress")
         }
     }
+
+    @Test fun `a progress identity from an older server defaults its hash version to one`() {
+        val legacy = """{"metadata_id":"m1","content_hash":"h1"}"""
+        val identity = Json.decodeFromString(DocumentIdDto.serializer(), legacy)
+        assertThat(identity).isEqualTo(DocumentIdDto("m1", "h1", 1))
+    }
+
 }

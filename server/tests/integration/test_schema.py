@@ -1,251 +1,106 @@
 import pytest
-from sqlalchemy import inspect, select
+from sqlalchemy import delete, inspect, select, text
+from sqlalchemy.exc import IntegrityError
 
-from quire_server.db.models import Document
-
-
-async def test_schema_round_trip(session) -> None:
-    doc = Document(user_id="alice", metadata_id="abc123", content_hash="hash1")
-    session.add(doc)
-    await session.commit()
-    rows = (await session.execute(select(Document))).scalars().all()
-    assert len(rows) == 1
-    assert rows[0].metadata_id == "abc123"
+from quire_server.db.models import AIGenerationLog, BookInsight, Document, LibraryItem
 
 
-@pytest.mark.requires_ai
-async def test_ai_generation_log_table_exists(engine) -> None:
-    """ai_001 migration creates the table with the right columns + indexes + FK."""
-
-    def _introspect(sync_conn) -> dict:
-        insp = inspect(sync_conn)
-        cols = {c["name"]: c for c in insp.get_columns("ai_generation_log")}
-        idx_names = {i["name"] for i in insp.get_indexes("ai_generation_log")}
-        fks = insp.get_foreign_keys("ai_generation_log")
-        return {"cols": cols, "idx": idx_names, "fks": fks}
-
-    async with engine.connect() as conn:
-        info = await conn.run_sync(_introspect)
-
-    expected_cols = {
-        "id",
-        "book_insight_id",
-        "tenant_id",
-        "subject",
-        "request_id",
-        "model_id",
-        "prompt_version",
-        "latency_ms",
-        "status",
-        "error_class",
-        "created_at",
-    }
-    assert expected_cols.issubset(info["cols"].keys())
-    assert "ix_ai_generation_log_tenant_created" in info["idx"]
-    assert "ix_ai_generation_log_book_insight" in info["idx"]
-    fk = next((f for f in info["fks"] if f["referred_table"] == "book_insights"), None)
-    assert fk is not None, "expected FK to book_insights"
-    assert fk["constrained_columns"] == ["book_insight_id"]
-    assert fk["options"].get("ondelete", "").upper() == "CASCADE"
+async def rejects(session, statement, state):
+    with pytest.raises(IntegrityError) as error:
+        async with session.begin_nested():
+            await session.execute(statement)
+    assert error.value.orig.sqlstate == state
 
 
-@pytest.mark.requires_ai
-async def test_book_insights_has_language_column(engine) -> None:
-    """ai_002 migration adds `language` to book_insights, NOT NULL, default 'auto'."""
-
-    def _introspect(sync_conn) -> dict:
-        insp = inspect(sync_conn)
-        cols = {c["name"]: c for c in insp.get_columns("book_insights")}
-        return {"cols": cols}
-
-    async with engine.connect() as conn:
-        info = await conn.run_sync(_introspect)
-
-    assert "language" in info["cols"]
-    lang = info["cols"]["language"]
-    assert lang["nullable"] is False
-    # Postgres reports server defaults as strings like "'auto'::character varying"
-    assert "auto" in str(lang.get("default", ""))
+async def check_identity_version(session, table):
+    # Read a server-assigned default and enforce the bound at the database.
+    assert await session.scalar(text(f"SELECT identity_hash_version FROM {table} LIMIT 1")) == 1
+    for value, state in (("0", "23514"), ("NULL", "23502")):
+        await rejects(session, text(f"UPDATE {table} SET identity_hash_version={value}"), state)
 
 
-@pytest.mark.requires_ai
-async def test_book_insights_unique_indexes_include_language(engine) -> None:
-    """ai_002 drops the tone-keyed unique indexes and recreates them with `language` appended."""
-
-    def _introspect(sync_conn) -> dict:
-        insp = inspect(sync_conn)
-        idx = {i["name"]: i for i in insp.get_indexes("book_insights")}
-        return {"idx": idx}
-
-    async with engine.connect() as conn:
-        info = await conn.run_sync(_introspect)
-
-    expected_names = {
-        "uq_book_insights_content_hash_model_prompt_tone_language",
-        "uq_book_insights_metadata_id_model_prompt_tone_language",
-    }
-    assert expected_names.issubset(info["idx"].keys()), info["idx"].keys()
-    # Confirm `language` is in the column list of both new indexes.
-    for name in expected_names:
-        cols = info["idx"][name]["column_names"]
-        assert "language" in cols, (name, cols)
-        assert "tone" in cols, (name, cols)
-    # And the old tone-only indexes are gone.
-    assert "uq_book_insights_content_hash_model_prompt_tone" not in info["idx"]
-    assert "uq_book_insights_metadata_id_model_prompt_tone" not in info["idx"]
-
-
-@pytest.mark.requires_progress
-async def test_library_items_table_exists(engine) -> None:
-    """progress_001 creates library_items with the right columns + partial indexes."""
-
-    def _introspect(sync_conn) -> dict:
-        insp = inspect(sync_conn)
-        cols = {c["name"]: c for c in insp.get_columns("library_items")}
-        idx = {i["name"]: i for i in insp.get_indexes("library_items")}
-        return {"cols": cols, "idx": idx}
-
-    async with engine.connect() as conn:
-        info = await conn.run_sync(_introspect)
-
-    expected_cols = {
-        "pk",
-        "user_id",
-        "metadata_id",
-        "content_hash",
-        "title",
-        "authors",
-        "series_name",
-        "series_index",
-        "isbn",
-        "language",
-        "subjects",
-        "opds_href",
-        "created_at",
-        "updated_at",
-        "deleted_at",
-    }
-    assert expected_cols.issubset(info["cols"].keys()), info["cols"].keys()
-
-    expected_indexes = {
-        "uq_library_items_user_content",
-        "uq_library_items_user_metadata",
-        "ix_library_items_user_series_alive",
-        "ix_library_items_user_updated",
-    }
-    assert expected_indexes.issubset(info["idx"].keys()), info["idx"].keys()
-
-    # Hard unique on (user_id, content_hash).
-    assert info["idx"]["uq_library_items_user_content"]["unique"] is True
-    assert info["idx"]["uq_library_items_user_content"]["column_names"] == [
-        "user_id",
-        "content_hash",
-    ]
-
-    # Partial unique on (user_id, metadata_id) WHERE metadata_id IS NOT NULL.
-    md = info["idx"]["uq_library_items_user_metadata"]
-    assert md["unique"] is True
-    where_md = (md.get("dialect_options") or {}).get("postgresql_where")
-    assert where_md is not None and "metadata_id" in str(where_md).lower()
-
-    # Partial alive series index.
-    sa_idx = info["idx"]["ix_library_items_user_series_alive"]
-    where_alive = (sa_idx.get("dialect_options") or {}).get("postgresql_where")
-    assert where_alive is not None and "deleted_at" in str(where_alive).lower()
-
-
-# ---------------------------------------------------------------------------
-# Phase 0, task F-1 — identity-hash schema versioning (server side).
-# ---------------------------------------------------------------------------
-# Two migrations land the same `identity_hash_version INTEGER NOT NULL DEFAULT 1`
-# column with `CHECK (>= 1)`:
-#   * `progress_003` → `documents`, `library_items`.
-#   * `ai_007`       → `book_insights`.
-# These tests reflect the live schema (post-migration) and assert the column
-# shape on every table that should carry it.
-
-
-def _identity_hash_version_column_meta(sync_conn, table: str) -> dict:
-    insp = inspect(sync_conn)
-    cols = {c["name"]: c for c in insp.get_columns(table)}
-    checks = {c["name"]: c for c in insp.get_check_constraints(table)}
-    return {"col": cols.get("identity_hash_version"), "checks": checks}
-
-
-async def test_documents_has_identity_hash_version_column(engine) -> None:
-    async with engine.connect() as conn:
-        info = await conn.run_sync(_identity_hash_version_column_meta, "documents")
-    col = info["col"]
-    assert col is not None, "documents.identity_hash_version missing"
-    assert col["nullable"] is False
-    assert "1" in str(col.get("default", "")), col.get("default")
-    assert "ck_documents_identity_hash_version_ge_1" in info["checks"]
-
-
-@pytest.mark.requires_progress
-async def test_library_items_has_identity_hash_version_column(engine) -> None:
-    async with engine.connect() as conn:
-        info = await conn.run_sync(_identity_hash_version_column_meta, "library_items")
-    col = info["col"]
-    assert col is not None, "library_items.identity_hash_version missing"
-    assert col["nullable"] is False
-    assert "1" in str(col.get("default", "")), col.get("default")
-    assert "ck_library_items_identity_hash_version_ge_1" in info["checks"]
-
-
-@pytest.mark.requires_ai
-async def test_book_insights_has_identity_hash_version_column(engine) -> None:
-    async with engine.connect() as conn:
-        info = await conn.run_sync(_identity_hash_version_column_meta, "book_insights")
-    col = info["col"]
-    assert col is not None, "book_insights.identity_hash_version missing"
-    assert col["nullable"] is False
-    assert "1" in str(col.get("default", "")), col.get("default")
-    assert "ck_book_insights_identity_hash_version_ge_1" in info["checks"]
-
-
-async def test_documents_identity_hash_version_default_round_trip(session) -> None:
-    """A row created without supplying `identity_hash_version` defaults to 1."""
-    doc = Document(user_id="alice-v1", metadata_id="md-ver-1", content_hash="ch-ver-1")
-    session.add(doc)
-    await session.commit()
-    await session.refresh(doc)
-    assert doc.identity_hash_version == 1
-
-
-@pytest.mark.requires_ai
-async def test_ai_generation_log_round_trip(session) -> None:
-    """ORM model writes and reads ai_generation_log rows."""
-    from quire_server.db.models import AIGenerationLog, BookInsight
-
-    insight = BookInsight(
-        metadata_id=None,
-        content_hash="ch-rt-log",
-        model_id="m1",
-        prompt_version="p1",
-        tone="neutral",
-        sources_used=[],
-        payload={"schema_version": 2, "intro": "x", "confidence": "low"},
-        sources=[],
-        generated_by="legacy-write",
+async def test_schema_round_trip(session):
+    doc = await session.scalar(
+        text(
+            "INSERT INTO documents (user_id, metadata_id, content_hash) "
+            "VALUES ('alice', 'abc123', 'hash1') RETURNING pk"
+        )
     )
-    session.add(insight)
-    await session.flush()
+    assert (await session.get(Document, doc)).metadata_id == "abc123"
+    await check_identity_version(session, "documents")
+
+
+@pytest.mark.requires_ai
+async def test_insight_language_unique_keys_and_audit_cascade(session):
+    insert = BookInsight.__table__.insert()
+    values = dict(
+        metadata_id="m",
+        content_hash="h",
+        model_id="model",
+        prompt_version="p",
+        tone="neutral",
+        identity_hash_version=text("DEFAULT"),
+        language=text("DEFAULT"),
+        sources_used=[],
+        payload={},
+        sources=[],
+        generated_by="alice",
+    )
+    row = (
+        await session.execute(
+            insert.values(**values).returning(BookInsight.id, BookInsight.language)
+        )
+    ).one()
+    assert row.language == "auto"
+    await session.execute(insert.values(values | {"language": "it"}))
+    await session.execute(insert.values(values | {"tone": "warm"}))
+    for changed in ({"content_hash": "other"}, {"metadata_id": None}):
+        await rejects(session, insert.values(values | changed), "23505")
+    await rejects(
+        session, insert.values(values | {"content_hash": "other", "language": None}), "23502"
+    )
+    await check_identity_version(session, "book_insights")
 
     log = AIGenerationLog(
-        kind="insight",  # ai_006: discriminator now required (no server default).
-        book_insight_id=insight.id,
+        kind="insight",
+        book_insight_id=row.id,
         subject="alice",
-        model_id="m1",
-        prompt_version="p1",
+        model_id="model",
+        prompt_version="p",
         status="miss",
         latency_ms=123,
     )
     session.add(log)
-    await session.commit()
+    await session.flush()
     await session.refresh(log)
+    assert log.tenant_id == "local" and log.created_at is not None and log.request_id is None
+    log_id = log.id
+    await session.execute(delete(BookInsight).where(BookInsight.id == row.id))
+    assert (
+        await session.scalar(select(AIGenerationLog.id).where(AIGenerationLog.id == log_id)) is None
+    )
 
-    assert log.id is not None
-    assert log.tenant_id == "local"  # server default
-    assert log.created_at is not None
-    assert log.request_id is None
+
+@pytest.mark.requires_progress
+async def test_library_item_identity_and_live_series_index(session):
+    insert = LibraryItem.__table__.insert()
+    values = dict(
+        user_id="alice",
+        content_hash="library-hash",
+        metadata_id="metadata",
+        title="Book",
+        identity_hash_version=text("DEFAULT"),
+    )
+    await session.execute(insert.values(**values))
+    await session.execute(insert.values(values | {"user_id": "bob"}))
+    for changed in ({"metadata_id": None}, {"content_hash": "other"}):
+        await rejects(session, insert.values(values | changed), "23505")
+    for hash_value in ("without-metadata-one", "without-metadata-two"):
+        await session.execute(
+            insert.values(values | {"content_hash": hash_value, "metadata_id": None})
+        )
+    await check_identity_version(session, "library_items")
+    conn = await session.connection()
+    indexes = await conn.run_sync(lambda c: inspect(c).get_indexes("library_items"))
+    index = next(item for item in indexes if item["name"] == "ix_library_items_user_series_alive")
+    assert "deleted_at is null" in str(index["dialect_options"]["postgresql_where"]).lower()
