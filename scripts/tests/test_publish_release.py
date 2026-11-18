@@ -32,6 +32,11 @@ class PublishReleaseTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             apk = Path(directory) / "reader.apk"
             apk.write_bytes(b"fixture")
+            with patch.object(PUBLISH, "find_release", return_value=release({})), patch.object(
+                PUBLISH, "gh"
+            ) as gh:
+                PUBLISH.publish(REPO, TAG, [apk], "false")
+                self.assertIn("upload", gh.call_args.args)
             for override in ({"draft": True}, {"prerelease": True}, {"tag_name": "v-other"}):
                 remote = {**release({}), **override}
                 with self.subTest(override=override), patch.object(
