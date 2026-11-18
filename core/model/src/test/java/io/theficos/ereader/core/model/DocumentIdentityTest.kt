@@ -2,47 +2,28 @@ package io.theficos.ereader.core.model
 
 import com.google.common.truth.Truth.assertThat
 import kotlinx.serialization.json.Json
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class DocumentIdentityTest {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
-    @Test fun `accepts contentHash-only`() {
-        val id = DocumentIdentity(metadataId = null, contentHash = "abc123")
-        assertThat(id.contentHash).isEqualTo("abc123")
-        assertThat(id.metadataId).isNull()
-    }
-
-    @Test fun `accepts metadataId plus contentHash`() {
-        val id = DocumentIdentity(metadataId = "42", contentHash = "abc123")
-        assertThat(id.metadataId).isEqualTo("42")
-        assertThat(id.contentHash).isEqualTo("abc123")
-    }
-
-    @Test(expected = IllegalArgumentException::class)
-    fun `rejects all-null payload`() {
-        DocumentIdentity()
-    }
-
-    @Test fun `accepts opdsHref-only alias payload`() {
-        val id = DocumentIdentity(opdsHref = "opds-href:deadbeef")
-        assertThat(id.opdsHref).isEqualTo("opds-href:deadbeef")
-        assertThat(id.contentHash).isNull()
-    }
-
-    @Test fun `accepts opdsDcId-only alias payload`() {
-        val id = DocumentIdentity(opdsDcId = "urn:uuid:abc")
-        assertThat(id.opdsDcId).isEqualTo("urn:uuid:abc")
-    }
-
-    @Test fun `accepts calibreBookId-only alias payload`() {
-        val id = DocumentIdentity(calibreBookId = "42")
-        assertThat(id.calibreBookId).isEqualTo("42")
-    }
-
-    @Test fun `accepts isbn-only alias payload`() {
-        val id = DocumentIdentity(isbn = "9780553293357")
-        assertThat(id.isbn).isEqualTo("9780553293357")
+    @Test fun `one identity hint is sufficient and an empty payload is rejected`() {
+        val cases: List<Pair<DocumentIdentity, List<String?>>> = listOf(
+            DocumentIdentity(contentHash = "abc123") to listOf(null, "abc123", null, null, null, null),
+            DocumentIdentity(metadataId = "42", contentHash = "abc123") to listOf("42", "abc123", null, null, null, null),
+            DocumentIdentity(opdsHref = "opds-href:deadbeef") to listOf(null, null, "opds-href:deadbeef", null, null, null),
+            DocumentIdentity(opdsDcId = "urn:uuid:abc") to listOf(null, null, null, "urn:uuid:abc", null, null),
+            DocumentIdentity(calibreBookId = "42") to listOf(null, null, null, null, "42", null),
+            DocumentIdentity(isbn = "9780553293357") to listOf(null, null, null, null, null, "9780553293357"),
+        )
+        for ((identity, fields) in cases) {
+            assertThat(listOf(
+                identity.metadataId, identity.contentHash, identity.opdsHref,
+                identity.opdsDcId, identity.calibreBookId, identity.isbn,
+            )).isEqualTo(fields)
+        }
+        assertThrows(IllegalArgumentException::class.java) { DocumentIdentity() }
     }
 
     // ---------- Phase-0 / F-2: identity hash version ----------

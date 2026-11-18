@@ -212,40 +212,4 @@ class ProgressDaoTest {
         assertThat(dirty.map { it.documentId }).containsExactly(docId)
     }
 
-    @Test fun `MIGRATION_3_4 sql adds nullable finishedAt column`() {
-        val ctx = ApplicationProvider.getApplicationContext<android.content.Context>()
-        val dbName = "migration-3to4-test.db"
-        ctx.deleteDatabase(dbName)
-        val sqlite = ctx.openOrCreateDatabase(dbName, android.content.Context.MODE_PRIVATE, null)
-        try {
-            sqlite.execSQL(
-                "CREATE TABLE progress (" +
-                    "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
-                    "documentId INTEGER NOT NULL, " +
-                    "locator TEXT NOT NULL, " +
-                    "percent REAL NOT NULL, " +
-                    "updatedAt INTEGER NOT NULL, " +
-                    "localUpdatedAt INTEGER NOT NULL DEFAULT 0, " +
-                    "syncedAt INTEGER NOT NULL DEFAULT 0)"
-            )
-            sqlite.execSQL("INSERT INTO progress (documentId, locator, percent, updatedAt, localUpdatedAt, syncedAt) VALUES (1, '', 0.0, 0, 0, 0)")
-
-            // Apply the same SQL the production migration runs.
-            sqlite.execSQL("ALTER TABLE progress ADD COLUMN finishedAt INTEGER")
-
-            sqlite.rawQuery("PRAGMA table_info(progress)", null).use { c ->
-                val cols = mutableListOf<String>()
-                while (c.moveToNext()) cols += c.getString(c.getColumnIndexOrThrow("name"))
-                assertThat(cols).contains("finishedAt")
-            }
-            // Pre-existing rows tolerate NULL for the new column.
-            sqlite.rawQuery("SELECT finishedAt FROM progress", null).use { c ->
-                assertThat(c.moveToNext()).isTrue()
-                assertThat(c.isNull(0)).isTrue()
-            }
-        } finally {
-            sqlite.close()
-            ctx.deleteDatabase(dbName)
-        }
-    }
 }

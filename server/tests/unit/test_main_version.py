@@ -37,41 +37,24 @@ def _create_app():
     return create_app()
 
 
-def test_settings_version_defaults_to_dev():
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        pytest.param(None, "dev", id="unset"),
+        pytest.param("2026.09.22.250", "2026.09.22.250", id="calver"),
+        pytest.param("abc1234", "abc1234", id="commit-sha"),
+    ],
+)
+async def test_reported_version(monkeypatch, raw, expected):
     from quire_server.config import Settings
 
-    assert Settings().version == "dev"
+    if raw is not None:
+        monkeypatch.setenv("QUIRE_SERVER_VERSION", raw)
+    assert Settings().version == expected
 
-
-def test_settings_version_env_override(monkeypatch):
-    monkeypatch.setenv("QUIRE_SERVER_VERSION", "2026.09.22.250")
-    from quire_server.config import Settings
-
-    assert Settings().version == "2026.09.22.250"
-
-
-def test_app_version_defaults_to_dev():
     app = _create_app()
-    assert app.version == "dev"
-
-
-def test_app_version_follows_settings_version(monkeypatch):
-    monkeypatch.setenv("QUIRE_SERVER_VERSION", "abc1234")
-    app = _create_app()
-    assert app.version == "abc1234"
-
-
-async def test_health_reports_version_default():
-    app = _create_app()
+    assert app.version == expected
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        r = await client.get("/health")
-    assert r.status_code == 200
-    assert r.json()["version"] == "dev"
-
-
-async def test_health_reports_version_override(monkeypatch):
-    monkeypatch.setenv("QUIRE_SERVER_VERSION", "abc1234")
-    app = _create_app()
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        r = await client.get("/health")
-    assert r.json()["version"] == "abc1234"
+        response = await client.get("/health")
+    assert response.status_code == 200
+    assert response.json()["version"] == expected

@@ -4,11 +4,14 @@ import io.theficos.ereader.testing.awaitRequest
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
+import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 
 /**
@@ -37,16 +40,23 @@ class AiRepositoryRefreshTest {
     }
 
     @Test fun `refreshProfile invokes preflight then network in order`() = runBlocking {
-        val order = mutableListOf<String>()
+        val order = CopyOnWriteArrayList<String>()
         val repo = AiRepository(
             client = client,
             insightDao = insightDao,
             syncRunner = { order.add("sync"); true },
             libraryRunner = { order.add("library"); true },
         )
-        server.enqueue(MockResponse().setResponseCode(200).setBody(PROFILE_BODY))
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                order += "${request.method} ${request.requestUrl?.encodedPath}"
+                return MockResponse().setBody(PROFILE_BODY)
+            }
+        }
+
         repo.refreshProfile()
-        assertThat(order).containsExactly("sync", "library").inOrder()
+
+        assertThat(order).containsExactly("sync", "library", "POST /ai/v1/profile/refresh").inOrder()
     }
 
     @Test fun `refreshProfile fires network even when preflight throws`() = runBlocking {

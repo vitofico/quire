@@ -124,64 +124,32 @@ async def test_lookup_book_language_returns_edition_language(session: AsyncSessi
 
 
 @pytest.mark.asyncio
-async def test_lookup_book_language_caches_positive_and_negative(session: AsyncSession):
-    calls: list[str] = []
+@pytest.mark.parametrize(
+    "isbn,reply,expected,cached",
+    [
+        pytest.param("9780261103573", ["eng"], "eng", True, id="edition-language"),
+        pytest.param("1", None, None, True, id="missing-language"),
+        pytest.param("9782070360024", "timeout", None, False, id="network-timeout"),
+        pytest.param("9782070360024", 503, None, False, id="service-unavailable"),
+    ],
+)
+async def test_book_language_cache_policy(session, isbn, reply, expected, cached):
+    calls = []
 
-    def handler(req: httpx.Request) -> httpx.Response:
-        calls.append(str(req.url))
-        return httpx.Response(200, json=_ol_details_response("ISBN:9780261103573", ["eng"]))
+    def handler(request):
+        calls.append(str(request.url))
+        if reply == "timeout":
+            raise httpx.ReadTimeout("slow")
+        if reply == 503:
+            return httpx.Response(503)
+        return httpx.Response(200, json=_ol_details_response(f"ISBN:{isbn}", reply))
 
-    r = Retriever(session=session, transport=httpx.MockTransport(handler), timeout_s=5.0)
-    assert await r.lookup_book_language("9780261103573") == "eng"
-    assert await r.lookup_book_language("9780261103573") == "eng"
-    assert len(calls) == 1  # second call hit cache
-
-    rows = (await session.execute(select(ExternalSourceCacheEntry))).scalars().all()
-    assert any(row.source == "openlibrary_language" for row in rows)
-
-
-@pytest.mark.asyncio
-async def test_lookup_book_language_negative_result_is_cached(session: AsyncSession):
-    calls: list[str] = []
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        calls.append(str(req.url))
-        return httpx.Response(200, json=_ol_details_response("ISBN:1", None))
-
-    r = Retriever(session=session, transport=httpx.MockTransport(handler), timeout_s=5.0)
-    assert await r.lookup_book_language("1") is None
-    assert await r.lookup_book_language("1") is None
-    assert len(calls) == 1  # negative result cached, no second network call
-
-
-@pytest.mark.asyncio
-async def test_lookup_book_language_network_error_not_cached(session: AsyncSession):
-    def handler(req: httpx.Request) -> httpx.Response:
-        raise httpx.ReadTimeout("slow")
-
-    r = Retriever(session=session, transport=httpx.MockTransport(handler), timeout_s=5.0)
-    assert await r.lookup_book_language("9782070360024") is None
-    rows = (await session.execute(select(ExternalSourceCacheEntry))).scalars().all()
-    # A network failure must not be cached — the next attempt should retry.
-    assert not any(row.source == "openlibrary_language" for row in rows)
-
-
-@pytest.mark.asyncio
-async def test_lookup_book_language_transient_status_not_cached(session: AsyncSession):
-    """A 429/5xx (rate-limit or outage) must NOT be cached as a null —
-    otherwise a transient blip suppresses backfill for the whole TTL."""
-    calls: list[str] = []
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        calls.append(str(req.url))
-        return httpx.Response(503)
-
-    r = Retriever(session=session, transport=httpx.MockTransport(handler), timeout_s=5.0)
-    assert await r.lookup_book_language("9782070360024") is None
-    assert await r.lookup_book_language("9782070360024") is None
-    assert len(calls) == 2  # no cache write, so the second call retries
-    rows = (await session.execute(select(ExternalSourceCacheEntry))).scalars().all()
-    assert not any(row.source == "openlibrary_language" for row in rows)
+    retriever = Retriever(session=session, transport=httpx.MockTransport(handler), timeout_s=5.0)
+    assert await retriever.lookup_book_language(isbn) == expected
+    assert await retriever.lookup_book_language(isbn) == expected
+    assert len(calls) == (1 if cached else 2)
+    rows = (await session.scalars(select(ExternalSourceCacheEntry))).all()
+    assert any(row.source == "openlibrary_language" for row in rows) is cached
 
 
 @pytest.mark.asyncio
@@ -615,57 +583,36 @@ async def test_wikipedia_direct_page_about_the_book_is_kept(
 
 
 @pytest.mark.asyncio
-async def test_wikipedia_outage_is_not_cached(session: AsyncSession):
-    calls: list[str] = []
+@pytest.mark.parametrize(
+    "author,title,direct_status,search_status,expected_calls,expected_keys",
+    [
+        pytest.param("Frank Herbert", "Dune", 503, 503, 2, [], id="direct-outage"),
+        pytest.param("Frank Herbert", "Dune", 404, 403, 4, [], id="search-blocked"),
+        pytest.param("Frank Herbert", "Dune", 404, 429, 4, [], id="search-rate-limited"),
+        pytest.param(None, "Nowhere Book", 400, 400, 2, ["v2:title:nowhere book"], id="bad-page"),
+        pytest.param(
+            None, "Nowhere Book", 404, 404, 2, ["v2:title:nowhere book"], id="absent-page"
+        ),
+    ],
+)
+async def test_wikipedia_negative_cache_policy(
+    session, author, title, direct_status, search_status, expected_calls, expected_keys
+):
+    seen = []
 
-    def handler(req: httpx.Request) -> httpx.Response:
-        calls.append(str(req.url))
-        return httpx.Response(503)
+    def handler(request):
+        seen.append(request.url.path)
+        is_search = request.url.path.startswith("/w/rest.php")
+        return httpx.Response(search_status if is_search else direct_status)
 
-    r = Retriever(session=session, transport=httpx.MockTransport(handler), timeout_s=5.0)
-    assert await r.lookup_wikipedia(author="Frank Herbert", title="Dune") == []
-    assert await r.lookup_wikipedia(author="Frank Herbert", title="Dune") == []
-    # One request per attempt: the outage stops the lookup, and nothing is remembered.
-    assert len(calls) == 2
-    rows = (await session.execute(select(ExternalSourceCacheEntry))).scalars().all()
-    assert rows == []
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("status", [403, 429])
-async def test_wikipedia_refused_search_is_not_cached(session: AsyncSession, status: int):
-    """A 429 (rate limited) or a 403 (blocked) may pass; unlike the 404 on the
-    direct page, it stops the lookup and nothing is remembered."""
-    seen: list[str] = []
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        seen.append(req.url.path)
-        return httpx.Response(status if req.url.path.startswith("/w/rest.php") else 404)
-
-    r = Retriever(session=session, transport=httpx.MockTransport(handler), timeout_s=5.0)
-
-    assert await r.lookup_wikipedia(author="Frank Herbert", title="Dune") == []
-    assert seen == ["/api/rest_v1/page/summary/Dune", "/w/rest.php/v1/search/page"]
-    rows = (await session.execute(select(ExternalSourceCacheEntry))).scalars().all()
-    assert rows == []
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("status", [400, 404])
-async def test_wikipedia_no_such_page_is_cached(session: AsyncSession, status: int):
-    calls: list[str] = []
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        calls.append(req.url.path)
-        return httpx.Response(status)
-
-    r = Retriever(session=session, transport=httpx.MockTransport(handler), timeout_s=5.0)
-
-    assert await r.lookup_wikipedia(author=None, title="Nowhere Book") == []
-    assert await r.lookup_wikipedia(author=None, title="Nowhere Book") == []
-    assert len(calls) == 2  # the direct page and the search, once
-    rows = (await session.execute(select(ExternalSourceCacheEntry))).scalars().all()
-    assert [row.key for row in rows] == ["v2:title:nowhere book"]
+    retriever = Retriever(session=session, transport=httpx.MockTransport(handler), timeout_s=5.0)
+    assert await retriever.lookup_wikipedia(author=author, title=title) == []
+    assert await retriever.lookup_wikipedia(author=author, title=title) == []
+    assert len(seen) == expected_calls
+    if search_status in (403, 429):
+        assert seen == ["/api/rest_v1/page/summary/Dune", "/w/rest.php/v1/search/page"] * 2
+    rows = (await session.scalars(select(ExternalSourceCacheEntry))).all()
+    assert [row.key for row in rows] == expected_keys
 
 
 @pytest.mark.asyncio
@@ -1063,141 +1010,53 @@ async def test_lookup_wikipedia_percent_encodes_special_chars(session: AsyncSess
 
 
 @pytest.mark.asyncio
-async def test_wikipedia_200_records_reachable_true(session: AsyncSession):
+@pytest.mark.parametrize(
+    "lookup,result,source,reachable",
+    [
+        pytest.param("wiki", 200, "wikipedia", True, id="wikipedia-found"),
+        pytest.param("wiki", 404, "wikipedia", True, id="wikipedia-missing"),
+        pytest.param("wiki", httpx.ReadTimeout, "wikipedia", False, id="wikipedia-timeout"),
+        pytest.param("openlibrary", 200, "openlibrary", True, id="openlibrary-found"),
+        pytest.param(
+            "openlibrary", httpx.ConnectError, "openlibrary", False, id="openlibrary-network-error"
+        ),
+        pytest.param("bibliography", 200, "openlibrary", True, id="author-bibliography"),
+        pytest.param("bibliography", 503, "openlibrary", False, id="bibliography-outage"),
+    ],
+)
+async def test_retrieval_reachability(session, lookup, result, source, reachable):
     health = AiHealthState()
 
-    def handler(req: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=_wiki_summary_response("Foundation", "ext"))
-
-    r = Retriever(
-        session=session,
-        transport=httpx.MockTransport(handler),
-        timeout_s=5.0,
-        health_state=health,
-    )
-    await r.lookup_wikipedia(author=None, title="Foundation")
-    snap = await health.snapshot()
-    assert snap.retrieval_sources["wikipedia"].reachable is True
-
-
-@pytest.mark.asyncio
-async def test_wikipedia_404_records_reachable_true(session: AsyncSession):
-    """404 still means the network reached Wikipedia. Reachability is True."""
-    health = AiHealthState()
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        return httpx.Response(404, json={"detail": "missing"})
-
-    r = Retriever(
-        session=session,
-        transport=httpx.MockTransport(handler),
-        timeout_s=5.0,
-        health_state=health,
-    )
-    cites = await r.lookup_wikipedia(author=None, title="DefinitelyNotAPage")
-    assert cites == []
-    snap = await health.snapshot()
-    assert snap.retrieval_sources["wikipedia"].reachable is True
-
-
-@pytest.mark.asyncio
-async def test_wikipedia_timeout_records_reachable_false(session: AsyncSession):
-    health = AiHealthState()
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        raise httpx.ReadTimeout("simulated")
-
-    r = Retriever(
-        session=session,
-        transport=httpx.MockTransport(handler),
-        timeout_s=1.0,
-        health_state=health,
-    )
-    cites = await r.lookup_wikipedia(author=None, title="X")
-    assert cites == []
-    snap = await health.snapshot()
-    assert snap.retrieval_sources["wikipedia"].reachable is False
-
-
-@pytest.mark.asyncio
-async def test_openlibrary_200_records_reachable_true(session: AsyncSession):
-    health = AiHealthState()
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=_ol_search_response([]))
-
-    r = Retriever(
-        session=session,
-        transport=httpx.MockTransport(handler),
-        timeout_s=5.0,
-        health_state=health,
-    )
-    await r.lookup_openlibrary(author="Asimov", title="Foundation", isbn=None)
-    snap = await health.snapshot()
-    assert snap.retrieval_sources["openlibrary"].reachable is True
-
-
-@pytest.mark.asyncio
-async def test_openlibrary_timeout_records_reachable_false(session: AsyncSession):
-    health = AiHealthState()
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        raise httpx.ConnectError("simulated")
-
-    r = Retriever(
-        session=session,
-        transport=httpx.MockTransport(handler),
-        timeout_s=1.0,
-        health_state=health,
-    )
-    cites = await r.lookup_openlibrary(author="X", title="Y", isbn=None)
-    assert cites == []
-    snap = await health.snapshot()
-    assert snap.retrieval_sources["openlibrary"].reachable is False
-
-
-@pytest.mark.asyncio
-async def test_author_bibliography_records_health_as_openlibrary(session: AsyncSession):
-    """Profile discovery's lookups show under the ``openlibrary`` row that
-    ``/ai/v1/health`` lists, not under a name the endpoint never seeds."""
-    health = AiHealthState()
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        if req.url.path.endswith("/search/authors.json"):
+    def handler(request):
+        if isinstance(result, type):
+            raise result("simulated")
+        if result != 200:
+            return httpx.Response(result, json={"detail": "missing"})
+        if lookup == "wiki":
+            return httpx.Response(200, json=_wiki_summary_response("Foundation", "ext"))
+        if lookup == "openlibrary":
+            return httpx.Response(200, json=_ol_search_response([]))
+        if request.url.path.endswith("/search/authors.json"):
             return httpx.Response(200, json={"docs": [{"key": "OL1A"}]})
         return httpx.Response(200, json={"entries": [{"title": "Foundation"}]})
 
-    r = Retriever(
-        session=session,
-        transport=httpx.MockTransport(handler),
-        timeout_s=5.0,
-        health_state=health,
+    retriever = Retriever(
+        session=session, transport=httpx.MockTransport(handler), timeout_s=1.0, health_state=health
     )
-    await r.author_bibliography("Isaac Asimov")
-    snap = await health.snapshot()
-    assert set(snap.retrieval_sources) == {"openlibrary"}
-    assert snap.retrieval_sources["openlibrary"].reachable is True
-
-
-@pytest.mark.asyncio
-async def test_author_bibliography_outage_marks_openlibrary_unreachable(
-    session: AsyncSession,
-):
-    health = AiHealthState()
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        return httpx.Response(503)
-
-    r = Retriever(
-        session=session,
-        transport=httpx.MockTransport(handler),
-        timeout_s=5.0,
-        health_state=health,
-    )
-    assert await r.author_bibliography("Isaac Asimov") == []
-    snap = await health.snapshot()
-    assert set(snap.retrieval_sources) == {"openlibrary"}
-    assert snap.retrieval_sources["openlibrary"].reachable is False
+    if lookup == "wiki":
+        title = "Foundation" if result == 200 else "DefinitelyNotAPage" if result == 404 else "X"
+        entries = await retriever.lookup_wikipedia(author=None, title=title)
+    elif lookup == "openlibrary":
+        author, title = ("Asimov", "Foundation") if result == 200 else ("X", "Y")
+        entries = await retriever.lookup_openlibrary(author=author, title=title, isbn=None)
+    else:
+        entries = await retriever.author_bibliography("Isaac Asimov")
+    if result != 200:
+        assert entries == []
+    snapshot = await health.snapshot()
+    if lookup == "bibliography":
+        assert set(snapshot.retrieval_sources) == {"openlibrary"}
+    assert snapshot.retrieval_sources[source].reachable is reachable
 
 
 @pytest.mark.asyncio

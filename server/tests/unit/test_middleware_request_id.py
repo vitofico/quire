@@ -23,48 +23,29 @@ def _make_app(capture: dict) -> Starlette:
 
 
 @pytest.mark.asyncio
-async def test_preserves_valid_incoming_header():
+@pytest.mark.parametrize(
+    "incoming,preserved",
+    [
+        pytest.param("client-abc-123", True, id="valid"),
+        pytest.param(None, False, id="absent"),
+        pytest.param("x" * 200, False, id="oversized"),
+        pytest.param("abc\x01def", False, id="non-printable"),
+    ],
+)
+async def test_request_id_header_and_context(incoming, preserved):
     capture: dict = {}
     app = _make_app(capture)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        r = await c.get("/", headers={"X-Request-ID": "client-abc-123"})
-    assert r.status_code == 200
-    assert r.headers["X-Request-ID"] == "client-abc-123"
-    assert capture["seen_during_request"] == "client-abc-123"
-
-
-@pytest.mark.asyncio
-async def test_generates_when_absent():
-    capture: dict = {}
-    app = _make_app(capture)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        r = await c.get("/")
-    assert r.status_code == 200
-    rid = r.headers["X-Request-ID"]
-    assert rid and len(rid) == 32  # uuid4 hex
-    assert capture["seen_during_request"] == rid
-
-
-@pytest.mark.asyncio
-async def test_rejects_oversized_header_and_generates_new():
-    capture: dict = {}
-    app = _make_app(capture)
-    too_long = "x" * 200
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        r = await c.get("/", headers={"X-Request-ID": too_long})
-    rid = r.headers["X-Request-ID"]
-    assert rid != too_long
-    assert len(rid) == 32
-
-
-@pytest.mark.asyncio
-async def test_rejects_non_printable_header():
-    capture: dict = {}
-    app = _make_app(capture)
-    bad = "abc\x01def"
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        r = await c.get("/", headers={"X-Request-ID": bad})
-    assert r.headers["X-Request-ID"] != bad
+    headers = {"X-Request-ID": incoming} if incoming is not None else {}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+        response = await client.get("/", headers=headers)
+    assert response.status_code == 200
+    request_id = response.headers["X-Request-ID"]
+    assert capture["seen_during_request"] == request_id
+    if preserved:
+        assert request_id == incoming
+    else:
+        assert request_id != incoming
+        assert len(request_id) == 32
 
 
 @pytest.mark.asyncio

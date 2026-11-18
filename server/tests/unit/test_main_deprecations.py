@@ -56,119 +56,34 @@ def _create_app():
     return create_app()
 
 
-# ---------------------------------------------------------------------------
-# Flag enabled: both channels fire
-# ---------------------------------------------------------------------------
-
-
-def test_metadata_fallback_flag_true_emits_deprecation_warning(monkeypatch):
-    """Python tooling channel: `warnings.warn(..., DeprecationWarning)`.
-
-    Use a narrowly-scoped `catch_warnings` + `simplefilter("always", ...)`
-    so the warning is captured deterministically regardless of any global
-    once-per-line de-duplication accumulated by prior tests in the session.
-    `pytest.warns(DeprecationWarning, match=...)` would also work, but
-    explicit capture keeps the assertion strict on the message content.
-    """
-    monkeypatch.setenv("QUIRE_SERVER_AI_METADATA_SERVER_LOOKUP_ENABLED", "true")
-
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always", DeprecationWarning)
-        _create_app()
-
-    matched = [
-        w
-        for w in caught
-        if issubclass(w.category, DeprecationWarning)
-        and "AI_METADATA_SERVER_LOOKUP_ENABLED" in str(w.message)
-    ]
-    assert matched, (
-        "expected a DeprecationWarning mentioning "
-        "AI_METADATA_SERVER_LOOKUP_ENABLED, got: "
-        f"{[(w.category.__name__, str(w.message)) for w in caught]}"
-    )
-    message = str(matched[0].message)
-    # Removal window must be explicit so operators know how long they have.
-    assert "2 minor releases" in message
-    # Migration pointer must be present so operators know what to do.
-    assert "bundle" in message
-
-
-def test_metadata_fallback_flag_true_emits_logging_warning(monkeypatch, caplog):
-    """Operator channel: `logging.warning` on the module logger.
-
-    `caplog` captures records emitted during the `create_app()` call. We
-    scope the level capture to the module logger so unrelated debug noise
-    from FastAPI / SQLAlchemy doesn't crowd the assertion.
-    """
-    monkeypatch.setenv("QUIRE_SERVER_AI_METADATA_SERVER_LOOKUP_ENABLED", "true")
-
-    with caplog.at_level(logging.WARNING, logger="quire_server.main"):
-        _create_app()
-
-    matching_records = [
-        r
-        for r in caplog.records
-        if r.name == "quire_server.main"
-        and r.levelno == logging.WARNING
-        and "AI_METADATA_SERVER_LOOKUP_ENABLED" in r.getMessage()
-    ]
-    assert matching_records, (
-        "expected a WARNING log on quire_server.main mentioning "
-        "AI_METADATA_SERVER_LOOKUP_ENABLED; got: "
-        f"{[(r.name, r.levelname, r.getMessage()) for r in caplog.records]}"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Flag disabled (the new default): no notice about this flag
-# ---------------------------------------------------------------------------
-
-
-def test_metadata_fallback_flag_false_emits_no_notice(monkeypatch, caplog):
-    """When the flag is at its default (False), neither channel must emit
-    anything *about this flag*.
-
-    We do NOT use `simplefilter("error", DeprecationWarning)` — FastAPI /
-    SQLAlchemy / pydantic occasionally emit unrelated DeprecationWarnings
-    on import, and failing on those would make the test brittle. Instead
-    we scope the assertion to messages that mention the flag name.
-    """
-    # Default state — flag not set at all.
+@pytest.mark.parametrize(
+    "raw",
+    [
+        pytest.param(None, id="unset"),
+        pytest.param("false", id="disabled"),
+        pytest.param("true", id="enabled"),
+    ],
+)
+def test_metadata_fallback_startup_notice(monkeypatch, caplog, raw):
+    if raw is not None:
+        monkeypatch.setenv("QUIRE_SERVER_AI_METADATA_SERVER_LOOKUP_ENABLED", raw)
+    flag = "AI_METADATA_SERVER_LOOKUP_ENABLED"
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always", DeprecationWarning)
         with caplog.at_level(logging.WARNING, logger="quire_server.main"):
             _create_app()
 
-    leaked_warnings = [w for w in caught if "AI_METADATA_SERVER_LOOKUP_ENABLED" in str(w.message)]
-    assert not leaked_warnings, (
-        "DeprecationWarning about the metadata fallback fired when the flag "
-        f"was disabled: {[str(w.message) for w in leaked_warnings]}"
-    )
-    leaked_logs = [
-        r
-        for r in caplog.records
-        if r.name == "quire_server.main" and "AI_METADATA_SERVER_LOOKUP_ENABLED" in r.getMessage()
+    notices = [warning for warning in caught if flag in str(warning.message)]
+    logs = [
+        record
+        for record in caplog.records
+        if record.name == "quire_server.main" and flag in record.getMessage()
     ]
-    assert not leaked_logs, (
-        "logging.warning about the metadata fallback fired when the flag "
-        f"was disabled: {[r.getMessage() for r in leaked_logs]}"
-    )
-
-
-def test_metadata_fallback_flag_explicit_false_emits_no_notice(monkeypatch, caplog):
-    """Explicit `false` should behave identically to the unset default."""
-    monkeypatch.setenv("QUIRE_SERVER_AI_METADATA_SERVER_LOOKUP_ENABLED", "false")
-
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always", DeprecationWarning)
-        with caplog.at_level(logging.WARNING, logger="quire_server.main"):
-            _create_app()
-
-    leaked_warnings = [w for w in caught if "AI_METADATA_SERVER_LOOKUP_ENABLED" in str(w.message)]
-    leaked_logs = [
-        r
-        for r in caplog.records
-        if r.name == "quire_server.main" and "AI_METADATA_SERVER_LOOKUP_ENABLED" in r.getMessage()
-    ]
-    assert not leaked_warnings and not leaked_logs
+    if raw == "true":
+        assert notices and issubclass(notices[0].category, DeprecationWarning)
+        assert "2 minor releases" in str(notices[0].message)
+        assert "bundle" in str(notices[0].message)
+        assert any(record.levelno == logging.WARNING for record in logs)
+    else:
+        assert not notices
+        assert not logs
