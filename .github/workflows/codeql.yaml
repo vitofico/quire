@@ -14,11 +14,56 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  analyze:
-    # CodeQL upload requires Code Scanning enabled, which is free on
-    # public repos and gated behind GitHub Advanced Security on private
-    # ones. Skip the whole workflow until the repo is public.
+  changes:
+    # Code scanning on private repositories requires GitHub Advanced Security.
     if: github.event.repository.visibility == 'public'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      languages: ${{ steps.languages.outputs.languages }}
+    steps:
+      - if: github.event_name == 'pull_request' || github.event_name == 'push'
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Select languages
+        id: languages
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          case "$EVENT_NAME" in
+            # The first parent of a PR's synthetic merge is its base.
+            pull_request) before=HEAD^1 ;;
+            push) before="$PUSH_BEFORE" ;;
+            *) echo 'languages=["java-kotlin","python"]' >> "$GITHUB_OUTPUT"; exit 0 ;;
+          esac
+
+          # A new or rewritten branch can have no usable previous commit.
+          if ! git cat-file -e "${before}^{commit}" 2>/dev/null; then
+            echo 'languages=["java-kotlin","python"]' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          languages=()
+          if ! git diff --quiet --no-renames "$before" HEAD -- \
+              app auth core data reader gradle build.gradle.kts settings.gradle.kts \
+              gradle.properties gradlew gradlew.bat .github/workflows/codeql.yaml .github/codeql \
+              ':(glob)**/*.java' ':(glob)**/*.kt' ':(glob)**/*.kts'; then
+            languages+=(java-kotlin)
+          fi
+          if ! git diff --quiet --no-renames "$before" HEAD -- \
+              server .github/workflows/codeql.yaml .github/codeql \
+              ':(glob)**/*.py' ':(glob)**/*.pyi'; then
+            languages+=(python)
+          fi
+          printf 'languages=%s\n' "$(jq -cn '$ARGS.positional' --args "${languages[@]}")" >> "$GITHUB_OUTPUT"
+
+  analyze:
+    needs: changes
+    if: needs.changes.outputs.languages != '[]'
     runs-on: ubuntu-latest
     permissions:
       security-events: write
@@ -27,7 +72,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [java-kotlin, python]
+        language: ${{ fromJSON(needs.changes.outputs.languages) }}
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
@@ -46,7 +91,39 @@ jobs:
         with:
           packages: "platform-tools platforms;android-35 build-tools;34.0.0"
       - if: matrix.language == 'java-kotlin'
-        run: ./gradlew assembleDebug -x test --stacktrace
+        uses: gradle/actions/setup-gradle@4c125117fe7c5aed11272ec4213f602f012f89f2 # v5
+        with:
+          gradle-home-cache-excludes: caches/build-cache-1
+      - name: Compile Android sources under CodeQL tracing
+        if: matrix.language == 'java-kotlin'
+        run: ./gradlew compileDebugSources --no-build-cache --rerun-tasks --stacktrace
       - if: matrix.language == 'python'
         uses: github/codeql-action/autobuild@7c1e4cf0b20d7c1872b26569c00ba908797a59bf # v4
-      - uses: github/codeql-action/analyze@7c1e4cf0b20d7c1872b26569c00ba908797a59bf # v4
+      - id: analyze
+        uses: github/codeql-action/analyze@7c1e4cf0b20d7c1872b26569c00ba908797a59bf # v4
+      - name: Verify CodeQL extracted every Android module
+        if: matrix.language == 'java-kotlin'
+        env:
+          CODEQL_DATABASES: ${{ steps.analyze.outputs.db-locations }}
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          from zipfile import ZipFile
+
+          database, = json.loads(os.environ["CODEQL_DATABASES"]).values()
+          tracked = subprocess.check_output(
+              ["git", "ls-files", "-z", "--", ":(glob)**/src/main/**/*.kt", ":(glob)**/src/main/**/*.java"]
+          ).decode().split("\0")
+          expected = {name: name.split("/src/main/", 1)[0] for name in tracked if name}
+          workspace = os.environ["GITHUB_WORKSPACE"].strip("/") + "/"
+          with ZipFile(Path(database) / "src.zip") as archive:
+              archived = {name.removeprefix(workspace) for name in archive.namelist()}
+          extracted = {expected[name] for name in expected.keys() & archived}
+          missing = sorted(set(expected.values()) - extracted)
+          if missing or not extracted:
+              raise SystemExit(f"CodeQL source archive is missing Android modules: {missing}")
+          print("CodeQL extracted " + ", ".join(sorted(extracted)))
+          PYTHON
