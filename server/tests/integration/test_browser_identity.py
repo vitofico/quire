@@ -348,10 +348,7 @@ async def test_export_close_purge_isolation_and_shared_cache(
             ):
                 await session.execute(text(statement), {"id": owner})
             await session.execute(
-                text(
-                    "INSERT INTO documents (user_id, content_hash) "
-                    "VALUES (:id, 'purge-witness')"
-                ),
+                text("INSERT INTO documents (user_id, content_hash) VALUES (:id, 'purge-witness')"),
                 {"id": owner},
             )
         await session.commit()
