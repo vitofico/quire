@@ -1,5 +1,0 @@
-gradle.beforeProject { project ->
-    project.tasks.withType(org.gradle.api.tasks.testing.Test).configureEach {
-        outputs.upToDateWhen { false }
-    }
-}
