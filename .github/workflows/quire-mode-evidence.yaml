@@ -2,7 +2,7 @@ name: Quire partial schema evidence
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, test/lean-safety-net]
     paths:
       - "server/**"
       - ".github/workflows/quire-mode-evidence.yaml"

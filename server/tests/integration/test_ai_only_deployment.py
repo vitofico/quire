@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from quire_server.config import get_settings
-from quire_server.db.models import AIGenerationLog
+from quire_server.db.models import AIGenerationLog, BookInsight
 
 from .deployment_shapes import assert_partial_schema
 
@@ -38,6 +38,7 @@ async def test_ai_only_lookup_without_progress_tables(
 
     model_calls = []
     intro = "An insight from the AI-only deployment."
+    content_hash = "ai-only-fixture"
 
     def provider(request):
         assert request.url == "https://model.example.test/v1/chat/completions"
@@ -95,7 +96,7 @@ async def test_ai_only_lookup_without_progress_tables(
                 "/ai/v1/insights/lookup",
                 headers=headers,
                 json={
-                    "identity": {"content_hash": "ai-only-fixture"},
+                    "identity": {"content_hash": content_hash},
                     "bundle": {"title": "Synthetic fixture book"},
                 },
             )
@@ -105,9 +106,9 @@ async def test_ai_only_lookup_without_progress_tables(
         assert model_calls == ["POST"]
         async with engine.connect() as connection:
             audit = await connection.execute(
-                select(AIGenerationLog.status, AIGenerationLog.book_insight_id).where(
-                    AIGenerationLog.subject == "alice"
-                )
+                select(AIGenerationLog.status, AIGenerationLog.book_insight_id)
+                .join(BookInsight, BookInsight.id == AIGenerationLog.book_insight_id)
+                .where(AIGenerationLog.subject == "alice", BookInsight.content_hash == content_hash)
             )
             status, insight_id = audit.one()
         assert status == "miss"
