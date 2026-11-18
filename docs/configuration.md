@@ -1,4 +1,4 @@
-# Server configuration
+# Quire server configuration
 
 This page lists every setting `quire-server` reads, what each one does, and
 how to check that a change took effect. It is written for someone running
