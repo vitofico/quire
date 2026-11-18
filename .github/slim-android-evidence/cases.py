@@ -39,7 +39,7 @@ CASES = [
         "every reader theme has its English display label",
         "app/src/main/java/io/theficos/ereader/ui/reader/ReaderThemeLabel.kt",
         "ReaderTheme.DARK_SEPIA -> R.string.reader_dark_sepia",
-        "ReaderTheme.DARK_SEPIA -> R.string.reader_dark",
+        "ReaderTheme.DARK_SEPIA -> R.string.common_dark",
     ),
     (
         "R-merge-version-six-migration", "data/local", "data.local.db.MigrationTest",

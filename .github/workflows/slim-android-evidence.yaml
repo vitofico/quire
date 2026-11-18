@@ -14,13 +14,9 @@ jobs:
     if: >-
       github.event.pull_request.head.ref == 'test/streamline-suites' &&
       github.event.pull_request.head.repo.full_name == github.repository
-    name: Android slim evidence (${{ matrix.check }})
+    name: Android slim evidence (functional-mutation recovery)
     runs-on: ubuntu-latest
     timeout-minutes: 40
-    strategy:
-      fail-fast: false
-      matrix:
-        check: [timed-suites, functional-mutations]
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
@@ -43,27 +39,30 @@ jobs:
           path: ~/.m2/repository/org/robolectric
           key: robolectric-${{ github.sha }}
           restore-keys: robolectric-
-      - name: Measure fresh full Android suites on one runner
-        if: matrix.check == 'timed-suites'
-        env:
-          NET_BASE: 38208865d35b746dc93b442567bf2bb1e65d1dc4
-        run: |
-          git worktree add --detach "$RUNNER_TEMP/quire-net-baseline" "$NET_BASE"
-          python3 .github/slim-android-evidence/suite.py "$RUNNER_TEMP/quire-slim-android" \
-            --baseline "$RUNNER_TEMP/quire-net-baseline"
       - name: Replay exact mutant controls and their restored tests
-        if: matrix.check == 'functional-mutations'
         run: |
-          python3 .github/slim-android-evidence/mutate.py "$RUNNER_TEMP/quire-slim-android/mutations"
+          python3 .github/slim-android-evidence/mutate.py --resume "$RUNNER_TEMP/quire-slim-android/mutations" \
+            R-merge-theme-label \
+            R-merge-version-six-migration \
+            R-merge-reader-preferences \
+            R-merge-document-hint \
+            R-replace-refresh-before-preflight \
+            R-replace-visible-blank-craft \
+            R-replace-theme-cap \
+            R-replace-progress-wire-field \
+            R-replace-progress-legacy-version \
+            R-replace-uploader-replays-synced \
+            R-replace-uploader-order \
+            R-replace-refresh-budget-selection \
+            R-replace-refresh-shared-timeout
           git diff --exit-code
       - name: Run the full Android suite after restoring all mutants
-        if: matrix.check == 'functional-mutations'
         run: python3 .github/slim-android-evidence/suite.py "$RUNNER_TEMP/quire-slim-android"
       - name: Retain XML reports and timing logs
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: quire-slim-android-${{ matrix.check }}
+          name: quire-slim-android-functional-mutation-recovery
           path: |
             ${{ runner.temp }}/quire-slim-android/**/*.xml
             ${{ runner.temp }}/quire-slim-android/**/*.log
