@@ -23,6 +23,16 @@ def calendar_version(name):
     return datetime.date(year, month, day), run
 
 
+def next_version_code(previous_code, build_date):
+    # Android and F-Droid require increasing codes. Reserve 1000 codes per
+    # calendar day and let the previous code win when that block fills.
+    day_code = int(build_date.strftime("%y%m%d")) * 1000
+    code = max(previous_code + 1, day_code)
+    if code > MAX_CODE:
+        raise ValueError("Next VERSION_CODE would exceed the Android limit (2100000000).")
+    return code
+
+
 def read_version(text):
     values = {}
     for line in text.splitlines():
@@ -142,6 +152,9 @@ def main():
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--tag", help="verify this existing CalVer tag and its checked-out source")
     parser.add_argument("--newest-tag", action="store_true", help="print the numerically newest valid CalVer tag")
+    parser.add_argument("--next-version-code", type=datetime.date.fromisoformat, metavar="YYYY-MM-DD",
+                        help="print the next Android version code for this UTC build date")
+    parser.add_argument("--is-latest", metavar="TAG", help="print whether this tag is the newest Android release")
     parser.add_argument("--apk", type=Path, help="verify a signed APK and write checksum/source identity beside it")
     parser.add_argument("--build-tools", type=Path, help="Android build-tools directory, e.g. $ANDROID_HOME/build-tools/34.0.0")
     parser.add_argument("--certificate-sha256", type=Path, help="file containing the expected certificate fingerprint")
@@ -150,8 +163,12 @@ def main():
         parser.error("--apk requires --tag, --build-tools and --certificate-sha256.")
     try:
         current = read_version((args.root / "gradle.properties").read_text())
-        if args.newest_tag:
-            print(newest_tag(git(args.root, "tag", "--list").splitlines()))
+        if args.next_version_code:
+            print(next_version_code(current["versionCode"], args.next_version_code))
+            return 0
+        if args.newest_tag or args.is_latest:
+            latest = newest_tag(git(args.root, "tag", "--list").splitlines())
+            print(latest if args.newest_tag else str(args.is_latest == latest).lower())
             return 0
         commit = check_source(args.root, current, args.tag) if args.tag else None
         if args.apk:

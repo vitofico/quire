@@ -34,13 +34,13 @@ UNKNOWN_HINT = "is ignored; check the spelling against docs/configuration.md"
 
 @pytest.fixture(autouse=True)
 def _isolate_env(monkeypatch):
-    """Start from zero QUIRE_SERVER_* variables, then set the two the factory needs.
+    """Clear the settings namespaces before configuring the test factory.
 
     A stray variable in the developer's shell would otherwise show up as an
     unknown-variable warning and make the exact-list assertions flaky.
     """
     for name in list(os.environ):
-        if name.upper().startswith("QUIRE_SERVER_"):
+        if name.upper().startswith(("QUIRE_SERVER_", "QUIRE_IDENTITY_", "QUIRE_POLICY_")):
             monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("QUIRE_SERVER_DATABASE_URL", "postgresql+asyncpg://x/y")
     monkeypatch.setenv("QUIRE_SERVER_CWA_BASE_URL", "http://stub")
@@ -54,21 +54,30 @@ def _create_app():
     return create_app()
 
 
-def test_unknown_variable_is_logged_and_stored(monkeypatch, caplog):
-    monkeypatch.setenv("QUIRE_SERVER_AI_MODLE", "typo")
+@pytest.mark.parametrize(
+    "misspelling",
+    ["QUIRE_SERVER_AI_MODLE", "QUIRE_IDENTITY_OIDC_ISUER", "QUIRE_POLICY_TKOEN"],
+)
+def test_unknown_variable_is_logged_and_stored(monkeypatch, caplog, misspelling):
+    monkeypatch.setenv(misspelling, "typo")
     with caplog.at_level(logging.WARNING, logger="quire_server.main"):
         app = _create_app()
-    assert app.state.config_warnings == [f"Unknown setting QUIRE_SERVER_AI_MODLE {UNKNOWN_HINT}"]
+    assert app.state.config_warnings == [f"Unknown setting {misspelling} {UNKNOWN_HINT}"]
     logged = [r.getMessage() for r in caplog.records if "event=config.warning" in r.getMessage()]
-    assert logged == [
-        f"event=config.warning msg=Unknown setting QUIRE_SERVER_AI_MODLE {UNKNOWN_HINT}"
-    ]
+    assert logged == [f"event=config.warning msg=Unknown setting {misspelling} {UNKNOWN_HINT}"]
 
 
 def test_compose_only_port_is_not_flagged(monkeypatch):
     monkeypatch.setenv("QUIRE_SERVER_PORT", "9000")
     app = _create_app()
     assert app.state.config_warnings == []
+
+
+def test_valid_identity_and_policy_variables_are_not_flagged(monkeypatch):
+    monkeypatch.setenv("QUIRE_IDENTITY_PUBLIC_URL", "https://identity.example.test")
+    monkeypatch.setenv("QUIRE_POLICY_URL", "https://policy.example.test")
+    monkeypatch.setenv("QUIRE_POLICY_TOKEN", "test-fixture" * 3)
+    assert _create_app().state.config_warnings == []
 
 
 def test_clean_config_has_no_warnings():

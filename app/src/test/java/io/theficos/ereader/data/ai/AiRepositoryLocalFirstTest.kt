@@ -1,5 +1,6 @@
 package io.theficos.ereader.data.ai
 
+import io.theficos.ereader.testing.awaitRequest
 import com.google.common.truth.Truth.assertThat
 import io.theficos.ereader.core.metadata.MetadataBundle
 import io.theficos.ereader.core.model.DocumentIdentity

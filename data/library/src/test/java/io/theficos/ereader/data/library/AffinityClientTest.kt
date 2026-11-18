@@ -1,5 +1,6 @@
 package io.theficos.ereader.data.library
 
+import io.theficos.ereader.testing.awaitRequest
 import com.google.common.truth.Truth.assertThat
 import io.theficos.ereader.core.metadata.MetadataBundle
 import kotlinx.coroutines.test.runTest
@@ -64,7 +65,7 @@ class AffinityClientTest {
         assertThat(out.reasons[0].polarity).isEqualTo("positive")
         assertThat(out.generatedAt).isEqualTo("2026-05-29T00:00:00+00:00")
 
-        val req = server.takeRequest()
+        val req = server.awaitRequest()
         assertThat(req.method).isEqualTo("POST")
         assertThat(req.path).isEqualTo("/library/v1/affinity")
         val body = req.body.readUtf8()

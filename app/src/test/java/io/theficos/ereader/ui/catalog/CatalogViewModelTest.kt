@@ -1,5 +1,6 @@
 package io.theficos.ereader.ui.catalog
 
+import io.theficos.ereader.testing.awaitRequest
 import android.content.Context
 import androidx.lifecycle.viewModelScope
 import androidx.room.Room
@@ -23,6 +24,8 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -87,11 +90,16 @@ class CatalogViewModelTest {
         // Reset the Main dispatcher unconditionally — if any of the cleanup
         // steps throw, an un-reset Main pollutes the next test's setMain() and
         // cascades lateinit failures across the suite.
-        runCatching { viewModels.forEach { it.viewModelScope.cancel() } }
-        runCatching { db.close() }
-        runCatching { server.shutdown() }
-        runCatching { booksDir.deleteRecursively() }
-        Dispatchers.resetMain()
+        try {
+            runTest {
+                viewModels.forEach { it.viewModelScope.coroutineContext[Job]?.cancelAndJoin() }
+            }
+        } finally {
+            runCatching { db.close() }
+            runCatching { server.shutdown() }
+            runCatching { booksDir.deleteRecursively() }
+            Dispatchers.resetMain()
+        }
     }
 
     /**
@@ -505,10 +513,10 @@ class CatalogViewModelTest {
         vm.retry()
 
         assertThat(awaitLoaded(vm).url).contains("/search?q=two+words")
-        server.takeRequest() // root
-        assertThat(server.takeRequest().path).isEqualTo("/search.xml")
-        assertThat(server.takeRequest().path).isEqualTo("/search.xml")
-        assertThat(server.takeRequest().requestUrl?.queryParameter("q")).isEqualTo("two words")
+        server.awaitRequest() // root
+        assertThat(server.awaitRequest().path).isEqualTo("/search.xml")
+        assertThat(server.awaitRequest().path).isEqualTo("/search.xml")
+        assertThat(server.awaitRequest().requestUrl?.queryParameter("q")).isEqualTo("two words")
         assertThat(vm.back()).isTrue()
         assertThat(vm.back()).isFalse() // retry did not add the parent twice
     }

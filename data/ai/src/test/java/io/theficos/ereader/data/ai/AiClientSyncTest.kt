@@ -1,5 +1,6 @@
 package io.theficos.ereader.data.ai
 
+import io.theficos.ereader.testing.awaitRequest
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
@@ -38,7 +39,7 @@ class AiClientSyncTest {
             ),
         )
         val resp = client.syncInsights(cursor = null, limit = 50)
-        val req = server.takeRequest()
+        val req = server.awaitRequest()
         assertThat(req.method).isEqualTo("GET")
         assertThat(req.path).contains("/ai/v1/insights/sync")
         assertThat(req.requestUrl?.queryParameter("limit")).isEqualTo("50")
@@ -62,7 +63,7 @@ class AiClientSyncTest {
             ),
             limit = 25,
         )
-        val req = server.takeRequest()
+        val req = server.awaitRequest()
         // The raw line preserves percent-encoding of the `+`.
         assertThat(req.path).contains("since_ts=2026-05-19T00%3A00%3A00%2B00%3A00")
         assertThat(req.path).contains("since_id=42")

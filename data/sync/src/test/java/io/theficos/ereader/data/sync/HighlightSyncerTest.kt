@@ -1,5 +1,6 @@
 package io.theficos.ereader.data.sync
 
+import io.theficos.ereader.testing.awaitRequest
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
@@ -72,7 +73,7 @@ class HighlightSyncerTest {
         assertThat(stored.toSyncDto()).isEqualTo(expected.items.single())
         assertThat(db.highlightSyncDao().dirty(scope)).isEmpty()
         assertThat(db.syncStateDao().lastPulled("highlights:$scope")).isEqualTo(2)
-        assertThat(server.takeRequest().getHeader("Authorization")).isEqualTo("Bearer account-a-secret")
+        assertThat(server.awaitRequest().getHeader("Authorization")).isEqualTo("Bearer account-a-secret")
     }
 
     @Test fun `successful endpoint claims and uploads offline rows but never another account's rows`() = runTest {
@@ -85,8 +86,8 @@ class HighlightSyncerTest {
         assertThat(syncer().runOnce()).isInstanceOf(SyncResult.Success::class.java)
         assertThat(db.highlightSyncDao().unowned()).isEmpty()
         assertThat(db.highlightSyncDao().dirty(scope)).isEmpty()
-        server.takeRequest()
-        val pushed = json.decodeFromString(HighlightPushBody.serializer(), server.takeRequest().body.readUtf8())
+        server.awaitRequest()
+        val pushed = json.decodeFromString(HighlightPushBody.serializer(), server.awaitRequest().body.readUtf8())
         assertThat(pushed.items.map { it.id }).containsExactly(id)
     }
 
@@ -110,11 +111,11 @@ class HighlightSyncerTest {
         syncer().runOnce()
         assertThat(db.highlightSyncDao().find("account-a", id)).isEqualTo(original)
         assertThat(db.highlightSyncDao().find("account-b", id)!!.text).isEqualTo("B's private quote")
-        assertThat(server.takeRequest().requestUrl!!.queryParameter("since")).isEqualTo("0")
+        assertThat(server.awaitRequest().requestUrl!!.queryParameter("since")).isEqualTo("0")
         scope = "account-a"
         server.enqueue(page(cursor = "0"))
         syncer().runOnce()
-        assertThat(server.takeRequest().requestUrl!!.queryParameter("since")).isEqualTo("0")
+        assertThat(server.awaitRequest().requestUrl!!.queryParameter("since")).isEqualTo("0")
     }
 
     @Test fun `switching account while authenticated preflight is in flight cannot claim or push`() = runTest {
@@ -170,9 +171,9 @@ class HighlightSyncerTest {
         assertThat(syncer().runOnce()).isInstanceOf(SyncResult.HttpFailure::class.java)
         assertThat(db.syncStateDao().lastPulled("highlights:$scope")).isEqualTo(1)
         assertThat(db.highlightSyncDao().find(scope, id)).isNotNull()
-        assertThat(server.takeRequest().requestUrl!!.queryParameter("since")).isEqualTo("100")
-        assertThat(server.takeRequest().requestUrl!!.queryParameter("since")).isEqualTo("0")
-        assertThat(server.takeRequest().requestUrl!!.queryParameter("since")).isEqualTo("1")
+        assertThat(server.awaitRequest().requestUrl!!.queryParameter("since")).isEqualTo("100")
+        assertThat(server.awaitRequest().requestUrl!!.queryParameter("since")).isEqualTo("0")
+        assertThat(server.awaitRequest().requestUrl!!.queryParameter("since")).isEqualTo("1")
     }
 
     @Test fun `equal timestamp tombstone beats dirty live row and stale live response cannot resurrect`() = runTest {

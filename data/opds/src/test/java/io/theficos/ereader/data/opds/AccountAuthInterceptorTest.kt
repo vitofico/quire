@@ -1,5 +1,6 @@
 package io.theficos.ereader.data.opds
 
+import io.theficos.ereader.testing.awaitRequest
 import com.google.common.truth.Truth.assertThat
 import io.theficos.ereader.auth.AccountCredentials
 import okhttp3.OkHttpClient
@@ -31,7 +32,7 @@ class AccountAuthInterceptorTest {
             .build()
         client.newCall(Request.Builder().url(server.url("/feed")).build()).execute().close()
 
-        val recorded = server.takeRequest()
+        val recorded = server.awaitRequest()
         val expected = "Basic " + Base64.getEncoder().encodeToString("alice:s3cret".toByteArray())
         assertThat(recorded.getHeader("Authorization")).isEqualTo(expected)
     }
@@ -46,7 +47,7 @@ class AccountAuthInterceptorTest {
             .build()
         client.newCall(Request.Builder().url(server.url("/sync/v1/progress")).build()).execute().close()
 
-        val recorded = server.takeRequest()
+        val recorded = server.awaitRequest()
         assertThat(recorded.getHeader("Authorization")).isEqualTo("Bearer tok_abc123")
     }
 
@@ -57,7 +58,7 @@ class AccountAuthInterceptorTest {
             .build()
         client.newCall(Request.Builder().url(server.url("/feed")).build()).execute().close()
 
-        val recorded = server.takeRequest()
+        val recorded = server.awaitRequest()
         assertThat(recorded.getHeader("Authorization")).isNull()
     }
 
@@ -76,7 +77,7 @@ class AccountAuthInterceptorTest {
                 .build()
         ).execute().close()
 
-        val recorded = server.takeRequest()
+        val recorded = server.awaitRequest()
         assertThat(recorded.getHeader("Authorization")).isEqualTo("Bearer one-shot-handshake-token")
     }
 
@@ -93,7 +94,7 @@ class AccountAuthInterceptorTest {
                 .build()
             client.newCall(Request.Builder().url(foreign.url("/cover.jpg")).build()).execute().close()
 
-            val recorded = foreign.takeRequest()
+            val recorded = foreign.awaitRequest()
             assertThat(recorded.getHeader("Authorization")).isNull()
         } finally {
             foreign.shutdown()
@@ -181,7 +182,7 @@ class AccountAuthInterceptorTest {
             client.newCall(Request.Builder().url(quire.url("/ai/v1/config")).build())
                 .execute().close()
 
-            val recorded = quire.takeRequest()
+            val recorded = quire.awaitRequest()
             val expected = "Basic " + Base64.getEncoder().encodeToString("alice:s3cret".toByteArray())
             assertThat(recorded.getHeader("Authorization")).isEqualTo(expected)
         } finally {
@@ -207,7 +208,7 @@ class AccountAuthInterceptorTest {
             client.newCall(Request.Builder().url(server.url("/opds")).build())
                 .execute().close()
 
-            val recorded = server.takeRequest()
+            val recorded = server.awaitRequest()
             val expected = "Basic " + Base64.getEncoder().encodeToString("alice:s3cret".toByteArray())
             assertThat(recorded.getHeader("Authorization")).isEqualTo(expected)
         } finally {
@@ -232,7 +233,7 @@ class AccountAuthInterceptorTest {
         resp.close()
         assertThat(calls.get()).isEqualTo(1)
         // The interceptor still attached our bearer header to the (rejected) request.
-        assertThat(server.takeRequest().getHeader("Authorization")).isEqualTo("Bearer stale_tok")
+        assertThat(server.awaitRequest().getHeader("Authorization")).isEqualTo("Bearer stale_tok")
     }
 
     @Test fun `non-401 bearer response does not fire the re-auth callback`() {
@@ -300,7 +301,7 @@ class AccountAuthInterceptorTest {
             client.newCall(Request.Builder().url(foreign.url("/cover.jpg")).build())
                 .execute().close()
 
-            val recorded = foreign.takeRequest()
+            val recorded = foreign.awaitRequest()
             assertThat(recorded.getHeader("Authorization")).isNull()
         } finally {
             quire.shutdown()
@@ -324,7 +325,7 @@ class AccountAuthInterceptorTest {
             Request.Builder().url(server.url("/api/opds/secret-key")).build()
         ).execute().close()
 
-        val sent = server.takeRequest().getHeader("Authorization")
+        val sent = server.awaitRequest().getHeader("Authorization")
         val expected = "Basic " + Base64.getEncoder()
             .encodeToString("alice:hunter2".toByteArray())
         assertThat(sent).isEqualTo(expected)
@@ -342,7 +343,7 @@ class AccountAuthInterceptorTest {
             Request.Builder().url(server.url("/api/opds/secret-key")).build()
         ).execute().close()
 
-        assertThat(server.takeRequest().getHeader("Authorization")).isNull()
+        assertThat(server.awaitRequest().getHeader("Authorization")).isNull()
     }
 
     @Test fun `opds credentials are not sent to a third-party host`() {
@@ -358,7 +359,7 @@ class AccountAuthInterceptorTest {
         client.newCall(Request.Builder().url(server.url("/cover.jpg")).build())
             .execute().close()
 
-        assertThat(server.takeRequest().getHeader("Authorization")).isNull()
+        assertThat(server.awaitRequest().getHeader("Authorization")).isNull()
     }
 
     @Test fun `a 401 to an opds account never raises the bearer re-auth signal`() {

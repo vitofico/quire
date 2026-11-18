@@ -1,5 +1,6 @@
 package io.theficos.ereader.ui.reader
 
+import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.ViewModelStore
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
@@ -18,6 +19,8 @@ import io.theficos.ereader.reader.ReaderPreferencesStore
 import io.theficos.ereader.reader.ReadiumFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -67,7 +70,20 @@ class ReaderHighlightNavigationTest {
         vm.publishLocator(origin)
     }
 
-    @After fun cleanup() { store.clear(); db.close(); Dispatchers.resetMain() }
+    @After fun cleanup() {
+        try {
+            runTest {
+                if (::vm.isInitialized) vm.viewModelScope.coroutineContext[Job]?.cancelAndJoin()
+            }
+        } finally {
+            try {
+                if (::store.isInitialized) store.clear()
+                if (::db.isInitialized) db.close()
+            } finally {
+                Dispatchers.resetMain()
+            }
+        }
+    }
 
     private suspend fun save() {
         val point = JSONObject().put("path", JSONArray(listOf(0, 0))).put("nodeType", 3).put("offset", 0)

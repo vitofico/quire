@@ -28,6 +28,19 @@ class PublishReleaseTest(unittest.TestCase):
         with patch.object(PUBLISH, "gh", side_effect=missing):
             self.assertIsNone(PUBLISH.find_release(REPO, TAG))
 
+    def test_repair_requires_the_requested_stable_release(self):
+        with tempfile.TemporaryDirectory() as directory:
+            apk = Path(directory) / "reader.apk"
+            apk.write_bytes(b"fixture")
+            for override in ({"draft": True}, {"prerelease": True}, {"tag_name": "v-other"}):
+                remote = {**release({}), **override}
+                with self.subTest(override=override), patch.object(
+                    PUBLISH, "find_release", return_value=remote
+                ), patch.object(PUBLISH, "gh") as gh:
+                    with self.assertRaisesRegex(ValueError, "published stable release"):
+                        PUBLISH.publish(REPO, TAG, [apk], "false")
+                    gh.assert_not_called()
+
     def test_release_creation_checks_existing_tag_and_never_clobbers(self):
         with tempfile.TemporaryDirectory() as directory:
             apk = Path(directory) / "app-release.apk"

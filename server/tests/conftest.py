@@ -24,8 +24,7 @@ def _no_dotenv(monkeypatch):
 def pytest_collection_modifyitems(config, items):
     """Ordering + mode-marker skipping.
 
-    Ordering: ensure test_schema runs before test_progress to avoid
-    committed-row cross-pollution.
+    Run the schema checks first, while the migrated database is pristine.
 
     Mode markers: tests marked `requires_progress` or `requires_ai` are
     skipped when the corresponding env flag is false (so the CI mode matrix
@@ -52,19 +51,21 @@ def pytest_collection_modifyitems(config, items):
         path = item.nodeid
         if "test_schema" in path:
             return 0
-        if "test_progress" in path:
-            return 1
-        return 2
+        return 1
 
     items.sort(key=_key)
 
 
 @pytest.fixture(scope="session")
-def postgres_url() -> Iterator[str]:
+def postgres_container() -> Iterator[PostgresContainer]:
     with PostgresContainer("postgres:16-alpine") as pg:
-        sync_url = pg.get_connection_url()
-        async_url = sync_url.replace("postgresql+psycopg2://", "postgresql+asyncpg://")
-        yield async_url
+        yield pg
+
+
+@pytest.fixture(scope="session")
+def postgres_url(postgres_container: PostgresContainer) -> str:
+    sync_url = postgres_container.get_connection_url()
+    return sync_url.replace("postgresql+psycopg2://", "postgresql+asyncpg://")
 
 
 @pytest.fixture(scope="session")

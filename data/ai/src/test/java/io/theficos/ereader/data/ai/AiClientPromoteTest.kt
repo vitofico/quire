@@ -1,5 +1,6 @@
 package io.theficos.ereader.data.ai
 
+import io.theficos.ereader.testing.awaitRequest
 import com.google.common.truth.Truth.assertThat
 import io.theficos.ereader.core.model.DocumentIdentity
 import kotlinx.coroutines.test.runTest
@@ -61,7 +62,7 @@ class AiClientPromoteTest {
             tone = "scholarly",
             language = "fr",
         )
-        val req = server.takeRequest()
+        val req = server.awaitRequest()
         assertThat(req.method).isEqualTo("POST")
         assertThat(req.path).isEqualTo("/ai/v1/insights/promote")
         val body = req.body.readUtf8()

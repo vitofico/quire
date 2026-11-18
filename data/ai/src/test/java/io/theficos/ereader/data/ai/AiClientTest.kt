@@ -1,5 +1,6 @@
 package io.theficos.ereader.data.ai
 
+import io.theficos.ereader.testing.awaitRequest
 import com.google.common.truth.Truth.assertThat
 import io.theficos.ereader.core.metadata.MetadataBundle
 import io.theficos.ereader.core.model.DocumentIdentity
@@ -87,7 +88,7 @@ class AiClientTest {
             )
         )
         client.setPreferences(style = AiStyle(language = "es"))
-        val req = server.takeRequest()
+        val req = server.awaitRequest()
         val body = req.body.readUtf8()
         assertThat(body).contains("\"language\":\"es\"")
     }
@@ -100,7 +101,7 @@ class AiClientTest {
             )
         )
         val out = client.setPreferences(enabled = true)
-        val req: RecordedRequest = server.takeRequest()
+        val req: RecordedRequest = server.awaitRequest()
         assertThat(req.method).isEqualTo("PUT")
         assertThat(req.path).isEqualTo("/ai/v1/preferences")
         assertThat(req.body.readUtf8()).contains("\"ai_enabled\":true")
@@ -115,7 +116,7 @@ class AiClientTest {
             )
         )
         client.setPreferences(style = AiStyle(tone = "casual"))
-        val req = server.takeRequest()
+        val req = server.awaitRequest()
         val body = req.body.readUtf8()
         assertThat(body).contains("\"tone\":\"casual\"")
         // ai_enabled should NOT be in the body when not sent
@@ -134,7 +135,7 @@ class AiClientTest {
             DocumentIdentity(metadataId = "x", contentHash = "ch"),
             bundle,
         )
-        val req = server.takeRequest()
+        val req = server.awaitRequest()
         assertThat(req.path).isEqualTo("/ai/v1/insights/lookup")
         assertThat(req.body.readUtf8()).contains("Foundation")
         assertThat(out.payload.intro).isEqualTo("hi")
@@ -242,6 +243,21 @@ class AiClientTest {
 
         server.enqueue(MockResponse().setResponseCode(200).setBody("""{"configured":true}"""))
         assertThat(client.getConfig().profileTimeoutS).isNull()
+    }
+
+    @Test
+    fun `profile refresh uses its advertised budget then falls back to generation`() = runTest {
+        server.enqueue(MockResponse().setBody(
+            """{"configured":true,"generation_timeout_s":120,"profile_timeout_s":240}""",
+        ))
+        client.getConfig()
+        assertThat(client.profileRefreshBudgetS).isEqualTo(240)
+
+        server.enqueue(MockResponse().setBody(
+            """{"configured":true,"generation_timeout_s":150}""",
+        ))
+        client.getConfig()
+        assertThat(client.profileRefreshBudgetS).isEqualTo(150)
     }
 
     @Test

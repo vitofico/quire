@@ -1,5 +1,6 @@
 package io.theficos.ereader.data.library.sync
 
+import io.theficos.ereader.testing.awaitRequest
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.ListenableWorker
 import androidx.work.testing.TestListenableWorkerBuilder

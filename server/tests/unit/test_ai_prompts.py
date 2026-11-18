@@ -1,3 +1,6 @@
+import hashlib
+import json
+
 from quire_server.api.ai_schemas import AiStyle, Citation, MetadataBundle
 from quire_server.core.ai.prompts import (
     PROMPT_VERSION,
@@ -6,12 +9,50 @@ from quire_server.core.ai.prompts import (
     compose_user_prompt,
 )
 
+# Append a new version when the prompts change so cached insights are regenerated.
+PROMPT_DIGESTS = {"9": "1f38ceedd828dadc49b9f991daa7516b97a2b1ea9f806488e99e376a72f42a55"}
 
-def test_prompt_version_is_v9():
-    """v9: the insight gains a `curiosities` section. Existing cached insights
-    have none, so the cache key must regenerate.
-    """
-    assert PROMPT_VERSION == "9"
+
+def test_prompt_content_matches_cache_version():
+    metadata = MetadataBundle(
+        title="Fixture",
+        author="Fixture Author",
+        series_name="Fixture Series",
+        series_position=2,
+        language="en",
+        publisher="Fixture Press",
+        publish_date="2024",
+        isbn="9780000000002",
+        subjects=["Fiction", "Satire"],
+        description="A fixture description.",
+    )
+    citations = [
+        Citation(kind=kind, title="Fixture source", url="https://example.test", snippet="Source.")
+        for kind in ("wikipedia", "openlibrary", "opf", "model")
+    ]
+    prompts = [
+        SYSTEM_PROMPT,
+        compose_user_prompt(MetadataBundle(title="Fixture"), citations=[]),
+        *(
+            compose_user_prompt(
+                metadata,
+                citations,
+                style=AiStyle(tone=tone, language=language),
+                feedback="Fixture correction.",
+            )
+            for tone, language in (
+                ("neutral", "auto"),
+                ("enthusiastic", "en"),
+                ("scholarly", "it"),
+                ("casual", "fr"),
+            )
+        ),
+    ]
+    digest = hashlib.sha256(json.dumps(prompts, ensure_ascii=False).encode()).hexdigest()
+    assert PROMPT_DIGESTS.get(PROMPT_VERSION) == digest, (
+        f"Prompt content changed (SHA-256 {digest}). "
+        "Bump PROMPT_VERSION and add the new digest to PROMPT_DIGESTS."
+    )
 
 
 def test_system_prompt_includes_themes_vocab():

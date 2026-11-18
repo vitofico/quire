@@ -39,27 +39,33 @@ async def test_passthrough_under_cap():
 
 
 @pytest.mark.asyncio
-async def test_413_when_content_length_exceeds_cap():
-    app = _make_app(max_bytes=10)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        r = await c.post("/echo", content=b"x" * 50)
-    assert r.status_code == 413
-    assert "exceeds" in r.json()["detail"]
-
-
-@pytest.mark.asyncio
-async def test_413_for_chunked_body_exceeding_cap():
+@pytest.mark.parametrize(
+    "chunked,size,expected_status",
+    [
+        pytest.param(False, 10, 200, id="content-length-at-limit"),
+        pytest.param(False, 11, 413, id="content-length-over-limit"),
+        pytest.param(False, 50, 413, id="content-length-large"),
+        pytest.param(True, 10, 200, id="chunked-at-limit"),
+        pytest.param(True, 11, 413, id="chunked-over-limit"),
+        pytest.param(True, 14, 413, id="chunked-large"),
+    ],
+)
+async def test_request_size_bounds(chunked, size, expected_status):
     app = _make_app(max_bytes=10)
 
     async def chunked_iter():
-        # Yielding bytes via httpx triggers chunked transfer encoding (no
-        # Content-Length).
+        # An async iterable leaves Content-Length unset in httpx.
         yield b"a" * 6
-        yield b"b" * 8  # cumulative 14 > 10
+        yield b"b" * (size - 6)
 
+    content = chunked_iter() if chunked else b"x" * size
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        r = await c.post("/echo", content=chunked_iter())
-    assert r.status_code == 413
+        r = await c.post("/echo", content=content)
+    assert r.status_code == expected_status
+    if expected_status == 200:
+        assert r.json() == {"got": size}
+    else:
+        assert "exceeds" in r.json()["detail"]
 
 
 @pytest.mark.asyncio

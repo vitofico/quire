@@ -1,5 +1,4 @@
 import asyncio
-import time as _time
 from typing import Any
 
 import pytest
@@ -175,11 +174,20 @@ async def test_series_from_bundle_persists_into_payload(session: AsyncSession, m
 
 @pytest.mark.asyncio
 async def test_token_bucket_smooths_bursts():
-    bucket = TokenBucket(rate_per_min=60)
-    start = _time.monotonic()
-    for _ in range(3):
-        await bucket.acquire()
-    assert _time.monotonic() - start < 0.05
+    now = 0.0
+    bucket = TokenBucket(rate_per_min=2, clock=lambda: now)
+    await bucket.acquire()
+    await bucket.acquire()
+    waiting = asyncio.create_task(bucket.acquire())
+    try:
+        await asyncio.sleep(0)
+        assert not waiting.done()
+        now = 30.0
+        bucket.set_rate(2)
+        await asyncio.wait_for(waiting, timeout=2)
+    finally:
+        waiting.cancel()
+        await asyncio.gather(waiting, return_exceptions=True)
 
 
 @pytest.mark.asyncio

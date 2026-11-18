@@ -359,35 +359,30 @@ def test_metadata_bundle_rejects_empty_title():
         MetadataBundle.model_validate({"title": ""})
 
 
-def test_metadata_bundle_rejects_oversized_title():
-    """S-3 cap: bounds prompt size + protects against pathological inputs."""
-    with pytest.raises(ValidationError):
-        MetadataBundle.model_validate({"title": "x" * 513})
+@pytest.mark.parametrize(
+    "field,at_limit,over_limit",
+    [
+        pytest.param("title", "x" * 512, "x" * 513, id="title"),
+        pytest.param("author", "x" * 512, "x" * 513, id="author"),
+        pytest.param("language", "x" * 32, "x" * 33, id="language"),
+        pytest.param("isbn", "x" * 64, "x" * 65, id="isbn"),
+        pytest.param("publisher", "x" * 256, "x" * 257, id="publisher"),
+        pytest.param("publish_date", "x" * 32, "x" * 33, id="publish-date"),
+        pytest.param("series_name", "x" * 256, "x" * 257, id="series-name"),
+        pytest.param("description", "x" * 4096, "x" * 4097, id="description"),
+        pytest.param("subjects", ["s"] * 64, ["s"] * 65, id="subject-count"),
+        pytest.param("subjects", ["x" * 80], ["x" * 81], id="subject-length"),
+        pytest.param("series_position", 0, -1, id="series-position-minimum"),
+        pytest.param("series_position", 10_000, 10_001, id="series-position-maximum"),
+    ],
+)
+def test_metadata_bundle_bounds(field, at_limit, over_limit):
+    accepted = MetadataBundle.model_validate({"title": "t"} | {field: at_limit})
+    assert getattr(accepted, field) == at_limit
 
-
-def test_metadata_bundle_rejects_oversized_description():
-    with pytest.raises(ValidationError):
-        MetadataBundle.model_validate({"title": "t", "description": "x" * 4097})
-
-
-def test_metadata_bundle_rejects_too_many_subjects():
-    with pytest.raises(ValidationError):
-        MetadataBundle.model_validate({"title": "t", "subjects": ["s"] * 65})
-
-
-def test_metadata_bundle_rejects_oversized_subject_item():
-    with pytest.raises(ValidationError):
-        MetadataBundle.model_validate({"title": "t", "subjects": ["x" * 81]})
-
-
-def test_metadata_bundle_rejects_negative_series_position():
-    with pytest.raises(ValidationError):
-        MetadataBundle.model_validate({"title": "t", "series_position": -1})
-
-
-def test_metadata_bundle_rejects_overlarge_series_position():
-    with pytest.raises(ValidationError):
-        MetadataBundle.model_validate({"title": "t", "series_position": 10_001})
+    with pytest.raises(ValidationError) as exc:
+        MetadataBundle.model_validate({"title": "t"} | {field: over_limit})
+    assert [error["loc"] for error in exc.value.errors()] == [(field,)]
 
 
 def test_lookup_body_bundle_optional():

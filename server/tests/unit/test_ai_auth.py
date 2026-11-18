@@ -349,15 +349,6 @@ async def test_token_scope_empty_yields_empty_tuple():
     assert p2.scopes == ()
 
 
-async def test_token_iat_at_boundary_accepted():
-    now = 1_700_000_000
-    auth = _token_auth(now=now)
-    # iat == now + 300 is the exact upper bound.
-    token = _sign_token(_good_claims(now, iat=now + 300, exp=now + 400), secret=_SECRET)
-    p = await auth.authenticate(_make_request({"authorization": f"Bearer {token}"}))
-    assert p.subject == "acme:alice"
-
-
 # ---------------------------------------------------------------------------
 # TokenAiAuthenticator — failure modes (each raises HTTPException(401))
 # ---------------------------------------------------------------------------
@@ -438,25 +429,29 @@ async def test_token_exp_equals_now_rejected():
     await _expect_401(auth, _make_token_req({"authorization": f"Bearer {token}"}))
 
 
-async def test_token_iat_too_far_in_future_rejected():
+@pytest.mark.parametrize(
+    "issued_offset,expires_offset,accepted",
+    [
+        pytest.param(300, 400, True, id="future-skew-at-limit"),
+        pytest.param(301, 401, False, id="future-skew-over-limit"),
+        pytest.param(3600, 3700, False, id="future-skew-one-hour"),
+        pytest.param(0, -10, False, id="expires-before-issue"),
+        pytest.param(1, 1, False, id="expires-at-issue"),
+        pytest.param(0, 86_400, True, id="lifetime-at-limit"),
+        pytest.param(0, 86_401, False, id="lifetime-over-limit"),
+    ],
+)
+async def test_token_time_window(issued_offset, expires_offset, accepted):
     now = 1_700_000_000
     auth = _token_auth(now=now)
-    token = _sign_token(_good_claims(now, iat=now + 3600, exp=now + 3700), secret=_SECRET)
-    await _expect_401(auth, _make_token_req({"authorization": f"Bearer {token}"}))
-
-
-async def test_token_exp_lte_iat_rejected():
-    now = 1_700_000_000
-    auth = _token_auth(now=now)
-    token = _sign_token(_good_claims(now, iat=now, exp=now - 10), secret=_SECRET)
-    await _expect_401(auth, _make_token_req({"authorization": f"Bearer {token}"}))
-
-
-async def test_token_lifetime_over_24h_rejected():
-    now = 1_700_000_000
-    auth = _token_auth(now=now)
-    token = _sign_token(_good_claims(now, iat=now, exp=now + 86_401), secret=_SECRET)
-    await _expect_401(auth, _make_token_req({"authorization": f"Bearer {token}"}))
+    claims = _good_claims(now, iat=now + issued_offset, exp=now + expires_offset)
+    token = _sign_token(claims, secret=_SECRET)
+    request = _make_token_req({"authorization": f"Bearer {token}"})
+    if accepted:
+        principal = await auth.authenticate(request)
+        assert principal.subject == "acme:alice"
+    else:
+        await _expect_401(auth, request)
 
 
 # Identity

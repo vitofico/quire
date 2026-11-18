@@ -128,6 +128,34 @@ class LibraryViewModelTest {
         )
     }
 
+    @Test fun `delete removes only the selected book and its files`() = runTest {
+        val directory = kotlin.io.path.createTempDirectory("library-delete").toFile()
+        try {
+            suspend fun book(name: String): Document {
+                val epub = File(directory, "$name.epub").apply { writeText(name) }
+                val cover = File(directory, "$name.cover").apply { writeText(name) }
+                val id = docs.insert(
+                    DocumentIdentity(contentHash = name), name, null,
+                    name, epub.path, cover.path, 0L,
+                )
+                return checkNotNull(docs.findById(id))
+            }
+            val target = book("target")
+            val bystander = book("bystander")
+            val scope = checkNotNull(vm.viewModelScope.coroutineContext[Job])
+            val existing = scope.children.toSet()
+
+            vm.delete(target)
+            scope.children.filterNot { it in existing }.toList().forEach { it.join() }
+
+            assertThat(docs.findById(target.id)).isNull()
+            assertThat(docs.findById(bystander.id)).isEqualTo(bystander)
+            assertThat(directory.list()?.toList()).containsExactly("bystander.epub", "bystander.cover")
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun `restart on success without delete writes reset progress and keeps file`() = runTest {
         val tmp = File.createTempFile("book", ".epub").apply { writeText("x") }
         val doc = seedDoc(tmp)

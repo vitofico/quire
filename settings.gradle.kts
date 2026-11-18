@@ -22,6 +22,7 @@ include(
     ":core:model",
     ":core:identity",
     ":core:metadata",
+    ":core:test-fixtures",
     ":data:ai",
     ":data:library",
     ":data:local",

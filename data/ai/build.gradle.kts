@@ -34,6 +34,7 @@ dependencies {
     testImplementation(libs.truth)
     testImplementation(libs.robolectric)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(testFixtures(project(":core:test-fixtures")))
     testImplementation(libs.okhttp.mockwebserver)
     // Room in-memory for repository tests that exercise the local cache.
     testImplementation(libs.room.testing)

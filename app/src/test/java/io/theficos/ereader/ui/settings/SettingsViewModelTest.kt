@@ -1,10 +1,12 @@
 package io.theficos.ereader.ui.settings
 
 import android.content.Context
+import androidx.lifecycle.viewModelScope
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
 import io.theficos.ereader.auth.AccountCredentials
+import io.theficos.ereader.core.model.DocumentIdentity
 import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.data.ai.AiClient
 import io.theficos.ereader.data.ai.AiRepository
@@ -19,6 +21,8 @@ import io.theficos.ereader.ui.theme.Palette
 import io.theficos.ereader.ui.theme.ThemeMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -44,6 +48,7 @@ class SettingsViewModelTest {
     private lateinit var booksDir: File
     private lateinit var store: CalibreCredentialStore
     private lateinit var aiRepository: AiRepository
+    private val viewModels = mutableListOf<SettingsViewModel>()
 
     @Before fun setUp() {
         FakeAndroidKeyStore.setup()
@@ -68,9 +73,21 @@ class SettingsViewModelTest {
     }
 
     @After fun tearDown() {
-        runCatching { db.close() }
-        runCatching { booksDir.deleteRecursively() }
-        Dispatchers.resetMain()
+        try {
+            runTest {
+                viewModels.forEach { it.viewModelScope.coroutineContext[Job]?.cancelAndJoin() }
+            }
+        } finally {
+            try {
+                if (::db.isInitialized) db.close()
+            } finally {
+                try {
+                    if (::booksDir.isInitialized) booksDir.deleteRecursively()
+                } finally {
+                    Dispatchers.resetMain()
+                }
+            }
+        }
     }
 
     private fun buildVm(restoreInProgress: (suspend ((Int, Int) -> Unit) -> RestoreSummary)?): SettingsViewModel =
@@ -85,10 +102,38 @@ class SettingsViewModelTest {
             insightSyncRepository = null,
             insightDao = db.insightDao(),
             restoreInProgress = restoreInProgress,
-        )
+        ).also { viewModels += it }
 
     /** A view model with no restore hook, for tests that don't exercise restore. */
     private fun newViewModel(): SettingsViewModel = buildVm(restoreInProgress = null)
+
+    @Test fun `remove all books clears the library and its files without touching siblings`() = runTest {
+        val bystander = File.createTempFile("outside-library", ".txt", booksDir.parentFile)
+        try {
+            bystander.writeText("keep")
+            val ids = (1..2).map { number ->
+                val epub = File(booksDir, "$number.epub").apply { writeText("book") }
+                docs.insert(
+                    DocumentIdentity(contentHash = "hash-$number"), "Book $number", null,
+                    "url-$number", epub.path, null, 0L,
+                )
+            }
+            val cache = File(booksDir, "covers").apply { mkdir() }
+            File(cache, "cover.png").writeText("cover")
+
+            val vm = newViewModel()
+            val scope = checkNotNull(vm.viewModelScope.coroutineContext[Job])
+            val existing = scope.children.toSet()
+            vm.removeAllBooks()
+            scope.children.filterNot { it in existing }.toList().forEach { it.join() }
+
+            ids.forEach { assertThat(docs.findById(it)).isNull() }
+            assertThat(booksDir.listFiles()).isEmpty()
+            assertThat(bystander.readText()).isEqualTo("keep")
+        } finally {
+            bystander.delete()
+        }
+    }
 
     @Test fun `app theme changes persist without changing reader preferences`() = runTest {
         val readerStore = ReaderPreferencesStore(context)

@@ -144,12 +144,14 @@ async def test_delta_pages_offline_timestamps_mutations_and_download_removal(cli
     await push(client, [changed])
     seen = []
     cursor = first["next_cursor"]
-    while True:
+    for _ in range(len(rows)):
         page = await pull(client, cursor, limit=1)
         seen.extend(page["items"])
         cursor = page["next_cursor"]
         if not page["has_more"]:
             break
+    else:
+        pytest.fail("Three remaining revisions did not exhaust the feed")
     assert seen == rows[1:] + [changed]
     assert cursor == "4"
     offline = item(id=str(uuid4()), created_at=1, updated_at=2)

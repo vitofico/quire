@@ -1,10 +1,10 @@
-"""Keep the docs and compose files from drifting away from ``Settings``.
+"""Keep the docs and compose files aligned with server settings.
 
 Issue #104: settings written in ``.env`` never reached the container because
 the compose files forwarded an explicit allowlist, and the README table was
 missing seven fields. These checks fail the unit suite whenever:
 
-* a ``QUIRE_SERVER_*`` name appears in the docs or compose files that the
+* a server, identity or policy setting name appears in the docs or compose files that the
   server does not read (a typo, or a field that was renamed or removed);
 * ``docs/configuration.md`` has no heading for a variable the code reads:
   a ``Settings`` field, a compose or Caddyfile placeholder, or a name read
@@ -23,7 +23,9 @@ from pathlib import Path
 
 import pytest
 
-from quire_server.config import COMPOSE_ONLY_ENV_VARS, ENV_PREFIX, Settings
+from quire_server.api.browser_identity import IdentitySettings
+from quire_server.config import COMPOSE_ONLY_ENV_VARS, Settings
+from quire_server.core.ai.monthly_policy import PolicySettings
 
 SERVER_DIR = Path(__file__).resolve().parents[2]
 REPO_DIR = SERVER_DIR.parent
@@ -38,11 +40,17 @@ DOC_FILES = {
     GUIDE: REPO_DIR / "docs" / "configuration.md",
 }
 
-# Matches QUIRE_SERVER_FOO. Does not match the README's glob QUIRE_SERVER_AI_*
-# or the bare prefix QUIRE_SERVER_ used in prose.
-TOKEN_RE = re.compile(r"\bQUIRE_SERVER_[A-Z0-9_]+\b(?!\*)")
-
-KNOWN = {f"{ENV_PREFIX}{name.upper()}" for name in Settings.model_fields} | COMPOSE_ONLY_ENV_VARS
+MODEL_VARIABLES = {
+    model.__name__: {model.model_config["env_prefix"] + name.upper() for name in model.model_fields}
+    for model in (Settings, IdentitySettings, PolicySettings)
+}
+PREFIXES = "|".join(
+    re.escape(model.model_config["env_prefix"])
+    for model in (Settings, IdentitySettings, PolicySettings)
+)
+# Exclude bare prefixes and globs used in prose.
+TOKEN_RE = re.compile(rf"\b(?:{PREFIXES})[A-Z0-9_]+\b(?!\*)")
+KNOWN = COMPOSE_ONLY_ENV_VARS.union(*MODEL_VARIABLES.values())
 
 # The guide shows the boot warning a misspelled variable produces, so it names
 # one on purpose.
@@ -100,7 +108,7 @@ def _environ_reads() -> set[str]:
 
 
 VARIABLE_SOURCES = {
-    "Settings fields": {f"{ENV_PREFIX}{name.upper()}" for name in Settings.model_fields},
+    **MODEL_VARIABLES,
     "compose-only names": set(COMPOSE_ONLY_ENV_VARS),
     "compose and Caddyfile placeholders": _compose_and_caddy_vars(),
     "direct os.environ reads": _environ_reads(),
@@ -114,12 +122,26 @@ def _guide_headings() -> set[str]:
     }
 
 
+def _unknown_variables(label: str, path: Path) -> list[str]:
+    text = path.read_text(encoding="utf-8")
+    allowed = KNOWN | DELIBERATE_TYPOS.get(label, set())
+    return sorted(set(TOKEN_RE.findall(text)) - allowed)
+
+
 @pytest.mark.parametrize("label", sorted(DOC_FILES))
 def test_every_documented_variable_is_read_by_the_server(label):
-    text = DOC_FILES[label].read_text(encoding="utf-8")
-    allowed = KNOWN | DELIBERATE_TYPOS.get(label, set())
-    unknown = sorted(set(TOKEN_RE.findall(text)) - allowed)
+    unknown = _unknown_variables(label, DOC_FILES[label])
     assert unknown == [], f"{label} mentions variables the server does not read: {unknown}"
+
+
+@pytest.mark.parametrize(
+    "misspelling",
+    ["QUIRE_SERVER_AI_MODLE", "QUIRE_IDENTITY_OIDC_ISUER", "QUIRE_POLICY_TKOEN"],
+)
+def test_drift_guard_flags_a_misspelled_setting(tmp_path, misspelling):
+    doc = tmp_path / "example.md"
+    doc.write_text(f"Configure `{misspelling}` before startup.", encoding="utf-8")
+    assert _unknown_variables(doc.name, doc) == [misspelling]
 
 
 def test_env_example_covers_what_a_new_operator_needs():

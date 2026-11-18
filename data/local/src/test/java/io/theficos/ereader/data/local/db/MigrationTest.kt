@@ -1,9 +1,12 @@
 package io.theficos.ereader.data.local.db
 
+import android.content.Context
 import androidx.room.testing.MigrationTestHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
+import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import com.google.common.truth.Truth.assertThat
+import kotlinx.coroutines.test.runTest
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -21,6 +24,33 @@ class MigrationTest {
         emptyList(),
         FrameworkSQLiteOpenHelperFactory(),
     )
+
+    @Test fun `production database builder upgrades version two with reading data intact`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val filename = "ereader.db"
+        context.deleteDatabase(filename)
+        helper.createDatabase(filename, 2).use { old ->
+            old.execSQL("INSERT INTO documents (id, metadataId, contentHash, title, author, downloadUrl, localPath, coverPath, downloadedAt) VALUES (1, NULL, 'h', 'Book', NULL, 'u', 'p', NULL, 0)")
+            old.execSQL("INSERT INTO progress (id, documentId, locator, percent, updatedAt) VALUES (1, 1, 'loc', 0.5, 42)")
+        }
+
+        val db = EReaderDatabase.build(context)
+        try {
+            val sqlite = try {
+                db.openHelper.writableDatabase
+            } catch (e: IllegalStateException) {
+                throw AssertionError("The production Room builder must open existing version-two data", e)
+            }
+            assertThat(sqlite.version).isEqualTo(12)
+            assertThat(db.documentDao().findById(1)?.title).isEqualTo("Book")
+            val progress = checkNotNull(db.progressDao().findByDocument(1))
+            assertThat(progress.locator).isEqualTo("loc")
+            assertThat(progress.localUpdatedAt).isEqualTo(42L)
+        } finally {
+            db.close()
+            context.deleteDatabase(filename)
+        }
+    }
 
     @Test fun `migrate 11 to 12 preserves scoped highlights progress and adds local bookmark cascade`() {
         helper.createDatabase(DB, 11).use { db ->

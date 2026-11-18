@@ -28,9 +28,10 @@ import httpx
 import pytest
 from sqlalchemy import select
 
+from quire_server.api.ai_schemas import ReaderProfilePayload, ReaderStats
 from quire_server.core.ai.client import AIClient
 from quire_server.core.ai.service import InsightOrchestrator
-from quire_server.db.models import AIGenerationLog
+from quire_server.db.models import AIGenerationLog, ReaderProfile
 
 pytestmark = pytest.mark.requires_ai
 
@@ -197,8 +198,7 @@ def _install_fake_orchestrator(app, payload: dict) -> None:
 
 
 @pytest.mark.requires_ai
-async def test_token_auth_writes_tenant_id_to_generation_log(client_factory, app, session):
-    """End-to-end proof that PR-B's principal.tenant_id flows into PR-C's log."""
+async def test_token_auth_scopes_generation_log_and_profile_deletion(client_factory, app, session):
     async with client_factory(
         ai_enabled=True,
         ai_auth_mode="token",
@@ -240,6 +240,27 @@ async def test_token_auth_writes_tenant_id_to_generation_log(client_factory, app
         )
         assert r2.status_code == 200, r2.text
 
+        profile = ReaderProfilePayload(
+            stats=ReaderStats(
+                total_books=0, finished_count=0, in_progress_count=0, abandoned_count=0
+            )
+        ).model_dump()
+        session.add_all(
+            ReaderProfile(
+                tenant_id=tenant,
+                subject="acme:alice",
+                payload=profile,
+                schema_version=1,
+                model_id="test-model",
+                prompt_version="0",
+            )
+            for tenant in ("acme", "library")
+        )
+        await session.commit()
+
+        deleted = await client.delete("/ai/v1/profile", headers=headers)
+        assert deleted.status_code == 204, deleted.text
+
     logs = (await session.execute(select(AIGenerationLog))).scalars().all()
     assert len(logs) >= 1
     assert any(log.tenant_id == "acme" and log.subject == "acme:alice" for log in logs), [
@@ -247,6 +268,11 @@ async def test_token_auth_writes_tenant_id_to_generation_log(client_factory, app
     ]
     # And critically: nothing was logged under the legacy "local" tenant.
     assert not any(log.tenant_id == "local" for log in logs)
+
+    profiles = (
+        await session.scalars(select(ReaderProfile).where(ReaderProfile.subject == "acme:alice"))
+    ).all()
+    assert [(row.tenant_id, row.payload) for row in profiles] == [("library", profile)]
 
 
 @pytest.mark.requires_ai

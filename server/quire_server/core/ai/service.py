@@ -220,11 +220,12 @@ class IdentityUnresolvable(Exception):
 class TokenBucket:
     """Process-wide async token bucket. Smooths bursts against AI_BASE_URL."""
 
-    def __init__(self, *, rate_per_min: int) -> None:
+    def __init__(self, *, rate_per_min: int, clock: Callable[[], float] = time.monotonic) -> None:
+        self._clock = clock
         self._capacity = float(max(rate_per_min, 1))
         self._refill_per_s = self._capacity / 60.0
         self._tokens = self._capacity
-        self._last = time.monotonic()
+        self._last = self._clock()
         self._lock = asyncio.Lock()
         # Set, and replaced, by `set_rate`, so a waiter sized for the old
         # rate recomputes its wait instead of sleeping it out.
@@ -233,7 +234,7 @@ class TokenBucket:
     async def acquire(self) -> None:
         while True:
             async with self._lock:
-                now = time.monotonic()
+                now = self._clock()
                 self._tokens = min(
                     self._capacity, self._tokens + (now - self._last) * self._refill_per_s
                 )
@@ -255,7 +256,7 @@ class TokenBucket:
         new ceiling are dropped. Requests already waiting wake up and size
         their wait again at the new rate.
         """
-        now = time.monotonic()
+        now = self._clock()
         self._tokens = min(self._capacity, self._tokens + (now - self._last) * self._refill_per_s)
         self._last = now
         self._capacity = float(max(rate_per_min, 1))
