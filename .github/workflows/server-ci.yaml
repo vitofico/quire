@@ -8,11 +8,13 @@ on:
     branches: [main]
     paths:
       - "server/**"
+      - "docs/configuration.md"
       - ".github/workflows/server-ci.yaml"
       - "core/identity/src/test/resources/identity/**"
   pull_request:
     paths:
       - "server/**"
+      - "docs/configuration.md"
       - ".github/workflows/server-ci.yaml"
       - "core/identity/src/test/resources/identity/**"
 
@@ -24,6 +26,7 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:

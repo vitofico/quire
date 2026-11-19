@@ -18,6 +18,7 @@ on:
       - "gradle/**"
       - "gradlew"
       - "scripts/**"
+      - "server/tests/fixtures/**"
       - ".github/workflows/android-ci.yaml"
       - ".github/actions/reader-browser/**"
   pull_request:
@@ -33,6 +34,7 @@ on:
       - "gradle/**"
       - "gradlew"
       - "scripts/**"
+      - "server/tests/fixtures/**"
       - ".github/workflows/android-ci.yaml"
       - ".github/actions/reader-browser/**"
   # "Run workflow" on main releases main as it stands, no commit needed.
@@ -215,7 +217,53 @@ jobs:
           key: robolectric-${{ github.sha }}
           restore-keys: robolectric-
       - name: Unit tests
-        run: ./gradlew test --stacktrace
+        id: unit-tests
+        # Keep the JVM modules' test tasks and skip the duplicate Android release tests.
+        run: ./gradlew test -x testReleaseUnitTest --stacktrace
+      - name: Summarize unit test reports
+        if: ${{ !cancelled() && steps.unit-tests.outcome != 'skipped' }}
+        run: |
+          python3 - <<'PYTHON'
+          from collections import Counter
+          import os
+          from pathlib import Path
+          import subprocess
+          import xml.etree.ElementTree as ET
+
+          test_sources = subprocess.check_output([
+              "git", "ls-files", "-z", "--",
+              ":(glob)**/src/test/**/*.kt", ":(glob)**/src/test/**/*.java",
+              ":(glob)**/src/testDebug/**/*.kt", ":(glob)**/src/testDebug/**/*.java",
+          ]).decode().split("\0")
+          modules = sorted({name.split("/src/", 1)[0] for name in test_sources if name})
+          if not modules:
+              raise SystemExit("No unit test modules found")
+
+          lines = ["| Module | Tests | Failures | Errors | Skipped |", "| --- | ---: | ---: | ---: | ---: |"]
+          counts = ("tests", "failures", "errors", "skipped")
+          total = Counter()
+          skipped = []
+          for module in modules:
+              results = Path(module) / "build/test-results"
+              reports = [*results.glob("test/TEST-*.xml"), *results.glob("testDebugUnitTest/TEST-*.xml")]
+              if not reports:
+                  raise SystemExit(f"No unit test XML reports for {module}")
+              module_counts = Counter()
+              for report in reports:
+                  suite = ET.parse(report).getroot()
+                  module_counts.update({name: int(suite.attrib[name]) for name in counts})
+                  for case in suite.findall("testcase[skipped]"):
+                      skipped.append(f"- {case.attrib['classname']} / {case.attrib['name']}")
+              lines.append("| " + " | ".join([module, *(str(module_counts[name]) for name in counts)]) + " |")
+              total.update(module_counts)
+          lines.append("| " + " | ".join(["Total", *(str(total[name]) for name in counts)]) + " |")
+          if skipped:
+              lines.extend(["", "Skipped cases", "", *skipped])
+          summary = "\n".join(lines)
+          print(summary)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as output:
+              print(summary, file=output)
+          PYTHON
       - name: List Robolectric SDK jars
         id: robolectric-jars
         run: |
@@ -331,6 +379,11 @@ jobs:
         with:
           packages: "platform-tools platforms;android-35 build-tools;34.0.0"
       - uses: gradle/actions/setup-gradle@4c125117fe7c5aed11272ec4213f602f012f89f2 # v5
+        env:
+          # Both jobs share the workflow event SHA and cache context.
+          GRADLE_BUILD_ACTION_CACHE_KEY_JOB: build
+        with:
+          cache-read-only: true
       - name: Verify tagged source
         env:
           TAG: v${{ needs.build.outputs.version }}
