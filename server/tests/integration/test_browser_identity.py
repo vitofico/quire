@@ -214,6 +214,55 @@ async def test_oidc_callback_issuer_subject_mapping_and_replay(
             ).status_code == 401
 
 
+# Kept independent of the export/purge list so a dropped table still has a witness.
+PRIVATE_ROWS = {
+    "highlights": "user_id",
+    "highlight_sync_state": "user_id",
+    "documents": "user_id",
+    "library_items": "user_id",
+    "user_ai_preferences": "user_id",
+    "ai_usage_daily": "user_id",
+    "ai_usage_monthly": "user_id",
+    "insight_identity_aliases": "user_id",
+    "ai_generation_log": "subject",
+    "reader_profiles": "subject",
+}
+
+
+async def private_rows(session, account):
+    rows = {}
+    for table, key in PRIVATE_ROWS.items():
+        rows[table] = list(
+            await session.scalars(
+                text(f"SELECT to_jsonb(r)::text FROM {table} r WHERE {key}=:account ORDER BY 1"),
+                {"account": account},
+            )
+        )
+    return rows
+
+
+async def test_purge_accounts_for_every_account_keyed_table(session):
+    from quire_server.api.account_lifecycle import PRIVATE
+
+    tables = set(
+        await session.scalars(
+            text(
+                "SELECT DISTINCT table_name FROM information_schema.columns "
+                "WHERE table_schema=current_schema() AND column_name IN ('user_id', 'subject')"
+            )
+        )
+    )
+    # These identity tables use numeric keys and their own revocation or cascade rules.
+    identity_tables = {
+        "external_identities",
+        "native_sessions",
+        "pairing_tickets",
+        "account_delete_authorizations",
+    }
+    assert tables == set(PRIVATE_ROWS) | identity_tables
+    assert PRIVATE == PRIVATE_ROWS
+
+
 async def test_export_close_purge_isolation_and_shared_cache(
     client_factory, app, configure_ai, session, monkeypatch
 ):
@@ -281,11 +330,48 @@ async def test_export_close_purge_isolation_and_shared_cache(
         assert exported["highlights"][0]["deleted_at"] is not None
         assert exported["highlight_sync_state"] == [{"user_id": account, "revision": 2}]
         assert "password_hash" not in str(exported) and "token_hash" not in str(exported)
+        for owner in (account, f"native:{bob}"):
+            for statement in (
+                "INSERT INTO user_ai_preferences (user_id) VALUES (:id) ON CONFLICT DO NOTHING",
+                "INSERT INTO ai_usage_daily (user_id, day) VALUES (:id, CURRENT_DATE) "
+                "ON CONFLICT DO NOTHING",
+                "INSERT INTO ai_usage_monthly (user_id, month, count) "
+                "VALUES (:id, '2020-01-01', 1)",
+                "INSERT INTO insight_identity_aliases "
+                "(user_id, alias_scheme, alias_value, canonical_scheme, canonical_value, source) "
+                "VALUES (:id, 'isbn', 'witness', 'content_hash', 'shared', 'client')",
+                "INSERT INTO ai_generation_log (subject, model_id, prompt_version, status, kind) "
+                "VALUES (:id, 'synthetic', '1', 'miss', 'profile')",
+                "INSERT INTO reader_profiles "
+                "(tenant_id, subject, payload, schema_version, model_id, prompt_version) "
+                "VALUES ('local', :id, '{}', 1, 'synthetic', '1')",
+            ):
+                await session.execute(text(statement), {"id": owner})
+            await session.execute(
+                text("INSERT INTO documents (user_id, content_hash) VALUES (:id, 'purge-witness')"),
+                {"id": owner},
+            )
+        await session.commit()
+        bob_before = await private_rows(session, f"native:{bob}")
+        assert all(bob_before.values())
+        assert all((await private_rows(session, account)).values())
+        number = int(account.split(":")[1])
+        sessions = text("SELECT count(*) FROM native_sessions WHERE user_id=:id")
+        assert await session.scalar(sessions, {"id": number}) > 0
+        bob_sessions = await session.scalar(sessions, {"id": bob})
+        assert bob_sessions > 0
         path = "/internal/v1/accounts/" + account
+        assert (await client.get(path + "/identity")).status_code == 403
+        identity_response = await client.get(
+            path + "/identity", headers={"Authorization": "Bearer " + SERVICE}
+        )
+        assert identity_response.json() == {"account_id": account, "identities": []}
         assert (await client.post(path + "/close")).status_code == 403
         service = {"Authorization": "Bearer " + SERVICE}
         assert (await client.post(path + "/purge", headers=service)).status_code == 409
         assert (await client.post(path + "/close", headers=service)).status_code == 200
+        assert (await client.post(path + "/finalize", headers=service)).status_code == 409
+        assert await session.get(NativeUser, number) is not None
         assert (await client.get("/auth/v1/me", headers=auth)).status_code == 401
         assert (await client.post(path + "/purge", headers=service)).status_code == 200
         assert (await client.post(path + "/purge", headers=service)).status_code == 200
@@ -307,6 +393,10 @@ async def test_export_close_purge_isolation_and_shared_cache(
             == 1
         )
 
+        assert not any((await private_rows(session, account)).values())
+        assert await private_rows(session, f"native:{bob}") == bob_before
+        assert await session.scalar(sessions, {"id": number}) == 0
+        assert await session.scalar(sessions, {"id": bob}) == bob_sessions
         assert (
             await client.post(
                 "/ai/v1/insights/get",
@@ -315,6 +405,7 @@ async def test_export_close_purge_isolation_and_shared_cache(
             )
         ).status_code == 200
         assert (await client.post(path + "/finalize", headers=service)).status_code == 200
+        assert await session.get(NativeUser, number, populate_existing=True) is None
 
 
 async def test_closure_waits_for_inflight_private_write(client_factory, app, session, monkeypatch):

@@ -1,9 +1,12 @@
 package io.theficos.ereader.data.local.db
 
+import android.content.Context
 import androidx.room.testing.MigrationTestHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
+import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import com.google.common.truth.Truth.assertThat
+import kotlinx.coroutines.test.runTest
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -21,6 +24,33 @@ class MigrationTest {
         emptyList(),
         FrameworkSQLiteOpenHelperFactory(),
     )
+
+    @Test fun `production database builder upgrades version two with reading data intact`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val filename = "ereader.db"
+        context.deleteDatabase(filename)
+        helper.createDatabase(filename, 2).use { old ->
+            old.execSQL("INSERT INTO documents (id, metadataId, contentHash, title, author, downloadUrl, localPath, coverPath, downloadedAt) VALUES (1, NULL, 'h', 'Book', NULL, 'u', 'p', NULL, 0)")
+            old.execSQL("INSERT INTO progress (id, documentId, locator, percent, updatedAt) VALUES (1, 1, 'loc', 0.5, 42)")
+        }
+
+        val db = EReaderDatabase.build(context)
+        try {
+            val sqlite = try {
+                db.openHelper.writableDatabase
+            } catch (e: IllegalStateException) {
+                throw AssertionError("The production Room builder must open existing version-two data", e)
+            }
+            assertThat(sqlite.version).isEqualTo(12)
+            assertThat(db.documentDao().findById(1)?.title).isEqualTo("Book")
+            val progress = checkNotNull(db.progressDao().findByDocument(1))
+            assertThat(progress.locator).isEqualTo("loc")
+            assertThat(progress.localUpdatedAt).isEqualTo(42L)
+        } finally {
+            db.close()
+            context.deleteDatabase(filename)
+        }
+    }
 
     @Test fun `migrate 11 to 12 preserves scoped highlights progress and adds local bookmark cascade`() {
         helper.createDatabase(DB, 11).use { db ->
@@ -246,51 +276,6 @@ class MigrationTest {
         }
     }
 
-    @Test fun `migrate 6 to 8 chains via book_insights and abandonedAt`() {
-        // v6 fixture: seed a documents row + a progress row. book_insights
-        // does NOT exist at v6 (added by MIGRATION_6_7).
-        helper.createDatabase(DB, 6).use { db ->
-            db.execSQL(
-                "INSERT INTO documents (id, metadataId, contentHash, title, author, downloadUrl, " +
-                    "localPath, coverPath, downloadedAt, seriesName, seriesIndex, librarySyncedAt) " +
-                    "VALUES (31, 'm31', 'h31', 'Pre-η title', NULL, 'u', 'p', NULL, 41, NULL, NULL, NULL)"
-            )
-            db.execSQL(
-                "INSERT INTO progress (id, documentId, locator, percent, updatedAt, " +
-                    "localUpdatedAt, syncedAt, finishedAt) " +
-                    "VALUES (31, 31, 'loc', 0.7, 100, 100, 0, NULL)"
-            )
-        }
-
-        helper.runMigrationsAndValidate(
-            DB,
-            8,
-            true,
-            EReaderDatabase.MIGRATION_6_7,
-            EReaderDatabase.MIGRATION_7_8,
-        ).use { db ->
-            // book_insights (from MIGRATION_6_7) exists.
-            db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='book_insights'").use { c ->
-                assertThat(c.moveToFirst()).isTrue()
-            }
-            // progress.abandonedAt (from MIGRATION_7_8) exists.
-            db.query("PRAGMA table_info('progress')").use { c ->
-                val cols = mutableSetOf<String>()
-                while (c.moveToNext()) cols += c.getString(c.getColumnIndexOrThrow("name"))
-                assertThat(cols).contains("abandonedAt")
-            }
-            // Pre-existing v6 rows survive both additive migrations.
-            db.query("SELECT COUNT(*) FROM documents WHERE id=31").use { c ->
-                assertThat(c.moveToFirst()).isTrue()
-                assertThat(c.getInt(0)).isEqualTo(1)
-            }
-            db.query("SELECT abandonedAt FROM progress WHERE id=31").use { c ->
-                assertThat(c.moveToFirst()).isTrue()
-                assertThat(c.isNull(0)).isTrue()
-            }
-        }
-    }
-
     @Test fun `migrate 8 to 9 stamps identityHashVersion=1 on documents and book_insights`() {
         // v8 fixture: seed one row in `documents` and one in `book_insights`
         // (both tables exist at v8). identityHashVersion does NOT exist yet.
@@ -359,46 +344,43 @@ class MigrationTest {
         }
     }
 
-    @Test fun `migrate 6 to 9 chains all additive migrations`() {
-        // Long-tail upgrade path: a v6 install (pre-PR-η) jumps straight to
-        // v9 (post-F-2). Every additive migration in between must survive.
-        helper.createDatabase(DB, 6).use { db ->
-            db.execSQL(
-                "INSERT INTO documents (id, metadataId, contentHash, title, author, downloadUrl, " +
-                    "localPath, coverPath, downloadedAt, seriesName, seriesIndex, librarySyncedAt) " +
-                    "VALUES (51, 'm51', 'h51', 'Pre-F2 chain title', NULL, 'u', 'p', NULL, 61, NULL, NULL, NULL)"
-            )
-            db.execSQL(
-                "INSERT INTO progress (id, documentId, locator, percent, updatedAt, " +
-                    "localUpdatedAt, syncedAt, finishedAt) " +
-                    "VALUES (51, 51, 'loc', 0.8, 100, 100, 0, NULL)"
-            )
+    @Test fun `production database builder upgrades version six with both legacy reading rows`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val filename = "ereader.db"
+        context.deleteDatabase(filename)
+        helper.createDatabase(filename, 6).use { old ->
+            for ((id, percent) in listOf(31 to 0.7, 51 to 0.8)) {
+                old.execSQL(
+                    "INSERT INTO documents (id, metadataId, contentHash, title, author, downloadUrl, " +
+                        "localPath, coverPath, downloadedAt, seriesName, seriesIndex, librarySyncedAt) " +
+                        "VALUES (?, ?, ?, ?, NULL, 'u', 'p', NULL, ?, NULL, NULL, NULL)",
+                    arrayOf(id, "m$id", "h$id", "Legacy book $id", id + 10),
+                )
+                old.execSQL(
+                    "INSERT INTO progress (id, documentId, locator, percent, updatedAt, " +
+                        "localUpdatedAt, syncedAt, finishedAt) VALUES (?, ?, 'loc', ?, 100, 100, 0, NULL)",
+                    arrayOf(id, id, percent),
+                )
+            }
         }
 
-        helper.runMigrationsAndValidate(
-            DB,
-            9,
-            true,
-            EReaderDatabase.MIGRATION_6_7,
-            EReaderDatabase.MIGRATION_7_8,
-            EReaderDatabase.MIGRATION_8_9,
-        ).use { db ->
-            // F-2 column landed on both tables.
-            db.query("SELECT identityHashVersion FROM documents WHERE id=51").use { c ->
-                assertThat(c.moveToFirst()).isTrue()
-                assertThat(c.getInt(0)).isEqualTo(1)
+        val db = EReaderDatabase.build(context)
+        try {
+            val sqlite = db.openHelper.writableDatabase
+            assertThat(sqlite.version).isEqualTo(12)
+            sqlite.query("SELECT identityHashVersion FROM book_insights").use { rows ->
+                assertThat(rows.count).isEqualTo(0)
             }
-            db.query("PRAGMA table_info('book_insights')").use { c ->
-                val cols = mutableSetOf<String>()
-                while (c.moveToNext()) cols += c.getString(c.getColumnIndexOrThrow("name"))
-                assertThat(cols).contains("identityHashVersion")
+            for ((id, percent) in listOf(31L to 0.7, 51L to 0.8)) {
+                assertThat(db.documentDao().findById(id)?.identityHashVersion).isEqualTo(1)
+                val saved = checkNotNull(db.progressDao().findByDocument(id))
+                assertThat(saved.percent).isEqualTo(percent)
+                assertThat(saved.abandonedAt).isNull()
+                assertThat(saved.finishedAt).isNull()
             }
-            // Earlier additive migrations still present.
-            db.query("PRAGMA table_info('progress')").use { c ->
-                val cols = mutableSetOf<String>()
-                while (c.moveToNext()) cols += c.getString(c.getColumnIndexOrThrow("name"))
-                assertThat(cols).contains("abandonedAt")
-            }
+        } finally {
+            db.close()
+            context.deleteDatabase(filename)
         }
     }
 

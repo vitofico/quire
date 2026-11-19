@@ -44,19 +44,14 @@ async def _stamp(postgres_url: str, revision: str | tuple[str, ...]) -> None:
     await eng.dispose()
 
 
-async def _restore_to_0004(postgres_url: str) -> None:
-    """Set alembic_version rows back to {0004, auth_003} — the canonical
-    "backbone + always-on auth branch" state expected by the rest of the
-    suite (which depends on the session-scoped alembic_upgrade fixture).
-    """
-    await _stamp(postgres_url, ("0004", "auth_003"))
-
-
 @pytest.fixture
-async def restore_after(postgres_url: str, alembic_upgrade):
-    """Ensure each test ends with the DB stamped back to 0004."""
-    yield
-    await _restore_to_0004(postgres_url)
+async def restore_after(postgres_url: str, engine):
+    async with engine.connect() as conn:
+        revisions = tuple(await conn.scalars(text("SELECT version_num FROM alembic_version")))
+    try:
+        yield
+    finally:
+        await _stamp(postgres_url, revisions)
 
 
 async def test_readyz_200_when_at_ai_head(monkeypatch, postgres_url, alembic_upgrade):

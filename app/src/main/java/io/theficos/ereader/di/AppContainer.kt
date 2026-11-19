@@ -81,7 +81,9 @@ internal fun AccountCredentials.quireServerUrlOrNull(): String? = when (this) {
     is AccountCredentials.OpdsOnly -> null
 }
 
-class AppContainer(context: Context) {
+class AppContainer internal constructor(context: Context, private val db: EReaderDatabase) {
+    constructor(context: Context) : this(context, EReaderDatabase.build(context.applicationContext))
+
     private val appContext = context.applicationContext
 
     val credentialStore: CalibreCredentialStore = CalibreCredentialStore(appContext)
@@ -94,7 +96,6 @@ class AppContainer(context: Context) {
         booksDir = booksDir,
     )
 
-    private val db: EReaderDatabase = EReaderDatabase.build(appContext)
     val memoryBookmarkDao = db.memoryBookmarkDao()
     val documentRepository = DocumentRepository(db.documentDao())
     val progressRepository = ProgressRepository(db.progressDao())

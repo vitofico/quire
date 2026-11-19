@@ -37,23 +37,24 @@ async def _truncate_ai_tables_between_tests(request, engine: AsyncEngine):
     """
     if "session" not in request.fixturenames:
         return
+    # The backbone owns these tables even when a feature branch is absent.
+    tables = [
+        "book_insights",
+        "user_ai_preferences",
+        "external_source_cache",
+        "ai_usage_daily",
+        "progress",
+        "documents",
+        "native_sessions",
+        "native_users",
+    ]
+    lane = request.config.getoption("ci_mode")
+    if lane != "sync_only":
+        tables.extend(["insight_identity_aliases", "reader_profiles", "server_settings"])
+    if lane != "ai_only":
+        tables.extend(["library_items", "highlights", "highlight_sync_state"])
     async with engine.begin() as conn:
-        await conn.execute(
-            text(
-                "TRUNCATE TABLE book_insights, user_ai_preferences, "
-                "external_source_cache, ai_usage_daily, "
-                "insight_identity_aliases, library_items, "
-                "reader_profiles, progress, documents, "
-                "highlights, highlight_sync_state, "
-                # Phase 0, task S-1: NativeAuth tables. Listed even when the
-                # test fixture defaults to CalibreWeb backend so opt-in
-                # NativeAuth tests start from a clean slate.
-                "native_sessions, native_users, "
-                # Issue #102: AI settings saved on the status page.
-                "server_settings "
-                "RESTART IDENTITY CASCADE"
-            )
-        )
+        await conn.execute(text(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE"))
 
 
 class _AppProxy:
@@ -214,21 +215,31 @@ def _ai_chat_response(payload: dict) -> dict:
 
 
 @pytest.fixture
-def configure_ai():
+def model_transport():
+    def create(payload, before_reply=None):
+        async def reply(request):
+            if before_reply is not None:
+                await before_reply(request)
+            return httpx.Response(200, json=_ai_chat_response(payload))
+
+        return httpx.MockTransport(reply)
+
+    return create
+
+
+@pytest.fixture
+def configure_ai(model_transport):
     """Return a helper that installs a fake AI orchestrator on app.state."""
 
     from quire_server.core.ai.client import AIClient
     from quire_server.core.ai.service import InsightOrchestrator
 
     def _apply(app, fake_ai_payload: dict, sources_enabled: tuple[str, ...] = ()):
-        def fake_handler(req: httpx.Request) -> httpx.Response:
-            return httpx.Response(200, json=_ai_chat_response(fake_ai_payload))
-
         ai = AIClient(
             base_url="http://fake/v1",
             api_key=None,
             model="test-model",
-            transport=httpx.MockTransport(fake_handler),
+            transport=model_transport(fake_ai_payload),
         )
 
         class _NoOpRetriever:

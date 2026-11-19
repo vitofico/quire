@@ -7,8 +7,8 @@ read [Required](#required), pick a mode in [Deploy modes](#deploy-modes),
 copy the matching `.env` block, and come back here when something needs
 changing.
 
-Every name and default on this page comes from the code: the settings class
-in `server/quire_server/config.py`, the compose files
+Every name and default on this page comes from the server, identity and policy
+settings models, the compose files
 `server/docker-compose.yml` and `server/docker-compose.full.yml`, and the
 migration step `server/scripts/migrate.py`. A unit test
 (`server/tests/unit/test_env_docs_drift.py`) fails when a setting exists in
@@ -969,6 +969,53 @@ The `iss` and `aud` values every token must carry in `token` mode, where both
 are required. Unused otherwise.
 
 When to change it: only with `token` mode.
+
+### Browser identity and OIDC
+
+These settings are optional. Set them in the server process environment. Docker
+Compose also reads them from its `.env` file.
+
+#### `QUIRE_IDENTITY_PUBLIC_URL`
+
+The fixed public origin for browser sign-in and the OIDC callback. Use an HTTPS
+origin without a route, query, or fragment. The default is unset.
+
+#### `QUIRE_IDENTITY_ALLOW_INSECURE_LOOPBACK`
+
+Set to `true` to allow HTTP on a loopback origin for local testing. Defaults to
+`false`.
+
+#### `QUIRE_IDENTITY_OIDC_ISSUER`
+
+The OpenID Connect provider's issuer URL. Set it together with the client ID
+and public origin to enable OIDC. The default is unset.
+
+#### `QUIRE_IDENTITY_OIDC_CLIENT_ID`
+
+The client ID registered with the OIDC provider. The default is unset.
+
+#### `QUIRE_IDENTITY_OIDC_CLIENT_SECRET`
+
+The OIDC client secret, when required by the provider. The default is unset.
+
+#### `QUIRE_IDENTITY_SERVICE_TOKEN`
+
+The service-to-service token for identity operations. A configured token must
+be at least 32 characters. The default is unset.
+
+### External AI allowance policy
+
+These optional settings enable a separate service to apply AI allowances. Set
+them together in the server process environment or Compose `.env`.
+
+#### `QUIRE_POLICY_URL`
+
+The fixed HTTP or HTTPS origin of the policy service. The default is unset.
+
+#### `QUIRE_POLICY_TOKEN`
+
+The service-to-service token for the policy API. A configured token must be at
+least 32 characters. The default is unset.
 
 ### Rollback and deprecated switches
 

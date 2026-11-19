@@ -30,8 +30,11 @@ SYNC_ONLY_FORBIDDEN = [
     "quire_server.core.ai._compat",  # PR-ε / coordinator §3.18
 ]
 
-# Modules that should NOT load in ai-only mode.
+# Progress router implementations must stay unloaded even when AI is configured.
 AI_ONLY_FORBIDDEN = [
+    "quire_server.api.agent_highlights",
+    "quire_server.api.highlights",
+    "quire_server.api.library",
     "quire_server.api.progress",
 ]
 
@@ -78,6 +81,7 @@ def _run_in_subprocess(env_overrides: dict[str, str], postgres_url: str) -> set[
     return set(json.loads(lines[-1]))
 
 
+@pytest.mark.ci_lane("sync_only")
 def test_sync_only_does_not_import_ai_modules(postgres_url: str):
     loaded = _run_in_subprocess(
         {
@@ -86,10 +90,12 @@ def test_sync_only_does_not_import_ai_modules(postgres_url: str):
         },
         postgres_url,
     )
+    assert "quire_server.api.progress" in loaded
     for forbidden in SYNC_ONLY_FORBIDDEN:
         assert forbidden not in loaded, f"sync-only mode loaded forbidden module: {forbidden}"
 
 
+@pytest.mark.ci_lane("sync_only")
 def test_sync_only_with_admin_users_does_not_import_ai_modules(postgres_url: str):
     """Issue #102: the status page must not drag the AI modules into sync-only."""
     loaded = _run_in_subprocess(
@@ -105,14 +111,18 @@ def test_sync_only_with_admin_users_does_not_import_ai_modules(postgres_url: str
         assert forbidden not in loaded, f"sync-only mode loaded forbidden module: {forbidden}"
 
 
+@pytest.mark.ci_lane("ai_only")
 def test_ai_only_does_not_import_progress_router(postgres_url: str):
     loaded = _run_in_subprocess(
         {
             "QUIRE_SERVER_PROGRESS_ENABLED": "false",
             "QUIRE_SERVER_AI_ENABLED": "true",
+            "QUIRE_SERVER_AI_BASE_URL": "https://model.example.test/v1",
+            "QUIRE_SERVER_AI_MODEL": "ai-only-fixture",
         },
         postgres_url,
     )
+    assert "quire_server.api.ai" in loaded
     for forbidden in AI_ONLY_FORBIDDEN:
         assert forbidden not in loaded, f"ai-only mode loaded forbidden module: {forbidden}"
 

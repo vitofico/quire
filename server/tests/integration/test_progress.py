@@ -1,10 +1,17 @@
 import base64
+import json
+from datetime import datetime
+from pathlib import Path
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 # All tests in this file hit /sync/v1/* and so require the progress router.
-pytestmark = pytest.mark.requires_progress
+pytestmark = [
+    pytest.mark.requires_progress,
+    pytest.mark.usefixtures("session"),
+    pytest.mark.ci_lane("sync_only"),
+]
 
 
 def _basic(user: str, pw: str) -> dict[str, str]:
@@ -12,26 +19,33 @@ def _basic(user: str, pw: str) -> dict[str, str]:
     return {"Authorization": f"Basic {token}"}
 
 
-async def test_post_progress_creates_document_and_progress(app_under_test):
+@pytest.fixture
+def progress_wire_fixture():
+    fixture_path = Path(__file__).resolve().parents[1] / "fixtures" / "progress-sync.json"
+    return json.loads(fixture_path.read_text())
+
+
+async def test_post_progress_creates_document_and_progress(
+    app_under_test, cwa_users, progress_wire_fixture
+):
+    fixture = progress_wire_fixture
+    cwa_users["wire-contract-reader"] = "fixture-password"
+    headers = _basic("wire-contract-reader", "fixture-password")
     transport = ASGITransport(app=app_under_test)
-    headers = _basic("alice", "alicepass")
-    body = {
-        "items": [
-            {
-                "document": {"metadata_id": "abc", "content_hash": "hash1"},
-                "locator": "epubcfi(/6/4!/4)",
-                "percent": 0.42,
-                "client_updated_at": "2026-05-05T12:00:00+00:00",
-            }
-        ]
-    }
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        r = await c.post("/sync/v1/progress", json=body, headers=headers)
-    assert r.status_code == 200, r.text
-    data = r.json()
-    assert len(data["results"]) == 1
-    assert data["results"][0]["status"] == "accepted"
-    assert data["results"][0]["server_client_updated_at"] == "2026-05-05T12:00:00+00:00"
+
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        pushed = await client.post("/sync/v1/progress", headers=headers, json=fixture["push"])
+        assert pushed.status_code == 200, pushed.text
+        assert pushed.json() == fixture["push_response"]
+
+        pulled = await client.get(
+            "/sync/v1/progress", headers=headers, params={"since": "2026-01-01T00:00:00Z"}
+        )
+        assert pulled.status_code == 200, pulled.text
+
+    response = pulled.json()
+    assert datetime.fromisoformat(response["server_time"]).utcoffset() is not None
+    assert response == {**fixture["pull"], "server_time": response["server_time"]}
 
 
 async def test_post_progress_lww_keeps_newer(app_under_test):
@@ -69,7 +83,7 @@ async def test_post_progress_lww_keeps_newer(app_under_test):
         # GET — should reflect the 0.5 value
         r3 = await c.get("/sync/v1/progress?since=2026-01-01T00:00:00+00:00", headers=headers)
         assert r3.status_code == 200
-        items = r3.json()["items"]
+        items = [row for row in r3.json()["items"] if row["document"]["content_hash"] == "hash1"]
         assert len(items) == 1
         assert items[0]["percent"] == 0.5
 

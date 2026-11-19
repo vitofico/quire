@@ -22,8 +22,7 @@ COMPOSE_ONLY_ENV_VARS: frozenset[str] = frozenset({"QUIRE_SERVER_PORT"})
 # bare QUIRE_SERVER_PORT listed above. They share the prefix but are not
 # settings, so the unknown-variable scan skips them.
 _K8S_SERVICE_LINK = re.compile(
-    re.escape(ENV_PREFIX)
-    + r"(?:SERVICE_HOST|SERVICE_PORT(?:_\w+)?|PORT_\d+_(?:TCP|UDP|SCTP)(?:_(?:PROTO|PORT|ADDR))?)"
+    r"(?:SERVICE_HOST|SERVICE_PORT(?:_\w+)?|PORT_\d+_(?:TCP|UDP|SCTP)(?:_(?:PROTO|PORT|ADDR))?)"
 )
 
 # The retrieval sources the AI service knows how to query, by the names
@@ -287,14 +286,14 @@ class Settings(BaseSettings):
         return value
 
 
-def _dotenv_names() -> set[str]:
+def _dotenv_names(settings_model: type[BaseSettings]) -> set[str]:
     """Names in the dotenv file(s) ``Settings`` reads, or an empty set.
 
     Same ``env_file`` config and same parser as pydantic-settings, so the
     scan sees exactly the lines the settings object sees. A missing file
     is not an error, just no names.
     """
-    env_file = Settings.model_config.get("env_file")
+    env_file = settings_model.model_config.get("env_file")
     if not env_file:
         return set()
     paths = [env_file] if isinstance(env_file, (str, os.PathLike)) else list(env_file)
@@ -307,26 +306,30 @@ def _dotenv_names() -> set[str]:
 
 
 def unknown_env_vars(environ: Mapping[str, str] | None = None) -> list[str]:
-    """Names of ``QUIRE_SERVER_*`` variables the server does not read.
+    """Find unknown variables in the settings namespaces read at app startup.
 
-    Issue #104: a misspelled variable used to be ignored without a word.
-    Comparison is case-insensitive because pydantic-settings matches names
-    that way. ``environ`` defaults to ``os.environ``; tests pass a dict.
-    The scan also covers the dotenv file named by
-    ``Settings.model_config["env_file"]``, since ``Settings`` reads it
-    directly and a locally run process never copies it into the
-    environment first. The result is sorted so log output is stable.
+    Names are compared case-insensitively to match pydantic-settings. Check
+    the process environment and any dotenv files read by the settings models.
     """
-    env = os.environ if environ is None else environ
-    names = set(env) | _dotenv_names()
-    known = {f"{ENV_PREFIX}{name.upper()}" for name in Settings.model_fields}
+    from quire_server.api.browser_identity import IdentitySettings
+    from quire_server.core.ai.monthly_policy import PolicySettings
+
+    models = (Settings, IdentitySettings, PolicySettings)
+    namespaces = {model.model_config["env_prefix"].upper(): model.model_fields for model in models}
+    known = COMPOSE_ONLY_ENV_VARS | {
+        prefix + name.upper() for prefix, fields in namespaces.items() for name in fields
+    }
+    names = set(os.environ if environ is None else environ)
+    for model in models:
+        names.update(_dotenv_names(model))
     return sorted(
         name
         for name in names
-        if name.upper().startswith(ENV_PREFIX)
-        and name.upper() not in known
-        and name.upper() not in COMPOSE_ONLY_ENV_VARS
-        and not _K8S_SERVICE_LINK.fullmatch(name.upper())
+        if (upper := name.upper()) not in known
+        and any(
+            upper.startswith(prefix) and not _K8S_SERVICE_LINK.fullmatch(upper[len(prefix) :])
+            for prefix in namespaces
+        )
     )
 
 

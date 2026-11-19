@@ -20,6 +20,7 @@ on:
       - "scripts/**"
       - "server/tests/fixtures/**"
       - ".github/workflows/android-ci.yaml"
+      - ".github/actions/reader-browser/**"
   pull_request:
     paths:
       - "app/**"
@@ -35,6 +36,7 @@ on:
       - "scripts/**"
       - "server/tests/fixtures/**"
       - ".github/workflows/android-ci.yaml"
+      - ".github/actions/reader-browser/**"
   # "Run workflow" on main releases main as it stands, no commit needed.
   # "Push version bump + tag" below also dispatches a run this way when a
   # merge lands while it builds.
@@ -81,11 +83,10 @@ jobs:
         with:
           packages: "platform-tools platforms;android-35 build-tools;34.0.0"
       - uses: gradle/actions/setup-gradle@4c125117fe7c5aed11272ec4213f602f012f89f2 # v5
+      # PRs run this in a path-filtered parallel job. Main must pass it before tagging.
       - name: Reader structural-anchor browser tests
-        run: |
-          npm ci --prefix scripts
-          scripts/node_modules/.bin/playwright install --with-deps chromium
-          npm test --prefix scripts
+        if: github.event_name != 'pull_request'
+        uses: ./.github/actions/reader-browser
       - name: Release tooling tests
         run: python3 -m unittest discover -s scripts/tests -p 'test_*.py'
       - id: version
@@ -105,16 +106,7 @@ jobs:
             # that fails or hangs leaves origin untouched.
             BUILD_DATE=$(date -u +%Y-%m-%d)
             NEW_NAME="${BUILD_DATE//-/.}.${GITHUB_RUN_NUMBER}"
-            # Android refuses an update whose versionCode is lower, and F-Droid
-            # only offers one whose code is higher, so the code must rise with
-            # every release. yyMMdd*100 + run%100 did not: two releases on one
-            # day either side of a multiple of 100 (runs 299 and 300) went
-            # from ...99 down to ...00. Take the current code plus one, lifted
-            # to yyMMdd*1000 on a new day so the code still reads as the date.
-            DAY=${BUILD_DATE//-/}
-            DAY_CODE=$(( 10#${DAY:2} * 1000 ))
-            PREV_CODE=$(sed -n 's/^VERSION_CODE=//p' gradle.properties)
-            NEW_CODE=$(( PREV_CODE + 1 > DAY_CODE ? PREV_CODE + 1 : DAY_CODE ))
+            NEW_CODE=$(python3 scripts/android-release.py --next-version-code "$BUILD_DATE")
 
             sed -i "s/^VERSION_NAME=.*/VERSION_NAME=$NEW_NAME/" gradle.properties
             sed -i "s/^VERSION_CODE=.*/VERSION_CODE=$NEW_CODE/" gradle.properties
@@ -150,6 +142,13 @@ jobs:
           if ! command -v rg >/dev/null; then
             sudo apt-get update && sudo apt-get install -y ripgrep
           fi
+      - name: Check MockWebServer waits have a deadline
+        run: |
+          if rg -n -U '\.takeRequest\s*\(\s*\)' --glob '*.kt' app auth core data reader; then
+            exit 1
+          else
+            test "$?" = 1
+          fi
       - name: Rename guard self-test
         run: |
           set -e
@@ -178,7 +177,6 @@ jobs:
                 -g '!server/alembic.ini' \
                 -g '!server/migrations/env.py' \
                 -g '!server/tests/conftest.py' \
-                -g '!server/tests/unit/test_no_stale_opds_sync_imports.py' \
                 . ; then
             echo "::error::Rename guard found un-allowlisted OPDS_SYNC / opds-sync / opds_sync references."
             exit 1
@@ -441,9 +439,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: v${{ needs.build.outputs.version }}
         run: |
-          newest=$(python3 scripts/android-release.py --newest-tag)
-          latest=false
-          if [ "$newest" = "$TAG" ]; then latest=true; fi
+          latest=$(python3 scripts/android-release.py --is-latest "$TAG")
           python3 scripts/publish-release.py --repo "$GITHUB_REPOSITORY" --tag "$TAG" --latest "$latest" \
             --asset app/build/outputs/apk/release/app-release.apk \
             --asset app/build/outputs/apk/release/app-release.apk.sha256 \

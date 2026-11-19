@@ -29,6 +29,7 @@ dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
     "pytest-cov>=5.0",
+    "pytest-timeout>=2.3",
     "testcontainers[postgres]>=4.7",
     # Pinned exactly so this matches the ruff-pre-commit rev in
     # .pre-commit-config.yaml; bump both together or the hook and CI
@@ -45,6 +46,7 @@ quire_server = ["assets/*.webp"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+timeout = 120
 testpaths = ["tests"]
 markers = [
     "requires_progress: test exercises the /sync/v1 progress router and must skip when QUIRE_SERVER_PROGRESS_ENABLED=false",

@@ -31,12 +31,20 @@ def _build_app(monkeypatch, postgres_url: str, *, progress_enabled: bool, ai_ena
     return create_app()
 
 
+async def _assert_health(client, modes):
+    response = await client.get("/health")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["modes"] == modes
+    assert body["ready"] is True
+    assert isinstance(body["warnings"], list)
+
+
 async def test_full_mode_mounts_everything(monkeypatch, postgres_url: str, alembic_upgrade):
     app = _build_app(monkeypatch, postgres_url, progress_enabled=True, ai_enabled=True)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        h = await c.get("/health")
-        assert h.status_code == 200
-        assert h.json()["modes"] == ["progress", "ai"]
+        await _assert_health(c, ["progress", "ai"])
+        assert (await c.get("/sync/v1/healthz")).status_code == 404
 
         # Progress router mounted: any response other than 404 confirms routing.
         prog = await c.get("/sync/v1/progress", headers=_basic_header("alice"))
@@ -60,9 +68,7 @@ async def test_full_mode_mounts_everything(monkeypatch, postgres_url: str, alemb
 async def test_sync_only_mode_excludes_ai(monkeypatch, postgres_url: str, alembic_upgrade):
     app = _build_app(monkeypatch, postgres_url, progress_enabled=True, ai_enabled=False)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        h = await c.get("/health")
-        assert h.status_code == 200
-        assert h.json()["modes"] == ["progress"]
+        await _assert_health(c, ["progress"])
 
         assert (await c.get("/sync/v1/highlights")).status_code != 404
 
@@ -74,9 +80,7 @@ async def test_sync_only_mode_excludes_ai(monkeypatch, postgres_url: str, alembi
 async def test_ai_only_mode_excludes_progress(monkeypatch, postgres_url: str, alembic_upgrade):
     app = _build_app(monkeypatch, postgres_url, progress_enabled=False, ai_enabled=True)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        h = await c.get("/health")
-        assert h.status_code == 200
-        assert h.json()["modes"] == ["ai"]
+        await _assert_health(c, ["ai"])
 
         # Sync namespace unmounted.
         prog = await c.get("/sync/v1/progress", headers=_basic_header("alice"))
@@ -95,9 +99,7 @@ async def test_ai_only_mode_excludes_progress(monkeypatch, postgres_url: str, al
 async def test_neither_mode_only_mounts_health(monkeypatch, postgres_url: str, alembic_upgrade):
     app = _build_app(monkeypatch, postgres_url, progress_enabled=False, ai_enabled=False)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        h = await c.get("/health")
-        assert h.status_code == 200
-        assert h.json()["modes"] == []
+        await _assert_health(c, [])
 
         r = await c.get("/readyz")
         assert r.status_code == 200

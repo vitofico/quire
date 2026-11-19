@@ -144,19 +144,21 @@ async def test_affinity_owned_detection(client_factory, session):
     )
 
     async with client_factory(progress_enabled=True) as client:
-        r = await client.post(
-            "/library/v1/affinity",
-            headers=_basic_header("alice"),
-            json={
-                "identity": {"isbn": HOBBIT_ISBN13},
-                "bundle": {
-                    "title": "The Hobbit",
-                    "author": "J.R.R. Tolkien",
-                    "isbn": HOBBIT_ISBN13,
-                    "subjects": ["fantasy"],
-                },
+        payload = {
+            "identity": {"isbn": HOBBIT_ISBN13},
+            "bundle": {
+                "title": "The Hobbit",
+                "author": "J.R.R. Tolkien",
+                "isbn": HOBBIT_ISBN13,
+                "subjects": ["fantasy"],
             },
+        }
+        other = await client.post(
+            "/library/v1/affinity", headers=_basic_header("bob"), json=payload
         )
+        assert other.status_code == 200, other.text
+        assert other.json()["owned"] is None
+        r = await client.post("/library/v1/affinity", headers=_basic_header("alice"), json=payload)
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["owned"] is not None, body

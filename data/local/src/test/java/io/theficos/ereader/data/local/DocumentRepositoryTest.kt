@@ -78,11 +78,27 @@ class DocumentRepositoryTest {
             downloadUrl = "u", localPath = epub.path, coverPath = cover.path, downloadedAt = 0,
         ))
 
+        val otherEpub = File(booksDir, "b.epub").apply { writeText("b") }
+        val otherCover = File(booksDir, "b.cover").apply { writeText("c") }
+        val otherId = db.documentDao().insert(DocumentEntity(
+            metadataId = "m2", contentHash = "h2", title = "Other book", author = null,
+            downloadUrl = "u2", localPath = otherEpub.path, coverPath = otherCover.path, downloadedAt = 0,
+        ))
+        val otherProgress = ProgressEntity(
+            id = otherId, documentId = otherId, locator = "kept", percent = 0.5,
+            updatedAt = 1, localUpdatedAt = 1, syncedAt = 1,
+        )
+        db.progressDao().upsert(otherProgress)
+
         repo.delete(checkNotNull(repo.findById(id)))
 
         assertThat(db.documentDao().findById(id)).isNull()
         assertThat(epub.exists()).isFalse()
         assertThat(cover.exists()).isFalse()
+        assertThat(db.documentDao().findById(otherId)?.title).isEqualTo("Other book")
+        assertThat(db.progressDao().findByDocument(otherId)).isEqualTo(otherProgress)
+        assertThat(otherEpub.readText()).isEqualTo("b")
+        assertThat(otherCover.readText()).isEqualTo("c")
     }
 
     @Test fun `deleteAll tolerates a missing books dir`() = runTest {

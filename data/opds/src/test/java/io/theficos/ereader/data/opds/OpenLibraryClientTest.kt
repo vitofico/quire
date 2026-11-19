@@ -1,5 +1,6 @@
 package io.theficos.ereader.data.opds
 
+import io.theficos.ereader.testing.awaitRequest
 import com.google.common.truth.Truth.assertThat
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
@@ -35,7 +36,7 @@ class OpenLibraryClientTest {
         assertThat(result.author).isEqualTo("J.R.R. Tolkien")
         assertThat(result.isbn).isEqualTo("9780261103573")
         assertThat(result.subjects).contains("Fantasy")
-        assertThat(server.takeRequest().requestUrl!!.encodedPath).isEqualTo("/api/books.json")
+        assertThat(server.awaitRequest().requestUrl!!.encodedPath).isEqualTo("/api/books.json")
     }
 
     @Test fun `returns null when record is absent`() {

@@ -9,26 +9,23 @@ tables and Postgres raised ``relation "book_themes" does not exist`` → a blank
 HTTP 500. The endpoint must instead return 200 with ``top_themes=[]`` while still
 reporting the non-AI stats.
 
-This module deliberately provisions its OWN Postgres migrated with
-``ai_enabled=False``. The shared session-scoped fixtures in ``conftest.py`` always
-apply the ``ai`` branch (``run_migrations(..., ai_enabled=True)``), which is
-exactly why the whole existing suite never reproduced this bug.
+In CI this runs on the same branch-limited database as the sync-only lane.
+Standalone pytest runs provision a separate partial deployment.
 """
 
 from __future__ import annotations
 
 import base64
 import uuid
-from collections.abc import Iterator
 from datetime import UTC, datetime
 
 import httpx
 import pytest
-from alembic.config import Config as AlembicConfig
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
-from testcontainers.postgres import PostgresContainer
+
+from .deployment_shapes import assert_partial_schema
+
+pytestmark = pytest.mark.ci_lane("sync_only")
 
 
 def _basic(user: str, pw: str) -> dict[str, str]:
@@ -67,26 +64,10 @@ def _progress_body(content_hash: str, percent: float, finished: bool, when: str)
     }
 
 
-@pytest.fixture(scope="module")
-def sync_only_db() -> Iterator[str]:
-    """A fresh Postgres migrated WITHOUT the ``ai`` branch (sync-only deploy)."""
-    with PostgresContainer("postgres:16-alpine") as pg:
-        sync_url = pg.get_connection_url()
-        async_url = sync_url.replace("postgresql+psycopg2://", "postgresql+asyncpg://")
-        cfg = AlembicConfig("alembic.ini")
-        cfg.set_main_option("sqlalchemy.url", async_url)
-        from scripts.migrate import run_migrations
-
-        # progress on (library router + library_items table), ai OFF: this is
-        # the deployment shape that triggers issue #87.
-        run_migrations(cfg, progress_enabled=True, ai_enabled=False)
-        yield async_url
-
-
 @pytest.fixture
-def sync_only_app(sync_only_db, monkeypatch, cwa_transport):
+def sync_only_app(partial_postgres_url, monkeypatch, cwa_transport):
     """A sync-only FastAPI app (AI disabled) wired to the ai-branch-less DB."""
-    monkeypatch.setenv("QUIRE_SERVER_DATABASE_URL", sync_only_db)
+    monkeypatch.setenv("QUIRE_SERVER_DATABASE_URL", partial_postgres_url)
     monkeypatch.setenv("QUIRE_SERVER_CWA_BASE_URL", "http://test-cwa")
     monkeypatch.setenv("QUIRE_SERVER_PROGRESS_ENABLED", "true")
     monkeypatch.setenv("QUIRE_SERVER_AI_ENABLED", "false")
@@ -115,18 +96,9 @@ def sync_only_app(sync_only_db, monkeypatch, cwa_transport):
     get_settings.cache_clear()
 
 
-async def test_stats_returns_200_without_ai_tables(sync_only_app, sync_only_db, cwa_users):
+async def test_stats_returns_200_without_ai_tables(sync_only_app, partial_postgres_url, cwa_users):
     """Issue #87: /library/v1/stats must not 500 when the ai branch is absent."""
-    # Guard the premise: the ai-only tables genuinely do not exist here. If a
-    # future change to the fixture applied the ai branch, this would mask the
-    # regression, so fail loudly instead.
-    engine = create_async_engine(sync_only_db, future=True)
-    try:
-        async with engine.connect() as conn:
-            reg = await conn.scalar(text("SELECT to_regclass('public.book_themes')"))
-    finally:
-        await engine.dispose()
-    assert reg is None, "premise broken: the ai branch was applied to the sync-only DB"
+    heads = await assert_partial_schema(partial_postgres_url, enabled="progress", disabled="ai")
 
     user = f"user-{uuid.uuid4().hex[:8]}"
     cwa_users[user] = "pw"
@@ -136,10 +108,22 @@ async def test_stats_returns_200_without_ai_tables(sync_only_app, sync_only_db, 
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         # Seed a book + finished progress so the NON-AI stats compute real
         # values — proving the fix skips only the theme block, not the rest.
-        await c.put("/library/v1/items", json=_put_body(content_hash="a"), headers=headers)
+        item = await c.put("/library/v1/items", json=_put_body(content_hash="a"), headers=headers)
+        assert item.status_code == 200, item.text
         now = datetime.now(UTC).isoformat()
-        await c.post("/sync/v1/progress", json=_progress_body("a", 1.0, True, now), headers=headers)
+        progress = await c.post(
+            "/sync/v1/progress", json=_progress_body("a", 1.0, True, now), headers=headers
+        )
+        assert progress.status_code == 200, progress.text
         r = await c.get("/library/v1/stats", headers=headers)
+
+        health = await c.get("/health")
+        assert health.status_code == 200
+        assert health.json()["modes"] == ["progress"]
+        ready = await c.get("/readyz")
+        assert ready.status_code == 200, ready.text
+        assert ready.json()["heads_applied"] == heads
+        assert (await c.get("/ai/v1/config", headers=headers)).status_code == 404
 
     assert r.status_code == 200, r.text
     data = r.json()

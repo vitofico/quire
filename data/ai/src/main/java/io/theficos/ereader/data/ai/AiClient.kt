@@ -51,6 +51,9 @@ class AiClient(
     @Volatile
     private var profileTimeoutS: Int? = null
 
+    internal val profileRefreshBudgetS: Int?
+        get() = profileTimeoutS ?: generationTimeoutS
+
     suspend fun getConfig(): AiConfig =
         get<AiConfig>("/ai/v1/config").also {
             generationTimeoutS = it.generationTimeoutS
@@ -119,7 +122,7 @@ class AiClient(
     suspend fun refreshProfile(): ReaderProfileResponseDto = withContext(Dispatchers.IO) {
         // Server expects an empty JSON body — `{}` is the simplest valid shape.
         val empty = "{}".toRequestBody(mediaType)
-        longCallHttp(profileTimeoutS ?: generationTimeoutS).newCall(
+        longCallHttp(profileRefreshBudgetS).newCall(
             Request.Builder()
                 .url("${resolveBaseUrl()}/ai/v1/profile/refresh")
                 .post(empty)

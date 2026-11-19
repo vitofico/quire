@@ -452,6 +452,14 @@ async def test_token_exp_lte_iat_rejected():
     await _expect_401(auth, _make_token_req({"authorization": f"Bearer {token}"}))
 
 
+async def test_token_lifetime_at_24h_accepted():
+    now = 1_700_000_000
+    auth = _token_auth(now=now)
+    token = _sign_token(_good_claims(now, iat=now, exp=now + 86_400), secret=_SECRET)
+    principal = await auth.authenticate(_make_token_req({"authorization": f"Bearer {token}"}))
+    assert principal.subject == "acme:alice"
+
+
 async def test_token_lifetime_over_24h_rejected():
     now = 1_700_000_000
     auth = _token_auth(now=now)

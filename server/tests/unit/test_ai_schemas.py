@@ -84,52 +84,70 @@ def test_payload_key_order_matches_reading_order():
 # ---------------------------------------------------------------------------
 
 
-def test_book_insight_payload_v5_round_trip():
-    p = BookInsightPayload(
-        intro="i",
-        analysis="a",
-        themes=["mystery"],
-        theme_analysis={"mystery": "Manifests through ..."},
-        craft_notes="Tight close third POV ...",
-        comparative_anchors=[
-            ComparativeAnchor(book="X", author="Y", similar_in="Both ...", different_in="X is ...")
-        ],
-        distinctive_take="What sets it apart ...",
-        curiosities=["The author wrote it in six weeks."],
-        discussion_prompts=["Q1?", "Q2?"],
-        confidence="medium",
-    )
-    j = p.model_dump_json()
-    p2 = BookInsightPayload.model_validate_json(j)
-    assert p2.schema_version == 5
-    assert p2.curiosities == ["The author wrote it in six weeks."]
-    assert p2.theme_analysis == {"mystery": "Manifests through ..."}
-    assert p2.comparative_anchors is not None
-    assert p2.comparative_anchors[0].different_in == "X is ..."
-
-
-def test_book_insight_payload_v3_payload_deserializes():
-    """Old cached v3 row (no v4 fields, has themes) must deserialize cleanly."""
-    v3 = {
-        "intro": "i",
-        "analysis": "a",
-        "themes": ["mystery"],
-        "confidence": "low",
-        "schema_version": 3,
-    }
-    p = BookInsightPayload.model_validate(v3)
-    assert p.schema_version == 3
-    assert p.theme_analysis is None
-    assert p.discussion_prompts is None
-    assert p.curiosities is None
-
-
-def test_book_insight_payload_v2_payload_deserializes():
-    """Even older v2 row (no themes, no v4 fields). Same invariant."""
-    v2 = {"intro": "i", "confidence": "low", "schema_version": 2}
-    p = BookInsightPayload.model_validate(v2)
-    assert p.themes is None
-    assert p.theme_analysis is None
+@pytest.mark.parametrize(
+    "raw,expected_version,expected",
+    [
+        pytest.param(
+            {
+                "intro": "i",
+                "analysis": "a",
+                "themes": ["mystery"],
+                "theme_analysis": {"mystery": "Manifests through ..."},
+                "craft_notes": "Tight close third POV ...",
+                "comparative_anchors": [
+                    {
+                        "book": "X",
+                        "author": "Y",
+                        "similar_in": "Both ...",
+                        "different_in": "X is ...",
+                    }
+                ],
+                "distinctive_take": "What sets it apart ...",
+                "curiosities": ["The author wrote it in six weeks."],
+                "discussion_prompts": ["Q1?", "Q2?"],
+                "confidence": "medium",
+            },
+            5,
+            {
+                "curiosities": ["The author wrote it in six weeks."],
+                "theme_analysis": {"mystery": "Manifests through ..."},
+                "comparative_anchors": [
+                    {
+                        "book": "X",
+                        "author": "Y",
+                        "similar_in": "Both ...",
+                        "different_in": "X is ...",
+                    }
+                ],
+            },
+            id="v5",
+        ),
+        pytest.param(
+            {
+                "schema_version": 3,
+                "intro": "i",
+                "analysis": "a",
+                "themes": ["mystery"],
+                "confidence": "low",
+            },
+            3,
+            {"theme_analysis": None, "discussion_prompts": None, "curiosities": None},
+            id="cached-v3",
+        ),
+        pytest.param(
+            {"schema_version": 2, "intro": "i", "confidence": "low"},
+            2,
+            {"themes": None, "theme_analysis": None},
+            id="cached-v2",
+        ),
+    ],
+)
+def test_book_insight_payload_version_round_trip(raw, expected_version, expected):
+    parsed = BookInsightPayload.model_validate(raw)
+    round_trip = BookInsightPayload.model_validate_json(parsed.model_dump_json())
+    assert round_trip.schema_version == expected_version
+    dumped = round_trip.model_dump()
+    assert {field: dumped[field] for field in expected} == expected
 
 
 def test_comparative_anchor_rejects_extra_fields():
@@ -171,72 +189,57 @@ def test_book_insight_payload_theme_analysis_two_keys_accepted():
     assert p.theme_analysis == {"a": "x", "b": "y"}
 
 
-def test_comparative_anchors_blank_entries_dropped():
-    """Sanity filter: blank book/author/similar_in entries are dropped."""
-    p = BookInsightPayload.model_validate(
-        {
-            "schema_version": 4,
-            "comparative_anchors": [
+@pytest.mark.parametrize(
+    "anchors,expected_books",
+    [
+        pytest.param(
+            [
                 {"book": "Real", "author": "Auth", "similar_in": "S"},
-                {"book": "  ", "author": "A", "similar_in": "S"},  # blank book
-                {"book": "B", "author": "", "similar_in": "S"},  # blank author
-                {"book": "B", "author": "A", "similar_in": "   "},  # blank similar_in
+                {"book": "  ", "author": "A", "similar_in": "S"},
+                {"book": "B", "author": "", "similar_in": "S"},
+                {"book": "B", "author": "A", "similar_in": "   "},
             ],
-            "confidence": "low",
-        }
+            ["Real"],
+            id="blank-fields-filtered",
+        ),
+        pytest.param(
+            [{"book": f"B{i}", "author": f"A{i}", "similar_in": f"s{i}"} for i in range(7)],
+            ["B0", "B1", "B2", "B3"],
+            id="cap-four",
+        ),
+        pytest.param(
+            [{"book": " ", "author": "A", "similar_in": "S"}],
+            None,
+            id="all-blank-hidden",
+        ),
+    ],
+)
+def test_comparative_anchor_sanitization(anchors, expected_books):
+    parsed = BookInsightPayload.model_validate(
+        {"schema_version": 4, "comparative_anchors": anchors, "confidence": "low"}
     )
-    assert p.comparative_anchors is not None
-    assert len(p.comparative_anchors) == 1
-    assert p.comparative_anchors[0].book == "Real"
-
-
-def test_comparative_anchors_capped_at_four():
-    """Sanity filter: cap at 4 entries; tail dropped."""
-    p = BookInsightPayload.model_validate(
-        {
-            "schema_version": 4,
-            "comparative_anchors": [
-                {"book": f"B{i}", "author": f"A{i}", "similar_in": f"s{i}"} for i in range(7)
-            ],
-            "confidence": "low",
-        }
+    books = (
+        None
+        if parsed.comparative_anchors is None
+        else [anchor.book for anchor in parsed.comparative_anchors]
     )
-    assert p.comparative_anchors is not None
-    assert len(p.comparative_anchors) == 4
-    assert [a.book for a in p.comparative_anchors] == ["B0", "B1", "B2", "B3"]
+    assert books == expected_books
 
 
-def test_comparative_anchors_all_blank_becomes_none():
-    """If filtering removes everything, the field collapses to None."""
-    p = BookInsightPayload.model_validate(
-        {
-            "schema_version": 4,
-            "comparative_anchors": [
-                {"book": " ", "author": "A", "similar_in": "S"},
-            ],
-            "confidence": "low",
-        }
-    )
-    assert p.comparative_anchors is None
-
-
-def test_curiosities_blank_entries_dropped_and_capped_at_three():
-    """The section is meant to stay small: blanks go, and only the first three
-    survive."""
-    p = BookInsightPayload.model_validate(
-        {
-            "curiosities": ["  ", "One.", "", "Two.", "Three.", "Four."],
-            "confidence": "low",
-        }
-    )
-    assert p.curiosities == ["One.", "Two.", "Three."]
-
-
-def test_curiosities_all_blank_becomes_none():
-    """If filtering removes everything, the field collapses to None so the
-    client hides the section."""
-    p = BookInsightPayload.model_validate({"curiosities": [" ", ""], "confidence": "low"})
-    assert p.curiosities is None
+@pytest.mark.parametrize(
+    "curiosities,expected",
+    [
+        pytest.param(
+            ["  ", "One.", "", "Two.", "Three.", "Four."],
+            ["One.", "Two.", "Three."],
+            id="keep-first-three-nonblank",
+        ),
+        pytest.param([" ", ""], None, id="all-blank-hidden"),
+    ],
+)
+def test_curiosity_sanitization(curiosities, expected):
+    parsed = BookInsightPayload.model_validate({"curiosities": curiosities, "confidence": "low"})
+    assert parsed.curiosities == expected
 
 
 def test_series_insight_accepts_context():
@@ -359,35 +362,30 @@ def test_metadata_bundle_rejects_empty_title():
         MetadataBundle.model_validate({"title": ""})
 
 
-def test_metadata_bundle_rejects_oversized_title():
-    """S-3 cap: bounds prompt size + protects against pathological inputs."""
-    with pytest.raises(ValidationError):
-        MetadataBundle.model_validate({"title": "x" * 513})
+@pytest.mark.parametrize(
+    "field,at_limit,over_limit",
+    [
+        pytest.param("title", "x" * 512, "x" * 513, id="title"),
+        pytest.param("author", "x" * 512, "x" * 513, id="author"),
+        pytest.param("language", "x" * 32, "x" * 33, id="language"),
+        pytest.param("isbn", "x" * 64, "x" * 65, id="isbn"),
+        pytest.param("publisher", "x" * 256, "x" * 257, id="publisher"),
+        pytest.param("publish_date", "x" * 32, "x" * 33, id="publish-date"),
+        pytest.param("series_name", "x" * 256, "x" * 257, id="series-name"),
+        pytest.param("description", "x" * 4096, "x" * 4097, id="description"),
+        pytest.param("subjects", ["s"] * 64, ["s"] * 65, id="subject-count"),
+        pytest.param("subjects", ["x" * 80], ["x" * 81], id="subject-length"),
+        pytest.param("series_position", 0, -1, id="series-position-minimum"),
+        pytest.param("series_position", 10_000, 10_001, id="series-position-maximum"),
+    ],
+)
+def test_metadata_bundle_bounds(field, at_limit, over_limit):
+    accepted = MetadataBundle.model_validate({"title": "t"} | {field: at_limit})
+    assert getattr(accepted, field) == at_limit
 
-
-def test_metadata_bundle_rejects_oversized_description():
-    with pytest.raises(ValidationError):
-        MetadataBundle.model_validate({"title": "t", "description": "x" * 4097})
-
-
-def test_metadata_bundle_rejects_too_many_subjects():
-    with pytest.raises(ValidationError):
-        MetadataBundle.model_validate({"title": "t", "subjects": ["s"] * 65})
-
-
-def test_metadata_bundle_rejects_oversized_subject_item():
-    with pytest.raises(ValidationError):
-        MetadataBundle.model_validate({"title": "t", "subjects": ["x" * 81]})
-
-
-def test_metadata_bundle_rejects_negative_series_position():
-    with pytest.raises(ValidationError):
-        MetadataBundle.model_validate({"title": "t", "series_position": -1})
-
-
-def test_metadata_bundle_rejects_overlarge_series_position():
-    with pytest.raises(ValidationError):
-        MetadataBundle.model_validate({"title": "t", "series_position": 10_001})
+    with pytest.raises(ValidationError) as exc:
+        MetadataBundle.model_validate({"title": "t"} | {field: over_limit})
+    assert [error["loc"] for error in exc.value.errors()] == [(field,)]
 
 
 def test_lookup_body_bundle_optional():

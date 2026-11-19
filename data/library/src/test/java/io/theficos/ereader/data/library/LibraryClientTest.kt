@@ -1,5 +1,6 @@
 package io.theficos.ereader.data.library
 
+import io.theficos.ereader.testing.awaitRequest
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
@@ -36,7 +37,7 @@ class LibraryClientTest {
         assertThat(out.totalBooks).isEqualTo(1)
         assertThat(out.topAuthors).hasSize(1)
         assertThat(out.themesCaveat).isEqualTo("caveat")
-        val req = server.takeRequest()
+        val req = server.awaitRequest()
         assertThat(req.method).isEqualTo("GET")
         assertThat(req.path).isEqualTo("/library/v1/stats")
     }
@@ -123,7 +124,7 @@ class LibraryClientTest {
         assertThat(out.authors).containsExactly("Frank Herbert")
         assertThat(out.seriesIndex).isEqualTo(1.0)
 
-        val req = server.takeRequest()
+        val req = server.awaitRequest()
         assertThat(req.method).isEqualTo("PUT")
         assertThat(req.path).isEqualTo("/library/v1/items")
         val body = req.body.readUtf8()
@@ -175,7 +176,7 @@ class LibraryClientTest {
         assertThat(out.items).hasSize(1)
         assertThat(out.items[0].contentHash).isEqualTo("h1")
         assertThat(out.items[0].opdsHref).isEqualTo("https://srv/b1.epub")
-        val req = server.takeRequest()
+        val req = server.awaitRequest()
         assertThat(req.method).isEqualTo("GET")
         assertThat(req.path).isEqualTo("/library/v1/items?limit=200&offset=0")
     }
@@ -190,8 +191,8 @@ class LibraryClientTest {
         ))
         val all = client.listAllItems(limit = 2, maxPages = 50)
         assertThat(all.map { it.contentHash }).containsExactly("h1", "h2", "h3").inOrder()
-        assertThat(server.takeRequest().path).isEqualTo("/library/v1/items?limit=2&offset=0")
-        assertThat(server.takeRequest().path).isEqualTo("/library/v1/items?limit=2&offset=2")
+        assertThat(server.awaitRequest().path).isEqualTo("/library/v1/items?limit=2&offset=0")
+        assertThat(server.awaitRequest().path).isEqualTo("/library/v1/items?limit=2&offset=2")
     }
 
     @Test
@@ -226,7 +227,7 @@ class LibraryClientTest {
             )
         )
         client.listItems(since = "1970-01-01T00:00:00+00:00", limit = 50, offset = 0)
-        val req = server.takeRequest()
+        val req = server.awaitRequest()
         // MockWebServer URL-encodes `+` as %2B and `:` as %3A, so assert on
         // substrings rather than an exact path match.
         assertThat(req.path!!).contains("since=")

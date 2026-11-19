@@ -1,0 +1,78 @@
+{
+  "push": {
+    "items": [
+      {
+        "document": {
+          "metadata_id": "progress-contract-finished",
+          "content_hash": "wire-finished",
+          "identity_hash_version": 2
+        },
+        "locator": "epubcfi(/6/4!/4)",
+        "percent": 0.99,
+        "client_updated_at": "2026-05-05T12:00:00Z",
+        "finished_at": "2026-05-05T12:00:00Z"
+      },
+      {
+        "document": {
+          "content_hash": "wire-abandoned",
+          "identity_hash_version": 3
+        },
+        "locator": "epubcfi(/6/8!/4)",
+        "percent": 0.6,
+        "client_updated_at": "2026-05-05T13:00:00Z",
+        "abandoned_at": "2026-05-05T13:00:00Z"
+      }
+    ]
+  },
+  "push_response": {
+    "results": [
+      {
+        "document": {
+          "metadata_id": "progress-contract-finished",
+          "content_hash": "wire-finished",
+          "identity_hash_version": 2
+        },
+        "status": "accepted",
+        "server_client_updated_at": "2026-05-05T12:00:00+00:00"
+      },
+      {
+        "document": {
+          "metadata_id": null,
+          "content_hash": "wire-abandoned",
+          "identity_hash_version": 3
+        },
+        "status": "accepted",
+        "server_client_updated_at": "2026-05-05T13:00:00+00:00"
+      }
+    ]
+  },
+  "pull": {
+    "items": [
+      {
+        "document": {
+          "metadata_id": "progress-contract-finished",
+          "content_hash": "wire-finished",
+          "identity_hash_version": 2
+        },
+        "locator": "epubcfi(/6/4!/4)",
+        "percent": 0.99,
+        "client_updated_at": "2026-05-05T12:00:00+00:00",
+        "finished_at": "2026-05-05T12:00:00+00:00",
+        "abandoned_at": null
+      },
+      {
+        "document": {
+          "metadata_id": null,
+          "content_hash": "wire-abandoned",
+          "identity_hash_version": 3
+        },
+        "locator": "epubcfi(/6/8!/4)",
+        "percent": 0.6,
+        "client_updated_at": "2026-05-05T13:00:00+00:00",
+        "finished_at": null,
+        "abandoned_at": "2026-05-05T13:00:00+00:00"
+      }
+    ],
+    "server_time": "2026-05-05T13:00:01Z"
+  }
+}

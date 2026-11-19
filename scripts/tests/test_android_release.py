@@ -1,3 +1,4 @@
+import datetime
 import importlib.util
 import io
 import json
@@ -44,6 +45,44 @@ class AndroidReleaseTest(unittest.TestCase):
             with self.subTest(text=text), self.assertRaises(ValueError):
                 RELEASE.read_version(text)
         self.assertEqual(RELEASE.read_version(properties(code="2100000000"))["versionCode"], 2100000000)
+
+    def test_next_version_code_is_monotonic(self):
+        for previous, today, expected in (
+            (80808999, "2008-08-09", 80809000),
+            (260107999, "2026-01-08", 260108000),
+            (260108000, "2026-01-08", 260108001),
+            (260109999, "2026-01-09", 260110000),
+            (261001000, "2026-09-30", 261001001),
+            (2099999999, "2026-01-08", 2100000000),
+        ):
+            with self.subTest(previous=previous, today=today):
+                self.assertEqual(
+                    RELEASE.next_version_code(previous, datetime.date.fromisoformat(today)),
+                    expected,
+                )
+        with self.assertRaisesRegex(ValueError, "exceed the Android limit"):
+            RELEASE.next_version_code(2100000000, datetime.date(2026, 1, 8))
+
+    def test_workflow_version_queries_print_value_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "gradle.properties").write_text(properties())
+            tags = "v2026.09.29.9\nv2026.09.29.10\nserver-latest\n"
+            for args, expected in (
+                (["--next-version-code", "2026-10-08"], "261008000\n"),
+                (["--is-latest", "v2026.09.29.9"], "false\n"),
+                (["--is-latest", "v2026.09.29.10"], "true\n"),
+            ):
+                with self.subTest(args=args):
+                    output = io.StringIO()
+                    argv = [str(SCRIPT), "--root", directory, *args]
+                    with (
+                        patch("sys.argv", argv),
+                        patch.object(RELEASE, "git", return_value=tags),
+                        redirect_stdout(output),
+                    ):
+                        self.assertEqual(RELEASE.main(), 0)
+                    self.assertEqual(output.getvalue(), expected)
 
     def test_latest_uses_numeric_calendar_and_run_not_tag_creation(self):
         self.assertEqual(RELEASE.newest_tag([

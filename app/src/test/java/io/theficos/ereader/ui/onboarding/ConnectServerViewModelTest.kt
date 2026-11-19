@@ -1,5 +1,6 @@
 package io.theficos.ereader.ui.onboarding
 
+import io.theficos.ereader.testing.awaitRequest
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
@@ -105,7 +106,7 @@ class ConnectServerViewModelTest {
         val saved = store.getAccount() as AccountCredentials.OpdsOnly
         assertThat(saved.username).isEqualTo("alice")
         assertThat(saved.password).isEqualTo("hunter2")
-        assertThat(server.takeRequest().getHeader("Authorization")).isNotNull()
+        assertThat(server.awaitRequest().getHeader("Authorization")).isNotNull()
     }
 
     @Test fun `an empty feed is rejected`() = runTest {
@@ -176,7 +177,7 @@ class ConnectServerViewModelTest {
         val saved = store.getAccount() as AccountCredentials.Bearer
         assertThat(saved.token).isEqualTo("synthetic-device-token")
         assertThat(saved.email).isEqualTo("native:42")
-        val request = server.takeRequest()
+        val request = server.awaitRequest()
         assertThat(request.path).isEqualTo("/auth/v1/pairing/exchange")
         assertThat(request.body.readUtf8()).contains("synthetic-ticket-1234567890")
     }

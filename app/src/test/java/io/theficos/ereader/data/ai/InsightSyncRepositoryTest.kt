@@ -1,11 +1,13 @@
 package io.theficos.ereader.data.ai
 
+import io.theficos.ereader.testing.awaitRequest
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
-import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
@@ -140,26 +142,24 @@ class InsightSyncRepositoryTest {
             scope = this,
             debounceMs = 500L,
         )
-        // Enqueue exactly one network response. If coalescing fails the second
-        // sync call hangs MockWebServer's queue and the assertion below trips.
-        server.enqueue(MockResponse().setResponseCode(200).setBody(
-            """{"items":[],"server_time":"2026-05-19T00:00:00Z","next_cursor":null}"""
-        ))
+        repeat(5) {
+            server.enqueue(MockResponse().setBody(
+                """{"items":[],"server_time":"2026-05-19T00:00:00Z","next_cursor":null}""",
+            ))
+        }
+        val before = server.requestCount
+        val job = checkNotNull(coroutineContext[Job])
         repeat(5) { sync.requestSync("burst-$it") }
-        // Advance past the debounce; the one sync fires.
-        advanceTimeBy(600L)
+        val scheduled = job.children.toList()
+
+        advanceTimeBy(499L)
         runCurrent()
-        advanceUntilIdle()
+        assertThat(server.requestCount).isEqualTo(before)
+        advanceTimeBy(1L)
+        runCurrent()
+        scheduled.joinAll()
 
-        // Drain the sync request — blocks until the real I/O dispatcher has
-        // actually delivered the HTTP request to MockWebServer. Without this
-        // wait, CI race makes `requestCount` flaky.
-        val req = server.takeRequest(5, java.util.concurrent.TimeUnit.SECONDS)
-        assertThat(req).isNotNull()
-        assertThat(req!!.path).contains("/ai/v1/insights/sync")
-
-        // No more requests should land in the next 200ms — i.e. coalescing held.
-        val extra = server.takeRequest(200, java.util.concurrent.TimeUnit.MILLISECONDS)
-        assertThat(extra).isNull()
+        assertThat(server.requestCount).isEqualTo(before + 1)
+        assertThat(server.awaitRequest().path).contains("/ai/v1/insights/sync")
     }
 }

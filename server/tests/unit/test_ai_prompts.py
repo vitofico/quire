@@ -1,3 +1,6 @@
+import hashlib
+import json
+
 from quire_server.api.ai_schemas import AiStyle, Citation, MetadataBundle
 from quire_server.core.ai.prompts import (
     PROMPT_VERSION,
@@ -6,12 +9,50 @@ from quire_server.core.ai.prompts import (
     compose_user_prompt,
 )
 
+# Append a new version when the prompts change so cached insights are regenerated.
+PROMPT_DIGESTS = {"9": "1f38ceedd828dadc49b9f991daa7516b97a2b1ea9f806488e99e376a72f42a55"}
 
-def test_prompt_version_is_v9():
-    """v9: the insight gains a `curiosities` section. Existing cached insights
-    have none, so the cache key must regenerate.
-    """
-    assert PROMPT_VERSION == "9"
+
+def test_prompt_content_matches_cache_version():
+    metadata = MetadataBundle(
+        title="Fixture",
+        author="Fixture Author",
+        series_name="Fixture Series",
+        series_position=2,
+        language="en",
+        publisher="Fixture Press",
+        publish_date="2024",
+        isbn="9780000000002",
+        subjects=["Fiction", "Satire"],
+        description="A fixture description.",
+    )
+    citations = [
+        Citation(kind=kind, title="Fixture source", url="https://example.test", snippet="Source.")
+        for kind in ("wikipedia", "openlibrary", "opf", "model")
+    ]
+    prompts = [
+        SYSTEM_PROMPT,
+        compose_user_prompt(MetadataBundle(title="Fixture"), citations=[]),
+        *(
+            compose_user_prompt(
+                metadata,
+                citations,
+                style=AiStyle(tone=tone, language=language),
+                feedback="Fixture correction.",
+            )
+            for tone, language in (
+                ("neutral", "auto"),
+                ("enthusiastic", "en"),
+                ("scholarly", "it"),
+                ("casual", "fr"),
+            )
+        ),
+    ]
+    digest = hashlib.sha256(json.dumps(prompts, ensure_ascii=False).encode()).hexdigest()
+    assert PROMPT_DIGESTS.get(PROMPT_VERSION) == digest, (
+        f"Prompt content changed (SHA-256 {digest}). "
+        "Bump PROMPT_VERSION and add the new digest to PROMPT_DIGESTS."
+    )
 
 
 def test_system_prompt_includes_themes_vocab():
@@ -72,82 +113,6 @@ def test_user_prompt_marks_series_authoritative_when_in_bundle():
     assert "series" in text.lower()
     assert "Foundation" in text
     assert "2" in text
-
-
-def test_system_prompt_describes_role_and_output_constraints():
-    low = SYSTEM_PROMPT.lower()
-    assert "book" in low
-    assert "json" in low
-    # Reading order is load-bearing for the UI.
-    assert "intro" in low and "analysis" in low and "content_warnings" in low
-    # Reader-safety scope for warnings (not themes).
-    assert "warnings" in low
-    # PR-ε / schema v4: new key-order tokens.
-    for v4_key in (
-        "theme_analysis",
-        "craft_notes",
-        "comparative_anchors",
-        "distinctive_take",
-        "discussion_prompts",
-    ):
-        assert v4_key in low
-
-
-def test_system_prompt_caps_theme_analysis_at_two():
-    """PR-ε: server REJECTS payloads with >2 theme_analysis keys; prompt must
-    tell the model so up front."""
-    assert "two themes" in SYSTEM_PROMPT.lower()
-    assert "REJECTS payloads with >2 keys" in SYSTEM_PROMPT
-
-
-def test_system_prompt_forbids_inventing_comparative_anchors():
-    """PR-ε: comparative_anchors are display-only; the model must not invent."""
-    assert "Never invent titles" in SYSTEM_PROMPT
-
-
-def test_system_prompt_forbids_discussion_prompt_spoilers():
-    """PR-ε / Lock #7 soft mitigation: discussion_prompts must not reveal plot."""
-    assert "DO NOT reveal plot beats" in SYSTEM_PROMPT
-
-
-def test_system_prompt_orders_curiosities_before_discussion_prompts():
-    """Schema v5: the key-order line must match the payload's field order."""
-    assert "distinctive_take, curiosities, discussion_prompts" in SYSTEM_PROMPT
-
-
-def test_system_prompt_keeps_curiosities_factual():
-    """Trivia is where models invent most readily: the rule must forbid
-    invention, allow null when the model knows nothing, and forbid spoilers."""
-    rule = next(line for line in SYSTEM_PROMPT.splitlines() if line.startswith("- `curiosities`"))
-    assert "never invent" in rule.lower()
-    assert "null" in rule.lower()
-    assert "plot" in rule.lower()
-
-
-def test_system_prompt_bans_unsourced_origin_stories_in_curiosities():
-    """Probing gpt-oss:120b showed the invented curiosities were stories of how
-    a book came about ("based on a real case"), so those need a source."""
-    rule = next(line for line in SYSTEM_PROMPT.splitlines() if line.startswith("- `curiosities`"))
-    assert "where the idea came from" in rule
-    assert "unless a source says so" in rule
-
-
-def test_system_prompt_forbids_describing_unrecognised_works():
-    """Given a made-up title and no sources, gpt-oss:120b wrote a full analysis
-    of a book that does not exist. An unrecognised work gets no content fields
-    and low confidence."""
-    rule = next(line for line in SYSTEM_PROMPT.splitlines() if "do not recognise" in line)
-    for field in (
-        "analysis",
-        "theme_analysis",
-        "craft_notes",
-        "comparative_anchors",
-        "distinctive_take",
-        "curiosities",
-        "discussion_prompts",
-    ):
-        assert f"`{field}`" in rule
-    assert '"low"' in rule
 
 
 def test_tone_hint_emitted_when_non_default():

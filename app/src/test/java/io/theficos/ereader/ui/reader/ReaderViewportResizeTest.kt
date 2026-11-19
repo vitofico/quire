@@ -1,5 +1,6 @@
 package io.theficos.ereader.ui.reader
 
+import androidx.lifecycle.viewModelScope
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
@@ -12,6 +13,8 @@ import io.theficos.ereader.reader.ReadiumFactory
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -47,6 +50,7 @@ class ReaderViewportResizeTest {
 
     private lateinit var db: EReaderDatabase
     private lateinit var vm: ReaderViewModel
+    private val viewModels = mutableListOf<ReaderViewModel>()
 
     @Before fun setUp() {
         Dispatchers.setMain(UnconfinedTestDispatcher())
@@ -66,12 +70,21 @@ class ReaderViewportResizeTest {
             restoreNavigator = { _, _ -> true },
             verifyAnchor = { _, _, _ -> true },
             highlightRepository = HighlightRepository(db.highlightDao()),
-        )
+        ).also { viewModels += it }
     }
 
     @After fun tearDown() {
-        db.close()
-        Dispatchers.resetMain()
+        try {
+            runTest {
+                viewModels.forEach { it.viewModelScope.coroutineContext[Job]?.cancelAndJoin() }
+            }
+        } finally {
+            try {
+                if (::db.isInitialized) db.close()
+            } finally {
+                Dispatchers.resetMain()
+            }
+        }
     }
 
     private fun locatorAt(progression: Double): Locator = Locator(
@@ -178,7 +191,7 @@ class ReaderViewportResizeTest {
             nowMs = { clock },
             restoreNavigator = { _, locator -> restore(locator) },
             verifyAnchor = { _, locator, prefs -> verify(locator, prefs) },
-        )
+        ).also { viewModels += it }
     }
 
     private fun domAnchor(nth: Int) = Locator(

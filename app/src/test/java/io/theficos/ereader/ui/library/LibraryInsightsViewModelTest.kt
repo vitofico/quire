@@ -1,5 +1,6 @@
 package io.theficos.ereader.ui.library
 
+import androidx.lifecycle.viewModelScope
 import com.google.common.truth.Truth.assertThat
 import io.theficos.ereader.data.ai.AiClient
 import io.theficos.ereader.data.ai.AiConfig
@@ -10,10 +11,13 @@ import io.theficos.ereader.data.library.LibraryClient
 import io.theficos.ereader.data.local.db.ProgressEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeout
 import okhttp3.OkHttpClient
@@ -43,6 +47,7 @@ class LibraryInsightsViewModelTest {
     private lateinit var repo: AiRepository
     private lateinit var insightDao: FakeInsightDao
     private lateinit var progressDao: FakeProgressDao
+    private val viewModels = mutableListOf<LibraryInsightsViewModel>()
 
     @Before fun setUp() {
         // Bind Main to a real dispatcher so viewModelScope.launch executes.
@@ -67,8 +72,17 @@ class LibraryInsightsViewModelTest {
     }
 
     @After fun tearDown() {
-        Dispatchers.resetMain()
-        runCatching { server.shutdown() }
+        try {
+            runTest {
+                viewModels.forEach { it.viewModelScope.coroutineContext[Job]?.cancelAndJoin() }
+            }
+        } finally {
+            try {
+                if (::server.isInitialized) server.shutdown()
+            } finally {
+                Dispatchers.resetMain()
+            }
+        }
     }
 
     @Test fun `Disabled AiOff when aiEnabled is false`() = runBlocking {
@@ -78,7 +92,7 @@ class LibraryInsightsViewModelTest {
             progressDao = progressDao,
             aiConfigFlow = MutableStateFlow(configured()),
             aiEnabledFlow = MutableStateFlow(false),
-        )
+        ).also { viewModels += it }
         vm.reload()
         val s = awaitTerminal(vm)
         assertThat(s).isEqualTo(LibraryInsightsUiState.Disabled.AiOff)
@@ -91,7 +105,7 @@ class LibraryInsightsViewModelTest {
             progressDao = progressDao,
             aiConfigFlow = MutableStateFlow(null),
             aiEnabledFlow = MutableStateFlow(true),
-        )
+        ).also { viewModels += it }
         vm.reload()
         val s = awaitTerminal(vm)
         assertThat(s).isEqualTo(LibraryInsightsUiState.Disabled.AiOff)
@@ -104,7 +118,7 @@ class LibraryInsightsViewModelTest {
             progressDao = progressDao,
             aiConfigFlow = MutableStateFlow(configured().copy(progressSupported = false)),
             aiEnabledFlow = MutableStateFlow(true),
-        )
+        ).also { viewModels += it }
         vm.reload()
         val s = awaitTerminal(vm)
         assertThat(s).isEqualTo(LibraryInsightsUiState.Disabled.ProgressUnsupported)
@@ -193,22 +207,16 @@ class LibraryInsightsViewModelTest {
         assertThat(s.stale).isFalse()
     }
 
-    @Test fun `mapErrorToState routes AiHttpException 409 to OptedOut`() = runBlocking {
-        val vm = newVm()
-        vm.mapErrorToState(io.theficos.ereader.data.ai.AiHttpException(409, "ai_not_opted_in"))
-        assertThat(vm.state.value).isEqualTo(LibraryInsightsUiState.Disabled.OptedOut)
-    }
-
-    @Test fun `mapErrorToState routes a read timeout to Timeout`() = runBlocking {
-        val vm = newVm()
-        vm.mapErrorToState(java.net.SocketTimeoutException("timeout"))
-        assertThat(vm.state.value).isEqualTo(LibraryInsightsUiState.Error.Timeout)
-    }
-
-    @Test fun `mapErrorToState keeps other io errors on Network`() = runBlocking {
-        val vm = newVm()
-        vm.mapErrorToState(java.net.ConnectException("refused"))
-        assertThat(vm.state.value).isInstanceOf(LibraryInsightsUiState.Error.Network::class.java)
+    @Test fun `error mapping distinguishes read timeouts from other network failures`() {
+        val cases = listOf(
+            java.net.SocketTimeoutException("timeout") to LibraryInsightsUiState.Error.Timeout::class.java,
+            java.net.ConnectException("refused") to LibraryInsightsUiState.Error.Network::class.java,
+        )
+        for ((failure, expected) in cases) {
+            val vm = newVm()
+            vm.mapErrorToState(failure)
+            assertThat(vm.state.value).isInstanceOf(expected)
+        }
     }
 
     @Test fun `409 on refresh maps to Disabled OptedOut`() = runBlocking {
@@ -254,7 +262,7 @@ class LibraryInsightsViewModelTest {
         progressDao = progressDao,
         aiConfigFlow = MutableStateFlow(configured()),
         aiEnabledFlow = MutableStateFlow(true),
-    )
+    ).also { viewModels += it }
 
     private fun configured(): AiConfig = AiConfig(
         configured = true,

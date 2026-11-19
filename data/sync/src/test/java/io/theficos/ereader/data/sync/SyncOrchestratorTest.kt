@@ -1,5 +1,6 @@
 package io.theficos.ereader.data.sync
 
+import io.theficos.ereader.testing.awaitRequest
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
@@ -128,12 +129,12 @@ class SyncOrchestratorTest {
         }
 
         assertThat(orchestrator.runOnce()).isInstanceOf(SyncResult.Success::class.java)
-        assertThat(server.takeRequest().body.readUtf8()).contains("before-push")
-        server.takeRequest() // pull
+        assertThat(server.awaitRequest().body.readUtf8()).contains("before-push")
+        server.awaitRequest() // pull
         assertThat(progress.dirty().single().locator).isEqualTo("during-push")
 
         assertThat(orchestrator.runOnce()).isInstanceOf(SyncResult.Success::class.java)
-        assertThat(server.takeRequest().body.readUtf8()).contains("during-push")
+        assertThat(server.awaitRequest().body.readUtf8()).contains("during-push")
         assertThat(progress.dirty()).isEmpty()
     }
 

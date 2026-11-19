@@ -48,7 +48,11 @@ from quire_server.db.models import (
     UserAIPreference,
 )
 
-pytestmark = [pytest.mark.requires_ai, pytest.mark.requires_progress]
+pytestmark = [
+    pytest.mark.requires_ai,
+    pytest.mark.requires_progress,
+    pytest.mark.ci_lane("full"),
+]
 
 
 # ---------------------------------------------------------------------------
