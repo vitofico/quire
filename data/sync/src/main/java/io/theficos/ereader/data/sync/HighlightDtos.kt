@@ -18,6 +18,7 @@ data class HighlightItemDto(
     @SerialName("created_at") val createdAt: Long,
     @SerialName("updated_at") val updatedAt: Long,
     @SerialName("deleted_at") val deletedAt: Long? = null,
+    val comment: String? = null,
 ) {
     fun toEntity(scope: String): HighlightEntity {
         require(UUID.fromString(id).toString() == id) { "Invalid highlight ID" }
@@ -28,14 +29,14 @@ data class HighlightItemDto(
         return HighlightEntity(
             id, document.metadataId, document.contentHash, document.identityHashVersion,
             locator, text, colour, bookTitle, bookAuthor, createdAt, updatedAt, deletedAt,
-            ownerScope = scope, syncedAt = updatedAt,
+            ownerScope = scope, syncedAt = updatedAt, comment = comment,
         )
     }
 }
 
 fun HighlightEntity.toSyncDto() = HighlightItemDto(
     id, DocumentIdDto(metadataId, contentHash, identityHashVersion), locator, text, colour,
-    bookTitle, bookAuthor, createdAt, updatedAt, deletedAt,
+    bookTitle, bookAuthor, createdAt, updatedAt, deletedAt, comment,
 )
 
 @Serializable data class HighlightPushBody(val items: List<HighlightItemDto>)
@@ -45,6 +46,7 @@ fun HighlightEntity.toSyncDto() = HighlightItemDto(
     val items: List<HighlightItemDto>,
     @SerialName("next_cursor") val nextCursor: String,
     @SerialName("has_more") val hasMore: Boolean,
+    @SerialName("supports_comments") val supportsComments: Boolean = false,
 )
 
 /** A run freezes both credentials and origin; it must never consult a live auth interceptor. */

@@ -25,6 +25,7 @@ internal class ReaderHighlights(
     private var observation: Job? = null
     private var mutation: Job? = null
     private var mutationGeneration = 0
+    private var editorOwner: String? = null
     private val _items = MutableStateFlow<List<Highlight>>(emptyList())
     val items = _items.asStateFlow()
     private val _mode = MutableStateFlow(false)
@@ -42,17 +43,30 @@ internal class ReaderHighlights(
     private val _loadError = MutableStateFlow<UiText?>(null)
     val loadError = _loadError.asStateFlow()
 
-    fun attach(book: Document) {
-        if (document == book) return
+    init {
+        scope.launch {
+            repository.ownerScopes.collect {
+                if (editorOwner != null && editorOwner != repository.ownerScope) resetEditing()
+            }
+        }
+    }
+
+    private fun resetEditing() {
         mutationGeneration++
         mutation?.cancel()
+        editorOwner = null
+        _editor.value = null
+        _busy.value = false
+        _error.value = null
+    }
+
+    fun attach(book: Document) {
+        if (document == book) return
+        resetEditing()
         observation?.cancel()
         document = book
         _items.value = emptyList()
         _mode.value = false
-        _editor.value = null
-        _busy.value = false
-        _error.value = null
         _notice.value = null
         reload()
     }
@@ -94,6 +108,7 @@ internal class ReaderHighlights(
         if (!_mode.value || _busy.value || document == null) return
         val text = locator.text.highlight?.takeIf { it.isNotBlank() } ?: return
         _error.value = null
+        editorOwner = repository.ownerScope
         _editor.value = HighlightEditor.New(locator.toJSON().toString(), text)
     }
 
@@ -101,6 +116,7 @@ internal class ReaderHighlights(
         if (!_mode.value || _busy.value) return false
         val highlight = _items.value.firstOrNull { it.id == id } ?: return false
         _error.value = null
+        editorOwner = repository.ownerScope
         _editor.value = HighlightEditor.Existing(highlight)
         return true
     }
@@ -111,10 +127,20 @@ internal class ReaderHighlights(
         _error.value = null
     }
 
-    fun saveColour(colour: HighlightColour) = change { book, editor ->
+    fun save(colour: HighlightColour, comment: String?) = change { book, editor ->
         when (editor) {
-            is HighlightEditor.New -> repository.create(book, editor.locator, editor.text, colour)
-            is HighlightEditor.Existing -> repository.setColour(editor.highlight.id, colour)
+            is HighlightEditor.New -> repository.create(book, editor.locator, editor.text, colour, comment)
+            is HighlightEditor.Existing -> {
+                val original = editor.highlight
+                val colourChanged = colour != original.colour
+                val commentChanged = comment != original.comment
+                when {
+                    colourChanged && commentChanged -> repository.update(original.id, colour, comment)
+                    colourChanged -> repository.setColour(original.id, colour)
+                    commentChanged -> repository.setComment(original.id, comment)
+                    else -> Unit
+                }
+            }
         }
     }
 
@@ -132,6 +158,10 @@ internal class ReaderHighlights(
         _error.value = null
         mutation = scope.launch {
             try {
+                if (editorOwner != repository.ownerScope) {
+                    _editor.value = null
+                    return@launch
+                }
                 action(book, selected)
                 if (generation == mutationGeneration) _editor.value = null
             } catch (cancelled: CancellationException) {

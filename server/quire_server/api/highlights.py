@@ -43,12 +43,21 @@ class HighlightItem(BaseModel):
     document: HighlightDocument
     locator: str = Field(min_length=1, max_length=262144)
     text: str = Field(min_length=1, max_length=262144)
+    comment: str | None = Field(default=None, max_length=16384)
     colour: Literal["YELLOW", "GREEN", "PINK"]
     book_title: str = Field(max_length=16384)
     book_author: str | None = Field(default=None, max_length=16384)
     created_at: int = Field(ge=0, le=MAX_INT)
     updated_at: int = Field(ge=0, le=MAX_INT)
     deleted_at: int | None = Field(default=None, ge=0, le=MAX_INT)
+
+    @field_validator("comment", mode="before")
+    @classmethod
+    def normalize_comment(cls, value: object) -> object:
+        if isinstance(value, str):
+            value = value.replace("\x00", "")
+            return value if value.strip() else None
+        return value
 
     @field_validator("locator", "text")
     @classmethod
@@ -82,6 +91,8 @@ def conflict_key(item: HighlightItem) -> tuple:
         item.book_author is not None,
         item.book_author or "",
         item.created_at,
+        item.comment is not None,
+        item.comment or "",
     )
 
 
@@ -115,6 +126,7 @@ class HighlightPushResponse(BaseModel):
 
 
 class HighlightPullResponse(BaseModel):
+    supports_comments: Literal[True] = True
     items: list[HighlightItem]
     next_cursor: str
     has_more: bool
@@ -147,6 +159,9 @@ async def push_highlights(
         row = await session.get(Highlight, (user_id, item.id))
         current = wire(row) if row is not None else None
         if current is not None:
+            # Clients predating comments omit this field on every push.
+            if "comment" not in item.model_fields_set:
+                item = item.model_copy(update={"comment": current.comment})
             # Identity versions are monotonic metadata, independent of LWW.
             # Normalize BOTH candidates before comparing so equal-clock
             # conflicts converge regardless of which version arrived first.

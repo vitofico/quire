@@ -40,9 +40,9 @@ import org.robolectric.annotation.GraphicsMode
 class HighlightsScreenTest {
     @get:Rule val compose = createComposeRule()
 
-    private fun item(id: String, text: String = "A saved passage", canJump: Boolean = true) = HighlightListItem(
+    private fun item(id: String, text: String = "A saved passage", canJump: Boolean = true, comment: String? = null) = HighlightListItem(
         highlight = Highlight(id, DocumentIdentity(contentHash = "hash"), "{malformed locator", text,
-            HighlightColour.GREEN, "Book title", "Author", 0, 0),
+            HighlightColour.GREEN, "Book title", "Author", 0, 0, comment = comment),
         locationLabel = uiText(R.string.reader_highlight_chapter, 2),
         canJump = canJump,
     )
@@ -95,10 +95,11 @@ class HighlightsScreenTest {
     @Test fun `an unavailable locator keeps the stored quote and semantic colour visible`() {
         compose.setContent {
             MaterialTheme {
-                HighlightsScreen("Book title", listOf(item("stale", "The retained quotation", false)), false, null, null, {}, {})
+                HighlightsScreen("Book title", listOf(item("stale", "The retained quotation", false, "My note about this passage")), false, null, null, {}, {})
             }
         }
         compose.onNodeWithText("The retained quotation").assertIsDisplayed()
+        compose.onNodeWithText("My note about this passage").assertIsDisplayed()
         compose.onNodeWithText("Green").assertIsDisplayed()
         compose.onNodeWithText("Chapter 2").assertIsDisplayed()
         compose.onNodeWithText("Location unavailable in this edition").assertIsDisplayed()

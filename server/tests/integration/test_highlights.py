@@ -22,6 +22,8 @@ PATH = "/sync/v1/highlights"
 @pytest.mark.parametrize("case", FIXTURE["conflict_cases"], ids=lambda case: case["name"])
 def test_shared_conflict_order(case):
     left, right = HighlightItem(**case["left"]), HighlightItem(**case["right"])
+    left_key, right_key = conflict_key(left), conflict_key(right)
+    assert (left_key > right_key) - (left_key < right_key) == case["expected_order"]
     assert max([left, right], key=conflict_key).model_dump(mode="json") == case["winner"]
     assert max([right, left], key=conflict_key).model_dump(mode="json") == case["winner"]
 
@@ -65,11 +67,31 @@ async def test_shared_fixture_opaque_locator_normalization_and_replay(client):
     assert await pull(client) == FIXTURE["pull"]
     tombstone = FIXTURE["pull"]["items"][0]
     assert (await push(client, [tombstone]))[0]["status"] == "accepted"
-    assert await pull(client, "2") == {"items": [], "next_cursor": "2", "has_more": False}
+    assert await pull(client, "2") == {
+        "items": [],
+        "next_cursor": "2",
+        "has_more": False,
+        "supports_comments": True,
+    }
     normalized = item(id=str(uuid4()), document=FIXTURE["normalization_input"])
     winner = (await push(client, [normalized]))[0]["item"]
     assert winner["document"] == FIXTURE["push"]["items"][0]["document"]
     assert winner["locator"] == normalized["locator"]
+
+
+async def test_comments_survive_legacy_push_until_explicitly_cleared(client):
+    row = item(comment="Una riflessione 😀")
+    received = dict(row, comment="Una\x00 riflessione 😀")
+    assert (await push(client, [received]))[0]["item"] == row
+    legacy = dict(row, colour="GREEN", updated_at=row["updated_at"] + 1)
+    del legacy["comment"]
+    result = (await push(client, [legacy]))[0]
+    assert result == {"status": "accepted", "item": legacy | {"comment": row["comment"]}}
+    assert (await pull(client, "1"))["items"] == [result["item"]]
+    cleared = dict(legacy, comment=None, updated_at=legacy["updated_at"] + 1)
+    assert (await push(client, [cleared]))[0]["item"] == cleared
+    assert (await push(client, [row]))[0] == {"status": "stale", "item": cleared}
+    assert (await pull(client, "2"))["items"] == [cleared]
 
 
 async def test_auth_and_same_uuid_tenant_isolation(client, session):
@@ -214,6 +236,7 @@ async def test_concurrent_same_uuid_writes_have_one_deterministic_winner(client)
         {"id": "not-a-uuid"},
         {"locator": " "},
         {"text": ""},
+        {"comment": "x" * 16385},
         {"colour": "RED"},
         {"created_at": -1},
         {"updated_at": 1},

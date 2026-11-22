@@ -96,6 +96,9 @@ live rows. Identity hash versions are promoted to the maximum learned value
 independently of which payload wins. The decimal `next_cursor` belongs to one server/account; clients
 save it after applying a page and continue while `has_more` is true. A 409
 `highlight_cursor_reset_required` requires restarting the pull at zero.
+An optional `comment` holds up to 16,384 Unicode characters. A push omitting
+it preserves the existing comment for older clients. An explicit null clears
+it when the update wins conflict resolution.
 Per-user transaction locks order revision allocation, commit and reads, so
 offline client clocks and in-flight writes cannot create cursor gaps.
 Tombstones are retained indefinitely. Native account export and purge include

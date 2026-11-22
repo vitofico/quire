@@ -11,6 +11,8 @@
     <string name="reader_highlight">"Resaltar"</string>
     <string name="reader_done">"Listo"</string>
     <string name="reader_highlight_mode">"Modo de resaltado"</string>
+    <string name="reader_highlight_comment">"Comentario"</string>
+    <string name="reader_highlight_comment_limit">"Usa un máximo de %1$d caracteres."</string>
     <string name="reader_highlight_mode_hint">"Selecciona texto para resaltarlo o toca un resaltado guardado. Desliza para pasar de página."</string>
     <string name="reader_highlight_passage">"Resaltar pasaje"</string>
     <string name="reader_edit_highlight">"Editar resaltado"</string>

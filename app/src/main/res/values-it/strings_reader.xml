@@ -11,6 +11,8 @@
     <string name="reader_highlight">"Evidenzia"</string>
     <string name="reader_done">"Fine"</string>
     <string name="reader_highlight_mode">"Modalità evidenziazione"</string>
+    <string name="reader_highlight_comment">"Commento"</string>
+    <string name="reader_highlight_comment_limit">"Puoi inserire fino a %1$d caratteri."</string>
     <string name="reader_highlight_mode_hint">"Seleziona il testo da evidenziare o tocca un’evidenziazione salvata. Scorri per cambiare pagina."</string>
     <string name="reader_highlight_passage">"Evidenzia passaggio"</string>
     <string name="reader_edit_highlight">"Modifica evidenziazione"</string>

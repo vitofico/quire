@@ -16,7 +16,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         HighlightEntity::class,
         MemoryBookmark::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = true,
 )
 abstract class EReaderDatabase : RoomDatabase() {
@@ -240,6 +240,15 @@ abstract class EReaderDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE highlights ADD COLUMN comment TEXT")
+                db.execSQL("ALTER TABLE highlights ADD COLUMN commentCleared INTEGER NOT NULL DEFAULT 0")
+                // Earlier apps advanced their cursors even when a remote highlight had a comment.
+                db.execSQL("DELETE FROM sync_state WHERE tableName LIKE 'highlights:%'")
+            }
+        }
+
         fun build(context: Context): EReaderDatabase =
             Room.databaseBuilder(context, EReaderDatabase::class.java, "ereader.db")
                 .addMigrations(
@@ -254,6 +263,7 @@ abstract class EReaderDatabase : RoomDatabase() {
                     MIGRATION_9_10,
                     MIGRATION_10_11,
                     MIGRATION_11_12,
+                    MIGRATION_12_13,
                 )
                 .build()
     }

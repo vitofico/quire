@@ -69,6 +69,27 @@ class HighlightRepositoryTest {
         assertThat(another.id).isNotEqualTo(highlight.id)
     }
 
+    @Test fun `comment edits preserve the quote and a clear remains pending through recolouring`() = runTest {
+        val doc = document()
+        val saved = repo.create(doc, "locator", "quote", HighlightColour.YELLOW, "First\u0000 thought")
+        assertThat(saved.comment).isEqualTo("First thought")
+        repo.update(saved.id, HighlightColour.GREEN, "Note\nwith emoji 📚")
+        val changed = repo.observe(doc.identity).first().single()
+        assertThat(changed.comment).isEqualTo("Note\nwith emoji 📚")
+        assertThat(changed.text).isEqualTo("quote")
+        assertThat(changed.updatedAt).isEqualTo(saved.updatedAt + 1)
+        repo.update(saved.id, HighlightColour.GREEN, changed.comment)
+        assertThat(repo.observe(doc.identity).first().single()).isEqualTo(changed)
+        repo.setColour(saved.id, HighlightColour.PINK)
+        repo.setComment(saved.id, "  ")
+        assertThat(repo.observe(doc.identity).first().single().colour).isEqualTo(HighlightColour.PINK)
+        repo.setColour(saved.id, HighlightColour.YELLOW)
+        val row = db.highlightDao().findById(saved.id)!!
+        assertThat(row.comment).isNull()
+        assertThat(row.commentCleared).isTrue()
+        assertThat(row.syncedAt).isNull()
+    }
+
     @Test fun `both identity hints match one annotation without duplicates or unrelated books`() = runTest {
         val doc = document()
         val saved = repo.create(doc, "locator", "quote", HighlightColour.YELLOW)

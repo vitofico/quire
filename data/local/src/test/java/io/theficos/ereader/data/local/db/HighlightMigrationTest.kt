@@ -19,6 +19,27 @@ class HighlightMigrationTest {
         emptyList(), FrameworkSQLiteOpenHelperFactory(),
     )
 
+    @Test fun `migration 12 to 13 keeps highlight and resets only highlight cursors`() {
+        val name = "highlight-comments.db"
+        helper.createDatabase(name, 12).use { db ->
+            db.execSQL("INSERT INTO highlights (id, ownerScope, contentHash, locator, text, colour, bookTitle, createdAt, updatedAt, syncedAt) VALUES ('saved', 'owner', 'hash', 'loc', 'quote', 'GREEN', 'Book', 1, 2, 2)")
+            db.execSQL("INSERT INTO sync_state VALUES ('highlights:owner', 5), ('progress', 3)")
+        }
+        helper.runMigrationsAndValidate(name, 13, true, EReaderDatabase.MIGRATION_12_13).use { db ->
+            db.query("SELECT comment, commentCleared, syncedAt FROM highlights WHERE ownerScope='owner' AND id='saved'").use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.isNull(0)).isTrue()
+                assertThat(c.getInt(1)).isEqualTo(0)
+                assertThat(c.getLong(2)).isEqualTo(2)
+            }
+            db.query("SELECT tableName FROM sync_state").use { c ->
+                assertThat(c.count).isEqualTo(1)
+                c.moveToFirst()
+                assertThat(c.getString(0)).isEqualTo("progress")
+            }
+        }
+    }
+
     @Test fun `shipped 9 and 10 upgrade through canonical highlight migrations before memory 12`() {
         for (version in listOf(9, 10)) {
             val name = "highlights-$version-12.db"

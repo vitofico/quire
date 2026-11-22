@@ -174,6 +174,12 @@ private fun HighlightListCard(item: HighlightListItem, opening: Boolean, busy: B
                     Text(stringResource(if (expanded) R.string.reader_highlight_show_less else R.string.reader_highlight_show_more))
                 }
             }
+            highlight.comment?.takeIf { it.isNotBlank() }?.let { comment ->
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(stringResource(R.string.reader_highlight_comment), style = MaterialTheme.typography.labelLarge)
+                    SelectionContainer { Text(comment, style = MaterialTheme.typography.bodyMedium) }
+                }
+            }
             if (!item.canJump) {
                 Text(stringResource(R.string.reader_highlight_location_unavailable),
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)

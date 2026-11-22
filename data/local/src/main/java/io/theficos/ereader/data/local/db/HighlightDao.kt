@@ -38,6 +38,18 @@ interface HighlightDao {
     @Query(
         """
         UPDATE highlights
+        SET colour = COALESCE(:colour, colour), comment = :comment,
+            commentCleared = (:comment IS NULL AND (comment IS NOT NULL OR commentCleared)),
+            syncedAt = NULL, updatedAt = MAX(:now, updatedAt + 1)
+        WHERE id = :id AND (ownerScope = :ownerScope OR ownerScope = '') AND deletedAt IS NULL
+            AND ((:colour IS NOT NULL AND colour != :colour) OR comment IS NOT :comment)
+        """
+    )
+    suspend fun update(id: String, colour: String?, comment: String?, now: Long, ownerScope: String = "")
+
+    @Query(
+        """
+        UPDATE highlights
         SET deletedAt = MAX(:now, updatedAt + 1), syncedAt = NULL, updatedAt = MAX(:now, updatedAt + 1)
         WHERE id = :id AND (ownerScope = :ownerScope OR ownerScope = '') AND deletedAt IS NULL
         """

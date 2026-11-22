@@ -57,8 +57,12 @@ class HighlightSyncerTest {
         createdAt = 10, updatedAt = 10, ownerScope = owner,
     )
 
-    private fun page(items: List<HighlightItemDto> = emptyList(), cursor: String = "0", more: Boolean = false) =
-        MockResponse().setBody(json.encodeToString(HighlightPullResponse.serializer(), HighlightPullResponse(items, cursor, more)))
+    private fun page(
+        items: List<HighlightItemDto> = emptyList(), cursor: String = "0",
+        more: Boolean = false, supportsComments: Boolean = true,
+    ) = MockResponse().setBody(json.encodeToString(
+        HighlightPullResponse.serializer(), HighlightPullResponse(items, cursor, more, supportsComments),
+    ))
 
     private fun ack(items: List<HighlightItemDto>) = MockResponse().setBody(json.encodeToString(
         HighlightPushResponse.serializer(), HighlightPushResponse(items.map { HighlightPushResult("accepted", it) }),
@@ -89,6 +93,43 @@ class HighlightSyncerTest {
         server.awaitRequest()
         val pushed = json.decodeFromString(HighlightPushBody.serializer(), server.awaitRequest().body.readUtf8())
         assertThat(pushed.items.map { it.id }).containsExactly(id)
+    }
+
+    @Test fun `explicit clear reaches the wire while an unknown legacy comment is omitted`() = runTest {
+        val cleared = row().copy(commentCleared = true)
+        val legacy = row().copy(id = "14300000-0000-4000-8000-000000000002")
+        db.highlightDao().insert(cleared)
+        db.highlightDao().insert(legacy)
+        server.enqueue(page())
+        server.enqueue(ack(listOf(cleared.toSyncDto(), legacy.toSyncDto().copy(comment = "From another device"))))
+        server.enqueue(page())
+        assertThat(syncer().runOnce()).isInstanceOf(SyncResult.Success::class.java)
+        server.awaitRequest()
+        val items = json.parseToJsonElement(server.awaitRequest().body.readUtf8()).jsonObject.getValue("items").jsonArray
+        assertThat(items[0].jsonObject.getValue("comment")).isEqualTo(kotlinx.serialization.json.JsonNull)
+        assertThat(items[1].jsonObject.containsKey("comment")).isFalse()
+        assertThat(db.highlightSyncDao().find(scope, id)!!.commentCleared).isFalse()
+        assertThat(db.highlightSyncDao().find(scope, legacy.id)!!.comment).isEqualTo("From another device")
+    }
+
+    @Test fun `older server colour merge keeps local comment pending until supported`() = runTest {
+        val saved = row().copy(comment = "Only on this device")
+        db.highlightDao().insert(saved)
+        server.enqueue(page(listOf(row().copy(colour = "PINK", updatedAt = 50).toSyncDto()), "1", supportsComments = false))
+        assertThat(syncer().runOnce()).isInstanceOf(SyncResult.Success::class.java)
+        val pending = db.highlightSyncDao().dirty(scope).single()
+        assertThat(pending.colour).isEqualTo("PINK")
+        assertThat(pending.comment).isEqualTo(saved.comment)
+        assertThat(server.requestCount).isEqualTo(1)
+        server.awaitRequest()
+        server.enqueue(page(cursor = "1"))
+        server.enqueue(ack(listOf(pending.toSyncDto())))
+        server.enqueue(page(cursor = "2"))
+        assertThat(syncer().runOnce()).isInstanceOf(SyncResult.Success::class.java)
+        server.awaitRequest()
+        val post = json.decodeFromString(HighlightPushBody.serializer(), server.awaitRequest().body.readUtf8())
+        assertThat(post.items.single().comment).isEqualTo(saved.comment)
+        assertThat(db.highlightSyncDao().dirty(scope)).isEmpty()
     }
 
     @Test fun `unsupported or unauthorized endpoint does not claim offline rows or acknowledge dirty rows`() = runTest {
@@ -153,6 +194,36 @@ class HighlightSyncerTest {
         assertThat(dirty.updatedAt).isEqualTo(11)
         assertThat(dirty.colour).isEqualTo("PINK")
         assertThat(dirty.syncedAt).isNull()
+    }
+
+    @Test fun `oversized upload retries in smaller batches and acknowledges every row`() = runTest {
+        val rows = (1..4).map { index ->
+            row().copy(id = "14300000-0000-4000-8000-00000000000$index", comment = "📚".repeat(8192))
+        }
+        rows.forEach { db.highlightDao().insert(it) }
+        val sizes = mutableListOf<Int>()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                if (request.method == "GET") return page()
+                val items = json.decodeFromString(HighlightPushBody.serializer(), request.body.readUtf8()).items
+                sizes.add(items.size)
+                return if (items.size > 2) MockResponse().setResponseCode(413) else ack(items)
+            }
+        }
+        assertThat(syncer().runOnce()).isInstanceOf(SyncResult.Success::class.java)
+        assertThat(sizes).containsExactly(4, 2, 2).inOrder()
+        assertThat(db.highlightSyncDao().dirty(scope)).isEmpty()
+        rows.forEach { assertThat(db.highlightSyncDao().find(scope, it.id)?.comment).isEqualTo(it.comment) }
+    }
+
+    @Test fun `single oversized highlight stays dirty and stops retrying`() = runTest {
+        db.highlightDao().insert(row())
+        server.enqueue(page())
+        server.enqueue(MockResponse().setResponseCode(413))
+        val result = syncer().runOnce() as SyncResult.HttpFailure
+        assertThat(result.code).isEqualTo(413)
+        assertThat(server.requestCount).isEqualTo(2)
+        assertThat(db.highlightSyncDao().dirty(scope).single().id).isEqualTo(id)
     }
 
     @Test fun `incomplete acknowledgement is rejected and dirty snapshot retained`() = runTest {

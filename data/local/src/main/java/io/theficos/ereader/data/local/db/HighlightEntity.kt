@@ -28,4 +28,7 @@ data class HighlightEntity(
     val deletedAt: Long? = null,
     @ColumnInfo(defaultValue = "''") val ownerScope: String = "",
     @ColumnInfo(defaultValue = "NULL") val syncedAt: Long? = null,
+    val comment: String? = null,
+    // A v12 client or a migrated row can omit an unknown comment. Only a user clear sends null.
+    @ColumnInfo(defaultValue = "0") val commentCleared: Boolean = false,
 )
