@@ -301,6 +301,7 @@ Push up to 500 items in one transaction. Example:
       "locator": "  { \"href\": \"chapter\\\"1.xhtml\", \"text\": {\"highlight\":\"Café \\u263a\"} }\n",
       "text": "“Café ☺ — 读书”",
       "colour": "YELLOW",
+      "comment": "Revisit this passage.",
       "book_title": "Fóundation",
       "book_author": null,
       "created_at": 1700000000000,
@@ -313,7 +314,9 @@ Push up to 500 items in one transaction. Example:
 
 `id` is a canonical UUID. `document` follows the existing normalized identity
 rules. `locator` is an opaque string, preserved byte for byte; `text` is the
-selected quotation. Colours are `YELLOW`, `GREEN` or `PINK`. Timestamps are
+selected quotation. The optional `comment` holds up to 16,384 Unicode code points.
+Omitting it preserves the stored comment. Sending `null` explicitly clears it when
+the edit wins conflict resolution. Colours are `YELLOW`, `GREEN` or `PINK`. Timestamps are
 nonnegative signed 64-bit epoch milliseconds; `created_at` and a non-null
 `deleted_at` must not exceed `updated_at`. `book_author` and `metadata_id` may be
 null. Quote text and locator must be nonblank.
@@ -329,7 +332,7 @@ Before comparison, both candidates use the maximum of their
 Conflicts then select the maximum tuple `(updated_at, deleted_at != null,
 deleted_at or 0, metadata_id or "", content_hash, identity_hash_version,
 locator, text, colour, book_title, book_author != null, book_author or "",
-created_at)` after identity normalization. Strings compare by unsigned UTF-8
+created_at, comment != null, comment or "")` after identity normalization. Strings compare by unsigned UTF-8
 order. This makes deletion win an equal-time tie and makes replay order
 irrelevant. A version-only upgrade preserves the winning payload and allocates
 a new revision even when the incoming edit is stale. Device clocks affect
@@ -338,7 +341,8 @@ conflict resolution. Tombstones are retained.
 ### `GET /sync/v1/highlights?since=0&limit=500`
 
 `since` is a decimal integer revision cursor, initially `0`; `limit` is 1–500.
-The response is `{"items":[...],"next_cursor":"2","has_more":false}`.
+The response is `{"items":[...],"next_cursor":"2","has_more":false,"supports_comments":true}`.
+Clients use `supports_comments` to detect servers that can store personal comments.
 Continue with `next_cursor` while `has_more` is true. Each changed row receives
 a distinct per-user revision under the same transaction lock used by pulls.
 This prevents a later commit from appearing behind an already returned cursor.

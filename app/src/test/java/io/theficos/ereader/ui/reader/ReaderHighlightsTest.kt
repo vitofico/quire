@@ -82,7 +82,7 @@ class ReaderHighlightsTest {
         state.attach(book)
         state.enterMode()
         state.select(selected)
-        state.saveColour(HighlightColour.PINK)
+        state.save(HighlightColour.PINK, null)
         runCurrent()
         assertThat(state.editor.value).isNull()
         assertThat(state.busy.value).isFalse()
@@ -99,14 +99,14 @@ class ReaderHighlightsTest {
         state.enterMode()
         state.select(selected)
         dao.failWrites = true
-        state.saveColour(HighlightColour.GREEN)
+        state.save(HighlightColour.GREEN, null)
         runCurrent()
         assertThat(state.editor.value?.text).isEqualTo("A selected passage.")
         assertThat(state.error.value).isEqualTo(uiText(R.string.reader_highlight_save_failed))
         assertThat(state.items.value).isEmpty()
         assertThat(state.busy.value).isFalse()
         dao.failWrites = false
-        state.saveColour(HighlightColour.GREEN)
+        state.save(HighlightColour.GREEN, null)
         runCurrent()
         assertThat(state.items.value).hasSize(1)
         assertThat(state.error.value).isNull()
@@ -118,11 +118,11 @@ class ReaderHighlightsTest {
         state.attach(book)
         state.enterMode()
         state.select(selected)
-        state.saveColour(HighlightColour.YELLOW)
+        state.save(HighlightColour.YELLOW, null)
         runCurrent()
         val id = state.items.value.single().id
         assertThat(state.edit(id)).isTrue()
-        state.saveColour(HighlightColour.PINK)
+        state.save(HighlightColour.PINK, null)
         runCurrent()
         assertThat(state.items.value.single().id).isEqualTo(id)
         assertThat(state.items.value.single().colour).isEqualTo(HighlightColour.PINK)
@@ -139,15 +139,72 @@ class ReaderHighlightsTest {
         assertThat(dao.rows.value.single().deletedAt).isNotNull()
     }
 
+    @Test fun `comments can be created edited and cleared on one highlight`() = runTest {
+        val state = ReaderHighlights(repository, backgroundScope)
+        state.attach(book)
+        state.enterMode()
+        state.select(selected)
+        state.save(HighlightColour.GREEN, "First thought")
+        runCurrent()
+        val saved = state.items.value.single()
+        assertThat(saved.comment).isEqualTo("First thought")
+        assertThat(state.edit(saved.id)).isTrue()
+        state.save(HighlightColour.GREEN, "Revised thought")
+        runCurrent()
+        assertThat(state.items.value.single().comment).isEqualTo("Revised thought")
+        assertThat(state.edit(saved.id)).isTrue()
+        state.save(HighlightColour.GREEN, null)
+        runCurrent()
+        assertThat(state.items.value.single()).isEqualTo(saved.copy(comment = null))
+    }
+
+    @Test fun `comment-only edit and unchanged save preserve concurrent updates`() = runTest {
+        val original = repository.create(book, selected.toJSON().toString(), "Passage", HighlightColour.GREEN, "Draft")
+        val state = ReaderHighlights(repository, backgroundScope)
+        state.attach(book)
+        state.enterMode()
+        runCurrent()
+
+        state.edit(original.id)
+        repository.setColour(original.id, HighlightColour.PINK)
+        state.save(HighlightColour.GREEN, "Revised")
+        runCurrent()
+        assertThat(state.items.value.single()).isEqualTo(original.copy(colour = HighlightColour.PINK, comment = "Revised"))
+
+        state.edit(original.id)
+        repository.update(original.id, HighlightColour.YELLOW, "Synced")
+        dao.failWrites = true
+        state.save(HighlightColour.PINK, "Revised")
+        runCurrent()
+        assertThat(state.error.value).isNull()
+        assertThat(state.editor.value).isNull()
+        assertThat(state.items.value.single()).isEqualTo(original.copy(colour = HighlightColour.YELLOW, comment = "Synced"))
+    }
+
+    @Test fun `switching accounts discards an open comment and a queued save`() = runTest {
+        val owner = MutableStateFlow("first")
+        val repo = HighlightRepository(dao, scopeProvider = { owner.value }, scopeFlow = owner)
+        val state = ReaderHighlights(repo, backgroundScope)
+        state.attach(book)
+        state.enterMode()
+        state.select(selected)
+        state.save(HighlightColour.GREEN, "Private thought")
+        owner.value = "second"
+        runCurrent()
+        assertThat(state.editor.value).isNull()
+        assertThat(dao.rows.value).isEmpty()
+        assertThat(state.busy.value).isFalse()
+    }
+
     @Test fun `a pending write cannot be duplicated or silently dismissed`() = runTest {
         val state = ReaderHighlights(repository, backgroundScope)
         dao.insertGate = CompletableDeferred()
         state.attach(book)
         state.enterMode()
         state.select(selected)
-        state.saveColour(HighlightColour.YELLOW)
+        state.save(HighlightColour.YELLOW, null)
         runCurrent()
-        state.saveColour(HighlightColour.PINK)
+        state.save(HighlightColour.PINK, null)
         state.dismissEditor()
         assertThat(state.leaveMode()).isFalse()
         assertThat(state.editor.value).isNotNull()
@@ -165,7 +222,7 @@ class ReaderHighlightsTest {
         state.attach(book)
         state.enterMode()
         state.select(selected)
-        state.saveColour(HighlightColour.YELLOW)
+        state.save(HighlightColour.YELLOW, null)
         runCurrent()
         state.attach(book.copy(id = 2, identity = DocumentIdentity(contentHash = "other")))
         dao.insertGate?.complete(Unit)
@@ -196,6 +253,10 @@ class ReaderHighlightsTest {
         override suspend fun setColour(id: String, colour: String, now: Long, ownerScope: String) {
             if (failWrites) throw IOException("test write failure")
             rows.value = rows.value.map { if (it.id == id) it.copy(colour = colour, updatedAt = now) else it }
+        }
+        override suspend fun update(id: String, colour: String?, comment: String?, now: Long, ownerScope: String) {
+            if (failWrites) throw IOException("test write failure")
+            rows.value = rows.value.map { if (it.id == id) it.copy(colour = colour ?: it.colour, comment = comment, updatedAt = now) else it }
         }
         override suspend fun softDelete(id: String, now: Long, ownerScope: String) {
             if (failWrites) throw IOException("test write failure")

@@ -395,7 +395,7 @@ private fun ReaderScreenContent(
                             editor = editor,
                             busy = highlightBusy,
                             error = highlightError,
-                            onColour = viewModel.highlighting::saveColour,
+                            onSave = viewModel.highlighting::save,
                             onRemove = viewModel.highlighting::remove,
                             onDismiss = viewModel.highlighting::dismissEditor,
                         )

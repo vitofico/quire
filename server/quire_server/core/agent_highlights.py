@@ -53,6 +53,8 @@ class HighlightSummary(BaseModel):
     metadata_id_truncated: bool
     text: str
     text_truncated: bool
+    comment: str | None
+    comment_truncated: bool
     book_title: str
     book_title_truncated: bool
     book_author: str | None
@@ -73,6 +75,8 @@ def _summary(row: Row) -> HighlightSummary:
         metadata_id_truncated=row.metadata_id_truncated,
         text=row.text,
         text_truncated=row.text_truncated,
+        comment=row.comment,
+        comment_truncated=row.comment_truncated,
         book_title=row.book_title,
         book_title_truncated=row.book_title_truncated,
         book_author=row.book_author,
@@ -141,6 +145,8 @@ async def list_highlights(
         Highlight.identity_hash_version,
         func.left(Highlight.text, 2000).label("text"),
         (func.length(Highlight.text) > 2000).label("text_truncated"),
+        func.left(Highlight.comment, 2000).label("comment"),
+        (func.coalesce(func.length(Highlight.comment), 0) > 2000).label("comment_truncated"),
         func.left(Highlight.book_title, 1000).label("book_title"),
         (func.length(Highlight.book_title) > 1000).label("book_title_truncated"),
         func.left(Highlight.book_author, 1000).label("book_author"),
@@ -163,6 +169,7 @@ async def list_highlights(
         statement = statement.where(
             or_(
                 Highlight.text.ilike(pattern, escape="\\"),
+                Highlight.comment.ilike(pattern, escape="\\"),
                 Highlight.book_title.ilike(pattern, escape="\\"),
                 Highlight.book_author.ilike(pattern, escape="\\"),
             )

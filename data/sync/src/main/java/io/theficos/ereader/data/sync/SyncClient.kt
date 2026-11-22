@@ -4,7 +4,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerializationException
+import io.theficos.ereader.data.local.db.HighlightEntity
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -42,9 +47,17 @@ class SyncClient(
                 HighlightPullResponse.serializer(), highlightHttp)
         }
 
-    suspend fun pushHighlights(session: HighlightSyncSession, items: List<HighlightItemDto>): SyncResult<HighlightPushResponse> =
+    suspend fun pushHighlights(session: HighlightSyncSession, items: List<HighlightEntity>): SyncResult<HighlightPushResponse> =
         withContext(Dispatchers.IO) {
-            val body = json.encodeToString(HighlightPushBody.serializer(), HighlightPushBody(items))
+            val payload = items.map { row ->
+                val fields = json.encodeToJsonElement(HighlightItemDto.serializer(), row.toSyncDto()).jsonObject
+                when {
+                    row.commentCleared -> JsonObject(fields + ("comment" to JsonNull))
+                    row.comment == null -> JsonObject(fields - "comment")
+                    else -> fields
+                }
+            }
+            val body = JsonObject(mapOf("items" to JsonArray(payload))).toString()
                 .toRequestBody("application/json".toMediaType())
             val request = Request.Builder().url(session.baseUrl.trimEnd('/') + SyncApi.PATH_HIGHLIGHTS)
                 .header("Authorization", session.authorization).post(body).build()

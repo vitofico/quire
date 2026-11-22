@@ -7,9 +7,11 @@ when an account and a compatible server are configured.
 Tap the centre of a reading page to show the controls, then choose **Highlight**.
 The title changes to **Highlight mode** and **Done** stays available. Long-press
 some text, adjust the selection handles and choose **Highlight** in the selection
-menu. Choose Yellow, Green or Pink to save the passage.
+menu. You can enter a personal comment before saving. Tap a colour to save immediately,
+or choose **Save** to use the selected colour.
 
-In Highlight mode, tap a saved highlight to change its colour or remove it.
+In Highlight mode, tap a saved highlight to edit its comment, change its colour or remove it.
+To clear a comment and keep the passage, erase the comment and choose **Save**.
 Swiping still turns pages. Page taps belong to the book instead of turning pages
 or hiding controls. Choose **Done** to return to normal reading. Back first closes
 the colour picker or active text selection, then exits Highlight mode before
@@ -24,8 +26,7 @@ also remain available. Copying a quote does not save a highlight or contact a se
 ## Browse saved passages
 
 Choose **More → Highlights** in the reader controls to see this book's saved passages.
-The list follows reading order and shows each passage's colour and chapter when
-available. Tap a passage to return to the page containing its start. **Back**
+The list follows reading order and shows each passage’s colour, personal comment and chapter when available. Tap a passage to return to the page containing its start. **Back**
 returns to reading without choosing a passage and remains available while a jump
 is in progress.
 
@@ -47,7 +48,7 @@ search is separate follow-up work.
 ## Sync across devices
 
 Highlights use the same Quire Server account and sync triggers as reading
-progress, including **Sync now**. Saved passages, colours and removals travel
+progress, including **Sync now**. Saved passages, personal comments, colours and removals travel
 together. The server retains the quotation and its exact location even when
 that book has not been downloaded on another device. Download the same edition
 to draw its highlights in the reader.
@@ -78,6 +79,7 @@ selected-text and locator columns, book metadata snapshots, update timestamps an
 soft-deletion tombstones support the sync protocol. Room schema 11 adds account
 ownership and sync acknowledgement state, preserving existing rows. It has no foreign
 key to `documents`: deleting a download cannot cascade into annotation deletion.
+Room schema 13 adds an optional comment to each highlight. Existing highlights start with an empty comment field.
 Lookup uses the existing normalized metadata identifier or content hash.
 
 The reader captures exact DOM endpoints and chapter content fingerprints in the

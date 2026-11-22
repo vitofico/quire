@@ -113,7 +113,7 @@ def mount_highlight_mcp(app: FastAPI, settings: Settings, session_factory) -> No
         limit: Limit = 50,
         cursor: Cursor = None,
     ) -> HighlightPage:
-        """Search literal text in highlight text, book title and author, case insensitively."""
+        """Find literal text in quotes, comments, titles and authors, ignoring case."""
         return await page(
             ctx, q=q, metadata_id=metadata_id, content_hash=content_hash, limit=limit, cursor=cursor
         )

@@ -2,12 +2,15 @@ package io.theficos.ereader.ui.reader
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
 import com.google.common.truth.Truth.assertThat
@@ -35,7 +38,7 @@ class HighlightControlsTest {
         compose.setContent {
             MaterialTheme {
                 HighlightEditorSheet(HighlightEditor.New("locator", "New passage"), false, null,
-                    onColour = { chosen += it }, onRemove = {}, onDismiss = {})
+                    onSave = { colour, _ -> chosen += colour }, onRemove = {}, onDismiss = {})
             }
         }
         compose.onNodeWithText("New passage").assertIsDisplayed()
@@ -52,20 +55,47 @@ class HighlightControlsTest {
         compose.setContent {
             MaterialTheme {
                 HighlightEditorSheet(HighlightEditor.Existing(saved), false, null,
-                    onColour = {}, onRemove = { removed++ }, onDismiss = {})
+                    onSave = { _, _ -> }, onRemove = { removed++ }, onDismiss = {})
             }
         }
         compose.onNodeWithText("Green").assertIsSelected()
-        compose.onNodeWithText("Remove highlight").assertIsDisplayed().assertIsEnabled()
+        compose.onNodeWithText("Remove highlight").performScrollTo().assertIsDisplayed().assertIsEnabled()
             .performSemanticsAction(SemanticsActions.OnClick) { assertThat(it()).isTrue() }
         compose.runOnIdle { assertThat(removed).isEqualTo(1) }
+    }
+
+    @Test fun `saved comment is editable and blank clears it while preserving colour`() {
+        var change: Pair<HighlightColour, String?>? = null
+        compose.setContent {
+            MaterialTheme {
+                HighlightEditorSheet(HighlightEditor.Existing(saved.copy(comment = "My thought")), false, null,
+                    onSave = { colour, comment -> change = colour to comment }, onRemove = {}, onDismiss = {})
+            }
+        }
+        compose.onNodeWithText("My thought").assertIsDisplayed()
+        compose.onNode(hasSetTextAction()).performTextReplacement(" ")
+        compose.onNodeWithText("Save").performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
+        compose.runOnIdle { assertThat(change).isEqualTo(HighlightColour.GREEN to null) }
+    }
+
+    @Test fun `new comment accompanies selected colour`() {
+        var change: Pair<HighlightColour, String?>? = null
+        compose.setContent {
+            MaterialTheme {
+                HighlightEditorSheet(HighlightEditor.New("location", "A passage"), false, null,
+                    onSave = { colour, comment -> change = colour to comment }, onRemove = {}, onDismiss = {})
+            }
+        }
+        compose.onNode(hasSetTextAction()).performTextReplacement("Remember this")
+        compose.onNodeWithText("Pink").performSemanticsAction(SemanticsActions.OnClick)
+        compose.runOnIdle { assertThat(change).isEqualTo(HighlightColour.PINK to "Remember this") }
     }
 
     @Test fun `pending writes disable mutations and cancellation`() {
         compose.setContent {
             MaterialTheme {
                 HighlightEditorSheet(HighlightEditor.Existing(saved), true, null,
-                    onColour = {}, onRemove = {}, onDismiss = {})
+                    onSave = { _, _ -> }, onRemove = {}, onDismiss = {})
             }
         }
         compose.onNodeWithText("Pink").assertIsNotEnabled()
@@ -78,12 +108,12 @@ class HighlightControlsTest {
         compose.setContent {
             MaterialTheme {
                 HighlightEditorSheet(HighlightEditor.Existing(saved), false,
-                    uiText(R.string.reader_highlight_save_failed), onColour = {}, onRemove = { retries++ }, onDismiss = {})
+                    uiText(R.string.reader_highlight_save_failed), onSave = { _, _ -> }, onRemove = { retries++ }, onDismiss = {})
             }
         }
         compose.onNodeWithText("Couldn’t save the change. Try again.").assertIsDisplayed()
         compose.onNodeWithText("Saved passage").assertIsDisplayed()
-        compose.onNodeWithText("Remove highlight").assertIsDisplayed().assertIsEnabled()
+        compose.onNodeWithText("Remove highlight").performScrollTo().assertIsDisplayed().assertIsEnabled()
             .performSemanticsAction(SemanticsActions.OnClick) { assertThat(it()).isTrue() }
         compose.runOnIdle { assertThat(retries).isEqualTo(1) }
     }

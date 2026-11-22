@@ -171,6 +171,7 @@ class ReaderHighlightNavigationTest {
             all.filter { it.deletedAt == null && it.contentHash == contentHash }
         }
         override suspend fun setColour(id: String, colour: String, now: Long, ownerScope: String) {}
+        override suspend fun update(id: String, colour: String?, comment: String?, now: Long, ownerScope: String) {}
         override suspend fun softDelete(id: String, now: Long, ownerScope: String) {}
     }
 }

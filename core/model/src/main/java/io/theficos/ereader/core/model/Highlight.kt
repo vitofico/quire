@@ -1,5 +1,7 @@
 package io.theficos.ereader.core.model
 
+const val MAX_HIGHLIGHT_COMMENT_LENGTH = 16_384
+
 /** Stable semantic colours; reader themes choose the actual drawing tint. */
 enum class HighlightColour { YELLOW, GREEN, PINK }
 
@@ -15,4 +17,5 @@ data class Highlight(
     val createdAt: Long,
     val updatedAt: Long,
     val deletedAt: Long? = null,
+    val comment: String? = null,
 )

@@ -9,8 +9,8 @@ import androidx.room.Transaction
 /** Account partitioning is part of the primary key, including on downloaded-file-free rows. */
 @Dao
 abstract class HighlightSyncDao {
-    @Query("SELECT * FROM highlights WHERE ownerScope = :scope AND (syncedAt IS NULL OR syncedAt != updatedAt) ORDER BY id LIMIT 500")
-    abstract suspend fun dirty(scope: String): List<HighlightEntity>
+    @Query("SELECT * FROM highlights WHERE ownerScope = :scope AND (syncedAt IS NULL OR syncedAt != updatedAt) AND (:supportsComments OR (comment IS NULL AND NOT commentCleared)) ORDER BY id LIMIT :limit")
+    abstract suspend fun dirty(scope: String, supportsComments: Boolean = true, limit: Int = 500): List<HighlightEntity>
 
     @Query("SELECT * FROM highlights WHERE ownerScope = ''")
     abstract suspend fun unowned(): List<HighlightEntity>
@@ -50,14 +50,20 @@ abstract class HighlightSyncDao {
      * with a greater version stays dirty; a deterministic server winner replaces it atomically.
      */
     @Transaction
-    open suspend fun merge(rows: List<HighlightEntity>) {
+    open suspend fun merge(rows: List<HighlightEntity>, supportsComments: Boolean = true) {
         for (incoming in rows) {
             val current = find(incoming.ownerScope, incoming.id)
             val version = maxOf(incoming.identityHashVersion, current?.identityHashVersion ?: 1)
-            val normalizedIncoming = incoming.copy(identityHashVersion = version)
+            // Older servers cannot represent a local comment or acknowledge a pending clear.
+            val pendingComment = current?.takeIf { !supportsComments && (it.comment != null || it.commentCleared) }
+            val normalizedIncoming = incoming.copy(
+                identityHashVersion = version,
+                comment = pendingComment?.comment ?: incoming.comment,
+                commentCleared = pendingComment?.commentCleared ?: false,
+            )
             val normalizedCurrent = current?.copy(identityHashVersion = version)
             if (normalizedCurrent == null || compareHighlights(normalizedIncoming, normalizedCurrent) >= 0) {
-                put(normalizedIncoming.copy(syncedAt = if (version == incoming.identityHashVersion) incoming.updatedAt else null))
+                put(normalizedIncoming.copy(syncedAt = if (pendingComment == null && version == incoming.identityHashVersion) incoming.updatedAt else null))
             } else if (current.identityHashVersion != version) {
                 // The payload and version can come from different edits. Upload that composite winner.
                 put(normalizedCurrent.copy(syncedAt = null))
@@ -66,8 +72,8 @@ abstract class HighlightSyncDao {
     }
 
     @Transaction
-    open suspend fun applyPage(rows: List<HighlightEntity>, key: String, cursor: Long) {
-        merge(rows)
+    open suspend fun applyPage(rows: List<HighlightEntity>, key: String, cursor: Long, supportsComments: Boolean = true) {
+        merge(rows, supportsComments)
         setCursor(key, cursor)
     }
 }
@@ -92,6 +98,7 @@ fun compareHighlights(a: HighlightEntity, b: HighlightEntity): Int {
         text(a.locator, b.locator), text(a.text, b.text), text(a.colour, b.colour),
         text(a.bookTitle, b.bookTitle), (a.bookAuthor != null).compareTo(b.bookAuthor != null),
         text(a.bookAuthor, b.bookAuthor), a.createdAt.compareTo(b.createdAt),
+        (a.comment != null).compareTo(b.comment != null), text(a.comment, b.comment),
     )
     return values.firstOrNull { it != 0 } ?: 0
 }

@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -15,6 +14,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
@@ -26,6 +27,9 @@ import androidx.compose.material3.SheetValue
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -36,6 +40,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.theficos.ereader.core.model.HighlightColour
+import io.theficos.ereader.core.model.MAX_HIGHLIGHT_COMMENT_LENGTH
 import io.theficos.ereader.reader.highlightTint
 import io.theficos.ereader.ui.UiText
 import io.theficos.quire.R
@@ -46,10 +51,15 @@ internal fun HighlightEditorSheet(
     editor: HighlightEditor,
     busy: Boolean,
     error: UiText?,
-    onColour: (HighlightColour) -> Unit,
+    onSave: (HighlightColour, String?) -> Unit,
     onRemove: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val highlight = (editor as? HighlightEditor.Existing)?.highlight
+    var comment by rememberSaveable(editor) { mutableStateOf(highlight?.comment.orEmpty()) }
+    val tooLong = comment.codePointCount(0, comment.length) > MAX_HIGHLIGHT_COMMENT_LENGTH
+    val canSave = !busy && !tooLong
+    val save: (HighlightColour) -> Unit = { colour -> onSave(colour, comment.takeUnless { it.isBlank() }) }
     val currentBusy by rememberUpdatedState(busy)
     ModalBottomSheet(
         onDismissRequest = { if (!busy) onDismiss() },
@@ -70,9 +80,9 @@ internal fun HighlightEditorSheet(
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 HighlightColour.entries.forEach { colour ->
                     FilterChip(
-                        selected = (editor as? HighlightEditor.Existing)?.highlight?.colour == colour,
-                        onClick = { onColour(colour) },
-                        enabled = !busy,
+                        selected = (highlight?.colour ?: HighlightColour.YELLOW) == colour,
+                        onClick = { save(colour) },
+                        enabled = canSave,
                         label = { Text(stringResource(colour.labelResource)) },
                         leadingIcon = {
                             Box(Modifier.size(16.dp).background(Color(colour.highlightTint()), CircleShape)
@@ -81,12 +91,27 @@ internal fun HighlightEditorSheet(
                     )
                 }
             }
+            OutlinedTextField(
+                value = comment,
+                onValueChange = { comment = it },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !busy,
+                label = { Text(stringResource(R.string.reader_highlight_comment)) },
+                maxLines = 4,
+                isError = tooLong,
+                supportingText = if (tooLong) {
+                    { Text(stringResource(R.string.reader_highlight_comment_limit, MAX_HIGHLIGHT_COMMENT_LENGTH)) }
+                } else null,
+            )
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             error?.let {
                 Text(it.asString(), color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { save(highlight?.colour ?: HighlightColour.YELLOW) }, enabled = canSave) {
+                    Text(stringResource(R.string.common_save))
+                }
                 TextButton(onClick = onDismiss, enabled = !busy) { Text(stringResource(R.string.common_cancel)) }
                 if (editor is HighlightEditor.Existing) {
                     TextButton(onClick = onRemove, enabled = !busy) {

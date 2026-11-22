@@ -11,6 +11,8 @@
     <string name="reader_highlight">"Highlight"</string>
     <string name="reader_done">"Done"</string>
     <string name="reader_highlight_mode">"Highlight mode"</string>
+    <string name="reader_highlight_comment">"Comment"</string>
+    <string name="reader_highlight_comment_limit">"Use up to %1$d characters."</string>
     <string name="reader_highlight_mode_hint">"Select text to highlight, or tap a saved highlight. Swipe to turn pages."</string>
     <string name="reader_highlight_passage">"Highlight passage"</string>
     <string name="reader_edit_highlight">"Edit highlight"</string>

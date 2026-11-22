@@ -56,8 +56,8 @@ and non-destructive. There are no create, edit, delete or sync tools.
 | Tool | Arguments | Result |
 | --- | --- | --- |
 | `list_highlights` | Optional `metadata_id`, `content_hash`, `limit`, `cursor` | Page of active highlight previews |
-| `search_highlights` | Required `q`, plus the list filters | Page matching literal text in quotations, titles or authors |
-| `get_highlight` | Required `highlight_id` UUID | One complete active highlight, including full text and exact locator |
+| `search_highlights` | Required `q`, plus the list filters | Page matching literal text in quotations, comments, titles or authors |
+| `get_highlight` | Required `highlight_id` UUID | One complete active highlight, including full text, comment and exact locator |
 
 For example, call `search_highlights` with `{"q":"memory","limit":10}`. Use an ID
 from the results with `get_highlight` to retrieve a complete passage.
@@ -69,14 +69,14 @@ embeddings, external retrieval or an LLM.
 ## Previews and pagination
 
 List and search responses contain `items`, `next_cursor` and `has_more`. Each
-preview includes `id`, `document`, `text`, `book_title`, `book_author`, `colour`,
+preview includes `id`, `document`, `text`, `comment`, `book_title`, `book_author`, `colour`,
 `created_at` and `updated_at`.
 
-To bound retrieved data and response size, preview text is limited to 2,000
+To bound retrieved data and response size, the quotation and comment previews are each limited to 2,000
 characters; title and author to 1,000 each; metadata identifier to 1,024.
-`text_truncated`, `book_title_truncated`, `book_author_truncated` and
+`text_truncated`, `comment_truncated`, `book_title_truncated`, `book_author_truncated` and
 `metadata_id_truncated` explicitly indicate clipping. Previews do not include
-locators. `get_highlight` returns the exact full saved text, attribution, identity
+locators. `get_highlight` returns the exact full saved text, comment, attribution, identity
 and locator without preview clipping. Missing, foreign-account and removed IDs
 all produce the same not-found result.
 

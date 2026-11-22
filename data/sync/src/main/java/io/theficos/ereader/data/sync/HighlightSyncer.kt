@@ -30,6 +30,7 @@ class HighlightSyncer(
                 return@withLock SyncResult.Success(Unit)
             }
             if (page !is SyncResult.Success) return@withLock page.asUnit()
+            val supportsComments = page.value.supportsComments
             validatePage(page.value, session.scope, cursor)
             if (!isCurrent(session)) return@withLock SyncResult.Success(Unit)
             // Only a successful authenticated endpoint response can bind never-owned quotes.
@@ -40,16 +41,22 @@ class HighlightSyncer(
                 val value = (page as? SyncResult.Success)?.value ?: return@withLock page.asUnit()
                 val rows = validatePage(value, session.scope, cursor)
                 cursor = value.nextCursor.toLong()
-                dao.applyPage(rows, key, cursor)
+                dao.applyPage(rows, key, cursor, supportsComments)
                 if (!value.hasMore) break
                 page = client.pullHighlights(session, cursor)
             }
 
             var pushedAny = false
+            var batchSize = 500
             while (isCurrent(session)) {
-                val dirty = dao.dirty(session.scope)
+                val dirty = dao.dirty(session.scope, supportsComments, batchSize)
                 if (dirty.isEmpty()) break
-                val pushed = client.pushHighlights(session, dirty.map { it.toSyncDto() })
+                val pushed = client.pushHighlights(session, dirty)
+                if (pushed is SyncResult.HttpFailure && pushed.code == 413 && dirty.size > 1) {
+                    // The server and its proxy can impose a byte limit below the row-count limit.
+                    batchSize = dirty.size / 2
+                    continue
+                }
                 if (pushed !is SyncResult.Success) return@withLock pushed.asUnit()
                 val results = pushed.value.results
                 require(results.size == dirty.size && results.map { it.item.id }.toSet() == dirty.map { it.id }.toSet()) {
@@ -68,7 +75,7 @@ class HighlightSyncer(
                 }
                 // Comparing the complete authoritative payload prevents an in-flight edit from
                 // being acknowledged merely because it shares the same UUID/timestamp.
-                dao.merge(winners)
+                dao.merge(winners, supportsComments)
                 pushedAny = true
             }
             if (pushedAny) {
@@ -78,7 +85,7 @@ class HighlightSyncer(
                     if (pulled !is SyncResult.Success) return@withLock pulled.asUnit()
                     val rows = validatePage(pulled.value, session.scope, cursor)
                     cursor = pulled.value.nextCursor.toLong()
-                    dao.applyPage(rows, key, cursor)
+                    dao.applyPage(rows, key, cursor, supportsComments)
                     if (!pulled.value.hasMore) break
                 }
             }

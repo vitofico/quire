@@ -169,18 +169,26 @@ async def test_bounded_previews_and_get_preserve_full_quote_and_locator(client):
     row = item(
         document={"metadata_id": "m" * 2000, "content_hash": "hash", "identity_hash_version": 1},
         text="😀" * 3000 + "outside-preview",
+        comment="c" * 2000 + "personal observation",
         book_title="T" * 1100,
         book_author="A" * 1100,
         locator="opaque:" + "x" * 3000,
     )
     await push(client, [row])
     summary = (await listing(client))["items"][0]
-    for name, size in [("text", 2000), ("book_title", 1000), ("book_author", 1000)]:
+    for name, size in [
+        ("text", 2000),
+        ("comment", 2000),
+        ("book_title", 1000),
+        ("book_author", 1000),
+    ]:
         assert summary[name] == row[name][:size]
         assert summary[name + "_truncated"] is True
     assert summary["document"]["metadata_id"] == "m" * 1024
     assert summary["metadata_id_truncated"] is True
     # Search matches the complete stored text, including text outside previews.
+    assert (await listing(client, q="personal observation"))["items"][0]["id"] == row["id"]
+    assert (await listing(client, user="bob", q="personal observation"))["items"] == []
     assert (await listing(client, q="outside-preview"))["items"][0]["id"] == row["id"]
     exact = await client.get(f"{PATH}/{row['id']}", headers=headers())
     assert exact.json() == row

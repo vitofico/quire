@@ -5,6 +5,7 @@ import io.theficos.ereader.core.model.Document
 import io.theficos.ereader.core.model.DocumentIdentity
 import io.theficos.ereader.core.model.Highlight
 import io.theficos.ereader.core.model.HighlightColour
+import io.theficos.ereader.core.model.MAX_HIGHLIGHT_COMMENT_LENGTH
 import io.theficos.ereader.data.local.db.HighlightDao
 import io.theficos.ereader.data.local.db.HighlightEntity
 import java.util.UUID
@@ -22,6 +23,9 @@ class HighlightRepository(
     private val scopeFlow: Flow<String> = flowOf(""),
     private val onChanged: () -> Unit = {},
 ) {
+    val ownerScope: String get() = scopeProvider()
+    val ownerScopes: Flow<String> get() = scopeFlow
+
     @OptIn(ExperimentalCoroutinesApi::class)
     fun observe(identity: DocumentIdentity): Flow<List<Highlight>> {
         val metadataId = normalizeMetadataId(identity.metadataId)
@@ -37,6 +41,7 @@ class HighlightRepository(
         locator: String,
         text: String,
         colour: HighlightColour,
+        comment: String? = null,
     ): Highlight {
         val scope = scopeProvider()
         val contentHash = requireNotNull(document.identity.contentHash?.trim()?.takeIf { it.isNotEmpty() }) {
@@ -58,6 +63,7 @@ class HighlightRepository(
             createdAt = now,
             updatedAt = now,
             ownerScope = scope,
+            comment = normalizeComment(comment),
         )
         dao.insert(row)
         onChanged()
@@ -67,6 +73,23 @@ class HighlightRepository(
     suspend fun setColour(id: String, colour: HighlightColour) {
         dao.setColour(id, colour.name, nowMs(), scopeProvider())
         onChanged()
+    }
+
+    suspend fun update(id: String, colour: HighlightColour, comment: String?) {
+        save(id, colour, comment)
+    }
+
+    suspend fun setComment(id: String, comment: String?) {
+        save(id, null, comment)
+    }
+
+    private suspend fun save(id: String, colour: HighlightColour?, comment: String?) {
+        dao.update(id, colour?.name, normalizeComment(comment), nowMs(), scopeProvider())
+        onChanged()
+    }
+
+    private fun normalizeComment(value: String?): String? = value?.replace("\u0000", "")?.takeUnless { it.isBlank() }?.also {
+        require(it.codePointCount(0, it.length) <= MAX_HIGHLIGHT_COMMENT_LENGTH)
     }
 
     /** Keep the tombstone so a later sync can propagate the removal. */
@@ -86,5 +109,6 @@ class HighlightRepository(
         createdAt = createdAt,
         updatedAt = updatedAt,
         deletedAt = deletedAt,
+        comment = comment,
     )
 }

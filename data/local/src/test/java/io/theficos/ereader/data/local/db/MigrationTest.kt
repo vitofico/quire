@@ -41,7 +41,7 @@ class MigrationTest {
             } catch (e: IllegalStateException) {
                 throw AssertionError("The production Room builder must open existing version-two data", e)
             }
-            assertThat(sqlite.version).isEqualTo(12)
+            assertThat(sqlite.version).isEqualTo(13)
             assertThat(db.documentDao().findById(1)?.title).isEqualTo("Book")
             val progress = checkNotNull(db.progressDao().findByDocument(1))
             assertThat(progress.locator).isEqualTo("loc")
@@ -367,7 +367,7 @@ class MigrationTest {
         val db = EReaderDatabase.build(context)
         try {
             val sqlite = db.openHelper.writableDatabase
-            assertThat(sqlite.version).isEqualTo(12)
+            assertThat(sqlite.version).isEqualTo(13)
             sqlite.query("SELECT identityHashVersion FROM book_insights").use { rows ->
                 assertThat(rows.count).isEqualTo(0)
             }

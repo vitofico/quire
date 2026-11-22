@@ -11,6 +11,8 @@
     <string name="reader_highlight">"Markieren"</string>
     <string name="reader_done">"Fertig"</string>
     <string name="reader_highlight_mode">"Markierungsmodus"</string>
+    <string name="reader_highlight_comment">"Kommentar"</string>
+    <string name="reader_highlight_comment_limit">"Verwende höchstens %1$d Zeichen."</string>
     <string name="reader_highlight_mode_hint">"Wähle Text zum Markieren oder tippe auf eine gespeicherte Markierung. Wische zum Umblättern."</string>
     <string name="reader_highlight_passage">"Textstelle markieren"</string>
     <string name="reader_edit_highlight">"Markierung bearbeiten"</string>

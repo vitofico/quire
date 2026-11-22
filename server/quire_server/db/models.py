@@ -49,6 +49,7 @@ class Highlight(Base):
     identity_hash_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     locator: Mapped[str] = mapped_column(String, nullable=False)
     text: Mapped[str] = mapped_column(String, nullable=False)
+    comment: Mapped[str | None] = mapped_column(String, nullable=True)
     colour: Mapped[str] = mapped_column(String, nullable=False)
     book_title: Mapped[str] = mapped_column(String, nullable=False)
     book_author: Mapped[str | None] = mapped_column(String, nullable=True)
