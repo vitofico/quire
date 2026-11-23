@@ -40,3 +40,32 @@ def test_public_web_delivery(tmp_path):
     disabled = FastAPI()
     install_web(disabled, tmp_path, enabled=False)
     assert TestClient(disabled).get("/quire/", headers=nav).status_code == 404
+
+
+def test_static_files_are_limited_to_the_packaged_allowlist(tmp_path):
+    dist = tmp_path / "dist"
+    assets = dist / "assets"
+    assets.mkdir(parents=True)
+    private = tmp_path / "private.txt"
+    private.write_text("outside dist")
+    (dist / "index.html").write_text("shell")
+    (dist / "unlisted.txt").write_text("outside the public manifest")
+    (assets / "linked.txt").symlink_to(private)
+    (assets / "nested").mkdir()
+    (assets / "nested" / "app-f3A6DE_U.js").write_text("bundle")
+    app = FastAPI()
+    install_web(app, dist)
+    client = TestClient(app)
+    (assets / "late.txt").write_text("added after startup")
+
+    assert client.get("/quire/assets/nested/app-f3A6DE_U.js").text == "bundle"
+    for path in (
+        "/quire/assets/linked.txt",
+        "/quire/assets/late.txt",
+        "/quire/assets/%2e%2e/unlisted.txt",
+        "/quire/assets/%2e%2e/%2e%2e/private.txt",
+        "/quire/unlisted.txt",
+    ):
+        response = client.get(path, headers={"Accept": "text/html"})
+        assert response.status_code == 404
+        assert "x-quire-public-asset" not in response.headers

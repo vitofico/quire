@@ -16,9 +16,25 @@ API_VERSION = re.compile(r"v\d+(?:/|$)", re.IGNORECASE)
 
 
 def install_web(app: FastAPI, dist: Path = WEB_DIST, *, enabled: bool = True) -> None:
-    if not enabled or not (dist / "index.html").is_file():
+    if not enabled:
         return
     dist = dist.resolve()
+    # Publication files are fixed when the app starts. Resolve only these
+    # trusted candidates so a request never becomes part of a filesystem path.
+    candidates = [dist / name for name in PUBLIC_FILES]
+    assets = dist / "assets"
+    if assets.is_dir() and not assets.is_symlink():
+        candidates.extend(assets.rglob("*"))
+    public: dict[str, Path] = {}
+    for candidate in candidates:
+        name = candidate.relative_to(dist).as_posix()
+        if (name in PUBLIC_FILES or ASSET.fullmatch(name)) and candidate.is_file():
+            resolved = candidate.resolve()
+            if resolved.is_relative_to(dist):
+                public[name] = resolved
+    index = public.get("index.html")
+    if index is None:
+        return
 
     @app.api_route("/quire", methods=["GET", "HEAD"], include_in_schema=False)
     async def redirect_web() -> RedirectResponse:
@@ -27,10 +43,8 @@ def install_web(app: FastAPI, dist: Path = WEB_DIST, *, enabled: bool = True) ->
     @app.api_route("/quire/{path:path}", methods=["GET", "HEAD"], include_in_schema=False)
     async def serve_web(path: str, request: Request) -> FileResponse:
         immutable = False
-        if path in PUBLIC_FILES or ASSET.fullmatch(path):
-            file = (dist / path).resolve()
-            if not file.is_relative_to(dist) or not file.is_file():
-                raise HTTPException(status_code=404)
+        file = public.get(path)
+        if file is not None:
             immutable = path.startswith("assets/") and bool(HASHED_NAME.search(file.name))
         elif (
             path == "assets"
@@ -42,7 +56,7 @@ def install_web(app: FastAPI, dist: Path = WEB_DIST, *, enabled: bool = True) ->
         ):
             raise HTTPException(status_code=404)
         else:
-            file = dist / "index.html"
+            file = index
         headers = {
             "Cache-Control": "public, max-age=31536000, immutable" if immutable else "no-cache",
             "X-Quire-Public-Asset": "1",
