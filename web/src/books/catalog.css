@@ -1,0 +1,78 @@
+.catalog {
+  display: grid;
+  gap: 1rem;
+}
+
+.catalog-header, .catalog-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .65rem;
+}
+
+.catalog-header {
+  justify-content: space-between;
+}
+
+.catalog-publications, .catalog-navigation {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: .75rem;
+}
+
+.catalog-navigation {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+}
+
+.catalog-navigation button {
+  width: 100%;
+}
+
+.catalog-publications {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
+}
+
+.catalog-book {
+  display: flex;
+  align-items: start;
+  flex-direction: column;
+  gap: .35rem;
+  width: 100%;
+  height: 100%;
+  text-align: left;
+}
+
+.catalog-cover {
+  display: block;
+  aspect-ratio: 2 / 3;
+  width: min(100%, 10rem);
+  object-fit: cover;
+  border-radius: .25rem;
+}
+
+.catalog-cover-fallback {
+  display: grid;
+  place-items: center;
+  border: 1px solid currentColor;
+  font-family: Georgia, serif;
+  font-size: 2rem;
+}
+
+.catalog-details {
+  display: grid;
+  justify-items: start;
+  gap: .6rem;
+  max-width: 58ch;
+}
+
+.catalog-details h2, .catalog-details p {
+  margin: 0;
+}
+
+.catalog-credentials, .catalog-credentials label {
+  display: grid;
+  justify-items: start;
+  gap: .4rem;
+}

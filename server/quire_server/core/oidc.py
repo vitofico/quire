@@ -59,6 +59,8 @@ class OIDCTransaction:
     user_id: str | None = None
     session_hash: str | None = field(default=None, repr=False)
     requested_at: float | None = None
+    reader_login: bool = False
+    remember_browser: bool = True
 
 
 class TransactionStore(Protocol):
@@ -110,6 +112,8 @@ class OIDCIdentity:
     purpose: str | None = None
     user_id: str | None = None
     session_hash: str | None = field(default=None, repr=False)
+    reader_login: bool = False
+    remember_browser: bool = True
 
 
 class OIDCClient:
@@ -127,7 +131,14 @@ class OIDCClient:
         self._http = http_client
 
     async def begin(
-        self, browser_binding: str, *, purpose=None, user_id=None, session_hash=None
+        self,
+        browser_binding: str,
+        *,
+        purpose=None,
+        user_id=None,
+        session_hash=None,
+        reader_login=False,
+        remember_browser=True,
     ) -> AuthorizationRequest:
         """Bind login to a random HttpOnly, SameSite=Lax browser cookie owned by the caller."""
         if len(browser_binding) < 32:
@@ -153,6 +164,8 @@ class OIDCClient:
                 user_id,
                 session_hash,
                 self._clock() if purpose else None,
+                reader_login,
+                remember_browser,
             ),
         )
         params = {
@@ -216,6 +229,8 @@ class OIDCClient:
             purpose=transaction.purpose,
             user_id=transaction.user_id,
             session_hash=transaction.session_hash,
+            reader_login=transaction.reader_login,
+            remember_browser=transaction.remember_browser,
         )
 
     async def _discovery(self) -> dict[str, Any]:

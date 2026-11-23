@@ -316,9 +316,21 @@
               if (!range.toString().trim()) continue;
               const rect = firstPaintedRect(range);
               if (rect.right <= 0 || rect.left >= window.innerWidth || rect.bottom <= 0 || rect.top >= window.innerHeight) continue;
+              const element = node.parentElement;
+              const preceding = document.createRange();
+              preceding.selectNodeContents(element);
+              preceding.setEnd(node, offset);
+              const text = element.textContent;
+              const start = preceding.toString().length;
+              const finish = Math.min(text.length, start + 32);
               return { anchor: { version: VERSION, href, documentHash: contentHash(),
                 start: endpoint(range.startContainer, range.startOffset), end: endpoint(range.endContainer, range.endOffset),
-                quote: range.toString(), rangeText: rangeText(range) }, text: { highlight: range.toString() } };
+                quote: range.toString(), rangeText: rangeText(range) },
+                cssSelector: selector(element), text: {
+                  highlight: text.slice(start, finish),
+                  before: text.slice(Math.max(0, start - 80), start),
+                  after: text.slice(finish, finish + 80)
+                } };
             }
           }
         }

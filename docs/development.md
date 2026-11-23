@@ -283,3 +283,14 @@ k8s ingress). See `docs/configuration.md` for env-var setup and
   parity is the only enforcement, so update both sides together.
 - **Migrations are append-only.** Once a migration ships to any environment it
   is immutable; create a new one to change anything.
+
+
+## Browser client
+
+Use Node 26 and the pnpm version pinned in `web/package.json`. From `web/`, run `pnpm install --frozen-lockfile` and `pnpm dev`, then open the printed development URL under `/quire/`. Vite forwards Quire API requests to the local server on port 8000. A local EPUB import works independently of a server account.
+
+Run `pnpm test`, `pnpm typecheck` and `pnpm build`. To run the browser suites, install the Playwright browsers with `pnpm exec playwright install` and run `pnpm test:e2e`. Run the packaged-server smoke as well when changing assets, offline storage or proxy routing. [Server guide](../server/README.md)
+
+The browser client uses React, TypeScript and Vite. Book parsing and OPDS are in `web/src/books/`, rendering and Android-compatible anchors in `web/src/reader/`, and account-scoped IndexedDB and sync in `web/src/data/`. The `web/src/account/` code owns browser identity and catalog credentials. Optional AI operations use the active account transport in `web/src/discovery/`.
+
+Client code follows the repository's Apache-2.0 license. The server retains its AGPL-3.0-only license. The web settings include source and license links. The browser distribution includes the license text for its bundled runtime dependencies.

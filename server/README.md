@@ -167,6 +167,106 @@ other AI providers, and how to check that a change took effect are in
 the server does not recognise is listed under `warnings` in
 `curl http://localhost:8000/health`.
 
+### Quire Web
+
+Open `/quire/` on the Quire Server origin. The full-stack Compose serves the
+browser app and `/opds` on the same HTTPS origin, with calibre-web at `/`.
+With the minimal Compose, open `http://localhost:8000/quire/` for local testing
+or terminate HTTPS on the public hostname. Forward `/quire` and `/quire/*`
+with the path and Host preserved in addition to the existing API routes. Keep the browser app and its API on the same origin. If using a
+same-origin proxy mount for another catalogue, point it at a fixed operator
+chosen upstream, set `QUIRE_SERVER_WEB_CATALOG_URL` to the public feed URL,
+and disable caching for authenticated feeds and downloads. External catalogue
+origins must allow browser requests through CORS.
+
+Browsers need HTTPS or localhost for service-worker installation and offline
+restart. The worker caches versioned application files. Books and reading
+state live in the browser profile and can be lost when the browser clears or
+evicts site data. Open Quire online once before expecting offline restart.
+After an upgrade, close all Quire tabs and any installed Quire window, then
+reopen online to activate the new worker. Check sync status before clearing
+browser data so unsent changes can reach the server.
+
+Build the bundled image from the repository root:
+
+```bash
+docker build -f server/Dockerfile --build-arg QUIRE_VERSION="$(git rev-parse HEAD)" -t quire-server:local .
+```
+
+Set `QUIRE_SERVER_IMAGE=quire-server:local` when starting either reference
+Compose with the local image. In automated releases use a commit or digest
+pinned image. Compare the `version` fields from `/quire/version.json` and `/health`
+when checking which revision is serving traffic. Web code
+uses Apache-2.0. The image includes the root license and notices, the
+server's AGPL-3.0-only license, web dependency notices, and font license texts
+under `/app/licenses`.
+
+To withdraw the browser shell, set `QUIRE_SERVER_WEB_ENABLED=false` and
+recreate the container. Already installed offline clients retain the previous
+shell until site data is cleared. To roll back, set `QUIRE_SERVER_IMAGE` to
+the previous verified digest, recreate the container and check `/readyz`
+and Android sync.
+
+If reverting from schema `progress_006` to an image that supports
+`progress_005`, back up PostgreSQL and stop the server before downgrading the
+schema. Keep `QUIRE_SERVER_IMAGE` on the current image for the downgrade so
+Alembic can read both revisions. With the full-stack Compose, run these
+commands from `server/`:
+
+```bash
+docker compose -f docker-compose.full.yml stop quire-server
+docker compose -f docker-compose.full.yml run --rm --no-deps quire-server alembic downgrade progress@-1
+```
+
+Then pin the previous image, recreate Quire Server, and verify you can pull
+existing library and progress data. This downgrade removes library replay
+receipts. Library items and reading progress remain in the database.
+
+#### Native browser authentication on an isolated origin
+
+Use a dedicated HTTPS origin for Quire when enabling native browser sign-in.
+Quire's HTTPS session cookie is scoped to the whole host. Use a different
+hostname for calibre-web, even when both services run behind the same proxy.
+The shared-origin full-stack reference below is for Calibre-Web Basic auth
+and local reading.
+
+The following Caddy configuration assumes both upstream services are
+reachable over an internal Docker network. Use domains that resolve to
+Caddy and set `QUIRE_SERVER_AUTH_BACKEND=native`,
+`QUIRE_SERVER_WEB_NATIVE_AUTH_ENABLED=true`, and
+`QUIRE_IDENTITY_PUBLIC_URL=https://read.example.com` in Quire Server's
+environment. If enabling OIDC, register
+`https://read.example.com/auth/v1/oidc/callback` with the identity provider.
+
+```caddyfile
+read.example.com {
+    @quire path /quire /quire/* /sync/* /library/* /ai/* /health /readyz
+    @browserAuth path /auth/v1/browser /auth/v1/browser/login /auth/v1/me /auth/v1/logout /auth/v1/oidc/start /auth/v1/oidc/callback
+    @deviceAuth path /auth/v1/login /auth/v1/pairing /auth/v1/pairing/exchange /auth/v1/account/export
+    handle @browserAuth {
+        reverse_proxy quire-server:8000
+    }
+    handle @deviceAuth {
+        reverse_proxy quire-server:8000
+    }
+    handle @quire {
+        reverse_proxy quire-server:8000
+    }
+    handle {
+        respond "Not found" 404
+    }
+}
+
+catalog.example.com {
+    reverse_proxy calibre-web:8083
+}
+```
+
+For this topology, leave the browser catalogue URL unset or set it to
+`https://catalog.example.com/opds` if calibre-web and its proxy permit CORS
+for `https://read.example.com`. File import works independently of the
+catalogue.
+
 ### Full-stack reference compose
 
 A Caddy front-end with path-based routing, so the Android app only needs
@@ -195,7 +295,7 @@ Routing inside the Caddy front-end (`caddy/Caddyfile`):
 {$QUIRE_SITE_ADDRESS:localhost} {
     tls internal
 
-    @quire path /sync/* /ai/* /library/* /agent/* /mcp /mcp/* /quire-admin /quire-admin/* /health /readyz
+    @quire path /quire /quire/* /sync/* /ai/* /library/* /agent/* /mcp /mcp/* /quire-admin /quire-admin/* /health /readyz
     handle @quire {
         reverse_proxy quire-server:8000
     }

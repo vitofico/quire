@@ -1,0 +1,31 @@
+{
+  "progress": {
+    "document": {
+      "metadata_id": "quirereaderpausefixture",
+      "content_hash": "4d05609190a8a6cd5e39687cb8aba02f",
+      "identity_hash_version": 1
+    },
+    "locator": "{\"href\":\"EPUB\\/part1.xhtml\",\"type\":\"application\\/xhtml+xml\",\"title\":\"Part one\",\"locations\":{\"progression\":0.2308021085624733,\"position\":1,\"totalProgression\":0}}",
+    "percent": 0.0,
+    "client_updated_at": "2026-11-23T12:25:10.086000+00:00",
+    "finished_at": null,
+    "abandoned_at": null
+  },
+  "highlight": {
+    "id": "e2281393-7e9e-4ff8-aa71-0c22b8d5dbf9",
+    "document": {
+      "metadata_id": "quirereaderpausefixture",
+      "content_hash": "4d05609190a8a6cd5e39687cb8aba02f",
+      "identity_hash_version": 1
+    },
+    "locator": "{\"href\":\"EPUB\\/part1.xhtml\",\"type\":\"application\\/xhtml+xml\",\"title\":\"Part one\",\"locations\":{\"quireDomRange\":\"{\\\"version\\\":3,\\\"href\\\":\\\"EPUB\\\\\\/part1.xhtml\\\",\\\"documentHash\\\":\\\"8a512a38980a9af8e83abd45383aeae5d9a2286211573bdd2ac22e2ed792eaaa\\\",\\\"start\\\":{\\\"path\\\":[17,0],\\\"nodeType\\\":3,\\\"offset\\\":13},\\\"end\\\":{\\\"path\\\":[17,0],\\\"nodeType\\\":3,\\\"offset\\\":17},\\\"quote\\\":\\\"Mira\\\",\\\"rangeText\\\":\\\"Mira\\\"}\",\"progression\":0.2308021085624733,\"position\":1,\"totalProgression\":0},\"text\":{\"before\":\"open. She wondered why the narrator kept returning to the empty station. The water moved slowly under the bridge, and she paused to consider the question before continuing her journey.Marker 1-17. \",\"highlight\":\"Mira\",\"after\":\" walked beside the quiet river, holding a letter she had chosen not to open. She wondered why the narrator kept returning to the empty station. The water moved slowly under the bridge, and she paused\"}}",
+    "text": "Mira",
+    "comment": "Android note for Marker 1-17",
+    "colour": "YELLOW",
+    "book_title": "Reader Pause Fixture",
+    "book_author": null,
+    "created_at": 1795436770217,
+    "updated_at": 1795436770217,
+    "deleted_at": null
+  }
+}

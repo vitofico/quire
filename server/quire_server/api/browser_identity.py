@@ -8,8 +8,8 @@ from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, HTTPException, Request, Response
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import Field, ValidationError, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import select, text
@@ -158,12 +158,12 @@ async def issue(factory, user_id, ttl, kind="browser", device_name=None):
     return token
 
 
-def set_cookie(response, settings, token):
+def set_cookie(response, settings, token, *, remember=True):
     response.set_cookie(
         settings.cookie_name,
         token,
         path="/",
-        max_age=3600,
+        max_age=3600 if remember else None,
         httponly=True,
         secure=settings.public_url.startswith("https:"),
         samesite="lax",
@@ -193,11 +193,21 @@ async def browser_options(request: Request):
 async def browser_login(request: Request):
     settings = origin(request)
     from quire_server.api.auth import LoginRequest
+    from quire_server.api.web_account import native_web_allowed
 
     try:
-        body = LoginRequest.model_validate(await request.json())
-    except (ValidationError, ValueError):
+        payload = await request.json()
+        body = LoginRequest.model_validate(payload)
+        destination = payload.get("destination")
+        remember = payload.get("remember_browser", True)
+        if not isinstance(remember, bool):
+            raise ValueError("invalid remember_browser")
+    except (ValidationError, ValueError, AttributeError):
         raise HTTPException(400, "invalid_login_request") from None
+    if destination not in (None, "quire"):
+        raise HTTPException(400, "invalid_login_destination")
+    if destination == "quire" and not native_web_allowed(request):
+        raise HTTPException(404, "quire_login_disabled")
     guard = request.app.state.native_login_guard
     guard.begin(request.client.host if request.client else "unknown")
     try:
@@ -207,29 +217,38 @@ async def browser_login(request: Request):
     finally:
         guard.inflight -= 1
     async with request.app.state.identity_factory() as session:
-        await session.execute(
-            text("UPDATE native_sessions SET kind='browser' WHERE token_hash=:hash"),
-            {"hash": hash_session_token(token)},
-        )
-        await session.execute(
+        user_id = await session.scalar(
             text(
-                "UPDATE native_sessions SET expires_at=LEAST(expires_at,:expires) "
-                "WHERE token_hash=:hash"
+                "UPDATE native_sessions SET kind='browser', expires_at=LEAST(expires_at,:expires) "
+                "WHERE token_hash=:hash RETURNING user_id"
             ),
             {"hash": hash_session_token(token), "expires": datetime.now(UTC) + timedelta(hours=1)},
         )
         await session.commit()
-    response = Response(content='{"status":"signed_in"}', media_type="application/json")
-    set_cookie(response, settings, token)
+    response = JSONResponse({"status": "signed_in", "account_id": f"native:{user_id}"})
+    set_cookie(response, settings, token, remember=remember)
     return response
 
 
 @router.get("/oidc/start")
-async def oidc_start(request: Request, reauth: str | None = None):
+async def oidc_start(
+    request: Request,
+    reauth: str | None = None,
+    destination: str | None = None,
+    remember_browser: bool = False,
+):
     settings = request.app.state.identity_settings
     if not settings.oidc_issuer:
         raise HTTPException(404, "oidc_disabled")
+    if destination not in {None, "quire"} or (destination is not None and reauth is not None):
+        raise HTTPException(400, "invalid_login_destination")
     kwargs = {}
+    if destination == "quire":
+        from quire_server.api.web_account import native_web_allowed
+
+        if not native_web_allowed(request):
+            raise HTTPException(404, "quire_login_disabled")
+        kwargs = {"reader_login": True, "remember_browser": remember_browser}
     if reauth is not None:
         if reauth != "account-delete":
             raise HTTPException(400, "invalid_reauthentication")
@@ -270,6 +289,11 @@ async def oidc_callback(request: Request, code: str = "", state: str = ""):
         )
     except OIDCError as exc:
         raise HTTPException(401, "invalid_oidc_login") from exc
+    if identity.reader_login:
+        from quire_server.api.web_account import native_web_allowed
+
+        if not native_web_allowed(request):
+            raise HTTPException(404, "quire_login_disabled")
     factory = request.app.state.identity_factory
     if identity.purpose:
         # The validated one-use browser binding and server-held transaction
@@ -375,8 +399,9 @@ async def oidc_callback(request: Request, code: str = "", state: str = ""):
     if request.app.state.hosted_policy:
         await request.app.state.hosted_policy.allow_account(f"native:{row}")
     token = await issue(factory, row, min(3600, request.app.state.auth_backend._ttl_s))
-    response = RedirectResponse(settings.public_url + "/cloud/account", status_code=303)
-    set_cookie(response, settings, token)
+    destination = "/quire/" if identity.reader_login else "/cloud/account"
+    response = RedirectResponse(settings.public_url + destination, status_code=303)
+    set_cookie(response, settings, token, remember=identity.remember_browser)
     response.delete_cookie(
         settings.cookie_name + "-oidc",
         path="/",

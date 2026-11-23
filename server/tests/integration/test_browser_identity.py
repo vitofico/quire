@@ -3,6 +3,7 @@ import json
 import time
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
+from uuid import uuid4
 
 import httpx
 import jwt
@@ -12,24 +13,28 @@ from sqlalchemy import select, text
 
 from quire_server.db.models import Highlight, HighlightSyncState, LibraryItem, NativeUser
 
+PASSWORD = "synthetic-password"  # pragma: allowlist secret
+SECOND_PASSWORD = "second-password"  # pragma: allowlist secret
+WRONG_PASSWORD = "wrong"  # pragma: allowlist secret
 ORIGIN = "https://reader.example.test"
 SERVICE = "synthetic-account-service-token-00000000"
 
 
 def configure(monkeypatch, **values):
     monkeypatch.setenv("QUIRE_IDENTITY_PUBLIC_URL", ORIGIN)
+    monkeypatch.setenv("QUIRE_SERVER_WEB_NATIVE_AUTH_ENABLED", "true")
     monkeypatch.setenv("QUIRE_IDENTITY_SERVICE_TOKEN", SERVICE)
     for key, value in values.items():
         monkeypatch.setenv("QUIRE_IDENTITY_" + key.upper(), value)
 
 
 async def signin(client, app, email="synthetic-browser@example.test"):
-    await app.state.auth_backend.register(email=email, password="synthetic-password")
+    await app.state.auth_backend.register(email=email, password=PASSWORD)
     client.base_url = httpx.URL(ORIGIN)
     response = await client.post(
         "/auth/v1/browser/login",
         headers={"Origin": ORIGIN},
-        json={"email": email, "password": "synthetic-password"},
+        json={"email": email, "password": PASSWORD},
     )
     assert response.status_code == 200, response.text
     assert "Secure" in response.headers["set-cookie"]
@@ -63,6 +68,45 @@ async def test_browser_pairing_single_use_revocation_and_csrf(
         ).status_code == 401
         # Logging out the browser does not revoke a separately paired phone.
         assert (await client.get("/auth/v1/me", headers=device)).status_code == 200
+
+
+async def test_browser_identity_binding_and_shared_session(
+    client_factory, app, session, monkeypatch
+):
+    configure(monkeypatch)
+    async with client_factory(
+        auth_backend="native", ai_enabled=False, progress_enabled=True, skip_auth_overrides=True
+    ) as client:
+        first, _ = await signin(client, app)
+        await app.state.auth_backend.register(email="second@example.test", password=SECOND_PASSWORD)
+        response = await client.post(
+            "/auth/v1/browser/login",
+            headers={"Origin": ORIGIN},
+            json={
+                "email": "second@example.test",
+                "password": SECOND_PASSWORD,
+                "remember_browser": False,
+            },
+        )
+        assert response.status_code == 200
+        assert "Max-Age" not in response.headers["set-cookie"]
+        second = (await client.get("/auth/v1/me")).json()
+        assert second["user"]["id"] == response.json()["account_id"]
+        headers = {
+            "X-Quire-Account": first["user"]["id"].encode().hex(),
+            "Origin": ORIGIN,
+            "X-CSRF-Token": second["csrf_token"],
+        }
+        assert (await client.get("/auth/v1/me", headers=headers)).status_code == 409
+        assert (await client.post("/auth/v1/logout", headers=headers)).status_code == 409
+        assert (await client.get("/auth/v1/account/export", headers=headers)).status_code == 409
+        assert (await client.get("/auth/v1/me")).json()["user"] == second["user"]
+        await session.execute(text("UPDATE native_sessions SET expires_at=now()"))
+        await session.commit()
+        assert (await client.get("/auth/v1/me")).status_code == 401
+        bootstrap = await client.get("/quire/v1/bootstrap")
+        assert bootstrap.status_code == 200
+        assert bootstrap.headers["cache-control"] == "no-store"
 
 
 @pytest.mark.parametrize("body", [b"[]", b"null", b'"ticket"', b"1", b"{", b"\xff"])
@@ -130,17 +174,30 @@ async def test_oidc_callback_issuer_subject_mapping_and_replay(
     ) as client:
         client.base_url = httpx.URL(ORIGIN)
         local_id = await app.state.auth_backend.register(
-            email="same-email@example.test", password="synthetic-password"
+            email="same-email@example.test", password=PASSWORD
         )
         async with httpx.AsyncClient(transport=httpx.MockTransport(provider)) as provider_client:
             app.state.oidc_client._http = provider_client
-            for _ in range(2):
-                start = await client.get("/auth/v1/oidc/start")
+            rejected = await client.get("/auth/v1/oidc/start?destination=https://elsewhere.test/")
+            assert rejected.status_code == 400
+            rejected = await client.get(
+                "/auth/v1/oidc/start?destination=quire&reauth=account-delete"
+            )
+            assert rejected.status_code == 400
+            for destination in (None, "quire"):
+                params = {"destination": destination} if destination else {}
+                start = await client.get("/auth/v1/oidc/start", params=params)
                 assert start.status_code == 303
                 query = parse_qs(urlsplit(start.headers["location"]).query)
                 nonce[0] = query["nonce"][0]
                 callback = "/auth/v1/oidc/callback?code=synthetic&state=" + query["state"][0]
-                assert (await client.get(callback)).status_code == 303
+                result = await client.get(callback)
+                assert result.status_code == 303
+                assert result.headers["location"] == ORIGIN + (
+                    "/quire/" if destination else "/cloud/account"
+                )
+                cookie = result.headers.get_list("set-cookie")[0]
+                assert ("Max-Age=3600" in cookie) == (destination is None)
                 me = (await client.get("/auth/v1/me")).json()
                 assert me["user"]["id"] != f"native:{local_id}"
                 assert (await client.get(callback)).status_code == 401
@@ -220,6 +277,7 @@ PRIVATE_ROWS = {
     "highlight_sync_state": "user_id",
     "documents": "user_id",
     "library_items": "user_id",
+    "library_sync_receipts": "user_id",
     "user_ai_preferences": "user_id",
     "ai_usage_daily": "user_id",
     "ai_usage_monthly": "user_id",
@@ -278,7 +336,7 @@ async def test_export_close_purge_isolation_and_shared_cache(
         me, _ = await signin(client, app)
         account = me["user"]["id"]
         bob = await app.state.auth_backend.register(
-            email="synthetic-bob@example.test", password="synthetic-password"
+            email="synthetic-bob@example.test", password=PASSWORD
         )
         session.add_all(
             [
@@ -293,7 +351,7 @@ async def test_export_close_purge_isolation_and_shared_cache(
         token = (
             await client.post(
                 "/auth/v1/login",
-                json={"email": "synthetic-browser@example.test", "password": "synthetic-password"},
+                json={"email": "synthetic-browser@example.test", "password": PASSWORD},
             )
         ).json()["token"]
         auth = {"Authorization": "Bearer " + token}
@@ -311,7 +369,7 @@ async def test_export_close_purge_isolation_and_shared_cache(
         bob_token = (
             await client.post(
                 "/auth/v1/login",
-                json={"email": "synthetic-bob@example.test", "password": "synthetic-password"},
+                json={"email": "synthetic-bob@example.test", "password": PASSWORD},
             )
         ).json()["token"]
         assert (
@@ -321,6 +379,14 @@ async def test_export_close_purge_isolation_and_shared_cache(
                 json=highlights,
             )
         ).status_code == 200
+        # A keyed no-op still needs a durable receipt, and it is private to its account.
+        for bearer in (token, bob_token):
+            keyed = await client.post(
+                "/library/v1/sync",
+                headers={"Authorization": "Bearer " + bearer, "Idempotency-Key": str(uuid4())},
+                json={"items": [{"identity_hash": "not-on-the-shelf", "status": "deleted"}]},
+            )
+            assert keyed.status_code == 200, keyed.text
         exported_response = await client.get("/auth/v1/account/export", headers=auth)
         assert exported_response.headers["Cache-Control"] == "no-store"
         exported = exported_response.json()
@@ -329,6 +395,7 @@ async def test_export_close_purge_isolation_and_shared_cache(
         assert exported["highlights"][0]["user_id"] == account
         assert exported["highlights"][0]["deleted_at"] is not None
         assert exported["highlight_sync_state"] == [{"user_id": account, "revision": 2}]
+        assert [receipt["user_id"] for receipt in exported["library_sync_receipts"]] == [account]
         assert "password_hash" not in str(exported) and "token_hash" not in str(exported)
         for owner in (account, f"native:{bob}"):
             for statement in (
@@ -465,16 +532,14 @@ async def test_deletion_proof_requires_password_and_same_live_session_once(
     ) as client:
         me, csrf = await signin(client, app)
         endpoint = "/auth/v1/account/delete-authorization"
+        assert (await client.post(endpoint, json={"password": PASSWORD})).status_code == 403
         assert (
-            await client.post(endpoint, json={"password": "synthetic-password"})
-        ).status_code == 403
-        assert (
-            await client.post(endpoint, headers=csrf, json={"password": "wrong"})
+            await client.post(endpoint, headers=csrf, json={"password": WRONG_PASSWORD})
         ).status_code == 401
-        result = await client.post(endpoint, headers=csrf, json={"password": "synthetic-password"})
+        result = await client.post(endpoint, headers=csrf, json={"password": PASSWORD})
         proof = result.json()["proof"]
         device, _ = await app.state.auth_backend.login(
-            email="synthetic-browser@example.test", password="synthetic-password"
+            email="synthetic-browser@example.test", password=PASSWORD
         )
         consumed = endpoint + "/consume"
         assert (
@@ -487,9 +552,9 @@ async def test_deletion_proof_requires_password_and_same_live_session_once(
             "status": "authorized",
         }
         assert (await client.post(consumed, headers=csrf, json={"proof": proof})).status_code == 401
-        proof = (
-            await client.post(endpoint, headers=csrf, json={"password": "synthetic-password"})
-        ).json()["proof"]
+        proof = (await client.post(endpoint, headers=csrf, json={"password": PASSWORD})).json()[
+            "proof"
+        ]
         await session.execute(
             text("UPDATE account_delete_authorizations SET expires_at=now()-interval '1 second'")
         )
@@ -516,7 +581,7 @@ async def test_native_admin_forms_require_same_origin_csrf(
         assert fields == [me["csrf_token"]] * 3
         for origin, data in [
             (ORIGIN, {}),
-            (ORIGIN, {"csrf_token": "wrong"}),
+            (ORIGIN, {"csrf_token": WRONG_PASSWORD}),
             (ORIGIN, {"csrf_token": "é"}),
             ("https://untrusted.example.test", {"csrf_token": fields[0]}),
         ]:

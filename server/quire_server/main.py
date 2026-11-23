@@ -305,6 +305,9 @@ def create_app() -> FastAPI:
     # Always-on root endpoints (no prefix). Mounted before mode gates so they
     # remain available even when both flags are false.
     app.include_router(health.router)
+    from quire_server.api.web_account import install_web_account
+
+    install_web_account(app, settings, identity_settings)
 
     # Issue #102: the status page exists only for a deploy that names its
     # admins. No names, no routes, the same 404 as a disabled mode.
@@ -356,6 +359,12 @@ def create_app() -> FastAPI:
             if (
                 issuance
                 or legacy_ai
+                or request.url.path == "/quire"
+                or (
+                    request.url.path.startswith("/quire/")
+                    and not request.url.path.startswith("/quire/v1/")
+                )
+                or request.url.path == "/quire/v1/bootstrap"
                 or request.url.path.startswith("/internal/")
                 or not (
                     request.headers.get("authorization")
@@ -565,6 +574,9 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestSizeMiddleware, max_bytes=settings.max_request_bytes)
     app.add_middleware(RequestIDMiddleware)
 
+    from quire_server.web import install_web
+
+    install_web(app, enabled=settings.web_enabled)
     return app
 
 

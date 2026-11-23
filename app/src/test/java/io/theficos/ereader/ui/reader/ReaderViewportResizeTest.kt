@@ -15,6 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -221,6 +222,30 @@ class ReaderViewportResizeTest {
         model.publishLocator(locatorAt(0.3))
         assertThat(model.currentLocator.value?.locations?.progression).isEqualTo(0.3)
         model.clearPendingResize()
+    }
+
+    @Test fun `reflow and its delayed callbacks do not replace a precise progress record`() = runTest {
+        val model = vmServing(domAnchor(9))
+        val updates = mutableListOf<Locator>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            model.locatorUpdates.collect { updates += it }
+        }
+        val live = locatorAt(0.2)
+        val exact = live.copy(locations = live.locations.copy(otherLocations = mapOf("quireDomRange" to "exact")))
+        model.publishLocator(exact)
+        model.beginViewportResize()
+        model.completeViewportResize()
+        testScheduler.runCurrent()
+        model.publishLocator(locatorAt(0.16)) // The resized page still contains the saved passage.
+        testScheduler.runCurrent()
+        assertThat(updates).containsExactly(exact)
+
+        // A native swipe can advance inside a paragraph that stays visible.
+        model.recognizeReadingGesture()
+        val advanced = locatorAt(0.3)
+        model.publishLocator(advanced)
+        testScheduler.runCurrent()
+        assertThat(updates).containsExactly(exact, advanced).inOrder()
     }
 
     @Test fun `accepted go does not release font reflow until applied font and original paragraph are observed`() = runTest {

@@ -15,6 +15,7 @@ internal class ReaderTapDispatcher(context: Context) : FrameLayout(context) {
     var onPrev: () -> Unit = {}
     var onNext: () -> Unit = {}
     var onToggleChrome: () -> Unit = {}
+    var onScrollGesture: () -> Unit = {}
     var chromeVisible: Boolean = false
     var tapNavigationEnabled: Boolean = true
 
@@ -37,6 +38,11 @@ internal class ReaderTapDispatcher(context: Context) : FrameLayout(context) {
     private var observeCurrentGesture = false
 
     private val gesture = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+        override fun onScroll(first: MotionEvent?, current: MotionEvent, dx: Float, dy: Float): Boolean {
+            onScrollGesture()
+            return false
+        }
+
         override fun onSingleTapUp(e: MotionEvent): Boolean {
             val w = width.toFloat()
             if (w <= 0f) return false

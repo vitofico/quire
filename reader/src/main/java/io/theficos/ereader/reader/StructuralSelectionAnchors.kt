@@ -54,9 +54,10 @@ internal class StructuralSelectionAnchors(context: Context) {
         }
         val anchor = snapshot.optJSONObject("anchor") ?: return null
         val text = snapshot.optJSONObject("text")?.let(Locator.Text::fromJSON) ?: return null
-        return page.copy(text = text, locations = page.locations.copy(
-            otherLocations = page.locations.otherLocations + (KEY to anchor.toString()),
-        ))
+        val cssSelector = snapshot.optString("cssSelector").takeIf { it.isNotBlank() }
+        val locations = page.locations.otherLocations.filterKeys { it != VIEWPORT_POSITION_KEY } +
+            (KEY to anchor.toString()) + listOfNotNull(cssSelector?.let { "cssSelector" to it }).toMap()
+        return page.copy(text = text, locations = page.locations.copy(otherLocations = locations))
     }
 
     suspend fun navigate(navigator: EpubNavigatorFragment, locator: Locator, apply: Boolean, restoringOrigin: Boolean = false): NavigationProbe? {

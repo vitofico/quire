@@ -705,3 +705,67 @@ async def test_existing_per_item_endpoints_still_work(app_under_test, unique_use
         )
     assert r2.status_code == 200
     assert r2.json()["deleted_at"] is not None
+
+
+async def test_web_replay_cannot_reactivate_android_tombstone(app_under_test, unique_user):
+    async with AsyncClient(
+        transport=ASGITransport(app=app_under_test), base_url="http://test"
+    ) as client:
+        body = {"items": [_entry()]}
+        headers = _basic(*unique_user)
+        keyed = {**headers, "Idempotency-Key": str(uuid.uuid4())}
+
+        # The first delivery commits, but the browser loses its response.
+        created = await client.post("/library/v1/sync", json=body, headers=keyed)
+        assert created.status_code == 200, created.text
+        assert created.json()["created"] == 1
+
+        android = await client.post(
+            "/library/v1/sync",
+            json={"items": [{"identity_hash": "ch-1", "status": "deleted"}]},
+            headers=headers,
+        )
+        assert android.status_code == 200, android.text
+        assert android.json()["deleted"] == 1
+
+        response = await client.post("/library/v1/sync", json=body, headers=keyed)
+        assert response.json() == created.json()
+        listed = await client.get("/library/v1/items", headers=headers)
+        assert listed.json()["items"] == []
+
+        changed = await client.post(
+            "/library/v1/sync", json={"items": [_entry(title="Other")]}, headers=keyed
+        )
+        assert changed.status_code == 409
+        assert changed.json() == {"detail": "idempotency_key_conflict"}
+
+        # A new explicit action has its own operation ID and may restore the book.
+        keyed["Idempotency-Key"] = str(uuid.uuid4())
+        response = await client.post("/library/v1/sync", json=body, headers=keyed)
+        assert response.status_code == 200, response.text
+        assert response.json()["reactivated"] == 1
+
+
+async def test_library_replay_keys_are_account_scoped(app_under_test, cwa_users):
+    async with AsyncClient(
+        transport=ASGITransport(app=app_under_test), base_url="http://test"
+    ) as client:
+        operation = str(uuid.uuid4())
+        for index, username in enumerate(("alice", "bob")):
+            response = await client.post(
+                "/library/v1/sync",
+                json={
+                    "items": [
+                        _entry(
+                            identity_hash=f"replay-book-{index}",
+                            metadata_id=None,
+                        )
+                    ]
+                },
+                headers={
+                    **_basic(username, cwa_users[username]),
+                    "Idempotency-Key": operation,
+                },
+            )
+            assert response.status_code == 200, response.text
+            assert response.json()["created"] == 1
