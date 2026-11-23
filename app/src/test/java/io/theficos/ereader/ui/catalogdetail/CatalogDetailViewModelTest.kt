@@ -19,6 +19,7 @@ import io.theficos.ereader.data.ai.BookInsightResponse
 import io.theficos.ereader.data.ai.Citation
 import io.theficos.ereader.data.opds.OpdsPublication
 import io.theficos.ereader.ui.bookdetail.InsightUiState
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -370,11 +371,33 @@ class CatalogDetailViewModelTest {
         assertThat(sent.opdsHref).isEqualTo(sent.metadataId)
     }
 
+    @Test
+    fun `lookup started under old catalog cannot queue a promotion under new catalog`() = runTest {
+        fakeAi.configFlow.value = AiConfig(configured = true)
+        fakeAi.prefsFlow.value = AiPreferences(aiEnabled = true, style = AiStyle())
+        fakeAi.lookupResult = response
+        val pending = CompletableDeferred<Unit>()
+        fakeAi.beforeLookup = { pending.await() }
+        val stash = io.theficos.ereader.data.ai.CatalogInsightStash()
+        var scope = "old-catalog"
+        val vm = CatalogDetailViewModel(publication, fakeAi, stash, subjectProvider = { scope })
+        assertThat(vm.state.value.insight).isEqualTo(InsightUiState.Loading)
+
+        scope = "new-catalog"
+        pending.complete(Unit)
+        vm.retry()
+
+        assertThat(fakeAi.lookupCallCount).isEqualTo(1)
+        assertThat(stash.peek("old-catalog", publication.epubDownloadHref)).isNull()
+        assertThat(stash.peek("new-catalog", publication.epubDownloadHref)).isNull()
+    }
+
     private class FakeAi : CatalogAiPort {
         override val configFlow = MutableStateFlow<AiConfig?>(null)
         override val prefsFlow = MutableStateFlow<AiPreferences?>(null)
         var cached: BookInsightResponse? = null
         var lookupResult: BookInsightResponse? = null
+        var beforeLookup: suspend () -> Unit = {}
         var lookupError: Throwable? = null
         var lookupCallCount = 0
         var lastLookupIdentity: DocumentIdentity? = null
@@ -388,6 +411,7 @@ class CatalogDetailViewModelTest {
             bundle: MetadataBundle,
         ): BookInsightResponse {
             lookupCallCount++
+            beforeLookup()
             lastLookupIdentity = identity
             lastLookupBundle = bundle
             lookupError?.let { throw it }

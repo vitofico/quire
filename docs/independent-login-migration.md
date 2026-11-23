@@ -25,7 +25,7 @@ After linking, sign in to Quire at the supplied browser address and check your s
 | --- | --- | --- |
 | Already syncs to Quire using Calibre-Web credentials | Use the migration command below to create a native account **and bind it to the historical username in one operation**. | Upgrade the app in place, then sign in to Quire on each device. Keep its existing catalog connection. |
 | New Quire reader, including someone who has only browsed OPDS | Create a fresh account with `python /app/scripts/create_native_account.py <email>`. | Connect to Quire for sync. Configure the catalog with their Calibre-Web credentials. |
-| Existing native Quire reader | Keep the same Quire account. | Add their Calibre-Web catalog independently. |
+| Existing native Quire reader | Keep the same Quire account. | If the old app inferred a catalog at the Quire URL, add its full OPDS URL and catalog credentials in Settings. The app now sends the Quire token only to Quire. |
 
 An account migration makes a new Quire login the owner of the reader's existing server data. An ordinary new-account command creates an empty account. For a returning reader, run the migration first. The tool refuses an email already assigned to a native account and does not combine two populated libraries. Resolve any conflicting identity privately before proceeding.
 

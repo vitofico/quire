@@ -53,6 +53,7 @@ import io.theficos.ereader.ui.settings.WhatsNewPreferencesStore
 import io.theficos.ereader.ui.scan.ScanResultRegistry
 import io.theficos.ereader.ui.theme.AppThemePreferencesStore
 import java.io.File
+import java.security.MessageDigest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -89,8 +90,10 @@ internal fun AccountCredentials.catalogInsightScope(): String? {
         is AccountCredentials.OpdsOnly -> catalog.username.orEmpty()
         is AccountCredentials.Bearer -> error("A Quire account cannot authenticate a catalog")
     }
-    return listOf(service, subject, catalog.baseUrl, catalogUser)
+    val input = listOf(service, subject, catalog.baseUrl, catalogUser)
         .joinToString("") { "${it.length}:$it" }
+    return MessageDigest.getInstance("SHA-256").digest(input.toByteArray())
+        .joinToString("") { "%02x".format(it) }
 }
 
 class AppContainer internal constructor(context: Context, private val db: EReaderDatabase) {
@@ -454,14 +457,9 @@ class AppContainer internal constructor(context: Context, private val db: EReade
                 }
             }
         }
-        // PR-ζ: clear the catalog stash whenever the server base URL
-        // changes (different deploy → entries are no longer relevant). The
-        // AI opt-out toggle hook lives in PR-δ (Bundle 3); until then a
-        // stale stash entry is harmless — its TTL expires within 30 min.
+        // Discard queued promotions when either connection changes ownership.
         libraryUploaderScope.launch {
             var seen = catalogInsightScope()
-            // Observe the scheme-aware account flow so a BASIC → BEARER
-            // re-onboarding (different baseUrl) also clears the stash.
             credentialStore.accountFlow.collect { account ->
                 val next = account?.catalogInsightScope()
                 if (next != seen) {

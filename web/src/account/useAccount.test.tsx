@@ -39,7 +39,7 @@ test('locks stale responses and keeps Calibre accounts in independent namespaces
   expect(before.identity?.id).toBe('alice')
   await expect(before.request!('https://elsewhere.test/sync/v1/progress')).rejects.toThrow('Unexpected API destination.')
   await expect(before.catalogRequest!('https://elsewhere.test/opds')).rejects.toThrow('Unexpected catalog destination.')
-  for (const path of ['/%71uire/v1/session', '/sections%2F..%2Fsync/v1/progress', '/quire-admin', '/agent/highlights', '/mcp']) {
+  for (const path of ['/%71uire/v1/session', '/sections%2F..%2Fsync/v1/progress', '/quire-admin', '/agent/highlights', '/mcp', '/health', '/healthz', '/readyz']) {
     await expect(before.catalogRequest!(path)).rejects.toThrow('Unexpected catalog destination.')
   }
 

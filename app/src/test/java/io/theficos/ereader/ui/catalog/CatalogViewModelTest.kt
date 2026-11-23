@@ -5,6 +5,7 @@ import android.content.Context
 import androidx.lifecycle.viewModelScope
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import coil.request.CachePolicy
 import com.google.common.truth.Truth.assertThat
 import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.data.library.LibraryClient
@@ -16,6 +17,7 @@ import io.theficos.ereader.data.opds.OpdsHttpClient
 import io.theficos.ereader.data.opds.BookDownloader
 import io.theficos.ereader.data.opds.CLEARTEXT_BLOCKED_MESSAGE
 import io.theficos.ereader.data.opds.OpdsClient
+import io.theficos.ereader.ui.components.uncachedCatalogCover
 import io.theficos.ereader.ui.englishContext
 import io.theficos.ereader.sideload.writeTestEpub
 import java.io.File
@@ -162,6 +164,14 @@ class CatalogViewModelTest {
         } as CatalogUiState.Loaded
         check(s.error == null) { "Download failed unexpectedly: ${s.error}" }
         return s
+    }
+
+    @Test fun `remote catalog covers cannot reuse another catalog account's cached image`() {
+        val url = "https://books.example/cover/1"
+        val request = uncachedCatalogCover(ApplicationProvider.getApplicationContext(), url)
+        assertThat(request.data).isEqualTo(url)
+        assertThat(request.memoryCachePolicy).isEqualTo(CachePolicy.DISABLED)
+        assertThat(request.diskCachePolicy).isEqualTo(CachePolicy.DISABLED)
     }
 
     @Test fun `successful download clears progress sync cursor and enqueues sync`() = runTest {

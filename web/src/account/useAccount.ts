@@ -115,7 +115,7 @@ function reservedCatalogPath(url: URL): boolean {
     const path = decodeURIComponent(url.pathname)
     if (path.startsWith('//') || path.includes('\\') || path.includes('%')) return true
     const normalized = new URL(path, location.origin).pathname
-    return /^\/(?:auth|ai|sync|library|internal|quire|quire-admin|cloud|agent|mcp)(?:\/|$)/i.test(normalized)
+    return /^\/(?:auth|ai|sync|library|internal|quire|quire-admin|cloud|agent|mcp|health|healthz|readyz)(?:\/|$)/i.test(normalized)
   } catch { return true }
 }
 function catalogTransport(base: URL, authorization: string, active: () => boolean, nativeOrigin?: string): AccountRequest {

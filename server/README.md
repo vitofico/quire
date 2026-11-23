@@ -245,7 +245,7 @@ and local reading.
 
 The following Caddy configuration assumes both upstream services are
 reachable over an internal Docker network. Use domains that resolve to
-Caddy and set `QUIRE_SERVER_AUTH_BACKEND=native`,
+Caddy and set `QUIRE_SERVER_AUTH_BACKEND=native` (or `transition` while legacy readers migrate),
 `QUIRE_SERVER_WEB_NATIVE_AUTH_ENABLED=true`, and
 `QUIRE_IDENTITY_PUBLIC_URL=https://read.example.com` in Quire Server's
 environment. If enabling OIDC, register

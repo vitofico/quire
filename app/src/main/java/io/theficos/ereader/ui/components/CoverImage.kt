@@ -1,5 +1,6 @@
 package io.theficos.ereader.ui.components
 
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,7 +25,6 @@ import androidx.compose.ui.unit.sp
 import coil.compose.SubcomposeAsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
-import android.content.Context
 
 private val FallbackPalettes = listOf(
     Color(0xFF7A2E2A) to Color(0xFF4A1A18),  // oxblood
