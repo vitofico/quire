@@ -300,7 +300,8 @@ def create_app() -> FastAPI:
     resources.push_async_callback(httpx_client.aclose)
     if hosted_policy:
         resources.push_async_callback(hosted_policy.client.aclose)
-    app.router.add_event_handler("shutdown", resources.aclose)
+    app.state.close_resources = resources.aclose
+    app.router.add_event_handler("shutdown", app.state.close_resources)
 
     # Always-on root endpoints (no prefix). Mounted before mode gates so they
     # remain available even when both flags are false.

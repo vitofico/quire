@@ -209,7 +209,7 @@ async def managed_app_factory():
         yield build
     finally:
         for app in reversed(apps):
-            await app.router.shutdown()
+            await app.state.close_resources()
 
 
 @pytest.fixture
