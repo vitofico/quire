@@ -298,7 +298,7 @@ function Workspace({ account }: { account: AccountState }) {
         !(e instanceof EditionConflict) ||
         match ||
         !confirm(
-          'Another edition has this identifier. Keep this copy only in this browser?',
+          t('Another edition has this identifier. Keep this copy only in this browser?'),
         )
       )
         throw e
@@ -578,8 +578,8 @@ function Workspace({ account }: { account: AccountState }) {
         <a href="#/library">{t('Back to library')}</a>
         <p>
           {replica && !book
-            ? 'This book is unavailable in this library.'
-            : 'Opening book…'}
+            ? t('This book is unavailable in this library.')
+            : t('Opening book…')}
         </p>
         {book && !epub && notice && (
           <button onClick={() => choose(book.key)}>
@@ -737,7 +737,7 @@ function Workspace({ account }: { account: AccountState }) {
           )}
           {transport && (
             <p>
-              {snapshot.pending} pending ·{' '}
+              {snapshot.pending} {t('pending')} ·{' '}
               <button disabled={busy} onClick={() => void run(sync)}>
                 {t(busy ? 'Syncing…' : 'Sync now')}
               </button>
@@ -815,7 +815,7 @@ function Workspace({ account }: { account: AccountState }) {
       >
         {notice && (
           <p role="status" className="notice">
-            {notice}
+            {t(notice.replace(/^Error: /, ''))}
           </p>
         )}
         <input
