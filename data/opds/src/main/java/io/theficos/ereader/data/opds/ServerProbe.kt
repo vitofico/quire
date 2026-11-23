@@ -30,7 +30,7 @@ import javax.net.ssl.SSLException
  * of the three probes.
  *
  * Critically: this class does NOT carry credentials, does NOT see the
- * application's `AccountAuthInterceptor`, and does NOT share cookies with
+ * application's account authentication, and does NOT share cookies with
  * the main app OkHttp client. The probe runs on a dedicated plain client so
  * we never accidentally leak stale credentials from a previous account into
  * a fresh URL the user is exploring.

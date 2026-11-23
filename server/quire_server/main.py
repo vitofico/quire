@@ -14,9 +14,11 @@ from paying the cost of the other domain's modules.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import warnings
+from contextlib import AsyncExitStack
 
 import httpx
 from fastapi import Depends, FastAPI
@@ -31,7 +33,13 @@ from quire_server.config import (
     unknown_env_vars,
 )
 from quire_server.core.auth import CalibreAuthValidator
-from quire_server.core.auth_backend import CalibreWebBasicAuth, NativeAuth
+from quire_server.core.auth_backend import (
+    CalibreWebBasicAuth,
+    NativeAuth,
+    TransitionAuth,
+    lock_calibre_scope,
+    require_unbound_calibre_scope,
+)
 from quire_server.core.logging_ctx import RequestIdLogFilter
 from quire_server.db.session import configure, make_engine, make_session_factory
 
@@ -167,26 +175,8 @@ def _collect_config_warnings(settings: Settings) -> list[str]:
     return messages
 
 
-def _build_ai_authenticator(settings: Settings, validator: CalibreAuthValidator, auth_backend):
-    """Construct the AiAuthenticator implied by the auth config.
-
-    The concrete authenticator is chosen from BOTH ``settings.auth_backend``
-    and ``settings.ai_auth_mode`` (the env stays a two-value ``basic|token``
-    switch — there is no third ``native`` env mode):
-
-    * ``ai_auth_mode=token`` → :class:`TokenAiAuthenticator` (the deprecated
-      HMAC seam, regardless of primary backend; kept for its removal window).
-    * ``ai_auth_mode=basic`` + ``auth_backend=native`` →
-      :class:`BackendAiAuthenticator`, delegating to the configured
-      ``NativeAuth`` so ``/ai/v1/*`` shares the primary session-token identity
-      layer. This is the long-term replacement for token mode.
-    * ``ai_auth_mode=basic`` + ``auth_backend=calibreweb`` →
-      :class:`BasicAuthAiAuthenticator` (today's OSS default, byte-exact).
-
-    Imported here (rather than at module top) to keep the AI auth surface
-    lazy alongside the rest of the AI imports — sync-only deploys never pay
-    for the HMAC / token code.
-    """
+def _build_ai_authenticator(settings: Settings, validator, auth_backend, session_factory):
+    """Build the configured AI authenticator with migrated-scope protection."""
     from quire_server.api.ai_auth import (
         BackendAiAuthenticator,
         BasicAuthAiAuthenticator,
@@ -194,9 +184,9 @@ def _build_ai_authenticator(settings: Settings, validator: CalibreAuthValidator,
     )
 
     if settings.ai_auth_mode == "basic":
-        if settings.auth_backend == "native":
-            return BackendAiAuthenticator(auth_backend)
-        return BasicAuthAiAuthenticator(validator=validator)
+        if settings.auth_backend == "calibreweb":
+            return BasicAuthAiAuthenticator(validator, session_factory)
+        return BackendAiAuthenticator(auth_backend)
     # token mode — validation already ran, so secrets/iss/aud are guaranteed.
     assert settings.ai_token_secrets is not None
     assert settings.ai_token_issuer is not None
@@ -205,6 +195,7 @@ def _build_ai_authenticator(settings: Settings, validator: CalibreAuthValidator,
         secrets=settings.ai_token_secrets,
         issuer=settings.ai_token_issuer,
         audience=settings.ai_token_audience,
+        session_factory=session_factory,
     )
 
 
@@ -213,6 +204,10 @@ def create_app() -> FastAPI:
     from quire_server.core.ai.monthly_policy import MonthlyPolicy, PolicySettings
 
     policy_settings = PolicySettings()
+    if settings.auth_backend == "transition" and (
+        policy_settings.url or (settings.ai_enabled and settings.ai_auth_mode == "token")
+    ):
+        raise RuntimeError("Transition auth requires self-hosted account and AI authentication")
     from quire_server.api.browser_identity import IdentitySettings
     from quire_server.core.login_guard import LoginGuard
 
@@ -285,22 +280,28 @@ def create_app() -> FastAPI:
     # picture. Under ``auth_backend=native`` the AI seam delegates to this
     # same backend (see ``_build_ai_authenticator``), so there is no longer a
     # forbidden ``native + ai_auth_mode=basic`` combination to guard against.
-    if settings.auth_backend == "native":
-        app.state.auth_backend = NativeAuth(
+    legacy_backend = CalibreWebBasicAuth(app.state.auth_validator, session_factory)
+    if settings.auth_backend != "calibreweb":
+        backend_type = TransitionAuth if settings.auth_backend == "transition" else NativeAuth
+        backend_options = {"legacy": legacy_backend} if backend_type is TransitionAuth else {}
+        app.state.auth_backend = backend_type(
             session_factory=session_factory,
             session_ttl_s=settings.native_session_ttl_s,
             cookie_name=identity_settings.cookie_name if identity_settings.public_url else None,
             public_origin=identity_settings.public_url,
             account_allowed=hosted_policy.allow_account if hosted_policy else None,
+            **backend_options,
         )
     else:
-        app.state.auth_backend = CalibreWebBasicAuth(app.state.auth_validator)
+        app.state.auth_backend = legacy_backend
 
-    @app.on_event("shutdown")
-    async def _close() -> None:
-        await httpx_client.aclose()
-        if hosted_policy:
-            await hosted_policy.client.aclose()
+    resources = AsyncExitStack()
+    resources.push_async_callback(engine.dispose)
+    resources.push_async_callback(httpx_client.aclose)
+    if hosted_policy:
+        resources.push_async_callback(hosted_policy.client.aclose)
+    app.state.close_resources = resources.aclose
+    app.router.add_event_handler("shutdown", app.state.close_resources)
 
     # Always-on root endpoints (no prefix). Mounted before mode gates so they
     # remain available even when both flags are false.
@@ -318,10 +319,8 @@ def create_app() -> FastAPI:
         app.state.admin_users = admin_users
         app.include_router(admin_router)
 
-    # Phase 0, task S-1: ``/auth/v1/*`` exists only when NativeAuth is the
-    # primary backend. A CalibreWeb deployment treats those URLs as 404 —
-    # which is the correct shape for "this server doesn't speak that".
-    if settings.auth_backend == "native":
+    # Legacy-only deployments leave the native identity routes unmounted.
+    if settings.auth_backend != "calibreweb":
         from quire_server.api.auth import router as auth_router
 
         app.include_router(auth_router, prefix="/auth/v1")
@@ -339,6 +338,10 @@ def create_app() -> FastAPI:
                 transaction_store=Transactions(session_factory),
                 http_client=httpx_client,
             )
+
+        # A fenced request holds a connection while its handler uses another.
+        # Reserve the pool's overflow capacity for handlers and account administration.
+        fence_limit = asyncio.Semaphore(engine.pool.size())
 
         @app.middleware("http")
         async def closure_fence(request, call_next):
@@ -374,7 +377,11 @@ def create_app() -> FastAPI:
                 return await call_next(request)
             try:
                 user = await app.state.auth_backend.current_user(request)
-                async with session_factory() as session:
+                async with fence_limit, session_factory() as session:
+                    if user.backend == "calibreweb":
+                        await lock_calibre_scope(session, user.user_id, shared=True)
+                        await require_unbound_calibre_scope(session, user.user_id)
+                        return await call_next(request)
                     row = (
                         await session.execute(
                             select(NativeUser)
@@ -398,7 +405,16 @@ def create_app() -> FastAPI:
                         )
                     return await call_next(request)
             except HTTPException as exc:
-                return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+                headers = exc.headers
+                if (
+                    settings.auth_backend == "transition"
+                    and request.url.path.startswith("/quire-admin")
+                    and exc.status_code == 401
+                ):
+                    headers = {"WWW-Authenticate": 'Basic realm="Quire Server", charset="UTF-8"'}
+                return JSONResponse(
+                    {"detail": exc.detail}, status_code=exc.status_code, headers=headers
+                )
 
     if settings.progress_enabled:
         # Lazy import: only pull progress + library routers when progress mode
@@ -427,7 +443,7 @@ def create_app() -> FastAPI:
         # via _validate_ai_auth_settings above.
         _warn_if_ai_auth_mode_deprecated(settings)
         app.state.ai_authenticator = _build_ai_authenticator(
-            settings, app.state.auth_validator, app.state.auth_backend
+            settings, app.state.auth_validator, app.state.auth_backend, session_factory
         )
         # Issue #102: the AI settings an admin can change on the status page.
         # Every AI request first brings the saved values up to date.

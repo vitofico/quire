@@ -182,7 +182,7 @@ def mount_highlight_mcp(app: FastAPI, settings: Settings, session_factory) -> No
                 scope, receive, send
             )
             return
-        scope.setdefault("state", {})["quire_mcp_user_id"] = user.user_id
+        scope.setdefault("state", {})["quire_mcp_user_id"] = user.storage_user_id
         await http_app(scope, receive, send)
 
     # An exact ASGI route avoids a redirect from /mcp to /mcp/ and leaves

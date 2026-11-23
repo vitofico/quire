@@ -69,6 +69,7 @@ class CatalogDetailViewModel(
     private val localIdentityResolver: suspend (String) -> DocumentIdentity? = { null },
 ) : ViewModel() {
 
+    private val initialScope = subjectProvider()
     private val _state = MutableStateFlow(CatalogDetailState(publication = publication))
     val state: StateFlow<CatalogDetailState> = _state.asStateFlow()
 
@@ -81,6 +82,7 @@ class CatalogDetailViewModel(
     }
 
     private suspend fun load() {
+        if (initialScope != subjectProvider()) return
         val cfg = ai.configFlow.value
         val prefs = ai.prefsFlow.value
         if (cfg?.configured != true || prefs?.aiEnabled != true) {
@@ -94,9 +96,11 @@ class CatalogDetailViewModel(
         // pre-download catalog browsing.
         val identity = localIdentityResolver(publication.epubDownloadHref)
             ?: buildIdentity(publication)
+        if (initialScope != subjectProvider()) return
         val bundle = MetadataBundle(title = publication.title, author = publication.author)
 
         val cached = runCatching { ai.getCachedInsight(identity) }.getOrNull()
+        if (initialScope != subjectProvider()) return
         if (cached != null) {
             _state.value = _state.value.copy(
                 insight = InsightUiState.Loaded(cached.payload, cached.sources),
@@ -108,12 +112,14 @@ class CatalogDetailViewModel(
         _state.value = _state.value.copy(insight = InsightUiState.Loading)
         runCatching { ai.lookupInsight(identity, bundle) }
             .onSuccess { resp ->
+                if (initialScope != subjectProvider()) return
                 _state.value = _state.value.copy(
                     insight = InsightUiState.Loaded(resp.payload, resp.sources),
                 )
                 recordStashIfPossible(identity, prefs)
             }
             .onFailure { e ->
+                if (initialScope != subjectProvider()) return
                 val msg = insightErrorMessage(e)
                 _state.value = _state.value.copy(insight = InsightUiState.Error(msg))
             }
@@ -130,7 +136,8 @@ class CatalogDetailViewModel(
         prefs: AiPreferences?,
     ) {
         val stash = insightStash ?: return
-        val subject = subjectProvider() ?: return
+        val subject = initialScope ?: return
+        if (subject != subjectProvider()) return
         val style = prefs?.style
         stash.stash(
             subject = subject,

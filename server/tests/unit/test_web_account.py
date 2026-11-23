@@ -4,8 +4,13 @@ from quire_server.config import get_settings
 
 
 async def test_bootstrap_and_verified_calibre_session(monkeypatch):
+    from quire_server.core import auth_backend
     from quire_server.main import create_app
 
+    async def require_unbound(session, user_id):
+        assert user_id == "alice"
+
+    monkeypatch.setattr(auth_backend, "require_unbound_calibre_scope", require_unbound)
     monkeypatch.setenv("QUIRE_SERVER_AUTH_BACKEND", "calibreweb")
     monkeypatch.setenv("QUIRE_SERVER_PROGRESS_ENABLED", "true")
     monkeypatch.setenv("QUIRE_SERVER_AI_ENABLED", "false")
@@ -86,3 +91,45 @@ async def test_native_browser_login_must_be_enabled_on_the_quire_origin(monkeypa
             },
         )
         assert response.status_code == 404
+
+
+async def test_transition_bootstrap_only_advertises_native_on_the_identity_host(monkeypatch):
+    from quire_server.main import create_app
+
+    origin = "https://quire.example.test"
+    monkeypatch.setenv("QUIRE_SERVER_AUTH_BACKEND", "transition")
+    monkeypatch.setenv("QUIRE_SERVER_PROGRESS_ENABLED", "true")
+    monkeypatch.setenv("QUIRE_SERVER_AI_ENABLED", "false")
+    monkeypatch.setenv("QUIRE_SERVER_WEB_ENABLED", "true")
+    monkeypatch.setenv("QUIRE_SERVER_WEB_NATIVE_AUTH_ENABLED", "true")
+    monkeypatch.setenv("QUIRE_IDENTITY_PUBLIC_URL", origin)
+    get_settings.cache_clear()
+    try:
+        app = create_app()
+    finally:
+        get_settings.cache_clear()
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url=origin) as client:
+        dedicated = (await client.get("/quire/v1/bootstrap")).json()
+        assert dedicated["login"] == "transition"
+        assert dedicated["password"] is True
+        assert "nativeWebUrl" not in dedicated
+
+        shared = (
+            await client.get("/quire/v1/bootstrap", headers={"Host": "books.example.test"})
+        ).json()
+        assert shared["login"] == "basic"
+        assert shared["password"] is False
+        assert shared["nativeWebUrl"] == origin + "/quire/"
+        for destination in (None, "quire"):
+            response = await client.post(
+                "/auth/v1/browser/login",
+                headers={"Host": "books.example.test", "Origin": origin},
+                json={
+                    "email": "fixture@example.test",
+                    "password": "test",  # pragma: allowlist secret
+                    "destination": destination,
+                },
+            )
+            assert response.status_code == 403
+            assert "set-cookie" not in response.headers

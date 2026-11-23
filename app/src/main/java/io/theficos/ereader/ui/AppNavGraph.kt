@@ -54,6 +54,7 @@ import io.theficos.ereader.ui.main.MainScaffold
 import io.theficos.ereader.ui.main.Tab
 import io.theficos.ereader.ui.onboarding.CloudComingSoonScreen
 import io.theficos.ereader.ui.onboarding.ConnectServerScreen
+import io.theficos.ereader.ui.onboarding.QuireSignInScreen
 import io.theficos.ereader.ui.onboarding.ConnectServerViewModel
 import io.theficos.ereader.ui.onboarding.WelcomeScreen
 import io.theficos.ereader.ui.onboarding.pickStartDestination
@@ -99,7 +100,7 @@ fun AppNavGraph(
     val needsReauth by container.credentialStore.needsReauth.collectAsState()
     LaunchedEffect(needsReauth) {
         if (needsReauth) {
-            nav.navigate("connect-server") { launchSingleTop = true }
+            nav.navigate("quire-sign-in") { launchSingleTop = true }
         }
     }
     NavHost(navController = nav, startDestination = startDestination) {
@@ -120,7 +121,12 @@ fun AppNavGraph(
         composable("connect-server") {
             val vm: ConnectServerViewModel = viewModel(
                 factory = viewModelFactory {
-                    initializer { ConnectServerViewModel(credentialStore = container.credentialStore) }
+                    initializer {
+                        ConnectServerViewModel(
+                            credentialStore = container.credentialStore,
+                            legacyHighlightScopeFor = container::legacyHighlightScopeFor,
+                        )
+                    }
                 },
             )
             InsetSurface {
@@ -134,6 +140,34 @@ fun AppNavGraph(
                             // Replace the old stack in either case, including Completed login.
                             popUpTo(nav.graph.startDestinationId) { inclusive = true }
                             launchSingleTop = true
+                        }
+                    },
+                )
+            }
+        }
+        composable("quire-sign-in") {
+            val vm: ConnectServerViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer {
+                        ConnectServerViewModel(
+                            credentialStore = container.credentialStore,
+                            legacyHighlightScopeFor = container::legacyHighlightScopeFor,
+                        )
+                    }
+                },
+            )
+            InsetSurface {
+                QuireSignInScreen(
+                    viewModel = vm,
+                    onBack = { nav.popBackStack() },
+                    onCompleted = {
+                        if (vm.isReauthentication) {
+                            nav.navigate("home") {
+                                popUpTo(nav.graph.startDestinationId) { inclusive = true }
+                                launchSingleTop = true
+                            }
+                        } else {
+                            nav.popBackStack()
                         }
                     },
                 )
@@ -176,9 +210,7 @@ fun AppNavGraph(
                             aiRepository = container.aiRepository,
                             catalogInsightStash = container.catalogInsightStash,
                             insightSyncRepository = container.insightSyncRepository,
-                            subjectProvider = {
-                                container.credentialStore.get()?.username?.lowercase()
-                            },
+                            subjectProvider = container::catalogInsightScope,
                         )
                     }
                 },
@@ -226,6 +258,7 @@ fun AppNavGraph(
                         SettingsScreen(
                             viewModel = setVm,
                             contentPadding = padding,
+                            onQuireSignIn = { nav.navigate("quire-sign-in") { launchSingleTop = true } },
                             onNavigateToLicenses = { nav.navigate("licenses") },
                             hasUnreadUpdates = lastSeen != WHATS_NEW_LATEST_ENTRY_ID,
                             onNavigateToWhatsNew = { nav.navigate("whats-new") { launchSingleTop = true } },

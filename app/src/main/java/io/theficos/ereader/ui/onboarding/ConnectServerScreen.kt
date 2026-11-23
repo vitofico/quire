@@ -130,6 +130,7 @@ fun ConnectServerScreen(
             ResultPanel(
                 state = state,
                 onVerifyBasic = { base, u, p -> viewModel.verifyAndSaveBasic(base, u, p) },
+                onVerifyCalibreCatalog = { base, u, p -> viewModel.verifyAndSaveBasic(base, u, p, catalogOnly = true) },
                 onVerifyBearer = { base, e, p -> viewModel.verifyAndSaveBearer(base, e, p) },
                 onPairing = { base, ticket -> viewModel.verifyAndSavePairing(base, ticket) },
                 onVerifyOpds = { catalog, u, p -> viewModel.verifyAndSaveOpds(catalog, u, p) },
@@ -144,12 +145,74 @@ fun ConnectServerScreen(
 }
 
 @Composable
+fun QuireSignInScreen(
+    viewModel: ConnectServerViewModel,
+    onBack: () -> Unit,
+    onCompleted: () -> Unit,
+) {
+    val state by viewModel.state.collectAsState()
+    val verifying = state is ConnectServerViewModel.UiState.Verifying
+    val reauth = viewModel.isReauthentication
+    var serverUrl by rememberSaveable { mutableStateOf(viewModel.initialQuireUrl) }
+
+    LaunchedEffect(state) {
+        if (state is ConnectServerViewModel.UiState.Completed) onCompleted()
+    }
+
+    Surface(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Text(
+                stringResource(if (reauth) R.string.quire_account_sign_in_again else R.string.quire_account_sign_in),
+                style = MaterialTheme.typography.headlineMedium,
+            )
+            Text(stringResource(R.string.quire_account_sign_in_description))
+            OutlinedTextField(
+                value = serverUrl,
+                onValueChange = { serverUrl = it },
+                enabled = !verifying && !reauth,
+                label = { Text(stringResource(R.string.quire_account_url)) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Uri,
+                    autoCorrect = false,
+                    capitalization = KeyboardCapitalization.None,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            BearerCredentialCard(
+                canonicalBaseUrl = serverUrl,
+                headline = null,
+                initialEmail = viewModel.initialQuireEmail,
+                enabled = !verifying && serverUrl.isNotBlank(),
+                onSubmit = viewModel::verifyAndSaveBearer,
+                onPairing = viewModel::verifyAndSavePairing,
+            )
+            when (val current = state) {
+                is ConnectServerViewModel.UiState.VerificationFailed -> Text(
+                    current.message.asString(),
+                    color = MaterialTheme.colorScheme.error,
+                )
+                ConnectServerViewModel.UiState.Verifying -> CircularProgressIndicator()
+                else -> Unit
+            }
+            TextButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.quire_account_back))
+            }
+        }
+    }
+}
+
+@Composable
 private fun ResultPanel(
     state: ConnectServerViewModel.UiState,
     onVerifyBasic: (String, String, String) -> Unit,
     onVerifyBearer: (String, String, String) -> Unit,
     onPairing: (String, String) -> Unit = { _, _ -> },
     onVerifyOpds: (String, String?, String?) -> Unit,
+    onVerifyCalibreCatalog: (String, String, String) -> Unit = onVerifyBasic,
 ) {
     when (state) {
         ConnectServerViewModel.UiState.Idle -> Unit
@@ -173,7 +236,7 @@ private fun ResultPanel(
                 )
                 is ServerProbeResult.Both -> AmbiguousChoiceCard(
                     canonicalBaseUrl = probe.canonicalBaseUrl,
-                    onVerifyBasic = onVerifyBasic,
+                    onVerifyBasic = onVerifyCalibreCatalog,
                     onVerifyBearer = onVerifyBearer,
                     onPairing = onPairing,
                 )
@@ -309,27 +372,32 @@ private fun BasicCredentialCard(
 @Composable
 private fun BearerCredentialCard(
     canonicalBaseUrl: String,
-    headline: String,
+    headline: String?,
     onSubmit: (String, String, String) -> Unit,
     onPairing: (String, String) -> Unit = { _, _ -> },
+    initialEmail: String = "",
+    enabled: Boolean = true,
 ) {
-    var email by rememberSaveable { mutableStateOf("") }
-    var password by rememberSaveable { mutableStateOf("") }
-    var ticket by rememberSaveable { mutableStateOf("") }
+    var email by rememberSaveable { mutableStateOf(initialEmail) }
+    var password by remember { mutableStateOf("") }
+    var ticket by remember { mutableStateOf("") }
 
     QuireCard(modifier = Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            SectionLabel(headline)
-            Text(
-                canonicalBaseUrl,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            if (headline != null) {
+                SectionLabel(headline)
+                Text(
+                    canonicalBaseUrl,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             OutlinedTextField(
                 value = email,
                 onValueChange = { email = it },
                 label = { Text(stringResource(R.string.common_email)) },
                 singleLine = true,
+                enabled = enabled,
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Email,
                     imeAction = ImeAction.Next,
@@ -345,6 +413,7 @@ private fun BearerCredentialCard(
                 onValueChange = { password = it },
                 label = { Text(stringResource(R.string.common_password)) },
                 singleLine = true,
+                enabled = enabled,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Password,
@@ -357,7 +426,7 @@ private fun BearerCredentialCard(
             )
             Button(
                 onClick = { onSubmit(canonicalBaseUrl, email, password) },
-                enabled = email.isNotBlank() && password.isNotBlank(),
+                enabled = enabled && email.isNotBlank() && password.isNotBlank(),
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(stringResource(R.string.common_sign_in)) }
             Text(
@@ -369,12 +438,13 @@ private fun BearerCredentialCard(
                 onValueChange = { ticket = it },
                 label = { Text(stringResource(R.string.onboarding_pairing_ticket)) },
                 singleLine = true,
+                enabled = enabled,
                 visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth(),
             )
             Button(
                 onClick = { onPairing(canonicalBaseUrl, ticket) },
-                enabled = ticket.isNotBlank(),
+                enabled = enabled && ticket.isNotBlank(),
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(stringResource(R.string.onboarding_connect_phone)) }
         }
@@ -398,12 +468,7 @@ private fun GenericOpdsCard(
                 style = MaterialTheme.typography.bodyMedium,
             )
             Text(
-                stringResource(R.string.onboarding_reading_progress_won_t_sync_between_devices),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                stringResource(R.string.onboarding_if_this_is_a_calibre_web_server),
+                stringResource(R.string.quire_account_catalog_then_sync),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -472,7 +537,7 @@ private fun AmbiguousChoiceCard(
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             SectionLabel(stringResource(R.string.onboarding_two_account_types_detected))
             Text(
-                stringResource(R.string.onboarding_this_url_looks_like_both_a_calibre),
+                stringResource(R.string.quire_account_choose_first_connection),
                 style = MaterialTheme.typography.bodyMedium,
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -480,14 +545,14 @@ private fun AmbiguousChoiceCard(
                     selected = choice == AmbiguousChoice.Basic,
                     onClick = { choice = AmbiguousChoice.Basic },
                 )
-                Text(stringResource(R.string.onboarding_calibre_web_username_password))
+                Text(stringResource(R.string.quire_account_calibre_catalog))
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 RadioButton(
                     selected = choice == AmbiguousChoice.Bearer,
                     onClick = { choice = AmbiguousChoice.Bearer },
                 )
-                Text(stringResource(R.string.onboarding_quire_server_email_password))
+                Text(stringResource(R.string.quire_account_sign_in))
             }
             when (choice) {
                 AmbiguousChoice.Basic -> BasicCredentialCard(

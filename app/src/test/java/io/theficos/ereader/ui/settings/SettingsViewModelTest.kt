@@ -303,4 +303,26 @@ class SettingsViewModelTest {
         advanceUntilIdle()
         assertThat(vm.isConnected.value).isTrue()
     }
+    @Test fun `saving calibre web and disconnecting Quire preserves the active catalog`() = runTest {
+        store.saveBearerAccount("https://quire.example", "alice@example.com", "quire-token")
+        val vm = newViewModel()
+        vm.onBaseUrlChange("https://books.example/calibre/")
+        vm.onUsernameChange("reader")
+        vm.onPasswordChange("catalog-password")
+        vm.saveCalibre()
+        advanceUntilIdle()
+
+        val signedIn = store.getAccount() as AccountCredentials.Bearer
+        assertThat(signedIn.token).isEqualTo("quire-token")
+        assertThat(signedIn.catalog?.baseUrl).isEqualTo("https://books.example/calibre/opds")
+        assertThat(vm.isConnected.value).isTrue()
+
+        vm.disconnectQuire()
+        advanceUntilIdle()
+
+        assertThat(store.getAccount()).isEqualTo(signedIn.catalog)
+        assertThat(vm.calibre.value.baseUrl).isEqualTo("https://books.example/calibre")
+        assertThat(vm.isConnected.value).isFalse()
+    }
+
 }

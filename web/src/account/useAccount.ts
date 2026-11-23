@@ -8,12 +8,29 @@ export type Bootstrap = {
   sync: boolean
   ai: boolean
   aiAvailable: boolean
-  login: 'none' | 'native' | 'basic'
+  login: 'none' | 'native' | 'basic' | 'transition'
   password: boolean
   oidc: boolean
   catalogUrl: string | null
   accountManagement: string | null
+  nativeWebUrl?: string | null
 }
+export function allowsBasic(config?: Bootstrap) {
+  return config?.login === 'basic' || config?.login === 'transition'
+}
+export function allowsNative(config?: Bootstrap) {
+  return config?.login === 'native' || config?.login === 'transition'
+}
+function parseNativeWebUrl(value?: string | null): URL | undefined {
+  if (!value) return
+  try {
+    const url = new URL(value)
+    if (url.protocol === 'https:' && url.origin !== location.origin && !url.username && !url.password &&
+        !url.search && !url.hash && url.pathname === '/quire/') return url
+  } catch { /* Ignore misconfigured destinations. */ }
+}
+const nativeLoginRequired = 'This Calibre-Web account now uses Quire sign-in.'
+
 type Identity = { id: string, backend: 'native' | 'calibreweb' }
 type Session = {
   version: 1
@@ -96,17 +113,17 @@ function fetchPrivate(path: string | URL, init?: RequestInit) {
 function reservedCatalogPath(url: URL): boolean {
   try {
     const path = decodeURIComponent(url.pathname)
-    if (path.startsWith('//') || path.includes('\\')) return true
+    if (path.startsWith('//') || path.includes('\\') || path.includes('%')) return true
     const normalized = new URL(path, location.origin).pathname
-    return /^\/(?:auth|ai|sync|library|internal|quire|quire-admin|cloud|agent|mcp)(?:\/|$)/i.test(normalized)
+    return /^\/(?:auth|ai|sync|library|internal|quire|quire-admin|cloud|agent|mcp|health|healthz|readyz)(?:\/|$)/i.test(normalized)
   } catch { return true }
 }
-function catalogTransport(base: URL, authorization: string, active: () => boolean): AccountRequest {
+function catalogTransport(base: URL, authorization: string, active: () => boolean, nativeOrigin?: string): AccountRequest {
   return async (path, init) => {
     if (!active()) throw new Error('Account locked.')
     const url = new URL(path, base)
     if (url.origin !== base.origin || url.username || url.password ||
-        (url.origin === location.origin && reservedCatalogPath(url)) ||
+        ((url.origin === location.origin || url.origin === nativeOrigin) && reservedCatalogPath(url)) ||
         !['GET', 'HEAD'].includes((init?.method ?? 'GET').toUpperCase())) {
       throw new Error('Unexpected catalog destination.')
     }
@@ -117,13 +134,19 @@ function catalogTransport(base: URL, authorization: string, active: () => boolea
     return response
   }
 }
+function requiresNativeLogin(response: Response) {
+  return response.clone().json().then(value => value?.detail === 'native_login_required', () => false)
+}
 async function getSession(path: string, backend: Identity['backend'], authorization?: string, signal?: AbortSignal): Promise<Session> {
   const response = await fetchPrivate(path, {
     credentials: authorization ? 'omit' : 'same-origin',
     signal,
     headers: authorization ? { Authorization: authorization } : undefined,
   })
-  if (response.status === 401) throw new Error('Sign-in is required.')
+  if (response.status === 401) {
+    if (backend === 'calibreweb' && await requiresNativeLogin(response)) throw new Error(nativeLoginRequired)
+    throw new Error('Sign-in is required.')
+  }
   if (!response.ok) throw new Error('The server could not verify the account.')
   const session = await response.json() as Session
   if (session.version !== 1 || !validIdentity(session.user) || session.user.backend !== backend ||
@@ -196,7 +219,9 @@ export function useAccount() {
           value => ['account_changed', 'invalid_csrf'].includes(value?.detail), () => false)
       if (!matchesCurrent()) throw new Error('Account locked.')
       if (expired) {
-        if (matchesCurrent()) lock('Sign in again to access this account.')
+        const message = user.backend === 'calibreweb' && response.status === 401 && await requiresNativeLogin(response)
+          ? nativeLoginRequired : 'Sign in again to access this account.'
+        if (matchesCurrent()) lock(message)
         throw new Error('Account locked.')
       }
       return response
@@ -244,7 +269,7 @@ export function useAccount() {
         if (controller.signal.aborted) return
         configuration.current = config
         setBootstrap(config)
-        if (config.login !== 'native' ||
+        if (!allowsNative(config) ||
             (stored<boolean>(logoutKey) && sessionStorage.getItem(oidcKey) === null)) return
         const login = await getSession('/auth/v1/me', 'native').catch(() => undefined)
         if (!login || controller.signal.aborted || epoch.current !== startingEpoch || signing.current ||
@@ -351,6 +376,7 @@ export function useAccount() {
 
   return {
     active, bootstrap, status, error, online, revalidate, rememberedIdentity,
+    nativeWebUrl: !allowsNative(bootstrap) ? parseNativeWebUrl(bootstrap?.nativeWebUrl)?.href : undefined,
     retained: retained.map(identity => ({ identity, namespace: connectedNamespace(identity) })),
     openLocal: () => openGuest('local'),
     openCatalog: () => openGuest('catalog'),
@@ -361,6 +387,7 @@ export function useAccount() {
         namespace: connectedNamespace(remembered), capabilities: remembered.capabilities })
     },
     signInBasic: async (username: string, password: string, remember = false, shareCatalog = false) => {
+      if (!allowsBasic(configuration.current)) return
       let authorization: string
       try { authorization = encodeBasic(username, password) }
       catch (reason) { setError((reason as Error).message); return }
@@ -377,6 +404,7 @@ export function useAccount() {
         throw new Error('Enter a secure catalog URL.')
       }
       const authorization = encodeBasic(username, password)
+      const nativeOrigin = parseNativeWebUrl(configuration.current?.nativeWebUrl)?.origin
       const revision = epoch.current
       const selection = catalogEpoch.current
       const probing = () => revision === epoch.current && selection === catalogEpoch.current
@@ -384,21 +412,21 @@ export function useAccount() {
       busy.current = true
       setStatus('busy')
       try {
-        const catalogRequest = catalogTransport(catalog, authorization, probing)
+        const catalogRequest = catalogTransport(catalog, authorization, probing, nativeOrigin)
         await makeCatalogClient({ url: catalog.href, request: catalogRequest }).feed()
         if (!probing()) throw new Error('Account locked.')
         if (previous.mode === 'connected') {
           const generation = ++catalogEpoch.current
           const next = { ...previous, catalogUrl: catalog.href, catalogAuthenticated: true, catalogRevision: generation,
             catalogRequest: catalogTransport(catalog, authorization,
-              () => revision === epoch.current && generation === catalogEpoch.current) }
+              () => revision === epoch.current && generation === catalogEpoch.current, nativeOrigin) }
           current.current = next
           setActive(next)
         } else {
           const next = { ...guest('catalog', catalog.href), catalogUrl: catalog.href, catalogAuthenticated: true, catalogRevision: selection + 1,
             namespace: namespace('catalog', catalog.href, username) }
           const connectedCatalog = catalogTransport(catalog, authorization,
-            () => current.current.namespace === next.namespace && catalogEpoch.current === selection + 1)
+            () => current.current.namespace === next.namespace && catalogEpoch.current === selection + 1, nativeOrigin)
           update({ ...next, catalogRequest: connectedCatalog })
         }
       } finally {
@@ -416,8 +444,10 @@ export function useAccount() {
         setActive(next)
       } else openGuest('catalog')
     },
-    signInPassword: (email: string, password: string, remember = false) =>
-      signIn(async () => {
+    signInPassword: async (email: string, password: string, remember = false) => {
+      const config = configuration.current
+      if (!allowsNative(config) || !config?.password) return
+      await signIn(async () => {
         const response = await fetchPrivate('/auth/v1/browser/login', {
           method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email, password, destination: 'quire', remember_browser: remember }),
@@ -428,9 +458,11 @@ export function useAccount() {
         if (issued.account_id !== session.user.id) throw new Error('The account changed in another tab.')
         store(logoutKey)
         return session
-      }, remember),
+      }, remember)
+    },
     signInOidc: (remember = false) => {
-      if (busy.current || current.current.mode === 'connected') return
+      if (!allowsNative(configuration.current) || !configuration.current?.oidc ||
+          busy.current || current.current.mode === 'connected') return
       if (!secureOrigin()) { setError('Sign in over HTTPS.'); return }
       sessionStorage.setItem(oidcKey, remember ? 'yes' : 'no')
       location.assign('/auth/v1/oidc/start?destination=quire&remember_browser=' + remember)

@@ -65,7 +65,7 @@ def _progress_body(content_hash: str, percent: float, finished: bool, when: str)
 
 
 @pytest.fixture
-def sync_only_app(partial_postgres_url, monkeypatch, cwa_transport):
+async def sync_only_app(partial_postgres_url, monkeypatch, cwa_transport, managed_app_factory):
     """A sync-only FastAPI app (AI disabled) wired to the ai-branch-less DB."""
     monkeypatch.setenv("QUIRE_SERVER_DATABASE_URL", partial_postgres_url)
     monkeypatch.setenv("QUIRE_SERVER_CWA_BASE_URL", "http://test-cwa")
@@ -76,24 +76,15 @@ def sync_only_app(partial_postgres_url, monkeypatch, cwa_transport):
 
     get_settings.cache_clear()
 
-    from quire_server.core.auth import CalibreAuthValidator
-    from quire_server.core.auth_backend import CalibreWebBasicAuth
-    from quire_server.main import create_app
-
-    app = create_app()
-    test_client = httpx.AsyncClient(
-        transport=cwa_transport, base_url="http://test-cwa", timeout=3.0
-    )
-    app.state.httpx_client = test_client
-    app.state.auth_validator = CalibreAuthValidator(
-        client=test_client,
-        cwa_base_url="http://test-cwa",
-    )
-    app.state.auth_backend = CalibreWebBasicAuth(app.state.auth_validator)
-    yield app
-    # Don't leave the lru-cached sync-only settings (pointing at a container
-    # that is about to be torn down) visible to later modules.
-    get_settings.cache_clear()
+    app = managed_app_factory()
+    try:
+        async with httpx.AsyncClient(
+            transport=cwa_transport, base_url="http://test-cwa", timeout=3.0
+        ) as upstream:
+            app.state.auth_validator._client = upstream
+            yield app
+    finally:
+        get_settings.cache_clear()
 
 
 async def test_stats_returns_200_without_ai_tables(sync_only_app, partial_postgres_url, cwa_users):

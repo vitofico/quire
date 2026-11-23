@@ -239,7 +239,8 @@ class Settings(BaseSettings):
     #   * ``"native"`` – Quire Cloud. Email/password + opaque bearer
     #     session tokens. ``user_id`` is ``"native:<NativeUser.id>"``.
     #     Mounts the ``/auth/v1/*`` router; CalibreWeb mode does not.
-    auth_backend: Literal["calibreweb", "native"] = "calibreweb"
+    #   * "transition" – native login plus Calibre Basic for unbound accounts.
+    auth_backend: Literal["calibreweb", "native", "transition"] = "calibreweb"
 
     # NativeAuth session lifetime. Default 30 days; clients should refresh
     # by logging in again before expiry. No refresh-token mechanism exists

@@ -1,5 +1,6 @@
 package io.theficos.ereader.ui.components
 
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,11 +17,14 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.SubcomposeAsyncImage
+import coil.request.CachePolicy
+import coil.request.ImageRequest
 
 private val FallbackPalettes = listOf(
     Color(0xFF7A2E2A) to Color(0xFF4A1A18),  // oxblood
@@ -100,3 +104,17 @@ private fun computeInitials(title: String, author: String?): String {
                  parts.last().firstOrNull()?.toString().orEmpty()).uppercase()
     }
 }
+
+/** Remote catalog URLs can return different covers for different credentials. */
+@Composable
+internal fun catalogCoverRequest(url: String?): ImageRequest? {
+    val context = LocalContext.current
+    return remember(context, url) { url?.let { uncachedCatalogCover(context, it) } }
+}
+
+internal fun uncachedCatalogCover(context: Context, url: String): ImageRequest =
+    ImageRequest.Builder(context)
+        .data(url)
+        .memoryCachePolicy(CachePolicy.DISABLED)
+        .diskCachePolicy(CachePolicy.DISABLED)
+        .build()

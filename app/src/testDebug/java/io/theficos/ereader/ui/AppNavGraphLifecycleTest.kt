@@ -171,12 +171,13 @@ class AppNavGraphLifecycleTest {
                 nav.navigate("connect-server")
             }
         }
+        val connectionRoute = if (startAtHome) "quire-sign-in" else "connect-server"
         composeRule.waitUntil(timeoutMillis = 10_000) {
-            composeRule.runOnIdle { nav.currentDestination?.route == "connect-server" }
+            composeRule.runOnIdle { nav.currentDestination?.route == connectionRoute }
         }
         lateinit var connection: ConnectServerViewModel
         composeRule.runOnIdle {
-            connection = ViewModelProvider(nav.getBackStackEntry("connect-server"))[ConnectServerViewModel::class.java]
+            connection = ViewModelProvider(nav.getBackStackEntry(connectionRoute))[ConnectServerViewModel::class.java]
             connection.verifyAndSaveBearer(baseUrl, "reader@example.com", "password")
         }
         composeRule.waitUntil(timeoutMillis = 10_000) {

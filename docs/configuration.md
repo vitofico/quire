@@ -672,15 +672,17 @@ within 30 seconds.
 
 ### `QUIRE_SERVER_ADMIN_USERS`
 
-- Type: comma-separated calibre-web usernames, any case
+- Type: comma-separated authenticated user IDs, any case
 - Default: empty
 - Example: `QUIRE_SERVER_ADMIN_USERS=alice`
 
 Who may open the status page. Log in with the calibre-web account when the
 browser asks; anyone not on the list gets `403`. Empty, the default, keeps
 the page switched off: every `/quire-admin` path answers `404`. Under
-`QUIRE_SERVER_AUTH_BACKEND=native` the entries are `native:<id>` instead of
-usernames, and only the JSON endpoints work, with a bearer token.
+`QUIRE_SERVER_AUTH_BACKEND=native` the entries are `native:<id>`. In
+`transition` mode, use the Calibre username for a Basic admin or the
+canonical `native:<id>` for a native admin. A migrated account uses its
+native ID for admin access.
 
 When to change it: set it to your own calibre-web username when you want the
 page. The full-stack compose's Caddy already routes `/quire-admin` to the
@@ -909,18 +911,16 @@ rotation.
 
 #### `QUIRE_SERVER_AUTH_BACKEND`
 
-- Type: `calibreweb` or `native`, in lower case
+- Type: `calibreweb`, `native` or `transition`, in lower case
 - Default: `calibreweb`
 - Example: `QUIRE_SERVER_AUTH_BACKEND=calibreweb`
 
-Who checks logins. `calibreweb` asks calibre-web, as described above.
-`native` makes the server keep its own email-and-password accounts and adds
-`/auth/v1/login` and `/auth/v1/logout`, but there is no way to create an
-account yet (`docs/architecture.md`, "NativeAuth"), so it cannot serve
-readers today. Any other value, an empty one included, stops the server at
-boot.
-
-When to change it: not on a self-hosted server.
+`calibreweb` checks logins through Calibre-Web. `native` checks account
+email and password on Quire and issues bearer sessions. A server operator
+can provision accounts using `scripts/create_native_account.py`.
+`transition` offers native sign-in while keeping Calibre Basic available
+for accounts whose reading scope has yet to be bound to a native account.
+See the [migration procedure](../server/README.md#moving-an-existing-calibre-reader-to-native-login).
 
 #### `QUIRE_SERVER_NATIVE_SESSION_TTL_S`
 
@@ -928,10 +928,7 @@ When to change it: not on a self-hosted server.
 - Default: `2592000` (30 days)
 - Example: `QUIRE_SERVER_NATIVE_SESSION_TTL_S=604800`
 
-How long a login lasts under `QUIRE_SERVER_AUTH_BACKEND=native`. Unused with
-`calibreweb`.
-
-When to change it: not on a self-hosted server.
+How long a native login lasts in `native` or `transition` mode.
 
 #### `QUIRE_SERVER_AI_AUTH_MODE`
 

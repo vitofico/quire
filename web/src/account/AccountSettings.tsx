@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { pendingOnDevice, type AccountState } from './useAccount'
+import { allowsBasic, allowsNative, pendingOnDevice, type AccountState } from './useAccount'
 
 type Props = {
   account: AccountState
@@ -29,23 +29,25 @@ export function AccountSettings({ account, pending, sync, clear, t = label => la
   }
   const busy = status !== 'ready'
   const connected = active.mode === 'connected'
-  const basic = bootstrap?.login === 'basic'
+  const basic = allowsBasic(bootstrap)
+  const password = allowsNative(bootstrap) && bootstrap?.password
+  const oidc = allowsNative(bootstrap) && bootstrap?.oidc
   const reconnectBasic = active.offline && active.identity?.backend === 'calibreweb' && account.online && basic
   const sameOriginCatalog = basic && !!bootstrap?.catalogUrl &&
     new URL(bootstrap.catalogUrl, location.origin).origin === location.origin
 
-  function signIn(event: FormEvent<HTMLFormElement>) {
+  function signIn(event: FormEvent<HTMLFormElement>, legacy: boolean) {
     event.preventDefault()
     const body = new FormData(event.currentTarget)
     const username = String(body.get('username') ?? '')
     const password = String(body.get('password') ?? '')
     event.currentTarget.reset()
-    if (basic) void account.signInBasic(username, password, remember, shareCatalog)
+    if (legacy) void account.signInBasic(username, password, remember, shareCatalog)
     else void account.signInPassword(username, password, remember)
   }
 
-  const signInForm = <form onSubmit={signIn}>
-    <label>{basic ? t('Calibre-Web username') : t('Email')} <input type={basic ? 'text' : 'email'} name="username" autoComplete="username" required /></label>
+  const signInForm = (legacy: boolean) => <form onSubmit={event => signIn(event, legacy)}>
+    <label>{legacy ? t('Calibre-Web username') : t('Email')} <input type={legacy ? 'text' : 'email'} name="username" autoComplete="username" required /></label>
     <label>{t('Password')} <input type="password" name="password" autoComplete="current-password" required /></label>
     <button type="submit">{t('Sign in')}</button>
   </form>
@@ -53,10 +55,13 @@ export function AccountSettings({ account, pending, sync, clear, t = label => la
   return <section aria-label={t('Account')}>
     <h2>{t('Account')}</h2>
     {error && <p role="alert">{t(error)}</p>}
+    {account.nativeWebUrl && <p><a href={account.nativeWebUrl} target="_blank" rel="noopener noreferrer">
+      {t('Open Quire sign-in')}
+    </a></p>}
     {connected ? <>
       <p>{active.identity?.id} · {active.identity?.backend === 'native' ? 'Quire' : 'Calibre-Web'}</p>
       {active.offline && <p>{t('Offline account. Sign in online to reconnect.')}</p>}
-      {reconnectBasic && <fieldset disabled={busy}><legend>{t('Reconnect this account')}</legend>{signInForm}</fieldset>}
+      {reconnectBasic && <fieldset disabled={busy}><legend>{t('Reconnect this account')}</legend>{signInForm(true)}</fieldset>}
       <p>{active.remembered ? t('Offline data is saved in this browser profile.') : t('Shared device session.')}</p>
       {pending > 0 && <p role="status">{pendingMessage(pending)}</p>}
       {pending > 0 && !active.remembered && <label>
@@ -77,20 +82,27 @@ export function AccountSettings({ account, pending, sync, clear, t = label => la
       </>}
       {account.rememberedIdentity && !account.online &&
         <button type="button" onClick={account.openRememberedOffline}>{t('Open remembered account offline')}</button>}
-      {(basic || bootstrap?.password || bootstrap?.oidc) && <fieldset disabled={busy}>
+      {(basic || password || oidc) && <fieldset disabled={busy}>
         <legend>{t('Sign in')}</legend>
         <label>
           <input type="checkbox" checked={remember} onChange={event => setRemember(event.target.checked)} />
           {t('Remember offline data on this browser')}
         </label>
         <p>{t('Only use this option on a personal device. Offline data is accessible through your browser profile.')}</p>
-        {basic && <p>{t('Calibre-Web credentials are held for this page session. Sign in again after reloading.')}</p>}
-        {sameOriginCatalog && <label>
-          <input type="checkbox" checked={shareCatalog} onChange={event => setShareCatalog(event.target.checked)} />
-          {t('Use these credentials for the configured catalog')}
-        </label>}
-        {(basic || bootstrap?.password) && signInForm}
-        {bootstrap?.oidc && <button type="button" onClick={() => account.signInOidc(remember)}>{t('Continue with identity provider')}</button>}
+        {basic && <fieldset>
+          <legend>{t('Calibre-Web account')}</legend>
+          <p>{t('Calibre-Web credentials are held for this page session. Sign in again after reloading.')}</p>
+          {sameOriginCatalog && <label>
+            <input type="checkbox" checked={shareCatalog} onChange={event => setShareCatalog(event.target.checked)} />
+            {t('Use these credentials for the configured catalog')}
+          </label>}
+          {signInForm(true)}
+        </fieldset>}
+        {(password || oidc) && <fieldset>
+          <legend>{t('Quire account')}</legend>
+          {password && signInForm(false)}
+          {oidc && <button type="button" onClick={() => account.signInOidc(remember)}>{t('Continue with identity provider')}</button>}
+        </fieldset>}
       </fieldset>}
       {bootstrap?.ai && !bootstrap.aiAvailable && <p>{t('Insights are unavailable for browser accounts on this server.')}</p>}
       {account.retained.map(({ identity, namespace }) => <div key={namespace}>

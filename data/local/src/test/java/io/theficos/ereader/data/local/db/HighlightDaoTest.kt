@@ -127,4 +127,27 @@ class HighlightDaoTest {
         assertThat(reversed.identityHashVersion).isEqualTo(winner.identityHashVersion)
     }
 
+    @Test fun `verified transfer retries safely and carries pending edits and tombstones into native scope`() = runTest {
+        val sync = db.highlightSyncDao()
+        val old = row("same").copy(ownerScope = "calibre", updatedAt = 20, deletedAt = 20)
+        val native = row("same").copy(ownerScope = "native", identityHashVersion = 2, syncedAt = 10)
+        val unrelated = row("same").copy(ownerScope = "unrelated")
+        dao.insert(old)
+        dao.insert(native)
+        dao.insert(unrelated)
+        dao.insert(row("clear").copy(ownerScope = "calibre", commentCleared = true))
+        dao.insert(row("clear").copy(ownerScope = "native", syncedAt = 10))
+        sync.setCursor("highlights:calibre", 45)
+
+        sync.moveOwnership(listOf("calibre"), "native")
+        sync.moveOwnership(listOf("calibre"), "native")
+
+        assertThat(sync.ownedBy("calibre")).isEmpty()
+        assertThat(sync.find("native", "same")!!.deletedAt).isEqualTo(20)
+        assertThat(sync.find("native", "same")!!.identityHashVersion).isEqualTo(2)
+        assertThat(sync.find("native", "clear")!!.commentCleared).isTrue()
+        assertThat(sync.find("unrelated", "same")).isEqualTo(unrelated)
+        assertThat(sync.dirty("native").map { it.id }).containsExactly("same", "clear")
+        assertThat(db.syncStateDao().lastPulled("highlights:native")).isNull()
+    }
 }

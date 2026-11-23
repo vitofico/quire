@@ -194,7 +194,28 @@ def basic_header():
 
 
 @pytest.fixture
-def app_under_test(postgres_url, alembic_upgrade, monkeypatch, cwa_transport):
+async def managed_app_factory():
+    """Dispose test apps on the request loop without starting an ASGI lifespan."""
+    apps = []
+
+    def build():
+        from quire_server.main import create_app
+
+        app = create_app()
+        apps.append(app)
+        return app
+
+    try:
+        yield build
+    finally:
+        for app in reversed(apps):
+            await app.state.close_resources()
+
+
+@pytest.fixture
+async def app_under_test(
+    postgres_url, alembic_upgrade, monkeypatch, cwa_transport, managed_app_factory
+):
     """A FastAPI app wired to the test Postgres + a mock CWA transport."""
     monkeypatch.setenv("QUIRE_SERVER_DATABASE_URL", postgres_url)
     monkeypatch.setenv("QUIRE_SERVER_CWA_BASE_URL", "http://test-cwa")
@@ -203,22 +224,10 @@ def app_under_test(postgres_url, alembic_upgrade, monkeypatch, cwa_transport):
 
     get_settings.cache_clear()
 
-    from quire_server.core.auth import CalibreAuthValidator
-    from quire_server.core.auth_backend import CalibreWebBasicAuth
-    from quire_server.main import create_app
-
-    app = create_app()
-    test_client = httpx.AsyncClient(
+    app = managed_app_factory()
+    async with httpx.AsyncClient(
         transport=cwa_transport, base_url="http://test-cwa", timeout=3.0
-    )
-    app.state.httpx_client = test_client
-    app.state.auth_validator = CalibreAuthValidator(
-        client=test_client,
-        cwa_base_url="http://test-cwa",
-    )
-    # Phase 0, task S-1: the primary auth dependency now resolves through
-    # ``app.state.auth_backend``, which captured a reference to the
-    # ORIGINAL validator at create_app() time. Rebuild the backend so it
-    # wraps the test's CWA-mock validator instead.
-    app.state.auth_backend = CalibreWebBasicAuth(app.state.auth_validator)
-    return app
+    ) as upstream:
+        # Keep primary and AI auth on the same validator as production.
+        app.state.auth_validator._client = upstream
+        yield app

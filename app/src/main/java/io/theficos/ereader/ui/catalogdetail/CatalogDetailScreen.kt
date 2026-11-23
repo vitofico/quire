@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import io.theficos.ereader.ui.bookdetail.InsightSection
 import io.theficos.ereader.ui.bookdetail.InsightUiState
 import io.theficos.ereader.ui.components.BookDescription
+import io.theficos.ereader.ui.components.catalogCoverRequest
 import io.theficos.ereader.ui.components.BookHeader
 import io.theficos.ereader.ui.components.SectionLabel
 import androidx.compose.ui.res.stringResource
@@ -77,7 +78,7 @@ fun CatalogDetailScreen(
             }
 
             BookHeader(
-                coverSource = pub.coverUrl,
+                coverSource = catalogCoverRequest(pub.coverUrl),
                 title = pub.title,
                 author = pub.author,
                 series = null,

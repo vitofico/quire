@@ -4,7 +4,7 @@ Phase 0, task S-1 (per
 ``docs/superpowers/specs/2026-05-22-quire-monetization-design.md``,
 "Architectural changes → Thin auth abstraction in ``quire_server``").
 
-This router is mounted ONLY when ``QUIRE_SERVER_AUTH_BACKEND=native``. OSS
+This router is mounted under native or transition auth. Legacy-only
 deployments running CalibreWeb Basic never see these endpoints — a stray
 ``POST /auth/v1/login`` against an OSS server returns the FastAPI default
 404, which is exactly the right shape: the endpoints do not exist there.
@@ -46,14 +46,18 @@ router = APIRouter(tags=["auth"])
 async def me(
     user: Annotated[AuthUser, Depends(current_auth_user)], response: Response, request: Request
 ) -> dict:
-    """Authenticated storage identity. Consumers must revalidate the session each time.
+    """Authenticated account identity. Consumers must revalidate the session each time.
 
     No identity is accepted from a browser-supplied account ID or email. This
     contract deliberately exposes neither password hashes nor session tokens.
     """
     response.headers["Cache-Control"] = "no-store"
     settings = request.app.state.identity_settings
-    token = request.cookies.get(settings.cookie_name, "")
+    token = (
+        request.cookies.get(settings.cookie_name, "")
+        if not request.headers.get("authorization")
+        else ""
+    )
     from quire_server.api.browser_identity import csrf
 
     capabilities = dict(request.app.state.hosting_capabilities)
@@ -79,8 +83,11 @@ async def me(
                 },
             )
         capabilities["deletion_authorized"] = bool(authorized)
+    identity = {"id": user.user_id, "backend": user.backend}
+    if user.legacy_calibre_user_id is not None:
+        identity["legacy_calibre_user_id"] = user.legacy_calibre_user_id
     return {
-        "user": {"id": user.user_id, "backend": user.backend},
+        "user": identity,
         "version": 1,
         "capabilities": capabilities,
         "csrf_token": csrf(token) if token else None,
@@ -203,7 +210,11 @@ async def logout(
             detail="no_session_token",
         )
     await backend.revoke(user.session_token_hash)
-    response = Response(status_code=status.HTTP_204_NO_CONTENT)
+    response = Response(
+        status_code=status.HTTP_204_NO_CONTENT, headers={"Cache-Control": "no-store"}
+    )
+    if request.headers.get("authorization"):
+        return response
     response.delete_cookie(
         request.app.state.identity_settings.cookie_name,
         path="/",

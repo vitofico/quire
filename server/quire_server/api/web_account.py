@@ -1,7 +1,6 @@
 """Public browser configuration and request binding for the Quire reader."""
 
 from typing import Annotated
-from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
@@ -9,26 +8,25 @@ from fastapi.responses import JSONResponse
 from quire_server.api.browser_identity import IdentitySettings
 from quire_server.config import Settings
 from quire_server.core.auth import current_auth_user
-from quire_server.core.auth_backend import AuthUser
+from quire_server.core.auth_backend import AuthUser, matches_identity_host
 
 
 def native_web_allowed(request: Request) -> bool:
     host = request.app.state.web_native_auth_host
-    return bool(host and request.headers.get("host", "").lower() == host)
+    return matches_identity_host(request, host)
 
 
 def install_web_account(app: FastAPI, settings: Settings, identity: IdentitySettings) -> None:
     router = APIRouter(tags=["web"], prefix="/quire/v1")
     ai_compatible = settings.ai_enabled and settings.ai_auth_mode == "basic"
     account_services = settings.progress_enabled or ai_compatible
-    basic_login = account_services and settings.auth_backend == "calibreweb"
+    basic_login = account_services and settings.auth_backend in {"calibreweb", "transition"}
     app.state.web_native_auth_host = (
-        urlsplit(identity.public_url).netloc.lower()
+        identity.public_host
         if settings.web_enabled
         and settings.web_native_auth_enabled
-        and settings.auth_backend == "native"
+        and settings.auth_backend in {"native", "transition"}
         and account_services
-        and identity.public_url
         else None
     )
 
@@ -36,7 +34,12 @@ def install_web_account(app: FastAPI, settings: Settings, identity: IdentitySett
     async def bootstrap(request: Request, response: Response):
         response.headers["Cache-Control"] = "no-store"
         native = native_web_allowed(request)
-        return {
+        login = (
+            "transition"
+            if basic_login and native
+            else ("basic" if basic_login else "native" if native else "none")
+        )
+        result = {
             "version": 1,
             "sync": settings.progress_enabled,
             "ai": settings.ai_enabled,
@@ -46,7 +49,7 @@ def install_web_account(app: FastAPI, settings: Settings, identity: IdentitySett
                 and settings.ai_base_url
                 and settings.ai_model
             ),
-            "login": "basic" if basic_login else "native" if native else "none",
+            "login": login,
             "password": native,
             "oidc": native and bool(identity.oidc_issuer),
             "catalogUrl": settings.web_catalog_url,
@@ -54,6 +57,9 @@ def install_web_account(app: FastAPI, settings: Settings, identity: IdentitySett
                 identity.public_url + "/cloud/account" if native and identity.oidc_issuer else None
             ),
         }
+        if app.state.web_native_auth_host and not native:
+            result["nativeWebUrl"] = identity.public_url + "/quire/"
+        return result
 
     if basic_login:
 
@@ -61,6 +67,10 @@ def install_web_account(app: FastAPI, settings: Settings, identity: IdentitySett
         async def session(
             user: Annotated[AuthUser, Depends(current_auth_user)], response: Response
         ):
+            if user.backend != "calibreweb":
+                raise HTTPException(
+                    401, "basic auth required", headers={"Cache-Control": "no-store"}
+                )
             response.headers["Cache-Control"] = "no-store"
             return {"version": 1, "user": {"id": user.user_id, "backend": user.backend}}
 

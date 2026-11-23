@@ -11,8 +11,8 @@ from quire_server.db.session import make_engine, make_session_factory
 
 async def create(email, password):
     settings = get_settings()
-    if settings.auth_backend != "native":
-        raise SystemExit("Select native auth for this operator command.")
+    if settings.auth_backend not in {"native", "transition"}:
+        raise SystemExit("Select native or transition auth for this operator command.")
     engine = make_engine(settings.database_url)
     try:
         backend = NativeAuth(

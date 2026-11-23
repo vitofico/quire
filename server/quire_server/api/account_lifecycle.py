@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, HTTPException, Request, Response
 from sqlalchemy import select, text
 
-from quire_server.db.models import NativeUser
+from quire_server.db.models import CalibreAccountBinding, NativeUser
 
 router = APIRouter()
 
@@ -24,6 +24,14 @@ PRIVATE = {
     "ai_generation_log": "subject",
     "reader_profiles": "subject",
 }
+TENANT_SCOPED = {"ai_generation_log", "reader_profiles"}
+
+
+def scope_filter(table: str, key: str, *, legacy: bool) -> str:
+    clause = f"{key}=:id"
+    if legacy and table in TENANT_SCOPED:
+        clause += " AND tenant_id='local'"
+    return clause
 
 
 def account_number(account_id):
@@ -62,7 +70,13 @@ async def export(request: Request, response: Response):
                 rows = (
                     (
                         await session.execute(
-                            text(f"SELECT * FROM {table} WHERE {key}=:id"), {"id": user.user_id}
+                            text(
+                                f"SELECT * FROM {table} WHERE "
+                                + scope_filter(
+                                    table, key, legacy=user.legacy_calibre_user_id is not None
+                                )
+                            ),
+                            {"id": user.storage_user_id},
                         )
                     )
                     .mappings()
@@ -79,7 +93,7 @@ async def export(request: Request, response: Response):
                             "ON documents.pk=progress.document_pk "
                             "WHERE documents.user_id=:id"
                         ),
-                        {"id": user.user_id},
+                        {"id": user.storage_user_id},
                     )
                 ).mappings()
             ]
@@ -154,16 +168,26 @@ async def purge(account_id: str, request: Request):
             return {"account_id": account_id, "status": "absent"}
         if native.closed_at is None:
             raise HTTPException(409, "account_must_be_closed")
-        # Never delete shared book_insights, book_themes or global aliases.
+        legacy_scope = await session.scalar(
+            select(CalibreAccountBinding.calibre_user_id).where(
+                CalibreAccountBinding.native_user_id == number
+            )
+        )
+        scope = legacy_scope or account_id
+        # Preserve shared book_insights, book_themes and global aliases.
         for table, key in PRIVATE.items():
             if await exists(session, table):
                 await session.execute(
-                    text(f"DELETE FROM {table} WHERE {key}=:id"), {"id": account_id}
+                    text(
+                        f"DELETE FROM {table} WHERE "
+                        + scope_filter(table, key, legacy=legacy_scope is not None)
+                    ),
+                    {"id": scope},
                 )
         if await exists(session, "book_insights"):
             await session.execute(
                 text("UPDATE book_insights SET generated_by='deleted' WHERE generated_by=:id"),
-                {"id": account_id},
+                {"id": scope},
             )
         await session.execute(text("DELETE FROM native_sessions WHERE user_id=:id"), {"id": number})
         native.email = f"deleted+{number}@identity.invalid"

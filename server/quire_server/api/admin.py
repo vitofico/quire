@@ -81,7 +81,7 @@ PAGE_HEADERS = {
 
 def _challenge() -> str:
     """The ``WWW-Authenticate`` value that makes a browser ask for a login."""
-    if get_settings().auth_backend == "calibreweb":
+    if get_settings().auth_backend in {"calibreweb", "transition"}:
         return 'Basic realm="Quire Server", charset="UTF-8"'
     return "Bearer"
 
@@ -486,7 +486,7 @@ def _page_response(request: Request, page_status: dict, **kwargs) -> HTMLRespons
     )
     style = "plain" if style == "plain" else "artwork"
     csrf_token = ""
-    if get_settings().auth_backend == "native":
+    if get_settings().auth_backend != "calibreweb":
         from quire_server.api.browser_identity import csrf
 
         cookie = request.cookies.get(request.app.state.identity_settings.cookie_name)

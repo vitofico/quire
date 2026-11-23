@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.theficos.ereader.auth.AccountCredentials
+import io.theficos.ereader.auth.catalogAccount
 import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.core.identity.extractIdentity
 import io.theficos.ereader.core.metadata.readOpfBundle
@@ -33,6 +34,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -73,23 +75,25 @@ class CatalogViewModel(
 
     init {
         viewModelScope.launch {
-            // Observe the full account so credential changes retry a failed
-            // catalog even when its URL stays the same. StateFlow suppresses
-            // identical accounts without dropping username/password changes.
+            // Reload when the catalog or its authentication changes, including
+            // a password correction at the same URL.
             credentialStore.accountFlow
-                .collect { account ->
-                    if (!account?.baseUrl.isNullOrBlank()) loadRoot()
-                }
+                .map { it?.catalogAccount() }
+                .distinctUntilChanged()
+                .collect { loadRoot() }
         }
     }
 
     fun loadRoot() {
-        val account = credentialStore.getAccount()
+        val account = credentialStore.getAccount()?.catalogAccount()
+        backStack.clear()
+        failedSearch = null
+        _isRefreshing.value = false
         if (account == null || account.baseUrl.isBlank()) {
-            _state.value = CatalogUiState.Error(uiText(R.string.catalog_configure_a_server_in_settings_first))
+            _state.value = CatalogUiState.Error(uiText(R.string.quire_account_catalog_missing))
             return
         }
-        backStack.clear()
+        _state.value = CatalogUiState.Loading
         load(rootUrlFor(account))
     }
 
@@ -111,9 +115,11 @@ class CatalogViewModel(
         failedSearch = null
         val current = _state.value as? CatalogUiState.Loaded ?: return loadRoot()
         _isRefreshing.value = true
+        val catalog = credentialStore.getAccount()?.catalogAccount()
         viewModelScope.launch {
-            runCatching { client.fetch(current.url) }
-                .onSuccess { feed ->
+            val result = runCatching { client.fetch(current.url) }
+            if (catalog != credentialStore.getAccount()?.catalogAccount()) return@launch
+            result.onSuccess { feed ->
                     _state.value = CatalogUiState.Loaded(current.url, feed, canGoBack = backStack.isNotEmpty())
                 }
                 .onFailure { fail(it, current.url, current, uiText(R.string.common_fetch_failed)) }
@@ -125,9 +131,11 @@ class CatalogViewModel(
         failedSearch = null
         val current = _state.value as? CatalogUiState.Loaded
         _state.value = CatalogUiState.Loading
+        val catalog = credentialStore.getAccount()?.catalogAccount()
         viewModelScope.launch {
-            runCatching { client.fetch(url) }
-                .onSuccess { feed ->
+            val result = runCatching { client.fetch(url) }
+            if (catalog != credentialStore.getAccount()?.catalogAccount()) return@launch
+            result.onSuccess { feed ->
                     if (current != null) backStack.push(current.url to current.feed)
                     _state.value = CatalogUiState.Loaded(url, feed, canGoBack = backStack.isNotEmpty())
                 }
@@ -165,13 +173,16 @@ class CatalogViewModel(
         val link = current.feed.searchLink ?: return
         if (query.isBlank()) return
         _state.value = CatalogUiState.Loading
+        val catalog = credentialStore.getAccount()?.catalogAccount()
         viewModelScope.launch {
             var retryUrl = current.url
-            runCatching {
+            val result = runCatching {
                 val resolved = client.resolveSearchUrl(link, query.trim())
                 retryUrl = resolved
                 client.fetch(resolved) to resolved
-            }.onSuccess { (feed, resolved) ->
+            }
+            if (catalog != credentialStore.getAccount()?.catalogAccount()) return@launch
+            result.onSuccess { (feed, resolved) ->
                 failedSearch = null
                 if (retainParent) backStack.push(current.url to current.feed)
                 _state.value = CatalogUiState.Loaded(resolved, feed, canGoBack = backStack.isNotEmpty())
@@ -198,10 +209,11 @@ class CatalogViewModel(
     private suspend fun maybePromoteInsight(
         pub: OpdsPublication,
         downloadedIdentity: DocumentIdentity,
+        subject: String?,
     ) {
         val stash = catalogInsightStash ?: return
         val ai = aiRepository ?: return
-        val subject = subjectProvider() ?: return
+        if (subject == null || subject != subjectProvider()) return
         val entry = stash.peek(subject, pub.epubDownloadHref) ?: return
         val ok = ai.promoteInsight(
             from = entry.catalogIdentity,
@@ -216,7 +228,7 @@ class CatalogViewModel(
             // `generated_at = NOW()`. Trigger a sync so the Android cache picks
             // it up — coalescing collapses bursts when the user downloads
             // several books in quick succession.
-            insightSyncRepository?.requestSync("after_promote")
+            if (subject == subjectProvider()) insightSyncRepository?.requestSync("after_promote")
         } else {
             Log.d(
                 "CatalogViewModel",
@@ -248,12 +260,18 @@ class CatalogViewModel(
         // Only the OPDS-only variant is gated off. An absent account keeps the
         // old behaviour, so a credential cleared mid-download does not quietly
         // change what the post-download hook does.
-        val hasQuireServer = credentialStore.getAccount() !is AccountCredentials.OpdsOnly
+        val account = credentialStore.getAccount()
+        val catalog = account?.catalogAccount()
+        val subject = subjectProvider()
+        val hasQuireServer = account !is AccountCredentials.OpdsOnly
+        fun sameCatalog() = catalog == credentialStore.getAccount()?.catalogAccount()
+        fun sameServiceScope() = hasQuireServer && sameCatalog() && subject == subjectProvider()
         viewModelScope.launch {
             _state.value = current.copy(downloading = pub.epubDownloadHref, progress = 0f)
             runCatching {
                 val fileName = "${UUID.randomUUID()}.epub"
                 val file = downloader.download(pub.epubDownloadHref, fileName) { sent, total ->
+                    if (!sameCatalog()) return@download
                     val frac = if (total > 0) sent.toFloat() / total else 0f
                     _state.value = (_state.value as? CatalogUiState.Loaded)?.copy(progress = frac) ?: return@download
                 }
@@ -264,7 +282,7 @@ class CatalogViewModel(
                     }
                     extractIdentity(file)
                 }
-                val coverFile = pub.coverUrl?.let { url ->
+                val coverFile = pub.coverUrl?.takeIf { sameCatalog() }?.let { url ->
                     val coverName = fileName.removeSuffix(".epub") + ".cover"
                     downloader.downloadCover(url, coverName)
                 }
@@ -293,9 +311,9 @@ class CatalogViewModel(
                     // Failures are logged inside the uploader; the row stays
                     // unsynced and the next app-start pass retries.
                     val uploadJob =
-                        if (hasQuireServer) libraryUploader?.enqueueOne(insertedId) else null
+                        if (sameServiceScope()) libraryUploader?.enqueueOne(insertedId) else null
                     uploadJob?.join()
-                    maybePromoteInsight(pub, identity)
+                    maybePromoteInsight(pub, identity, subject)
                 } else {
                     withContext(Dispatchers.IO) {
                         file.delete()
@@ -309,22 +327,26 @@ class CatalogViewModel(
                 // epoch 0; the now-present local doc lets it attach. Best-effort —
                 // a failure here doesn't roll back the already-successful download,
                 // but is logged so the silent re-attach gap is visible in logcat.
-                if (hasQuireServer) {
+                if (sameServiceScope()) {
                     runCatching { syncStateDao.clearAll() }
                         .onFailure { Log.w("CatalogViewModel", "clearAll failed; progress re-attach deferred", it) }
                     runCatching { syncEnqueuer(context) }
                         .onFailure { Log.w("CatalogViewModel", "syncEnqueuer failed; will retry on next manual sync", it) }
                 }
-                _state.value = current.copy(downloading = null, progress = 0f, lastDownloaded = pub.title)
+                if (sameCatalog()) {
+                    _state.value = current.copy(downloading = null, progress = 0f, lastDownloaded = pub.title)
+                }
             }.onFailure {
                 // Redacted for the same reason as the promote log above: on a
                 // generic OPDS account this href carries the user's API key.
                 Log.e("CatalogViewModel", "download failed for ${redactUrl(pub.epubDownloadHref)}", it)
-                _state.value = current.copy(
-                    downloading = null,
-                    progress = 0f,
-                    error = describeFailure(it, uiText(R.string.common_fetch_failed)),
-                )
+                if (sameCatalog()) {
+                    _state.value = current.copy(
+                        downloading = null,
+                        progress = 0f,
+                        error = describeFailure(it, uiText(R.string.common_fetch_failed)),
+                    )
+                }
             }
         }
     }

@@ -61,6 +61,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.theficos.ereader.data.opds.OpdsPublication
+import io.theficos.ereader.ui.components.catalogCoverRequest
 import io.theficos.ereader.ui.components.CoverImage
 import io.theficos.ereader.ui.components.CoverInfoButton
 import io.theficos.ereader.ui.components.SectionLabel
@@ -226,7 +227,7 @@ private fun Loaded(
                 ) {
                     Box {
                         CoverImage(
-                            source = pub.coverUrl,
+                            source = catalogCoverRequest(pub.coverUrl),
                             title = pub.title,
                             author = pub.author,
                             modifier = Modifier

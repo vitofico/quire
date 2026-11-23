@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="quire_account_title">Quire account</string>
+    <string name="quire_account_url">Quire server URL</string>
+    <string name="quire_account_connected">Signed in to Quire</string>
+    <string name="quire_account_expired">Your Quire session expired. Sign in again to resume sync and AI features.</string>
+    <string name="quire_account_legacy">Using a legacy calibre-web login for Quire. If you already sync, ask your Quire server administrator to link your legacy account before signing in to keep your existing sync data.</string>
+    <string name="quire_account_sign_in">Sign in to Quire</string>
+    <string name="quire_account_sign_in_again">Sign in to Quire again</string>
+    <string name="quire_account_sign_in_description">Connect to your Quire server for sync and AI features. You can keep your ebook catalog on a different server.</string>
+    <string name="quire_account_sign_out">Disconnect Quire on this device</string>
+    <string name="quire_account_sign_out_confirm">Disconnecting pauses Quire sync and AI features. Downloaded books and any separately configured ebook catalog stay available.</string>
+    <string name="quire_account_back">Back</string>
+    <string name="quire_account_calibre_catalog">Calibre-Web catalog</string>
+    <string name="quire_account_legacy_catalog_hint">Sign in to Quire separately before switching from the legacy calibre-web catalog to another OPDS catalog.</string>
+    <string name="quire_account_using_opds">Using this OPDS catalog for ebooks.</string>
+    <string name="onboarding_invalid_quire_url">Enter the server address starting with http:// or https://, including any server subpath.</string>
+    <string name="onboarding_legacy_binding_required">This Quire account isn’t linked to your existing Calibre-Web sync account. Ask your server administrator to link the accounts, then sign in again. Your existing connection is still active.</string>
+    <string name="onboarding_legacy_check_failed">Quire couldn’t verify the account on this server. Try signing in again. Your existing connection is still active.</string>
+    <string name="onboarding_quire_reauth_same_account">Sign in with the same Quire account you used before.</string>
+    <string name="onboarding_quire_connection_changed">Your connections changed during sign-in. Open Quire settings and try again.</string>
+    <string name="quire_account_catalog_missing">Connect an ebook catalog in Settings.</string>
+    <string name="quire_account_using_calibre">Using this Calibre-Web catalog for ebooks.</string>
+    <string name="quire_account_remove_catalog">Disconnect catalog</string>
+    <string name="quire_account_choose_first_connection">This address offers a Calibre-Web catalog and a Quire account. Choose which to set up first. You can add the other in Settings.</string>
+    <string name="quire_account_catalog_then_sync">You can add a Quire account in Settings to sync reading progress and access AI features.</string>
+</resources>

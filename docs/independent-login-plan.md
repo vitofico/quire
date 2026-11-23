@@ -1,0 +1,29 @@
+# Independent Quire login with a Calibre-Web library
+
+## Outcome
+
+A reader can change or revoke a Quire password while continuing to browse and download their existing Calibre-Web books. An expired Quire session should pause reading-state sync and prompt for sign-in. A catalog outage should interrupt catalog browsing and downloads while allowing an already downloaded EPUB to open and sync normally. The server continues to store reading state and library metadata. The catalog continues to supply the EPUB bytes, covers and acquisition links.
+
+This change removes the need for Quire to forward a migrated reader's Calibre password on each auth cache miss. It also gives Quire its own session revocation and account lifecycle and allows the two services to live at different origins. Simply changing the server auth setting would give existing users a different storage identity and appear to empty their libraries. Simply adding a second URL on Android would still share a password across services.
+
+## Delivery sequence
+
+| Step | Implementation | Acceptance check |
+| --- | --- | --- |
+| 1. Establish the baseline | Record the live application image, migration image, replica health, enabled modes, Alembic heads, ingress and aggregate legacy/native ownership. Take a private Postgres backup and restore it to a separate target before the first production migration. | Identify the revision to roll back to from the live deployment. A restore can read the same library and document counts as the snapshot. |
+| 2. Add a transition mode | Keep existing `calibreweb` and `native` deployment modes. In `transition`, native sessions authenticate through Quire. Existing unlinked readers continue to use Basic on the legacy reading APIs. Native account and session routes accept their ordinary native credentials. | Warm legacy credential caches before exercising a binding. Check migrated and unlinked readers independently, including account closure, export, admin permissions and MCP highlight reads. |
+| 3. Preserve record ownership | Keep `native:<id>` as the account identity. Store an explicit reservation that associates one native account with one historical Calibre storage scope. Resolve that scope for reading records and personal AI data. Keep the reservation after account deletion so recycling a catalog username cannot revive its old Quire access. | Dry-run against a populated fixture. Bind it in one transaction. Check progress, highlights and deletion markers, library, aliases, settings, usage and profile. Reject duplicate mappings and verify separation from a second reader. |
+| 4. Separate the Android connections | Keep catalog URL and catalog credentials independent of Quire URL, native session and expiry. Route sync, library and AI through the Quire client. Use the catalog client for OPDS, covers, acquisition and restore. Preserve the previously stored account when upgrading. | Test old Basic, catalog-only, native-only and native-plus-catalog accounts. Cover same host, different hosts, redirects, clearing either connection and reauthentication. Verify the library worker actually runs for a bearer session. |
+| 5. Carry device edits across login | Verify the native account's authenticated legacy binding and service origin before adopting highlights from the old local scope. Preserve dirty rows and tombstones across retries. Readers who sign into a different account keep separate local ownership. | Test a pending highlight, a deletion and an interrupted sign-in. Signing into another native account or another server must not transfer the legacy reader's edits. |
+| 6. Route and deploy | Pin the same qualified image in the migration init container and service container. Preserve live provider settings. Route the mobile account operations on the existing ebooks host. Continue sending OPDS, downloads and the Calibre interface to Calibre-Web. | Test the image with an isolated identity first, then verify readiness, login, authenticated reads, sync, logout and catalog routing at the production hostname. Compare pre/post ownership. |
+| 7. Migrate readers | Upgrade devices before binding their old accounts. Migrate one verified reader at a time. Use `native` as the final server mode after every required legacy reader and client has moved. | Verify the same in-progress book and highlights on two devices. Remove server-to-Calibre auth egress only after leaving transition mode. Android retains direct catalog access. |
+
+## Contract with Quire Web
+
+The web implementation owns its UI under `/quire/` and its bootstrap under `/quire/v1/`. Its native browser session uses the Quire cookie/CSRF endpoints. The `__Host-quire-session` cookie covers `/`. A host that also serves Calibre-Web at `/` would therefore receive the same browser cookie on catalog requests. On Theficos the shared ebook hostname exposes the mobile account endpoints and keeps browser session issuance disabled. A Quire-only browser origin, with its own DNS, TLS and fixed public URL, is the appropriate place to enable that web session. Cross-origin catalog access must use only credentials intended for Calibre-Web. Shared-host readers should finish syncing their existing browser profiles before moving to the Quire-only origin.
+
+## Verification and operations
+
+Server checks cover the legacy, transition and native backends, the enabled feature combinations and upgrades from existing migrations. Android checks cover saved credential formats, ownership, HTTP destinations and a real login/catalog workflow. Deployment verification distinguishes a protected OPDS challenge from an authenticated acquisition of actual EPUB bytes. Use synthetic accounts for write tests. Keep plaintext passwords, tokens, reading history and database archives out of release artifacts and logs.
+
+Follow the [operator and reader migration guide](independent-login-migration.md) when changing an existing installation.

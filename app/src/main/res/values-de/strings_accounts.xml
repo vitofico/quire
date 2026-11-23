@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="quire_account_title">Quire-Konto</string>
+    <string name="quire_account_url">URL des Quire-Servers</string>
+    <string name="quire_account_connected">Bei Quire angemeldet</string>
+    <string name="quire_account_expired">Deine Quire-Sitzung ist abgelaufen. Melde dich erneut an, um Synchronisierung und KI-Funktionen weiter zu nutzen.</string>
+    <string name="quire_account_legacy">Quire verwendet eine ältere Calibre-Web-Anmeldung. Wenn du bereits synchronisierst, bitte die Administration deines Quire-Servers, dein bisheriges Konto vor der Anmeldung zu verknüpfen, damit deine synchronisierten Daten erhalten bleiben.</string>
+    <string name="quire_account_sign_in">Bei Quire anmelden</string>
+    <string name="quire_account_sign_in_again">Erneut bei Quire anmelden</string>
+    <string name="quire_account_sign_in_description">Verbinde dich für Synchronisierung und KI-Funktionen mit deinem Quire-Server. Dein E-Book-Katalog kann auf einem anderen Server bleiben.</string>
+    <string name="quire_account_sign_out">Quire auf diesem Gerät trennen</string>
+    <string name="quire_account_sign_out_confirm">Wenn du die Verbindung trennst, pausieren die Synchronisierung und die KI-Funktionen. Heruntergeladene Bücher und separat eingerichtete E-Book-Kataloge bleiben verfügbar.</string>
+    <string name="quire_account_back">Zurück</string>
+    <string name="quire_account_calibre_catalog">Calibre-Web-Katalog</string>
+    <string name="quire_account_legacy_catalog_hint">Melde dich separat bei Quire an, bevor du vom bisherigen Calibre-Web-Katalog zu einem anderen OPDS-Katalog wechselst.</string>
+    <string name="quire_account_using_opds">Dieser OPDS-Katalog wird für E-Books verwendet.</string>
+    <string name="onboarding_invalid_quire_url">Gib die Serveradresse mit http:// oder https:// und gegebenenfalls einem Unterpfad ein.</string>
+    <string name="onboarding_legacy_binding_required">Dieses Quire-Konto ist nicht mit deinem bestehenden Calibre-Web-Synchronisierungskonto verknüpft. Bitte deine Serveradministration, die Konten zu verknüpfen, und melde dich dann erneut an. Deine bestehende Verbindung bleibt aktiv.</string>
+    <string name="onboarding_legacy_check_failed">Quire konnte das Konto auf diesem Server nicht bestätigen. Versuche, dich erneut anzumelden. Deine bestehende Verbindung bleibt aktiv.</string>
+    <string name="onboarding_quire_reauth_same_account">Melde dich mit demselben Quire-Konto wie zuvor an.</string>
+    <string name="onboarding_quire_connection_changed">Deine Verbindungen haben sich während der Anmeldung geändert. Öffne die Quire-Einstellungen und versuche es erneut.</string>
+    <string name="quire_account_catalog_missing">Verbinde in den Einstellungen einen E-Book-Katalog.</string>
+    <string name="quire_account_using_calibre">Dieser Calibre-Web-Katalog wird für E-Books verwendet.</string>
+    <string name="quire_account_remove_catalog">Katalog trennen</string>
+    <string name="quire_account_choose_first_connection">Diese Adresse bietet einen Calibre-Web-Katalog und ein Quire-Konto. Wähle aus, was du zuerst einrichten möchtest. Das andere kannst du in den Einstellungen hinzufügen.</string>
+    <string name="quire_account_catalog_then_sync">Du kannst in den Einstellungen ein Quire-Konto hinzufügen, um deinen Lesefortschritt zu synchronisieren und KI-Funktionen zu nutzen.</string>
+</resources>

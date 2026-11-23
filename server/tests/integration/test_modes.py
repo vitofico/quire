@@ -17,7 +17,9 @@ def _basic_header(user: str, password: str = "x") -> dict[str, str]:
     return {"Authorization": f"Basic {token}"}
 
 
-def _build_app(monkeypatch, postgres_url: str, *, progress_enabled: bool, ai_enabled: bool):
+def _build_app(
+    managed_app_factory, monkeypatch, postgres_url: str, *, progress_enabled: bool, ai_enabled: bool
+):
     """Build a fresh app with the given mode flags."""
     monkeypatch.setenv("QUIRE_SERVER_DATABASE_URL", postgres_url)
     monkeypatch.setenv("QUIRE_SERVER_CWA_BASE_URL", "http://test-cwa")
@@ -26,9 +28,7 @@ def _build_app(monkeypatch, postgres_url: str, *, progress_enabled: bool, ai_ena
     from quire_server.config import get_settings
 
     get_settings.cache_clear()
-    from quire_server.main import create_app
-
-    return create_app()
+    return managed_app_factory()
 
 
 async def _assert_health(client, modes):
@@ -40,8 +40,12 @@ async def _assert_health(client, modes):
     assert isinstance(body["warnings"], list)
 
 
-async def test_full_mode_mounts_everything(monkeypatch, postgres_url: str, alembic_upgrade):
-    app = _build_app(monkeypatch, postgres_url, progress_enabled=True, ai_enabled=True)
+async def test_full_mode_mounts_everything(
+    managed_app_factory, monkeypatch, postgres_url: str, alembic_upgrade
+):
+    app = _build_app(
+        managed_app_factory, monkeypatch, postgres_url, progress_enabled=True, ai_enabled=True
+    )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         await _assert_health(c, ["progress", "ai"])
         assert (await c.get("/sync/v1/healthz")).status_code == 404
@@ -65,8 +69,12 @@ async def test_full_mode_mounts_everything(monkeypatch, postgres_url: str, alemb
         assert ai.status_code != 404
 
 
-async def test_sync_only_mode_excludes_ai(monkeypatch, postgres_url: str, alembic_upgrade):
-    app = _build_app(monkeypatch, postgres_url, progress_enabled=True, ai_enabled=False)
+async def test_sync_only_mode_excludes_ai(
+    managed_app_factory, monkeypatch, postgres_url: str, alembic_upgrade
+):
+    app = _build_app(
+        managed_app_factory, monkeypatch, postgres_url, progress_enabled=True, ai_enabled=False
+    )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         await _assert_health(c, ["progress"])
 
@@ -77,8 +85,12 @@ async def test_sync_only_mode_excludes_ai(monkeypatch, postgres_url: str, alembi
         assert ai.status_code == 404
 
 
-async def test_ai_only_mode_excludes_progress(monkeypatch, postgres_url: str, alembic_upgrade):
-    app = _build_app(monkeypatch, postgres_url, progress_enabled=False, ai_enabled=True)
+async def test_ai_only_mode_excludes_progress(
+    managed_app_factory, monkeypatch, postgres_url: str, alembic_upgrade
+):
+    app = _build_app(
+        managed_app_factory, monkeypatch, postgres_url, progress_enabled=False, ai_enabled=True
+    )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         await _assert_health(c, ["ai"])
 
@@ -96,8 +108,12 @@ async def test_ai_only_mode_excludes_progress(monkeypatch, postgres_url: str, al
         assert stats.status_code == 404
 
 
-async def test_neither_mode_only_mounts_health(monkeypatch, postgres_url: str, alembic_upgrade):
-    app = _build_app(monkeypatch, postgres_url, progress_enabled=False, ai_enabled=False)
+async def test_neither_mode_only_mounts_health(
+    managed_app_factory, monkeypatch, postgres_url: str, alembic_upgrade
+):
+    app = _build_app(
+        managed_app_factory, monkeypatch, postgres_url, progress_enabled=False, ai_enabled=False
+    )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         await _assert_health(c, [])
 

@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.theficos.ereader.auth.AccountCredentials
 import io.theficos.ereader.auth.CalibreCredentialStore
+import io.theficos.ereader.auth.catalogAccount
 import io.theficos.ereader.data.ai.AiConfig
 import io.theficos.ereader.data.ai.AiHealthResponse
 import io.theficos.ereader.data.ai.AiPreferences
@@ -88,6 +89,10 @@ class SettingsViewModel(
     private val syncEnqueuer: (Context) -> Unit = { SyncEnqueuer.enqueue(it, expedited = true, replaceExisting = true) },
     private val restoreInProgress: (suspend ((Int, Int) -> Unit) -> RestoreSummary)? = null,
 ) : ViewModel() {
+    val account = store.accountFlow
+    private val initialAccount = account.value
+    val needsReauth = store.needsReauth
+
     private val _calibre = MutableStateFlow(loadInitialCalibre())
     val calibre: StateFlow<CalibreUiState> = _calibre.asStateFlow()
 
@@ -102,12 +107,7 @@ class SettingsViewModel(
 
     private val _sync = MutableStateFlow(
         SyncUiState(
-            // An OPDS-only catalog has no Quire server behind it, so it must
-            // never report sync credentials. The legacy accessor already
-            // returns null for that variant; the explicit check keeps the
-            // guarantee readable and independent of that accessor.
-            hasCredentials = store.get() != null &&
-                store.getAccount() !is AccountCredentials.OpdsOnly,
+            hasCredentials = initialAccount?.quireSession() != null,
             lastSyncedAtMs = null,
         )
     )
@@ -176,61 +176,100 @@ class SettingsViewModel(
 
     init {
         viewModelScope.launch {
+            var previous = initialAccount
+            account.collect { current ->
+                if (current == previous) return@collect
+                val previousSession = previous?.quireSession()
+                previous = current
+                _calibre.value = loadInitialCalibre(current)
+                _opds.value = loadInitialOpds(current)
+                val session = current?.quireSession()
+                _sync.value = _sync.value.copy(hasCredentials = session != null)
+                if (session != previousSession) {
+                    _aiHealth.value = null
+                    if (session != null) refreshAiHealth()
+                }
+            }
+        }
+        viewModelScope.launch {
             aiRepository.refresh()
             _aiHealth.value = aiRepository.fetchHealth()
             _lastInsightSync.value = insightDao?.latestSyncedAt()
         }
     }
 
-    /** Refresh the AI health snapshot. Safe to call from the UI on screen entry. */
-    fun refreshAiHealth() {
+    private fun AccountCredentials.quireSession(): AccountCredentials? = when (this) {
+        is AccountCredentials.Bearer -> copy(catalog = null, previousHighlightScopes = emptyList())
+        is AccountCredentials.Basic -> this
+        is AccountCredentials.OpdsOnly -> null
+    }
+
+    private fun refreshAiHealth() {
         viewModelScope.launch {
-            _aiHealth.value = aiRepository.fetchHealth()
+            val session = account.value?.quireSession()
+            aiRepository.refresh()
+            val health = aiRepository.fetchHealth()
+            if (session == account.value?.quireSession()) _aiHealth.value = health
         }
     }
 
-    private fun loadInitialCalibre(): CalibreUiState {
-        val account = store.getAccount() as? AccountCredentials.Basic
+    private fun loadInitialCalibre(current: AccountCredentials? = account.value): CalibreUiState {
+        val legacy = current as? AccountCredentials.Basic
+        val catalog = (current?.catalogAccount() as? AccountCredentials.OpdsOnly)?.takeIf { it.calibre }
         return CalibreUiState(
-            baseUrl = account?.baseUrl.orEmpty(),
-            username = account?.username.orEmpty(),
-            password = account?.password.orEmpty(),
-            quireServerUrl = account?.quireServerUrl.orEmpty(),
-            saved = account != null,
+            baseUrl = legacy?.baseUrl ?: catalog?.baseUrl?.removeSuffix("/opds").orEmpty(),
+            username = legacy?.username ?: catalog?.username.orEmpty(),
+            password = legacy?.password ?: catalog?.password.orEmpty(),
+            quireServerUrl = legacy?.quireServerUrl.orEmpty(),
+            saved = legacy != null || catalog != null,
+            isActive = legacy != null || catalog != null,
         )
     }
 
-    fun onBaseUrlChange(value: String) { _calibre.value = _calibre.value.copy(baseUrl = value, saved = false) }
+    fun onBaseUrlChange(value: String) { _calibre.value = _calibre.value.copy(baseUrl = value, saved = false, error = null) }
     fun onUsernameChange(value: String) { _calibre.value = _calibre.value.copy(username = value, saved = false) }
     fun onPasswordChange(value: String) { _calibre.value = _calibre.value.copy(password = value, saved = false) }
     fun onQuireServerUrlChange(value: String) {
-        _calibre.value = _calibre.value.copy(quireServerUrl = value, saved = false)
+        _calibre.value = _calibre.value.copy(quireServerUrl = value, saved = false, error = null)
     }
 
     fun saveCalibre() {
-        val s = _calibre.value
-        if (s.baseUrl.isBlank() || s.username.isBlank() || s.password.isBlank()) return
-        viewModelScope.launch {
-            store.saveBasicAccount(
-                baseUrl = s.baseUrl.trim().trimEnd('/'),
-                username = s.username,
-                password = s.password,
-                quireServerUrl = s.quireServerUrl.trim().trimEnd('/').takeIf { it.isNotBlank() },
-            )
-            _calibre.value = s.copy(saved = true)
-            _sync.value = _sync.value.copy(hasCredentials = true)
+        val form = _calibre.value
+        if (form.username.isBlank() || form.password.isBlank()) return
+        val baseUrl = normalizeCatalogUrl(form.baseUrl)?.takeUnless { '?' in it }?.trimEnd('/')
+        val quireUrl = normalizeCatalogUrl(form.quireServerUrl)?.takeUnless { '?' in it }?.trimEnd('/')
+        if (baseUrl == null || (form.quireServerUrl.isNotBlank() && quireUrl == null)) {
+            _calibre.value = form.copy(error = uiText(R.string.onboarding_invalid_quire_url))
+            return
+        }
+        if (account.value is AccountCredentials.Basic) {
+            store.saveBasicAccount(baseUrl, form.username, form.password, quireUrl)
+        } else {
+            store.setCatalog(AccountCredentials.OpdsOnly("$baseUrl/opds", form.username, form.password, calibre = true))
+        }
+        _calibre.value = loadInitialCalibre()
+    }
+
+    private fun loadInitialOpds(current: AccountCredentials? = account.value): OpdsUiState {
+        val catalog = (current?.catalogAccount() as? AccountCredentials.OpdsOnly)?.takeUnless { it.calibre }
+        return OpdsUiState(
+            catalogUrl = catalog?.baseUrl.orEmpty(),
+            username = catalog?.username.orEmpty(),
+            password = catalog?.password.orEmpty(),
+            isActive = catalog != null,
+            saved = catalog != null,
+        )
+    }
+
+    fun disconnectCatalog() {
+        val current = account.value
+        if (current is AccountCredentials.OpdsOnly || (current is AccountCredentials.Bearer && current.catalog != null)) {
+            store.setCatalog(null)
         }
     }
 
-    private fun loadInitialOpds(): OpdsUiState {
-        val account = store.getAccount() as? AccountCredentials.OpdsOnly
-        return OpdsUiState(
-            catalogUrl = account?.baseUrl.orEmpty(),
-            username = account?.username.orEmpty(),
-            password = account?.password.orEmpty(),
-            isActive = account != null,
-            saved = account != null,
-        )
+    fun disconnectQuire() {
+        store.disconnectQuire()
     }
 
     fun onOpdsCatalogUrlChange(value: String) {
@@ -255,13 +294,6 @@ class SettingsViewModel(
         val s = _opds.value
         if (s.catalogUrl.isBlank()) return
         if (s.username.isBlank() != s.password.isBlank()) return
-        // Saving an account REPLACES whatever was stored, and persistAccount
-        // removes the inverse scheme's keys in the same transaction. A typo
-        // here (a missing scheme, say) would therefore destroy a working
-        // calibre-web password with no way to get it back, while persisting a
-        // catalog URL that OkHttp cannot even build a request for. Onboarding
-        // is safe because it only ever passes the probe's canonical URL; this
-        // is the one entry point with no gate, so it validates its own input.
         val canonical = normalizeCatalogUrl(s.catalogUrl)
         if (canonical == null) {
             _opds.value = s.copy(
@@ -270,15 +302,16 @@ class SettingsViewModel(
             )
             return
         }
+        if (account.value is AccountCredentials.Basic) return
         viewModelScope.launch {
-            store.saveOpdsAccount(
-                catalogUrl = canonical,
-                username = s.username.takeIf { it.isNotBlank() },
-                password = s.password.takeIf { it.isNotBlank() },
+            store.setCatalog(
+                AccountCredentials.OpdsOnly(
+                    baseUrl = canonical,
+                    username = s.username.takeIf { it.isNotBlank() },
+                    password = s.password.takeIf { it.isNotBlank() },
+                ),
             )
             _opds.value = s.copy(catalogUrl = canonical, isActive = true, saved = true, error = null)
-            // Reader-only: there is no Quire server to sync against.
-            _sync.value = _sync.value.copy(hasCredentials = false)
         }
     }
 
@@ -438,4 +471,6 @@ data class CalibreUiState(
     val password: String,
     val quireServerUrl: String,
     val saved: Boolean,
+    val isActive: Boolean = false,
+    val error: UiText? = null,
 )

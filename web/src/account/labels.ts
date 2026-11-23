@@ -1,4 +1,8 @@
 export const accountLabels: Record<string, [string, string, string, string]> = {
+  'Calibre-Web account': ['Cuenta de Calibre-Web', 'Account Calibre-Web', 'Compte Calibre-Web', 'Calibre-Web-Konto'],
+  'Quire account': ['Cuenta de Quire', 'Account Quire', 'Compte Quire', 'Quire-Konto'],
+  'Open Quire sign-in': ['Abrir el acceso a Quire', 'Apri l’accesso a Quire', 'Ouvrir la connexion à Quire', 'Quire-Anmeldung öffnen'],
+  'This Calibre-Web account now uses Quire sign-in.': ['Esta cuenta de Calibre-Web ahora usa el inicio de sesión de Quire.', 'Questo account Calibre-Web ora usa l’accesso a Quire.', 'Ce compte Calibre-Web utilise désormais la connexion à Quire.', 'Dieses Calibre-Web-Konto verwendet jetzt die Quire-Anmeldung.'],
   'Offline account. Sign in online to reconnect.': ['Cuenta sin conexión. Inicia sesión en línea para volver a conectarte.', 'Account offline. Accedi online per riconnetterti.', 'Compte hors ligne. Connectez-vous pour rétablir la connexion.', 'Offline-Konto. Melde dich online an, um dich wieder zu verbinden.'],
   'Offline data is saved in this browser profile.': ['Los datos sin conexión se guardan en este perfil del navegador.', 'I dati offline sono salvati in questo profilo del browser.', 'Les données hors ligne sont enregistrées dans ce profil de navigateur.', 'Offline-Daten werden in diesem Browserprofil gespeichert.'],
   'Shared device session.': ['Sesión en un dispositivo compartido.', 'Sessione su un dispositivo condiviso.', 'Session sur un appareil partagé.', 'Sitzung auf einem gemeinsam genutzten Gerät.'],

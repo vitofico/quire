@@ -14,7 +14,7 @@ from pydantic import Field, ValidationError, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import select, text
 
-from quire_server.core.auth_backend import AuthUser
+from quire_server.core.auth_backend import AuthUser, matches_identity_host
 from quire_server.core.native_auth import (
     generate_session_token,
     hash_password,
@@ -70,6 +70,10 @@ class IdentitySettings(BaseSettings):
         if self.service_token and len(self.service_token) < 32:
             raise ValueError("Identity service token needs 32+ characters")
         return self
+
+    @property
+    def public_host(self) -> str | None:
+        return urlsplit(self.public_url).netloc.lower() if self.public_url else None
 
     @property
     def cookie_name(self):
@@ -173,7 +177,9 @@ def set_cookie(response, settings, token, *, remember=True):
 
 def origin(request):
     settings = request.app.state.identity_settings
-    if not settings.public_url or request.headers.get("origin") != settings.public_url:
+    if not matches_identity_host(request, settings.public_host) or request.headers.getlist(
+        "origin"
+    ) != [settings.public_url]:
         raise HTTPException(403, "invalid_origin")
     return settings
 
@@ -238,7 +244,7 @@ async def oidc_start(
     remember_browser: bool = False,
 ):
     settings = request.app.state.identity_settings
-    if not settings.oidc_issuer:
+    if not settings.oidc_issuer or not matches_identity_host(request, settings.public_host):
         raise HTTPException(404, "oidc_disabled")
     if destination not in {None, "quire"} or (destination is not None and reauth is not None):
         raise HTTPException(400, "invalid_login_destination")
@@ -281,7 +287,7 @@ async def oidc_start(
 @router.get("/oidc/callback")
 async def oidc_callback(request: Request, code: str = "", state: str = ""):
     settings = request.app.state.identity_settings
-    if not settings.oidc_issuer:
+    if not settings.oidc_issuer or not matches_identity_host(request, settings.public_host):
         raise HTTPException(404, "oidc_disabled")
     try:
         identity = await request.app.state.oidc_client.complete(

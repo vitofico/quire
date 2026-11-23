@@ -4,7 +4,7 @@ Quire sync server. FastAPI + Postgres. Source of truth for synced reading state.
 The Android reader’s memory bookmarks and optional notes remain device-local;
 progress sync, highlight sync and the read-only APIs below do not receive them.
 
-Native mode exposes `GET /auth/v1/me` with the existing `native:N` storage
+Native mode exposes `GET /auth/v1/me` with the canonical `native:N` account
 identity, current CSRF proof and deployed capabilities. Generic browser identity
 uses `QUIRE_IDENTITY_PUBLIC_URL` (fixed HTTPS public origin), optional paired
 `QUIRE_IDENTITY_OIDC_ISSUER`/`QUIRE_IDENTITY_OIDC_CLIENT_ID`, optional confidential
@@ -20,6 +20,16 @@ its password database. Calibre mode and existing bearer API login remain intact.
 Operator-only `scripts/create_native_account.py` prompts privately for native
 credentials. Login attempts have bounded per-IP/global/concurrent admission.
 Do not enable access logs that record OIDC callback query credentials.
+
+### Moving an existing Calibre reader to native login
+
+The self-hosted `transition` backend supports Quire sessions and keeps legacy
+Basic working for readers who have yet to migrate. A verified binding keeps
+the original reading history under its existing storage key. The new account's
+canonical ID controls account lifecycle and admin access. Transition requires
+the usual self-hosted AI auth mode and is incompatible with hosted policy.
+Follow the [operator and reader migration guide](../docs/independent-login-migration.md)
+for the dry run, private password setup, app upgrade and rollback procedure.
 
 Authenticated `POST /auth/v1/pairing` creates a random 120-second one-use ticket;
 `POST /auth/v1/pairing/exchange` yields a native device session and server-issued
@@ -205,7 +215,10 @@ To withdraw the browser shell, set `QUIRE_SERVER_WEB_ENABLED=false` and
 recreate the container. Already installed offline clients retain the previous
 shell until site data is cleared. To roll back, set `QUIRE_SERVER_IMAGE` to
 the previous verified digest, recreate the container and check `/readyz`
-and Android sync.
+and Android sync. Check compatibility with both the progress and auth migration
+heads. After a reader has been bound to a native account, keep a server that
+enforces `auth_004` reservations. A pre-transition server could grant access
+under the old Calibre username. See the [account rollback guide](../docs/independent-login-migration.md#troubleshooting-and-rollback).
 
 If reverting from schema `progress_006` to an image that supports
 `progress_005`, back up PostgreSQL and stop the server before downgrading the
@@ -232,7 +245,7 @@ and local reading.
 
 The following Caddy configuration assumes both upstream services are
 reachable over an internal Docker network. Use domains that resolve to
-Caddy and set `QUIRE_SERVER_AUTH_BACKEND=native`,
+Caddy and set `QUIRE_SERVER_AUTH_BACKEND=native` (or `transition` while legacy readers migrate),
 `QUIRE_SERVER_WEB_NATIVE_AUTH_ENABLED=true`, and
 `QUIRE_IDENTITY_PUBLIC_URL=https://read.example.com` in Quire Server's
 environment. If enabling OIDC, register
@@ -394,8 +407,8 @@ stack). The full edit set for `docker-compose.full.yml` + `caddy/Caddyfile`:
    rather than a connection failure to a missing upstream.
 
 Without calibre-web in the stack, logins need
-`QUIRE_SERVER_AUTH_BACKEND=native`, which has no way to create accounts yet
-(see "AI auth mode" below). A self-hosted AI-only server keeps calibre-web
+`QUIRE_SERVER_AUTH_BACKEND=native`. Provision standalone readers with
+`scripts/create_native_account.py` (see "AI auth mode" below). A self-hosted AI-only server keeps calibre-web
 for logins; its `.env` is in
 [`docs/configuration.md`](../docs/configuration.md#minimum-env-per-mode).
 
@@ -453,6 +466,9 @@ unaffected). The concrete authenticator is chosen from **both**
     principal's `subject` is the `native:<id>` user scope and `tenant_id`
     stays `"local"`. This is the supported, non-deprecated path for
     Cloud-style deploys, and the replacement for `token` mode below.
+  - with `AUTH_BACKEND=transition`, native sessions and unmigrated Basic
+    accounts both work. A migrated native account retains its verified
+    Calibre scope for AI data. The tenant is always `"local"`.
 - **`token`** (**deprecated** as of Phase 0, task X-2 — removal scheduled in 2
   minor releases) — HMAC-SHA256 bearer tokens. Wire format:
   `header.payload.signature` with header `{alg=HS256, kid}` and payload claims
@@ -548,9 +564,9 @@ Worth knowing:
 - The test gets the insight time limit in force in total, the budget of one
   insight model call, so a local model that is still loading is not reported
   as broken. Its outcome also updates `GET /ai/v1/health`.
-- The browser login needs `QUIRE_SERVER_AUTH_BACKEND=calibreweb`. Under
-  `native`, list users as `native:<id>` and call the JSON endpoints with
-  `Authorization: Bearer <session token>`.
+- Calibre Basic admin accounts work in `calibreweb` and `transition` mode.
+  To grant a native account admin access, list its canonical `native:<id>`
+  and use its bearer session for the JSON endpoints.
 - The reference Caddyfile routes `/quire-admin` to quire-server. Behind any
   other reverse proxy, forward `/quire-admin` and `/quire-admin/*` to
   quire-server like `/ai/*`; otherwise the request lands on calibre-web.

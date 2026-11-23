@@ -1,5 +1,6 @@
-import { act, renderHook, waitFor } from '@testing-library/react'
+import { act, render, renderHook, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
+import { AccountSettings } from './AccountSettings'
 import { useAccount } from './useAccount'
 
 const config = { version: 1, sync: true, ai: false, aiAvailable: false, login: 'basic',
@@ -38,7 +39,7 @@ test('locks stale responses and keeps Calibre accounts in independent namespaces
   expect(before.identity?.id).toBe('alice')
   await expect(before.request!('https://elsewhere.test/sync/v1/progress')).rejects.toThrow('Unexpected API destination.')
   await expect(before.catalogRequest!('https://elsewhere.test/opds')).rejects.toThrow('Unexpected catalog destination.')
-  for (const path of ['/%71uire/v1/session', '/sections%2F..%2Fsync/v1/progress', '/quire-admin', '/agent/highlights', '/mcp']) {
+  for (const path of ['/%71uire/v1/session', '/sections%2F..%2Fsync/v1/progress', '/quire-admin', '/agent/highlights', '/mcp', '/health', '/healthz', '/readyz']) {
     await expect(before.catalogRequest!(path)).rejects.toThrow('Unexpected catalog destination.')
   }
 
@@ -184,4 +185,99 @@ test('remembered Basic data can reopen offline in its original sync namespace', 
     expect(offline.result.current.active.offline).toBeUndefined()
     expect(offline.result.current.active.request).toBeDefined()
   } finally { online.mockRestore() }
+})
+
+test('shared origin offers credential-free native navigation and keeps legacy sign-in same-origin', async () => {
+  const nativeWebUrl = 'https://reader.example.test/quire/'
+  const fetcher = vi.fn(async (path: string | URL, init?: RequestInit) => {
+    if (path === '/quire/v1/bootstrap') return Response.json({ ...config, nativeWebUrl })
+    expect(String(path)).toBe('/quire/v1/session')
+    expect(init?.credentials).toBe('omit')
+    expect(init?.redirect).toBe('error')
+    return Response.json({ detail: 'native_login_required' }, { status: 401 })
+  })
+  vi.stubGlobal('fetch', fetcher)
+  const { result } = renderHook(() => useAccount())
+  await waitFor(() => expect(result.current.status).toBe('ready'))
+  expect(result.current.nativeWebUrl).toBe(nativeWebUrl)
+
+  await act(async () => { await result.current.signInPassword('reader@example.test', 'native-secret') })
+  expect(fetcher).toHaveBeenCalledTimes(1)
+  await act(async () => { await result.current.signInBasic('reader', 'calibre-secret') })
+  expect(result.current.error).toBe('This Calibre-Web account now uses Quire sign-in.')
+  expect(result.current.active.mode).toBe('local')
+  expect(result.current.retained).toEqual([])
+  expect(new Headers(fetcher.mock.lastCall?.[1]?.headers).get('Authorization')).toBe('Basic ' + btoa('reader:calibre-secret'))
+  await act(async () => {
+    await expect(result.current.signInCatalog('reader', 'catalog-secret', nativeWebUrl)).rejects.toThrow()
+  })
+  expect(fetcher).toHaveBeenCalledTimes(2)
+})
+
+test('transition mode checks native cookies separately from Basic and remembers independent account namespaces', async () => {
+  let cookie = false
+  const fetcher = vi.fn(async (path: string | URL, init?: RequestInit) => {
+    const headers = new Headers(init?.headers)
+    expect(init?.redirect).toBe('error')
+    if (path === '/quire/v1/bootstrap') return Response.json({ ...config, login: 'transition', password: true })
+    if (path === '/quire/v1/session') {
+      expect(headers.get('Authorization')).toBe('Basic ' + btoa('reader:calibre-secret'))
+      expect(init?.credentials).toBe('omit')
+      return Response.json({ version: 1, user: { id: 'reader', backend: 'calibreweb' } })
+    }
+    expect(headers.get('Authorization')).toBeNull()
+    expect(init?.credentials).toBe('same-origin')
+    if (path === '/auth/v1/browser/login') {
+      expect(JSON.parse(String(init?.body))).toMatchObject({ email: 'reader@example.test', password: 'native-secret' })
+      cookie = true
+      return Response.json({ account_id: 'native:42' })
+    }
+    expect(path).toBe('/auth/v1/me')
+    return cookie
+      ? Response.json({ version: 1, user: { id: 'native:42', backend: 'native', legacy_calibre_user_id: 'reader' }, csrf_token: 'csrf' })
+      : Response.json({ detail: 'not_authenticated' }, { status: 401 })
+  })
+  vi.stubGlobal('fetch', fetcher)
+  const { result } = renderHook(() => useAccount())
+  await waitFor(() => expect(result.current.status).toBe('ready'))
+  expect(fetcher.mock.calls.some(([path]) => path === '/auth/v1/me')).toBe(true)
+  await act(async () => { await result.current.signInBasic('reader', 'calibre-secret', true, true) })
+  const legacy = result.current.active
+  expect(legacy.catalogRequest).toBeDefined()
+  await act(async () => { await result.current.signOut({ pending: 0, sync: async () => {}, clear: async () => {} }) })
+  await act(async () => { await result.current.signInPassword('reader@example.test', 'native-secret', true) })
+  const native = result.current.active
+  expect(native.identity?.id).toBe('native:42')
+  expect(native.namespace).not.toBe(legacy.namespace)
+  expect(native.catalogRequest).toBeUndefined()
+  expect(result.current.retained.map(({ namespace }) => namespace)).toContain(legacy.namespace)
+  await expect(legacy.catalogRequest!('/opds')).rejects.toThrow('Account locked.')
+})
+
+test.each([
+  '/quire/',
+  'http://reader.example.test/quire/',
+  'https://user:secret@reader.example.test/quire/',
+  'https://reader.example.test/quire/?from=legacy',
+  'https://reader.example.test/other/',
+])('does not expose an unsafe isolated native sign-in destination %s', async nativeWebUrl => {
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ ...config, nativeWebUrl })))
+  const { result } = renderHook(() => useAccount())
+  await waitFor(() => expect(result.current.status).toBe('ready'))
+  expect(result.current.nativeWebUrl).toBeUndefined()
+})
+
+test('shared origin account settings render a Calibre-Web form and safe native sign-in link', async () => {
+  const nativeWebUrl = 'https://reader.example.test/quire/'
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ ...config, nativeWebUrl })))
+  function Settings() {
+    return <AccountSettings account={useAccount()} pending={0} sync={async () => {}} clear={async () => {}} />
+  }
+  render(<Settings />)
+  const link = await screen.findByRole('link', { name: 'Open Quire sign-in' }) as HTMLAnchorElement
+  expect(link.href).toBe(nativeWebUrl)
+  expect(link.target).toBe('_blank')
+  expect(link.rel).toBe('noopener noreferrer')
+  expect(screen.getByLabelText('Calibre-Web username')).toBeTruthy()
+  expect(screen.queryByLabelText('Email')).toBeNull()
 })
