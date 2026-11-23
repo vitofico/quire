@@ -8,6 +8,8 @@ import io.theficos.ereader.auth.AccountCredentials
 import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.ui.catalog.FakeAndroidKeyStore
 import io.theficos.ereader.ui.englishContext
+import io.theficos.ereader.ui.uiText
+import io.theficos.quire.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -265,6 +267,31 @@ class ConnectServerViewModelTest {
 
         assertThat(vm.state.value).isInstanceOf(ConnectServerViewModel.UiState.VerificationFailed::class.java)
         assertThat(store.getAccount()).isEqualTo(prior)
+    }
+
+    @Test fun `unbound or differently bound native login keeps legacy sync connection`() = runTest {
+        val serverUrl = server.url("/quire").toString()
+        store.saveBasicAccount("https://books.example", "Alice", "catalog-password", serverUrl)
+        val prior = store.getAccount()
+        for (verifiedLegacyId in listOf("null", "\"another-reader\"")) {
+            server.enqueue(
+                MockResponse().setResponseCode(200)
+                    .setBody("""{"token":"quire-token","account_id":"native:42"}"""),
+            )
+            server.enqueue(
+                MockResponse().setResponseCode(200)
+                    .setBody("""{"user":{"id":"native:42","backend":"native","legacy_calibre_user_id":$verifiedLegacyId}}"""),
+            )
+            val vm = newViewModel { _, _, _ -> error("An unrelated account must leave local highlights untouched") }
+
+            vm.verifyAndSaveBearer(serverUrl, "alice@example.com", "quire-password")
+            advanceUntilIdle()
+
+            assertThat(vm.state.value).isEqualTo(
+                ConnectServerViewModel.UiState.VerificationFailed(uiText(R.string.onboarding_legacy_binding_required))
+            )
+            assertThat(store.getAccount()).isEqualTo(prior)
+        }
     }
 
     @Test fun `reauthentication cannot replace the expired account with another user`() = runTest {

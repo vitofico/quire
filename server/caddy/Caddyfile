@@ -1,11 +1,13 @@
 # Quire reference Caddyfile (full-stack compose).
 #
 # Path-based routing puts quire-server's `/sync/*`, `/library/*`, `/ai/*`,
-# `/agent/*`, `/mcp`, `/quire-admin`, `/health`, `/readyz`, and the native
-# Android/API account operations in front of calibre-web, with
+# `/agent/*`, `/mcp`, `/quire`, `/quire-admin`, `/health`, and `/readyz` in front of calibre-web, with
 # everything else falling through to calibre-web on `/`. The status page
 # lives at `/quire-admin` rather than `/admin` because calibre-web serves
 # its own admin pages under `/admin`.
+#
+# The shared origin is for Calibre-Web Basic auth and local reading.
+# For native browser sign-in use the isolated origin in server/README.md.
 #
 # This file is intended for `docker-compose.full.yml`. For production
 # behind a real domain, swap `:443 { tls internal }` for a hostname
@@ -20,9 +22,11 @@
 	# path (unlike `handle_path`, which strips the matched prefix);
 	# FastAPI mounts routers at `/sync/v1`, `/library/v1`, and
 	# `/ai/v1`, so we must forward the prefix intact.
-	# Keep browser session issuance and internal account lifecycle routes
-	# off the shared origin. Keep this account path allowlist exact.
-	@quire path /sync/* /ai/* /library/* /agent/* /mcp /mcp/* /quire-admin /quire-admin/* /health /readyz /auth/v1/login /auth/v1/me /auth/v1/logout /auth/v1/account/export
+	@quire path /quire /quire/* /sync/* /ai/* /library/* /agent/* /mcp /mcp/* /quire-admin /quire-admin/* /health /readyz /auth/v1/login /auth/v1/me /auth/v1/logout /auth/v1/account/export
+	# Authenticated OPDS responses and book downloads are private.
+	@catalog path /opds /opds/* /download/*
+	header @catalog >Cache-Control "private, no-store"
+
 	handle @quire {
 		reverse_proxy quire-server:8000
 	}

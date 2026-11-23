@@ -453,4 +453,27 @@ class AccountAuthInterceptorTest {
             assertThat(quireServer.awaitRequest().getHeader("Authorization")).isEqualTo("Bearer native-token")
         }
     }
+    @Test fun `Quire Web root and session routes never receive catalog credentials`() {
+        val base = server.url("/").toString()
+        val catalog = AccountCredentials.OpdsOnly(server.url("/opds").toString(), "reader", "secret")
+        val accounts = listOf(
+            AccountCredentials.Basic(base, "reader", "secret"),
+            AccountCredentials.Bearer(base, "reader@example.com", "native-token", catalog = catalog),
+            catalog,
+        )
+        for (account in accounts) {
+            val client = OkHttpClient.Builder().accountAuth(AccountAuthRoute.CATALOG, { account }) {}.build()
+            for (route in listOf("/quire", "/quire/v1/session", "/%71uire/v1/session", "/cloud/account")) {
+                server.enqueue(MockResponse().setResponseCode(302).addHeader("Location", route))
+                server.enqueue(MockResponse().setResponseCode(401))
+                client.newCall(Request.Builder().url(server.url("/download/1")).build()).execute().close()
+                assertThat(server.awaitRequest().getHeader("Authorization")).isEqualTo("Basic cmVhZGVyOnNlY3JldA==")
+                assertThat(server.awaitRequest().getHeader("Authorization")).isNull()
+
+                server.enqueue(MockResponse().setResponseCode(401))
+                client.newCall(Request.Builder().url(server.url(route)).build()).execute().close()
+                assertThat(server.awaitRequest().getHeader("Authorization")).isNull()
+            }
+        }
+    }
 }

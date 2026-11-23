@@ -46,14 +46,18 @@ router = APIRouter(tags=["auth"])
 async def me(
     user: Annotated[AuthUser, Depends(current_auth_user)], response: Response, request: Request
 ) -> dict:
-    """Authenticated storage identity. Consumers must revalidate the session each time.
+    """Authenticated account identity. Consumers must revalidate the session each time.
 
     No identity is accepted from a browser-supplied account ID or email. This
     contract deliberately exposes neither password hashes nor session tokens.
     """
     response.headers["Cache-Control"] = "no-store"
     settings = request.app.state.identity_settings
-    token = request.cookies.get(settings.cookie_name, "")
+    token = (
+        request.cookies.get(settings.cookie_name, "")
+        if not request.headers.get("authorization")
+        else ""
+    )
     from quire_server.api.browser_identity import csrf
 
     capabilities = dict(request.app.state.hosting_capabilities)
@@ -206,7 +210,11 @@ async def logout(
             detail="no_session_token",
         )
     await backend.revoke(user.session_token_hash)
-    response = Response(status_code=status.HTTP_204_NO_CONTENT)
+    response = Response(
+        status_code=status.HTTP_204_NO_CONTENT, headers={"Cache-Control": "no-store"}
+    )
+    if request.headers.get("authorization"):
+        return response
     response.delete_cookie(
         request.app.state.identity_settings.cookie_name,
         path="/",

@@ -14,7 +14,7 @@ ENV_PREFIX = "QUIRE_SERVER_"
 
 # Variables that share the prefix but are consumed by docker compose, never by
 # the server process. Listed so the unknown-variable scan does not flag them.
-COMPOSE_ONLY_ENV_VARS: frozenset[str] = frozenset({"QUIRE_SERVER_PORT"})
+COMPOSE_ONLY_ENV_VARS: frozenset[str] = frozenset({"QUIRE_SERVER_PORT", "QUIRE_SERVER_IMAGE"})
 
 # Kubernetes gives every pod variables describing each Service in its
 # namespace, named after the Service. One called `quire-server` produces
@@ -71,6 +71,33 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/opds_sync"
     cwa_base_url: str = "http://calibre-web.calibre-web.svc.cluster.local:8083"
     cwa_probe_path: str = "/opds"
+    web_enabled: bool = True
+    web_native_auth_enabled: bool = False
+    web_catalog_url: str | None = None
+
+    @field_validator("web_catalog_url")
+    @classmethod
+    def validate_web_catalog_url(cls, value: str | None) -> str | None:
+        from urllib.parse import urlsplit
+
+        if value is None:
+            return None
+        parts = urlsplit(value)
+        if (
+            not value
+            or any(ord(char) <= 32 for char in value)
+            or "\\" in value
+            or parts.username is not None
+            or parts.password is not None
+            or parts.fragment
+            or not (
+                (value.startswith("/") and not value.startswith("//"))
+                or (parts.scheme == "https" and parts.hostname)
+            )
+        ):
+            raise ValueError("Web catalog URL must be a root-relative path or HTTPS URL")
+        return value
+
     cwa_probe_timeout_s: float = 3.0
     auth_cache_positive_ttl_s: int = 60
     auth_cache_negative_ttl_s: int = 10

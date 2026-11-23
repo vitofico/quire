@@ -1,8 +1,9 @@
 import asyncio
+from uuid import uuid4
 
 import httpx
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from quire_server.core.auth import CalibreAuthValidator
 from quire_server.core.auth_backend import CalibreWebBasicAuth
@@ -25,6 +26,8 @@ def install_mock_calibre(app, transport):
 async def test_existing_data_survives_binding_and_basic_cannot_reclaim_scope(
     client_factory, app, session, cwa_transport, basic_header, monkeypatch
 ):
+    origin = "https://quire.example.test"
+    monkeypatch.setenv("QUIRE_IDENTITY_PUBLIC_URL", origin)
     monkeypatch.setenv("QUIRE_IDENTITY_SERVICE_TOKEN", SERVICE)
     async with (
         client_factory(
@@ -32,6 +35,7 @@ async def test_existing_data_survives_binding_and_basic_cannot_reclaim_scope(
             ai_enabled=True,
             progress_enabled=True,
             admin_users="alice",
+            web_native_auth_enabled=True,
             skip_auth_overrides=True,
         ) as client,
         install_mock_calibre(app, cwa_transport),
@@ -40,8 +44,19 @@ async def test_existing_data_survives_binding_and_basic_cannot_reclaim_scope(
         bob = {"Authorization": basic_header("bob", "bobpass")}
         service = {"Authorization": "Bearer " + SERVICE}
         session.add(LibraryItem(user_id="alice", content_hash="fixture", title="Alice's book"))
+        operation_id = uuid4()
+        await session.execute(
+            text(
+                "INSERT INTO library_sync_receipts "
+                "(user_id, operation_id, payload_hash, response) "
+                "VALUES (:id, :operation, 'fixture', '{}'), ('bob', :operation, 'fixture', '{}')"
+            ),
+            {"id": "alice", "operation": operation_id},
+        )
         await session.commit()
 
+        verified = await client.get("/quire/v1/session", headers=alice)
+        assert verified.json()["user"] == {"id": "alice", "backend": "calibreweb"}
         before = await client.get("/library/v1/items", headers=alice)
         assert before.status_code == 200
         assert "Alice's book" in before.text
@@ -52,6 +67,7 @@ async def test_existing_data_survives_binding_and_basic_cannot_reclaim_scope(
         number, counts = await provision(factory, "Alice", EMAIL, None)
         assert number is None
         assert counts["library_items"] == 1
+        assert counts["library_sync_receipts"] == 1
         assert (await client.get("/library/v1/items", headers=alice)).status_code == 200
 
         number, counts = await provision(factory, "Alice", EMAIL, PASSWORD)
@@ -77,9 +93,14 @@ async def test_existing_data_survives_binding_and_basic_cannot_reclaim_scope(
         export = await client.get("/auth/v1/account/export", headers=bearer)
         assert export.json()["account_id"] == account
         assert export.json()["library_items"][0]["title"] == "Alice's book"
+        assert [record["user_id"] for record in export.json()["library_sync_receipts"]] == ["alice"]
         assert (await client.get("/quire-admin", headers=bearer)).status_code == 403
 
         assert (await client.get("/library/v1/items", headers=alice)).status_code == 401
+        assert (await client.get("/quire/v1/session", headers=alice)).json() == {
+            "detail": "native_login_required"
+        }
+        assert (await client.get("/quire/v1/session", headers=bob)).status_code == 200
         assert (await client.get("/library/v1/items", headers=bob)).status_code == 200
         assert "Alice's book" not in (await client.get("/library/v1/items", headers=bob)).text
 
@@ -100,6 +121,32 @@ async def test_existing_data_survives_binding_and_basic_cannot_reclaim_scope(
         assert (await authenticate(bearer)).subject == "alice"
         assert (await authenticate(bob)).auth_mode == "basic"
 
+        client.base_url = httpx.URL(origin)
+        browser_login = await client.post(
+            "/auth/v1/browser/login",
+            headers={"Origin": origin},
+            json={"email": EMAIL, "password": PASSWORD, "destination": "quire"},
+        )
+        assert browser_login.json()["account_id"] == account
+        browser_session = (await client.get("/auth/v1/me")).json()
+        assert browser_session["user"] == me.json()["user"]
+        assert (await client.get("/quire/v1/session")).status_code == 401
+        assert (
+            await client.get("/auth/v1/me", headers={"Host": "books.example.test"})
+        ).status_code == 401
+        assert (
+            await client.get("/library/v1/items", headers={"X-Quire-Account": b"alice".hex()})
+        ).status_code == 409
+        web_headers = {"X-Quire-Account": account.encode().hex()}
+        library = await client.get("/library/v1/items", headers=web_headers)
+        assert "Alice's book" in library.text
+        assert library.headers["cache-control"] == "no-store"
+        assert (await client.post("/auth/v1/logout", headers=web_headers)).status_code == 403
+        web_headers.update({"Origin": origin, "X-CSRF-Token": browser_session["csrf_token"]})
+        assert (await client.post("/auth/v1/logout", headers=web_headers)).status_code == 204
+        assert (await client.get("/auth/v1/me")).status_code == 401
+        assert (await client.get("/auth/v1/me", headers=bearer)).status_code == 200
+
         for action in ("close", "purge", "finalize"):
             assert (
                 await client.post(f"/internal/v1/accounts/{account}/{action}", headers=service)
@@ -107,6 +154,12 @@ async def test_existing_data_survives_binding_and_basic_cannot_reclaim_scope(
         assert (await client.get("/library/v1/items", headers=bearer)).status_code == 401
         assert (await client.get("/library/v1/items", headers=alice)).status_code == 401
         assert not await session.scalar(select(LibraryItem).where(LibraryItem.user_id == "alice"))
+        assert (
+            await session.scalars(
+                text("SELECT user_id FROM library_sync_receipts WHERE operation_id=:operation"),
+                {"operation": operation_id},
+            )
+        ).all() == ["bob"]
         binding = await session.get(CalibreAccountBinding, "alice")
         assert binding is not None and binding.native_user_id is None
 

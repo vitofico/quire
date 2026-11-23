@@ -26,13 +26,15 @@ does not cover this table.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
 from datetime import UTC, datetime
 from typing import Annotated
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import and_, case, func, literal_column, select
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from sqlalchemy import and_, case, func, literal_column, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from quire_server.api.affinity_schemas import (
@@ -466,6 +468,7 @@ async def sync_library(
     user_id: Annotated[str, Depends(current_user_id)],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
+    operation_id: Annotated[UUID | None, Header(alias="Idempotency-Key")] = None,
 ) -> LibrarySyncSummary:
     received = len(body.items)
     t0 = time.monotonic()
@@ -484,6 +487,35 @@ async def sync_library(
                 "received": received,
             },
         )
+
+    receipt = None
+    if operation_id is not None:
+        if received != 1:
+            raise HTTPException(422, "idempotency_requires_single_library_item")
+        receipt = {
+            "user": user_id,
+            "operation": operation_id,
+            "hash": hashlib.sha256(body.model_dump_json(exclude_unset=True).encode()).hexdigest(),
+        }
+        # Concurrent copies of the same operation wait for the winner's commit.
+        # Hash collisions only serialize unrelated work, since lookup uses the full key.
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": f"library-sync:{operation_id}:{user_id}"},
+        )
+        prior = (
+            await session.execute(
+                text(
+                    "SELECT payload_hash, response FROM library_sync_receipts "
+                    "WHERE user_id=:user AND operation_id=:operation"
+                ),
+                receipt,
+            )
+        ).one_or_none()
+        if prior is not None:
+            if prior.payload_hash != receipt["hash"]:
+                raise HTTPException(409, "idempotency_key_conflict")
+            return LibrarySyncSummary.model_validate(prior.response)
 
     # ---- Preflight (all checks abort the batch before any DB writes) ----
     entries = _dedupe_entries(list(body.items))
@@ -616,6 +648,25 @@ async def sync_library(
         existing.updated_at = now
         updated += 1
 
+    summary = LibrarySyncSummary(
+        received=received,
+        processed=len(entries),
+        created=created,
+        updated=updated,
+        reactivated=reactivated,
+        deleted=deleted,
+        skipped=skipped,
+        missing_deleted=missing_deleted,
+        server_time=now,
+    )
+    if receipt is not None:
+        await session.execute(
+            text(
+                "INSERT INTO library_sync_receipts (user_id, operation_id, payload_hash, response) "
+                "VALUES (:user, :operation, :hash, CAST(:response AS JSONB))"
+            ),
+            {**receipt, "response": summary.model_dump_json()},
+        )
     await session.commit()
 
     duration_ms = int((time.monotonic() - t0) * 1000)
@@ -637,17 +688,7 @@ async def sync_library(
         duration_ms,
     )
 
-    return LibrarySyncSummary(
-        received=received,
-        processed=len(entries),
-        created=created,
-        updated=updated,
-        reactivated=reactivated,
-        deleted=deleted,
-        skipped=skipped,
-        missing_deleted=missing_deleted,
-        server_time=now,
-    )
+    return summary
 
 
 # ---------------------------------------------------------------------------

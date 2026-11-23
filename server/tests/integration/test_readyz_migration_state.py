@@ -76,8 +76,8 @@ async def test_readyz_200_when_at_ai_head(monkeypatch, postgres_url, alembic_upg
     body = r.json()
     assert body["ready"] is True
     # Phase 0, task S-1 added the always-materialized `auth` branch:
-    # `auth_004` joins `ai_010` / `progress_003` in `heads_applied`.
-    assert body["heads_applied"] == ["ai_010", "auth_004", "progress_005"]
+    # The enabled branch heads are sorted in the readiness response.
+    assert body["heads_applied"] == ["ai_010", "auth_004", "progress_006"]
 
 
 async def test_readyz_503_when_db_below_backbone(

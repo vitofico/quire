@@ -8,12 +8,26 @@ on:
     branches: [main]
     paths:
       - "server/**"
+      - "web/**"
+      - "reader/src/main/assets/**"
+      - "reader/src/test/resources/highlights/**"
+      - "scripts/make-reader-pause-fixture.py"
+      - "branding/**"
+      - "LICENSE"
+      - "NOTICE"
       - "docs/configuration.md"
       - ".github/workflows/server-ci.yaml"
       - "core/identity/src/test/resources/identity/**"
   pull_request:
     paths:
       - "server/**"
+      - "web/**"
+      - "reader/src/main/assets/**"
+      - "reader/src/test/resources/highlights/**"
+      - "scripts/make-reader-pause-fixture.py"
+      - "branding/**"
+      - "LICENSE"
+      - "NOTICE"
       - "docs/configuration.md"
       - ".github/workflows/server-ci.yaml"
       - "core/identity/src/test/resources/identity/**"
@@ -112,8 +126,81 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  web-package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      QUIRE_SERVER_IMAGE: quire-server:ci
+      QUIRE_SERVER_CWA_BASE_URL: http://localhost:8083
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
+      - uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
+        with:
+          context: .
+          file: server/Dockerfile
+          load: true
+          tags: quire-server:ci
+          build-args: QUIRE_VERSION=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: "26"
+      - name: Run web unit and cross-browser tests
+        id: web-tests
+        working-directory: web
+        run: |
+          npm install --global pnpm@9.15.9
+          pnpm install --frozen-lockfile
+          pnpm test
+          pnpm build
+          pnpm exec playwright install --with-deps chromium firefox webkit
+          pnpm test:e2e
+      - name: Retain failed browser diagnostics
+        if: ${{ failure() && steps.web-tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: web-browser-test-failures
+          path: web/test-results/
+          if-no-files-found: ignore
+          retention-days: 3
+      - name: Smoke packaged Quire Web
+        working-directory: server
+        run: |
+          touch .env
+          docker compose -f docker-compose.full.yml config --quiet
+          docker compose up -d --wait --wait-timeout 180
+          curl --fail --retry 30 --retry-delay 2 --retry-all-errors http://localhost:8000/readyz
+          python3 scripts/smoke_web.py http://localhost:8000 "$GITHUB_SHA"
+      - name: Smoke the HTTPS Caddy and Calibre-Web topology
+        working-directory: server
+        env:
+          CADDY_HTTP_PORT: 18080
+          CADDY_HTTPS_PORT: 18443
+        run: |
+          docker compose -p quire-web-full -f docker-compose.full.yml up -d --wait --wait-timeout 180
+          docker compose -p quire-web-full -f docker-compose.full.yml cp caddy:/data/caddy/pki/authorities/local/root.crt "$RUNNER_TEMP/quire-caddy.crt"
+          SSL_CERT_FILE="$RUNNER_TEMP/quire-caddy.crt" python3 scripts/smoke_web.py https://localhost:18443 "$GITHUB_SHA"
+          code=$(curl --cacert "$RUNNER_TEMP/quire-caddy.crt" --silent --show-error --output /dev/null --write-out '%{http_code}' https://localhost:18443/opds)
+          test "$code" = 200 || test "$code" = 401
+      - name: Verify offline navigation and API cache isolation
+        run: node web/scripts/smoke-offline.mjs
+      - name: Print deployment logs on failure
+        if: failure()
+        working-directory: server
+        run: |
+          docker compose logs --tail=100
+          CADDY_HTTP_PORT=18080 CADDY_HTTPS_PORT=18443 docker compose -p quire-web-full -f docker-compose.full.yml logs --tail=100
+      - name: Shut down deployment
+        if: always()
+        working-directory: server
+        run: |
+          docker compose down -v
+          CADDY_HTTP_PORT=18080 CADDY_HTTPS_PORT=18443 docker compose -p quire-web-full -f docker-compose.full.yml down -v
+
   image:
-    needs: test
+    needs: [test, web-package]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     permissions:
@@ -129,7 +216,9 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
         with:
-          context: server
+          context: .
+          file: server/Dockerfile
+          cache-from: type=gha
           push: true
           sbom: true
           provenance: mode=max

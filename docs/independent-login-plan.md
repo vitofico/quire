@@ -20,7 +20,7 @@ This change removes the need for Quire to forward a migrated reader's Calibre pa
 
 ## Contract with Quire Web
 
-The web implementation owns its UI under `/quire/` and its bootstrap under `/quire/v1/`. Its native browser session uses the Quire cookie/CSRF endpoints. The `__Host-quire-session` cookie covers `/`. A host that also serves Calibre-Web at `/` would therefore receive the same browser cookie on catalog requests. On Theficos the shared ebook hostname exposes the mobile account endpoints and keeps browser session issuance disabled. A Quire-only browser origin, with its own DNS, TLS and fixed public URL, is the appropriate place to enable that web session. Cross-origin catalog access must use only credentials intended for Calibre-Web. Publishing the web edition is tracked separately.
+The web implementation owns its UI under `/quire/` and its bootstrap under `/quire/v1/`. Its native browser session uses the Quire cookie/CSRF endpoints. The `__Host-quire-session` cookie covers `/`. A host that also serves Calibre-Web at `/` would therefore receive the same browser cookie on catalog requests. On Theficos the shared ebook hostname exposes the mobile account endpoints and keeps browser session issuance disabled. A Quire-only browser origin, with its own DNS, TLS and fixed public URL, is the appropriate place to enable that web session. Cross-origin catalog access must use only credentials intended for Calibre-Web. Shared-host readers should finish syncing their existing browser profiles before moving to the Quire-only origin.
 
 ## Verification and operations
 

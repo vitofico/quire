@@ -52,7 +52,9 @@ async def _truncate_ai_tables_between_tests(request, engine: AsyncEngine):
     if lane != "sync_only":
         tables.extend(["insight_identity_aliases", "reader_profiles", "server_settings"])
     if lane != "ai_only":
-        tables.extend(["library_items", "highlights", "highlight_sync_state"])
+        tables.extend(
+            ["library_items", "highlights", "highlight_sync_state", "library_sync_receipts"]
+        )
     async with engine.begin() as conn:
         await conn.execute(text(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE"))
 

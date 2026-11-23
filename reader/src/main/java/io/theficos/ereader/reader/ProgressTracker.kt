@@ -1,6 +1,7 @@
 package io.theficos.ereader.reader
 
 import io.theficos.ereader.core.model.Progress
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -17,10 +18,12 @@ class ProgressTracker(
     private val scope: CoroutineScope,
     private val nowMs: () -> Long = System::currentTimeMillis,
     private val debounceMs: Long = 1_000L,
+    private val observeAnchor: suspend (Locator) -> Locator? = { null },
 ) {
     private val pending = MutableStateFlow<Pending?>(null)
     private var collectJob: Job? = null
     private var debounceJob: Job? = null
+    private var observationJob: Job? = null
     private var documentId: Long = -1L
     private var lastSpineHref: Url? = null
     private var stickyFinishedAt: Long? = null
@@ -36,7 +39,23 @@ class ProgressTracker(
         this.stickyFinishedAt = initialFinishedAt
         collectJob = scope.launch {
             locatorUpdates.collect { locator ->
-                pending.value = Pending(locator, nowMs())
+                val update = Pending(locator, nowMs())
+                pending.value = update
+                observationJob?.cancel()
+                observationJob = scope.launch {
+                    val anchor = try {
+                        observeAnchor(locator)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        null
+                    }
+                    // An observation only refines the queued page. It cannot create
+                    // a later write or borrow another page's timestamp/progression.
+                    if (anchor != null && pending.value === update) {
+                        pending.value = update.copy(locator = resizeAnchor(locator, anchor))
+                    }
+                }
                 debounceJob?.cancel()
                 debounceJob = scope.launch {
                     delay(debounceMs)
@@ -47,9 +66,10 @@ class ProgressTracker(
     }
 
     fun detach() {
+        collectJob?.cancel()
+        observationJob?.cancel()
         debounceJob?.cancel()
         runBlocking { flushOnce() }
-        collectJob?.cancel()
     }
 
     private suspend fun flushOnce() {

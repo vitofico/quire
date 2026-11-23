@@ -210,9 +210,7 @@ fun AppNavGraph(
                             aiRepository = container.aiRepository,
                             catalogInsightStash = container.catalogInsightStash,
                             insightSyncRepository = container.insightSyncRepository,
-                            subjectProvider = {
-                                container.credentialStore.getAccount()?.subject
-                            },
+                            subjectProvider = container::catalogInsightScope,
                         )
                     }
                 },

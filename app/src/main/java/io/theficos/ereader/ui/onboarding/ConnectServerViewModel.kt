@@ -79,7 +79,6 @@ class ConnectServerViewModel(
 
     private val account = credentialStore.getAccount()
     private val nativeAccount = account as? AccountCredentials.Bearer
-    private val legacyAccount = account as? AccountCredentials.Basic
     val initialQuireUrl = when (account) {
         is AccountCredentials.Bearer -> account.baseUrl
         is AccountCredentials.Basic -> account.quireServerUrl ?: account.baseUrl
@@ -187,9 +186,15 @@ class ConnectServerViewModel(
     ): UiState {
         val previous = credentialStore.getAccount()
         val sameServer = serverUrl == initialCanonicalQuireUrl
-        val identity = if (legacyAccount != null && sameServer) {
-            withContext(ioDispatcher) { fetchNativeIdentity(serverUrl, result.token) }
+        val legacy = previous as? AccountCredentials.Basic
+        val legacyServer = legacy?.let { canonicalQuireUrl(it.quireServerUrl ?: it.baseUrl) }
+        val identity = if (legacy != null && serverUrl == legacyServer) {
+            val verified = withContext(ioDispatcher) { fetchNativeIdentity(serverUrl, result.token) }
                 ?: return UiState.VerificationFailed(uiText(R.string.onboarding_legacy_check_failed))
+            if (verified.legacyCalibreUserId != legacy.subject) {
+                return UiState.VerificationFailed(uiText(R.string.onboarding_legacy_binding_required))
+            }
+            verified
         } else {
             null
         }

@@ -15,6 +15,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.readium.r2.navigator.epub.EpubNavigatorFragment
 import org.readium.r2.shared.publication.Locator
 
@@ -25,6 +26,7 @@ interface HighlightNavigator {
     val currentLocator: Locator?
     suspend fun jump(locator: Locator, isCurrent: () -> Boolean): Boolean
     fun viewportChanged() {}
+    suspend fun observeProgress(): Locator? = null
 }
 
 class ReaderHighlightNavigator(
@@ -64,6 +66,18 @@ class ReaderHighlightNavigator(
     override val isAlive get() = !closed && navigator.isAdded
     override val safeToPublish get() = transaction.safeToPublish
     override val currentLocator get() = if (isAlive) navigator.currentLocator.value else null
+
+    override suspend fun observeProgress(): Locator? {
+        val before = currentLocator ?: return null
+        if (!safeToPublish) return null
+        if (withTimeoutOrNull(350L) { awaitPage(before.href.toString()) } == null ||
+            !safeToPublish || currentLocator != before) return null
+        val observed = anchors.viewport(navigator)
+        return observed?.takeIf {
+            isAlive && safeToPublish && currentLocator == before &&
+                it.locations.otherLocations.containsKey(StructuralSelectionAnchors.KEY)
+        }
+    }
 
     fun pageReady(locator: Locator) {
         if (closed || navigator.currentLocator.value.href != locator.href) return

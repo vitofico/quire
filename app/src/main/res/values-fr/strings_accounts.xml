@@ -15,6 +15,7 @@
     <string name="quire_account_legacy_catalog_hint">Connecte-toi à Quire séparément avant de remplacer l’ancien catalogue Calibre-Web par un autre catalogue OPDS.</string>
     <string name="quire_account_using_opds">Ce catalogue OPDS est utilisé pour les livres numériques.</string>
     <string name="onboarding_invalid_quire_url">Saisis l’adresse du serveur en commençant par http:// ou https:// et indique le sous-chemin, le cas échéant.</string>
+    <string name="onboarding_legacy_binding_required">Ce compte Quire n’est pas associé à ton compte de synchronisation Calibre-Web. Demande à la personne qui administre ton serveur d’associer les comptes, puis reconnecte-toi. Ta connexion actuelle reste active.</string>
     <string name="onboarding_legacy_check_failed">Quire n’a pas pu vérifier le compte sur ce serveur. Essaie de te reconnecter. Ta connexion actuelle reste active.</string>
     <string name="onboarding_quire_reauth_same_account">Connecte-toi avec le même compte Quire qu’auparavant.</string>
     <string name="onboarding_quire_connection_changed">Tes connexions ont changé pendant la connexion. Ouvre les paramètres de Quire et réessaie.</string>

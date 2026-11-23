@@ -209,10 +209,11 @@ class CatalogViewModel(
     private suspend fun maybePromoteInsight(
         pub: OpdsPublication,
         downloadedIdentity: DocumentIdentity,
+        subject: String?,
     ) {
         val stash = catalogInsightStash ?: return
         val ai = aiRepository ?: return
-        val subject = subjectProvider() ?: return
+        if (subject == null || subject != subjectProvider()) return
         val entry = stash.peek(subject, pub.epubDownloadHref) ?: return
         val ok = ai.promoteInsight(
             from = entry.catalogIdentity,
@@ -227,7 +228,7 @@ class CatalogViewModel(
             // `generated_at = NOW()`. Trigger a sync so the Android cache picks
             // it up — coalescing collapses bursts when the user downloads
             // several books in quick succession.
-            insightSyncRepository?.requestSync("after_promote")
+            if (subject == subjectProvider()) insightSyncRepository?.requestSync("after_promote")
         } else {
             Log.d(
                 "CatalogViewModel",
@@ -259,12 +260,18 @@ class CatalogViewModel(
         // Only the OPDS-only variant is gated off. An absent account keeps the
         // old behaviour, so a credential cleared mid-download does not quietly
         // change what the post-download hook does.
-        val hasQuireServer = credentialStore.getAccount() !is AccountCredentials.OpdsOnly
+        val account = credentialStore.getAccount()
+        val catalog = account?.catalogAccount()
+        val subject = subjectProvider()
+        val hasQuireServer = account !is AccountCredentials.OpdsOnly
+        fun sameCatalog() = catalog == credentialStore.getAccount()?.catalogAccount()
+        fun sameServiceScope() = hasQuireServer && sameCatalog() && subject == subjectProvider()
         viewModelScope.launch {
             _state.value = current.copy(downloading = pub.epubDownloadHref, progress = 0f)
             runCatching {
                 val fileName = "${UUID.randomUUID()}.epub"
                 val file = downloader.download(pub.epubDownloadHref, fileName) { sent, total ->
+                    if (!sameCatalog()) return@download
                     val frac = if (total > 0) sent.toFloat() / total else 0f
                     _state.value = (_state.value as? CatalogUiState.Loaded)?.copy(progress = frac) ?: return@download
                 }
@@ -275,7 +282,7 @@ class CatalogViewModel(
                     }
                     extractIdentity(file)
                 }
-                val coverFile = pub.coverUrl?.let { url ->
+                val coverFile = pub.coverUrl?.takeIf { sameCatalog() }?.let { url ->
                     val coverName = fileName.removeSuffix(".epub") + ".cover"
                     downloader.downloadCover(url, coverName)
                 }
@@ -304,9 +311,9 @@ class CatalogViewModel(
                     // Failures are logged inside the uploader; the row stays
                     // unsynced and the next app-start pass retries.
                     val uploadJob =
-                        if (hasQuireServer) libraryUploader?.enqueueOne(insertedId) else null
+                        if (sameServiceScope()) libraryUploader?.enqueueOne(insertedId) else null
                     uploadJob?.join()
-                    maybePromoteInsight(pub, identity)
+                    maybePromoteInsight(pub, identity, subject)
                 } else {
                     withContext(Dispatchers.IO) {
                         file.delete()
@@ -320,22 +327,26 @@ class CatalogViewModel(
                 // epoch 0; the now-present local doc lets it attach. Best-effort —
                 // a failure here doesn't roll back the already-successful download,
                 // but is logged so the silent re-attach gap is visible in logcat.
-                if (hasQuireServer) {
+                if (sameServiceScope()) {
                     runCatching { syncStateDao.clearAll() }
                         .onFailure { Log.w("CatalogViewModel", "clearAll failed; progress re-attach deferred", it) }
                     runCatching { syncEnqueuer(context) }
                         .onFailure { Log.w("CatalogViewModel", "syncEnqueuer failed; will retry on next manual sync", it) }
                 }
-                _state.value = current.copy(downloading = null, progress = 0f, lastDownloaded = pub.title)
+                if (sameCatalog()) {
+                    _state.value = current.copy(downloading = null, progress = 0f, lastDownloaded = pub.title)
+                }
             }.onFailure {
                 // Redacted for the same reason as the promote log above: on a
                 // generic OPDS account this href carries the user's API key.
                 Log.e("CatalogViewModel", "download failed for ${redactUrl(pub.epubDownloadHref)}", it)
-                _state.value = current.copy(
-                    downloading = null,
-                    progress = 0f,
-                    error = describeFailure(it, uiText(R.string.common_fetch_failed)),
-                )
+                if (sameCatalog()) {
+                    _state.value = current.copy(
+                        downloading = null,
+                        progress = 0f,
+                        error = describeFailure(it, uiText(R.string.common_fetch_failed)),
+                    )
+                }
             }
         }
     }

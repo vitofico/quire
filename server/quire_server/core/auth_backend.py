@@ -43,6 +43,7 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal, Protocol
+from urllib.parse import urlsplit
 
 from fastapi import HTTPException, Request, status
 from sqlalchemy import select, text
@@ -143,6 +144,12 @@ class CalibreWebBasicAuth:
         )
 
 
+def matches_identity_host(request: Request, public_host: str | None) -> bool:
+    return bool(
+        public_host and [host.lower() for host in request.headers.getlist("host")] == [public_host]
+    )
+
+
 async def lock_calibre_scope(session, user_id: str, *, shared: bool = False) -> None:
     lock = "pg_advisory_xact_lock_shared" if shared else "pg_advisory_xact_lock"
     await session.execute(
@@ -211,6 +218,7 @@ class NativeAuth:
         self._ttl_s = session_ttl_s
         self._clock = clock
         self._cookie_name, self._public_origin = cookie_name, public_origin
+        self._public_host = urlsplit(public_origin).netloc.lower() if public_origin else None
         self._account_allowed = account_allowed
 
     # ------------------------------------------------------------------ #
@@ -333,6 +341,8 @@ class NativeAuth:
         if request.headers.get("authorization"):
             token = _extract_bearer_token(request)
         elif self._cookie_name and request.cookies.get(self._cookie_name):
+            if not matches_identity_host(request, self._public_host):
+                raise HTTPException(401, "invalid credentials")
             token = request.cookies[self._cookie_name]
             if not token.isascii() or not 20 <= len(token) <= 128:
                 raise HTTPException(401, "invalid credentials")
@@ -353,7 +363,7 @@ class NativeAuth:
                     if len(values) == 1:
                         supplied = values[0]
                 if (
-                    request.headers.get("origin") != self._public_origin
+                    request.headers.getlist("origin") != [self._public_origin]
                     or not supplied.isascii()
                     or not hmac.compare_digest(supplied, csrf(token))
                 ):

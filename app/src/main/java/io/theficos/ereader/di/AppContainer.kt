@@ -81,6 +81,18 @@ internal fun AccountCredentials.quireServerUrlOrNull(): String? = when (this) {
     is AccountCredentials.OpdsOnly -> null
 }
 
+internal fun AccountCredentials.catalogInsightScope(): String? {
+    val service = quireServerUrlOrNull() ?: return null
+    val catalog = catalogAccount() ?: return null
+    val catalogUser = when (catalog) {
+        is AccountCredentials.Basic -> catalog.username
+        is AccountCredentials.OpdsOnly -> catalog.username.orEmpty()
+        is AccountCredentials.Bearer -> error("A Quire account cannot authenticate a catalog")
+    }
+    return listOf(service, subject, catalog.baseUrl, catalogUser)
+        .joinToString("") { "${it.length}:$it" }
+}
+
 class AppContainer internal constructor(context: Context, private val db: EReaderDatabase) {
     constructor(context: Context) : this(context, EReaderDatabase.build(context.applicationContext))
 
@@ -149,9 +161,7 @@ class AppContainer internal constructor(context: Context, private val db: EReade
      */
     val catalogInsightStash: CatalogInsightStash = CatalogInsightStash()
 
-    /** Account ownership of catalog insight promotion on this device. */
-    private fun currentSubject(): String? =
-        credentialStore.getAccount()?.subject
+    internal fun catalogInsightScope(): String? = credentialStore.getAccount()?.catalogInsightScope()
 
     val libraryClient: LibraryClient = LibraryClient(
         baseUrlProvider = { credentialStore.getAccount()?.quireServerUrlOrNull() },
@@ -293,7 +303,7 @@ class AppContainer internal constructor(context: Context, private val db: EReade
             ai = AiRepositoryAdapter(aiRepository),
             registry = catalogDetailRegistry,
             insightStash = catalogInsightStash,
-            subjectProvider = ::currentSubject,
+            subjectProvider = ::catalogInsightScope,
             // When the user opens catalog detail for a book they already own,
             // resolve to the library-side identity so the insight cache hits
             // the same `book_insights` row the reader/library detail uses
@@ -449,11 +459,11 @@ class AppContainer internal constructor(context: Context, private val db: EReade
         // AI opt-out toggle hook lives in PR-δ (Bundle 3); until then a
         // stale stash entry is harmless — its TTL expires within 30 min.
         libraryUploaderScope.launch {
-            var seen = credentialStore.getAccount()?.let { it.subject to it.catalogAccount()?.baseUrl }
+            var seen = catalogInsightScope()
             // Observe the scheme-aware account flow so a BASIC → BEARER
             // re-onboarding (different baseUrl) also clears the stash.
             credentialStore.accountFlow.collect { account ->
-                val next = account?.let { it.subject to it.catalogAccount()?.baseUrl }
+                val next = account?.catalogInsightScope()
                 if (next != seen) {
                     seen = next
                     catalogInsightStash.clearAll()

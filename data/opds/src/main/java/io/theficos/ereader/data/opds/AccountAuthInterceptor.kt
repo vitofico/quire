@@ -92,6 +92,9 @@ private fun AccountCredentials.allowsQuire(url: HttpUrl): Boolean {
 private fun AccountCredentials.allowsCatalog(url: HttpUrl): Boolean {
     val catalogBase = catalogAccount()?.baseUrl ?: return false
     if (!sameOrigin(catalogBase, url)) return false
+    // These paths belong to Quire Web on a shared ingress, including during
+    // transition when only legacy catalog credentials have been configured.
+    if (url.pathSegments.firstOrNull() in quireWebRoutes) return false
     val independentCatalog = (this as? AccountCredentials.Bearer)?.catalog ?: return true
     if (!sameOrigin(baseUrl, url)) return true
     if (url.hasAmbiguousPath()) return false
@@ -121,6 +124,7 @@ private fun HttpUrl.hasAmbiguousPath(): Boolean =
     pathSegments.any { '/' in it || '\\' in it || '%' in it || it == "." || it == ".." }
 
 private val quireApiNamespaces = setOf("ai", "auth", "library", "sync")
-private val quireEdgeRoutes = quireApiNamespaces + setOf(
+private val quireWebRoutes = setOf("quire", "cloud")
+private val quireEdgeRoutes = quireApiNamespaces + quireWebRoutes + setOf(
     "agent", "mcp", "quire-admin", "health", "healthz", "readyz",
 )
