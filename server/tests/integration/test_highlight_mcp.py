@@ -141,16 +141,15 @@ async def test_concurrent_principals_guessed_id_and_read_only(app_under_test, se
 
 
 async def test_native_bearer_cookie_rejection_and_revocation(
-    app_under_test, monkeypatch, postgres_url, session
+    managed_app_factory, monkeypatch, postgres_url, session
 ):
     from quire_server.config import get_settings
-    from quire_server.main import create_app
 
     monkeypatch.setenv("QUIRE_SERVER_AUTH_BACKEND", "native")
     monkeypatch.setenv("QUIRE_SERVER_AI_ENABLED", "false")
     monkeypatch.setenv("QUIRE_SERVER_DATABASE_URL", postgres_url)
     get_settings.cache_clear()
-    app = create_app()
+    app = managed_app_factory()
     backend = app.state.auth_backend
     email = f"mcp-{uuid4()}@example.com"
     fixture_password = "strong-test-password"  # pragma: allowlist secret

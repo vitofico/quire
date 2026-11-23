@@ -92,7 +92,7 @@ def app() -> _AppProxy:
 
 
 @pytest.fixture
-def client_factory(monkeypatch, postgres_url, alembic_upgrade, app: _AppProxy):
+def client_factory(monkeypatch, postgres_url, alembic_upgrade, app: _AppProxy, managed_app_factory):
     """Return an async context-manager factory that spins up a fresh FastAPI app.
 
     The app is built EAGERLY when the factory function is called so that callers
@@ -117,9 +117,7 @@ def client_factory(monkeypatch, postgres_url, alembic_upgrade, app: _AppProxy):
 
         get_settings.cache_clear()
 
-        from quire_server.main import create_app
-
-        real_app = create_app()
+        real_app = managed_app_factory()
 
         # Expose the app via the proxy so tests can reach into app.state.
         app._set(real_app)

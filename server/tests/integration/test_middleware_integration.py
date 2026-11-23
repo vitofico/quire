@@ -12,30 +12,30 @@ def _basic(user: str, pw: str = "x") -> dict[str, str]:
     return {"Authorization": f"Basic {token}"}
 
 
-async def test_request_id_echoed_on_200(monkeypatch, postgres_url, alembic_upgrade):
+async def test_request_id_echoed_on_200(
+    managed_app_factory, monkeypatch, postgres_url, alembic_upgrade
+):
     monkeypatch.setenv("QUIRE_SERVER_DATABASE_URL", postgres_url)
     monkeypatch.setenv("QUIRE_SERVER_CWA_BASE_URL", "http://test-cwa")
     from quire_server.config import get_settings
 
     get_settings.cache_clear()
-    from quire_server.main import create_app
-
-    app = create_app()
+    app = managed_app_factory()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         r = await c.get("/health", headers={"X-Request-ID": "trace-abc-123"})
     assert r.status_code == 200
     assert r.headers["X-Request-ID"] == "trace-abc-123"
 
 
-async def test_request_id_generated_when_absent(monkeypatch, postgres_url, alembic_upgrade):
+async def test_request_id_generated_when_absent(
+    managed_app_factory, monkeypatch, postgres_url, alembic_upgrade
+):
     monkeypatch.setenv("QUIRE_SERVER_DATABASE_URL", postgres_url)
     monkeypatch.setenv("QUIRE_SERVER_CWA_BASE_URL", "http://test-cwa")
     from quire_server.config import get_settings
 
     get_settings.cache_clear()
-    from quire_server.main import create_app
-
-    app = create_app()
+    app = managed_app_factory()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         r = await c.get("/health")
     assert r.status_code == 200
@@ -43,7 +43,9 @@ async def test_request_id_generated_when_absent(monkeypatch, postgres_url, alemb
     assert rid and len(rid) == 32
 
 
-async def test_request_id_present_on_413_content_length(monkeypatch, postgres_url, alembic_upgrade):
+async def test_request_id_present_on_413_content_length(
+    managed_app_factory, monkeypatch, postgres_url, alembic_upgrade
+):
     """Critical: middleware ordering puts RequestID outermost, so 413 from
     RequestSize must still carry X-Request-ID."""
     monkeypatch.setenv("QUIRE_SERVER_DATABASE_URL", postgres_url)
@@ -52,9 +54,7 @@ async def test_request_id_present_on_413_content_length(monkeypatch, postgres_ur
     from quire_server.config import get_settings
 
     get_settings.cache_clear()
-    from quire_server.main import create_app
-
-    app = create_app()
+    app = managed_app_factory()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         r = await c.post(
             "/sync/v1/progress",
@@ -101,3 +101,26 @@ async def test_request_id_present_on_413_chunked_minimal_app():
         )
     assert r.status_code == 413
     assert r.headers.get("X-Request-ID") == "chunked-trace-2"
+
+
+async def test_app_shutdown_disposes_idle_postgres_connections(
+    managed_app_factory, monkeypatch, postgres_url, alembic_upgrade
+):
+    from quire_server.config import get_settings
+
+    monkeypatch.setenv("QUIRE_SERVER_DATABASE_URL", postgres_url)
+    monkeypatch.setenv("QUIRE_SERVER_PROGRESS_ENABLED", "false")
+    monkeypatch.setenv("QUIRE_SERVER_AI_ENABLED", "false")
+    get_settings.cache_clear()
+    app = managed_app_factory()
+
+    # Observe the original pool, which is replaced even if a disposal leaves
+    # checked-out connections behind.
+    pool = app.state.identity_factory.kw["bind"].pool
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+            assert (await client.get("/readyz")).status_code == 200
+        assert pool.checkedin() > 0
+
+    assert pool.checkedin() == 0
+    assert app.state.httpx_client.is_closed

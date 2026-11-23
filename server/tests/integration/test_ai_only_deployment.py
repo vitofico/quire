@@ -19,7 +19,7 @@ pytestmark = pytest.mark.ci_lane("ai_only")
 
 
 async def test_ai_only_lookup_without_progress_tables(
-    partial_postgres_url, monkeypatch, cwa_transport
+    partial_postgres_url, monkeypatch, cwa_transport, managed_app_factory
 ):
     heads = await assert_partial_schema(partial_postgres_url, enabled="ai", disabled="progress")
     for key, value in {
@@ -58,9 +58,7 @@ async def test_ai_only_lookup_without_progress_tables(
             },
         )
 
-    from quire_server.main import create_app
-
-    app = create_app()
+    app = managed_app_factory()
     engine = create_async_engine(partial_postgres_url)
     try:
         monkeypatch.setattr(app.state.ai_client, "_transport", httpx.MockTransport(provider))
@@ -114,6 +112,5 @@ async def test_ai_only_lookup_without_progress_tables(
         assert status == "miss"
         assert insight_id is not None
     finally:
-        await app.state.httpx_client.aclose()
         await engine.dispose()
         get_settings.cache_clear()

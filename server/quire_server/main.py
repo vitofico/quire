@@ -18,6 +18,7 @@ import asyncio
 import logging
 import os
 import warnings
+from contextlib import AsyncExitStack
 
 import httpx
 from fastapi import Depends, FastAPI
@@ -294,11 +295,12 @@ def create_app() -> FastAPI:
     else:
         app.state.auth_backend = legacy_backend
 
-    @app.on_event("shutdown")
-    async def _close() -> None:
-        await httpx_client.aclose()
-        if hosted_policy:
-            await hosted_policy.client.aclose()
+    resources = AsyncExitStack()
+    resources.push_async_callback(engine.dispose)
+    resources.push_async_callback(httpx_client.aclose)
+    if hosted_policy:
+        resources.push_async_callback(hosted_policy.client.aclose)
+    app.router.add_event_handler("shutdown", resources.aclose)
 
     # Always-on root endpoints (no prefix). Mounted before mode gates so they
     # remain available even when both flags are false.
