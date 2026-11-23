@@ -1,6 +1,17 @@
 # Migrate Quire login while keeping Calibre-Web for books
 
-## Choose the right path
+Use this guide if you already sign in with your Calibre-Web username to sync reading progress or highlights. A separate Quire account lets you sign in to sync even when Calibre-Web is offline. You keep using Calibre-Web to browse and download ebooks.
+
+Updating the app or enabling transition mode on the server does not migrate anyone automatically. **The switch happens when your administrator applies the migration for your username.** From that point, each of your devices needs your new Quire login to sync.
+
+## If you read on Android
+
+1. **Before the switch**, check that each device has a compatible version of Quire with **Settings → Quire account → Sign in to Quire**. Upgrade in place and keep the app data, especially on devices with offline highlights. If a compatible build is unavailable on one of your devices, ask your administrator to wait.
+2. Open Quire online so pending edits can sync. Note the server URL, an in-progress book and a highlight you can check afterwards. Give your administrator your existing Calibre username and the email you want for Quire. Wait for them to confirm the account has been linked.
+3. **After the switch**, open **Sign in to Quire** on each device. Use the same Quire server URL as before, your chosen email and your new Quire password. Leave the Calibre-Web catalog URL and credentials in the catalog settings.
+4. Open the book and check its position and highlight. Make a new reading change and look for it on another device. Then download a book you have never opened to check the catalog connection. If the library appears empty, pause sync and ask your administrator to check the account mapping before adding books or clearing app data.
+
+## Choose the right path for each reader
 
 | Reader | Operator action | Reader action |
 | --- | --- | --- |
@@ -12,6 +23,8 @@ An account migration makes a new Quire login the owner of the reader's existing 
 
 ## Prepare the installation
 
+For a server with many readers, start with one volunteer who uses two devices. Schedule the next reader after the first has verified both reading-state sync and a new book download. Everyone else can continue with their existing credentials in transition mode.
+
 1. Record the live image references for the Quire runtime and database migration container, their configuration, and the ingress. Check readiness and take an access-controlled database backup. Restore it to a disposable database and compare the Alembic heads and aggregate ownership counts. The server includes `scripts/pg_backup.py` for PostgreSQL backup and restore. Keep its output on private storage.
 2. Deploy the new server with `QUIRE_SERVER_AUTH_BACKEND=transition`. Point `QUIRE_SERVER_CWA_BASE_URL` at the existing Calibre-Web instance so legacy readers can still authenticate. Run `python /app/scripts/migrate.py` with the installation's existing feature flags. Confirm readiness after migration. Leave `QUIRE_IDENTITY_PUBLIC_URL` unset on a shared ebook hostname.
 3. Expose `POST /auth/v1/login`, `GET /auth/v1/me`, `POST /auth/v1/logout` and `GET /auth/v1/account/export` to Quire on the mobile service origin. Existing reading, library, AI and agent routes continue to target Quire. Preserve Calibre-Web routing for `/`, OPDS, covers and downloads. Keep `/internal/v1/` inaccessible from the public ingress. The Theficos manifests use exact path matches for the four account operations.
@@ -22,10 +35,10 @@ An account migration makes a new Quire login the owner of the reader's existing 
 Arrange this with the reader. Verify control of both the historical Calibre account and their chosen email using your existing account administration process. Matching names or emails alone do not establish ownership. Use a fresh Quire password. Enter passwords interactively through a trusted terminal, outside shell history and chat.
 
 1. Upgrade every device that will sync, preserving its app data. Let queued changes sync on the legacy account where possible. Keep the original server URL during the change so the app can match the existing local highlight owner. Record an in-progress title and a highlight the reader can recognize afterwards.
-2. Run the read-only preview. These examples use a Theficos shell with the MicroK8s CLI. Replace the two quoted placeholders with the verified mapping. For Docker Compose, replace the `microk8s kubectl ... --` portion with `docker compose exec quire-server`.
+2. Run the read-only preview. Run these examples from the directory containing your Compose file. Replace the two quoted placeholders with the verified mapping. On Kubernetes, use `kubectl -n <namespace> exec -it deploy/quire-server -c quire-server --` in place of `docker compose exec quire-server`.
 
    ```sh
-   microk8s kubectl -n calibre-web exec deploy/quire-server -c quire-server -- \
+   docker compose exec quire-server \
      python /app/scripts/migrate_calibre_account.py '<calibre-username>' '<quire-email>'
    ```
 
@@ -34,15 +47,14 @@ Arrange this with the reader. Verify control of both the historical Calibre acco
 3. Apply the same mapping, confirming the historical username and entering the new password at the prompts.
 
    ```sh
-   microk8s kubectl -n calibre-web exec -it deploy/quire-server -c quire-server -- \
+   docker compose exec quire-server \
      python /app/scripts/migrate_calibre_account.py '<calibre-username>' '<quire-email>' --apply
    ```
 
    Retain the returned `native:<id>` in your private account inventory. The reservation keeps the library, progress, highlight revisions, tombstones and personal AI records under their existing storage keys. At this point Basic authentication for this reader on Quire stops. Their credentials still work on Calibre-Web itself. Other unlinked readers can keep using Basic on Quire during transition.
 
 4. If the reader administered Quire, the operator must add their verified `native:<id>` to `QUIRE_SERVER_ADMIN_USERS` and verify access under that principal. Explicit admin grants use the Quire identity. Handle pre-existing grants for remaining administrators separately.
-5. On Android, open **Settings → Quire account → Sign in to Quire**. Enter the same Quire service URL the device previously synced to, the chosen email and the new password. Keep the catalog entry pointing to the Calibre-Web feed. For Theficos, the service URL is `https://ebooks.theficos.dedyn.io` and the catalog URL is `https://ebooks.theficos.dedyn.io/opds`. Re-enter the catalog password in the catalog settings only if needed.
-6. Open the recorded book, confirm its position and highlight, then make a new reading change and check it on another device. Browse the catalog and open a book that was not downloaded previously. On a fresh device a sideloaded book may need its original EPUB again; the server mirror contains metadata and progress.
+5. Tell the reader their account is ready and have them complete the [Android sign-in and two-device checks](#if-you-read-on-android). Keep the server in transition mode for the remaining readers.
 
 ## Troubleshooting and rollback
 

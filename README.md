@@ -250,6 +250,7 @@ Dockerfile            Reproducible Android build environment (linux/amd64)
 
 ## Documentation
 
+- [Migrate from Calibre-Web login to a Quire account](docs/independent-login-migration.md) — keep your reading history and continue downloading books from Calibre-Web.
 - [`docs/architecture.md`](docs/architecture.md) — components, document
   identity, sync model, conflict resolution, auth.
 - [`docs/development.md`](docs/development.md) — module layout, build
