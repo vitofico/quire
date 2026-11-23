@@ -8,7 +8,7 @@ The library, settings, discovery and reader fit a 320 CSS px viewport. The reade
 
 The French discovery browser test verifies explicit AI opt-in, metadata-only generation and localized quota feedback in AI-only mode. Unit tests cover translated discovery headings in Spanish, Italian, French and German. English is used throughout the keyboard test.
 
-Physical mobile Safari and Android Chrome were unavailable for this run. Touch selection, native browser zoom, installed-app cold restart and memory on a phone remain open. Screen-reader navigation, native keyboard caret selection in the EPUB and an APK round trip also remain separate release gates.
+Physical mobile Safari and Android Chrome were unavailable for this run. Touch selection, native browser zoom, installed-app cold restart and memory on a phone remain open. Screen-reader navigation and native keyboard caret selection in the EPUB still require manual qualification. The separate [Android interoperability report](web-interop.md) records the APK round trip.
 
 ## Performance baseline
 
@@ -24,3 +24,7 @@ Desktop Chromium on macOS arm64 and in the Linux browser test environment, using
 | Retained renderer heap and backing storage increase | 34.6 MiB | 34.6 MiB | < 150 MiB |
 
 The browser CI suite runs the accessibility checks and enforces the Chromium budgets. To reproduce from `web/` after installing the Playwright browsers, run `pnpm build` and `pnpm test:e2e accessibility.spec.ts performance.spec.ts discovery.spec.ts`.
+
+## Release candidate
+
+A clean archive of `5615e60a09ad` passed the frozen dependency install, production build, all 57 web unit tests, and 40 Playwright cases in the Linux Chromium, Firefox and WebKit matrix. Five project-specific cases were skipped by design. The final Chromium run measured 216 ms to display the 1,500-book shelf, 45 ms for shelf search, 150 ms for passage search and 16.7 ms for the 95th-percentile scroll interval. Time to the first chapter of the 32 MiB fixture was 869 ms, with a 34.6 MiB increase in retained heap and backing storage.

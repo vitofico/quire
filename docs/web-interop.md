@@ -44,3 +44,9 @@ reader adapter test covers a longer chapter and selection across inline markup.
 A signed release with the newer Android viewport capture still needs its own
 exact progress round trip. Actual mobile Safari and screen-reader qualification
 are outside this emulator exercise.
+
+## Candidate Android progress capture
+
+A separate candidate APK on the emulator imported the same fixture and synchronized through the local TLS server. The server received a version 3 viewport anchor for `EPUB/part1.xhtml`, node path `[9, 0]`, UTF-16 offset 210. Android showed “paused to consider the question” as its first visible line within paragraph Marker 1-09. Chromium reopened at that character, measured 28.28 CSS pixels from the top of the initial viewport. After increasing text size to 28 and changing the window from 1260 × 850 to 730 × 620, the same sentence remained visible. The post-resize check measured the paragraph bounds and verified the visible passage.
+
+The live candidate APK exercised the new structural capture. At implementation commit `5a7f87b`, the final Android build also verified retention through reflow and subsequent movement within the same paragraph. The debug and unsigned release builds succeeded. All 926 unit tests and 27 structural anchor tests passed. Android lint reported 62 warnings and zero errors.

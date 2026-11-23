@@ -4,7 +4,7 @@
 
 ## Implementation record
 
-The browser edition uses a sandboxed XHTML renderer over local EPUB files. The client and Android share Quire’s structural locator contract. Native browser sessions require an explicitly enabled Quire-only HTTPS origin, and the shared Calibre-Web origin supports the Basic-auth topology. The server includes a progress-branch migration for idempotent library uploads. [Reader compatibility](quire-web-reader-compatibility.md) · [Account qualification](web-account-qualification.md) · [APK interoperability](web-interop.md) · [Browser qualification](web-browser-qualification.md) · [Install, upgrade and rollback](../server/README.md)
+The browser edition uses a sandboxed XHTML renderer over local EPUB files. The client and Android share Quire’s structural locator contract. Native browser sessions require an explicitly enabled Quire-only HTTPS origin, and the shared Calibre-Web origin supports the Basic-auth topology. The server includes a progress-branch migration for idempotent library uploads. [Reader compatibility](quire-web-reader-compatibility.md) · [Account qualification](web-account-qualification.md) · [APK interoperability](web-interop.md) · [Browser qualification](web-browser-qualification.md) · [Packaging qualification](web-packaging-qualification.md) · [Install, upgrade and rollback](../server/README.md)
 
 ## What ships
 
