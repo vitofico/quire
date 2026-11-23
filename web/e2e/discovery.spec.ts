@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test'
 
+test.use({ actionTimeout: 10_000, navigationTimeout: 15_000 })
+
 test('French discovery in AI-only mode needs opt-in and sends only ISBN metadata', async ({ page }) => {
   const isbn = '9780804429573'
   let optedIn = false
@@ -45,7 +47,10 @@ test('French discovery in AI-only mode needs opt-in and sends only ISBN metadata
   }))
   await page.route('https://covers.openlibrary.org/**', route => route.fulfill({ status: 404 }))
 
-  await page.goto('/quire/#/discover')
+  await page.goto('/quire/#/settings')
+  const optIn = page.getByRole('checkbox', { name: 'Activer les analyses par IA', exact: true })
+  await expect(optIn).toBeVisible()
+  await page.getByRole('link', { name: 'Découvrir', exact: true }).click()
   const lookup = async () => {
     await page.getByLabel('ISBN', { exact: true }).fill(isbn)
     await page.getByRole('button', { name: 'Rechercher sur Open Library' }).click()
@@ -56,9 +61,16 @@ test('French discovery in AI-only mode needs opt-in and sends only ISBN metadata
   expect(generationBodies).toEqual([])
 
   await page.getByRole('link', { name: 'Réglages', exact: true }).click()
-  await page.getByRole('checkbox', { name: 'Activer les analyses par IA', exact: true }).check()
-  await page.getByRole('button', { name: 'Enregistrer les réglages de l’IA' }).click()
-  await expect(page.getByRole('button', { name: 'Enregistrer les réglages de l’IA' })).toBeDisabled()
+  await optIn.check()
+  const preferences = (response: import('@playwright/test').Response, method: string) =>
+    new URL(response.url()).pathname === '/ai/v1/preferences' && response.request().method() === method
+  const [saved, refreshed] = await Promise.all([
+    page.waitForResponse(response => preferences(response, 'PUT'), { timeout: 10_000 }),
+    page.waitForResponse(response => preferences(response, 'GET'), { timeout: 10_000 }),
+    page.getByRole('button', { name: 'Enregistrer les réglages de l’IA' }).click(),
+  ])
+  expect(saved.ok()).toBe(true)
+  expect(await refreshed.json()).toMatchObject({ ai_enabled: true })
   await page.getByRole('link', { name: 'Découvrir', exact: true }).click()
   await lookup()
   await expect(page.getByRole('heading', { name: 'Profil de lecture' })).toHaveCount(0)
