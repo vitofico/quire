@@ -12,7 +12,7 @@ import io.theficos.ereader.data.library.LibraryUploader
 import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.db.EReaderDatabase
 import io.theficos.ereader.data.local.db.SyncStateEntity
-import io.theficos.ereader.data.opds.AccountAuthInterceptor
+import io.theficos.ereader.data.opds.OpdsHttpClient
 import io.theficos.ereader.data.opds.BookDownloader
 import io.theficos.ereader.data.opds.CLEARTEXT_BLOCKED_MESSAGE
 import io.theficos.ereader.data.opds.OpdsClient
@@ -375,11 +375,7 @@ class CatalogViewModelTest {
                     MockResponse().setResponseCode(401)
                 }
         }
-        val authenticatedClient = OpdsClient(
-            OkHttpClient.Builder()
-                .addInterceptor(AccountAuthInterceptor(credentialStore::getAccount))
-                .build(),
-        )
+        val authenticatedClient = OpdsClient(OpdsHttpClient(credentialStore).okHttp)
         credentialStore.saveOpdsAccount(catalogUrl, initialUsername, initialPassword)
         val vm = newViewModel(client = authenticatedClient)
         val error = vm.state.first { it is CatalogUiState.Error } as CatalogUiState.Error

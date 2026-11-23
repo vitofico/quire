@@ -72,6 +72,7 @@ import io.theficos.ereader.ui.theme.AppTheme
 import io.theficos.ereader.ui.theme.Palette
 import io.theficos.ereader.ui.theme.ThemeMode
 import io.theficos.ereader.ui.toneLabel
+import io.theficos.ereader.auth.AccountCredentials
 import io.theficos.quire.R
 import java.time.Instant
 import java.time.format.DateTimeParseException
@@ -118,7 +119,10 @@ fun SettingsScreen(
     hasUnreadUpdates: Boolean,
     onNavigateToWhatsNew: () -> Unit,
     onNavigateToLicenses: () -> Unit = {},
+    onQuireSignIn: () -> Unit = {},
 ) {
+    val account by viewModel.account.collectAsState()
+    val needsReauth by viewModel.needsReauth.collectAsState()
     val calibre by viewModel.calibre.collectAsState()
     val opds by viewModel.opds.collectAsState()
     val reader by viewModel.readerPreferences.collectAsState()
@@ -186,13 +190,22 @@ fun SettingsScreen(
             }
         }
 
-        SectionLabel("calibre-web")
+        QuireAccountSettings(
+            account = account,
+            needsReauth = needsReauth,
+            onSignIn = onQuireSignIn,
+            onDisconnect = viewModel::disconnectQuire,
+        )
+
+        SectionLabel(stringResource(R.string.quire_account_calibre_catalog))
         QuireCard(modifier = Modifier.fillMaxWidth()) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
                     value = calibre.baseUrl,
                     onValueChange = viewModel::onBaseUrlChange,
                     label = { Text(stringResource(R.string.common_calibre_web_url)) },
+                    isError = calibre.error != null,
+                    supportingText = calibre.error?.let { message -> { Text(message.asString()) } },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
@@ -208,21 +221,35 @@ fun SettingsScreen(
                     visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth(),
                 )
-                OutlinedTextField(
-                    value = calibre.quireServerUrl,
-                    onValueChange = viewModel::onQuireServerUrlChange,
-                    label = { Text(stringResource(R.string.settings_quire_server_url_optional)) },
-                    placeholder = { Text(stringResource(R.string.common_same_as_calibre_web_url)) },
-                    supportingText = {
-                        Text(stringResource(R.string.settings_only_set_this_if_sync_ai_run))
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                if (account is AccountCredentials.Basic) {
+                    OutlinedTextField(
+                        value = calibre.quireServerUrl,
+                        onValueChange = viewModel::onQuireServerUrlChange,
+                        label = { Text(stringResource(R.string.settings_quire_server_url_optional)) },
+                        placeholder = { Text(stringResource(R.string.common_same_as_calibre_web_url)) },
+                        supportingText = {
+                            Text(stringResource(R.string.settings_only_set_this_if_sync_ai_run))
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                if (calibre.isActive) {
+                    Text(
+                        stringResource(R.string.quire_account_using_calibre),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 Button(
                     onClick = viewModel::saveCalibre,
                     enabled = calibre.baseUrl.isNotBlank() && calibre.username.isNotBlank() && calibre.password.isNotBlank(),
                 ) {
                     Text(if (calibre.saved) stringResource(R.string.common_saved) else stringResource(R.string.common_save))
+                }
+                if (calibre.isActive && account !is AccountCredentials.Basic) {
+                    TextButton(onClick = viewModel::disconnectCatalog) {
+                        Text(stringResource(R.string.quire_account_remove_catalog))
+                    }
                 }
             }
         }
@@ -269,24 +296,29 @@ fun SettingsScreen(
                     visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth(),
                 )
-                if (opds.isActive) {
+                if (account is AccountCredentials.Basic || opds.isActive) {
                     Text(
-                        stringResource(R.string.settings_connected_to_an_opds_catalog_your_place),
+                        stringResource(
+                            if (account is AccountCredentials.Basic) R.string.quire_account_legacy_catalog_hint
+                            else R.string.quire_account_using_opds,
+                        ),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 Button(
                     onClick = viewModel::saveOpds,
-                    // Saving REPLACES the stored account, so a typo here would
-                    // wipe a working calibre-web password. Require a scheme
-                    // before the button is even tappable (issue #101).
-                    enabled = opds.catalogUrl.isNotBlank() &&
+                    enabled = account !is AccountCredentials.Basic && opds.catalogUrl.isNotBlank() &&
                         (opds.catalogUrl.startsWith("http://", ignoreCase = true) ||
                             opds.catalogUrl.startsWith("https://", ignoreCase = true)) &&
                         opds.username.isBlank() == opds.password.isBlank(),
                 ) {
                     Text(if (opds.saved) stringResource(R.string.common_saved) else stringResource(R.string.common_save))
+                }
+                if (opds.isActive) {
+                    TextButton(onClick = viewModel::disconnectCatalog) {
+                        Text(stringResource(R.string.quire_account_remove_catalog))
+                    }
                 }
             }
         }
@@ -463,7 +495,7 @@ fun SettingsScreen(
 
         SectionLabel(stringResource(R.string.common_ai_features))
         QuireCard(modifier = Modifier.fillMaxWidth()) {
-            if (aiState.config?.configured != true) {
+            if (!isConnected || needsReauth || aiState.config?.configured != true) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(stringResource(R.string.common_ai_not_configured), style = MaterialTheme.typography.titleMedium)
                     Text(
@@ -691,6 +723,65 @@ fun SettingsScreen(
         SnackbarHost(
             hostState = snackbarHostState,
             modifier = Modifier.align(Alignment.BottomCenter),
+        )
+    }
+}
+
+@Composable
+private fun QuireAccountSettings(
+    account: AccountCredentials?,
+    needsReauth: Boolean,
+    onSignIn: () -> Unit,
+    onDisconnect: () -> Unit,
+) {
+    val native = account as? AccountCredentials.Bearer
+    var confirmDisconnect by remember { mutableStateOf(false) }
+    SectionLabel(stringResource(R.string.quire_account_title))
+    QuireCard(modifier = Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(
+                stringResource(
+                    when {
+                        native != null && needsReauth -> R.string.quire_account_expired
+                        native != null -> R.string.quire_account_connected
+                        account is AccountCredentials.Basic -> R.string.quire_account_legacy
+                        else -> R.string.quire_account_sign_in_description
+                    },
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            if (native != null) {
+                Text(native.baseUrl, style = MaterialTheme.typography.bodySmall)
+                if ('@' in native.email) Text(native.email, style = MaterialTheme.typography.bodySmall)
+            }
+            if (native == null || needsReauth) {
+                Button(onClick = onSignIn) {
+                    Text(stringResource(if (needsReauth) R.string.quire_account_sign_in_again else R.string.quire_account_sign_in))
+                }
+            }
+            if (native != null) {
+                TextButton(onClick = { confirmDisconnect = true }) {
+                    Text(stringResource(R.string.quire_account_sign_out))
+                }
+            }
+        }
+    }
+    if (confirmDisconnect && native != null) {
+        AlertDialog(
+            onDismissRequest = { confirmDisconnect = false },
+            title = { Text(stringResource(R.string.quire_account_sign_out)) },
+            text = { Text(stringResource(R.string.quire_account_sign_out_confirm)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDisconnect = false
+                    onDisconnect()
+                }) { Text(stringResource(R.string.quire_account_sign_out)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDisconnect = false }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
         )
     }
 }

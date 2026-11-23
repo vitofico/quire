@@ -3,13 +3,12 @@ package io.theficos.ereader.auth
 import java.security.MessageDigest
 
 /**
- * Scheme-tagged credentials for a single configured Quire account.
+ * Configured Quire service and catalog credentials.
  *
  * Three concrete shapes:
  * - [Basic]: `username` + `password` (calibre-web style). Emits
  *   `Authorization: Basic <base64(user:pass)>`.
- * - [Bearer]: `email` (subject hint) + `token` (long-lived bearer).
- *   Emits `Authorization: Bearer <token>`.
+ * - [Bearer]: native Quire login and an optional, independently authenticated catalog.
  * - [OpdsOnly]: a complete OPDS catalog URL with optional Basic credentials.
  *   Reader-only, with no quire-server behind it. See issue #101.
  *
@@ -21,19 +20,17 @@ import java.security.MessageDigest
 sealed class AccountCredentials {
     abstract val scheme: AuthScheme
 
-    /** Canonicalized server base URL (no trailing slash). */
+    /** Service base URL or, for [OpdsOnly], a complete catalog URL. */
     abstract val baseUrl: String
 
     /**
-     * Identifier used by the server to bind rows to a principal. For BASIC,
-     * this is the lowercased calibre-web username; for BEARER, this is the
-     * lowercased email associated with the issued token. See
-     * `docs/sync-api.md` for the server contract.
+     * Identifier for local account ownership. Native accounts use the server-issued
+     * principal ID once available. Older native records use their lowercased email.
      */
     abstract val subject: String
 
     /**
-     * Calibre-web style credentials (HTTP Basic).
+     * Legacy shared Calibre-Web credentials (HTTP Basic).
      *
      * [quireServerUrl] optionally routes sync/library/AI calls to a different
      * host than the OPDS catalog at [baseUrl]. Null means "use [baseUrl] for
@@ -41,9 +38,7 @@ sealed class AccountCredentials {
      * share the same Basic credential — the operator is responsible for
      * configuring quire-server's `QUIRE_SERVER_CWA_BASE_URL` to validate
      * incoming Basic headers against the same calibre-web instance.
-     *
-     * See `docs/superpowers/split-server-urls.md` for the tiered scope and
-     * the deferred BEARER + separate-calibre-web case.
+
      */
     data class Basic(
         override val baseUrl: String,
@@ -79,9 +74,12 @@ sealed class AccountCredentials {
         val email: String,
         val token: String,
         val expiresAtEpochMs: Long? = null,
+        val catalog: OpdsOnly? = null,
+        val accountId: String? = null,
+        val previousHighlightScopes: List<String> = emptyList(),
     ) : AccountCredentials() {
         override val scheme: AuthScheme = AuthScheme.BEARER
-        override val subject: String get() = email.lowercase()
+        override val subject: String get() = accountId ?: email.lowercase()
 
         /**
          * True when this session's [expiresAtEpochMs] is known and is at or
@@ -99,7 +97,7 @@ sealed class AccountCredentials {
     }
 
     /**
-     * A plain OPDS 1.x catalog at an arbitrary URL (Kavita, Komga, a hand-rolled
+     * An OPDS 1.x catalog at an arbitrary URL (Kavita, Komga, a hand-rolled
      * feed, or calibre-web reached by its feed URL rather than its root).
      *
      * [baseUrl] is a COMPLETE catalog URL, used verbatim. Unlike the other two
@@ -117,13 +115,13 @@ sealed class AccountCredentials {
      * catalog, and both non-null for one behind HTTP Basic. One-of-two is not a
      * valid state and the credential store rejects it.
      *
-     * Reader-only by construction: `quireServerUrlOrNull()` returns null for
-     * this variant, which switches off sync, the library mirror and AI.
+     * This can be stored on its own for reading or included in a [Bearer] account.
      */
     data class OpdsOnly(
         override val baseUrl: String,
         val username: String? = null,
         val password: String? = null,
+        val calibre: Boolean = false,
     ) : AccountCredentials() {
         override val scheme: AuthScheme = AuthScheme.OPDS
 
@@ -140,6 +138,24 @@ sealed class AccountCredentials {
         override fun toString(): String =
             "AccountCredentials.OpdsOnly(baseUrl=***, username=$username, password=***)"
     }
+}
+
+/** Credentials and endpoint used for browsing and downloading from the configured catalog. */
+fun AccountCredentials.catalogAccount(): AccountCredentials? = when (this) {
+    is AccountCredentials.Bearer -> catalog
+    else -> this
+}
+
+internal fun AccountCredentials?.independentCatalog(): AccountCredentials.OpdsOnly? = when (this) {
+    is AccountCredentials.OpdsOnly -> this
+    is AccountCredentials.Bearer -> catalog
+    is AccountCredentials.Basic -> AccountCredentials.OpdsOnly(
+        baseUrl = "${baseUrl.trimEnd('/')}/opds",
+        username = username,
+        password = password,
+        calibre = true,
+    )
+    null -> null
 }
 
 private fun sha256Hex(value: String): String =

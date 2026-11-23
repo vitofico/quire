@@ -15,6 +15,11 @@ class HighlightSyncer(
 ) {
     private val mutex = Mutex()
 
+    /** Wait for any previous account's in-flight sync to finish before transferring its rows. */
+    suspend fun moveOwnership(previousScopes: List<String>, targetScope: String) = mutex.withLock {
+        dao.moveOwnership(previousScopes, targetScope)
+    }
+
     suspend fun runOnce(): SyncResult<Unit> = mutex.withLock {
         val session = sessionProvider() ?: return@withLock SyncResult.Success(Unit)
         val key = "highlights:${session.scope}"

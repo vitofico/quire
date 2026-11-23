@@ -2,6 +2,7 @@ package io.theficos.ereader.ui.onboarding
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import io.theficos.ereader.auth.AccountCredentials
 import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.data.opds.CLEARTEXT_BLOCKED_MESSAGE
 import io.theficos.ereader.data.opds.ProbeError
@@ -10,6 +11,7 @@ import io.theficos.ereader.data.opds.ServerProbeResult
 import io.theficos.ereader.data.opds.cleartextBlockedMessage
 import io.theficos.ereader.data.opds.isAcquisitionRel
 import io.theficos.ereader.data.opds.isEpubMediaType
+import io.theficos.ereader.data.opds.normalizeCatalogUrl
 import io.theficos.ereader.data.opds.parseXmlOrNull
 import io.theficos.ereader.ui.UiText
 import io.theficos.ereader.ui.uiText
@@ -30,8 +32,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import okhttp3.Headers
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -67,6 +68,7 @@ class ConnectServerViewModel(
      * verification to its terminal state instead of racing a real thread pool.
      */
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val legacyHighlightScopeFor: (AccountCredentials?, AccountCredentials.Bearer, String?) -> String? = { _, _, _ -> null },
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<UiState>(UiState.Idle)
@@ -74,6 +76,18 @@ class ConnectServerViewModel(
 
     private var probeJob: Job? = null
     private var verifyJob: Job? = null
+
+    private val account = credentialStore.getAccount()
+    private val nativeAccount = account as? AccountCredentials.Bearer
+    private val legacyAccount = account as? AccountCredentials.Basic
+    val initialQuireUrl = when (account) {
+        is AccountCredentials.Bearer -> account.baseUrl
+        is AccountCredentials.Basic -> account.quireServerUrl ?: account.baseUrl
+        else -> ""
+    }
+    val initialQuireEmail = nativeAccount?.email?.takeIf { '@' in it }.orEmpty()
+    private val initialCanonicalQuireUrl = canonicalQuireUrl(initialQuireUrl)
+    val isReauthentication = credentialStore.needsReauth.value && nativeAccount != null
 
     /** Reset any in-flight result, ready for a fresh URL. */
     fun resetToIdle() {
@@ -96,7 +110,7 @@ class ConnectServerViewModel(
      * Verify Basic credentials by issuing a GET to `${base}/opds` with an
      * `Authorization: Basic ...` header. Persist iff the response is 200.
      */
-    fun verifyAndSaveBasic(canonicalBaseUrl: String, username: String, password: String) {
+    fun verifyAndSaveBasic(canonicalBaseUrl: String, username: String, password: String, catalogOnly: Boolean = false) {
         verifyJob?.cancel()
         _state.value = UiState.Verifying
         verifyJob = viewModelScope.launch {
@@ -105,7 +119,11 @@ class ConnectServerViewModel(
             }
             _state.value = when (result) {
                 is VerificationOutcome.OkBasic -> {
-                    credentialStore.saveBasicAccount(canonicalBaseUrl, username, password)
+                    if (catalogOnly || credentialStore.getAccount() is AccountCredentials.Bearer) {
+                        credentialStore.setCatalog(AccountCredentials.OpdsOnly("$canonicalBaseUrl/opds", username, password, calibre = true))
+                    } else {
+                        credentialStore.saveBasicAccount(canonicalBaseUrl, username, password)
+                    }
                     UiState.Completed
                 }
                 is VerificationOutcome.OkBearer -> error("unreachable in basic flow")
@@ -140,27 +158,76 @@ class ConnectServerViewModel(
         password: String,
         pairingTicket: String?,
     ) {
+        val serverUrl = canonicalQuireUrl(canonicalBaseUrl)
+        if (serverUrl == null || (isReauthentication && serverUrl != initialCanonicalQuireUrl)) {
+            _state.value = UiState.VerificationFailed(uiText(R.string.onboarding_invalid_quire_url))
+            return
+        }
         verifyJob?.cancel()
         _state.value = UiState.Verifying
         verifyJob = viewModelScope.launch {
             val result = withContext(ioDispatcher) {
-                runBearerVerification(canonicalBaseUrl, email, password, pairingTicket)
+                runBearerVerification(serverUrl, email.trim(), password, pairingTicket)
             }
             _state.value = when (result) {
                 is VerificationOutcome.OkBearer -> {
-                    credentialStore.saveBearerAccount(
-                        canonicalBaseUrl,
-                        if (pairingTicket != null) result.accountSubject ?: result.accountId ?: email else email,
-                        result.token,
-                        result.expiresAtEpochMs,
-                    )
-                    UiState.Completed
+                    saveNativeAccount(serverUrl, email, result)
                 }
                 is VerificationOutcome.OkBasic -> error("unreachable in bearer flow")
                 is VerificationOutcome.OkOpds -> error("unreachable in bearer flow")
                 is VerificationOutcome.Failure -> UiState.VerificationFailed(result.message)
             }
         }
+    }
+
+    private suspend fun saveNativeAccount(
+        serverUrl: String,
+        inputEmail: String,
+        result: VerificationOutcome.OkBearer,
+    ): UiState {
+        val previous = credentialStore.getAccount()
+        val sameServer = serverUrl == initialCanonicalQuireUrl
+        val identity = if (legacyAccount != null && sameServer) {
+            withContext(ioDispatcher) { fetchNativeIdentity(serverUrl, result.token) }
+                ?: return UiState.VerificationFailed(uiText(R.string.onboarding_legacy_check_failed))
+        } else {
+            null
+        }
+        if (identity != null && result.accountId != null && identity.accountId != result.accountId) {
+            return UiState.VerificationFailed(uiText(R.string.onboarding_legacy_check_failed))
+        }
+
+        val email = result.accountSubject ?: inputEmail.trim().ifEmpty { result.accountId.orEmpty() }
+        val existingId = nativeAccount?.accountId ?: nativeAccount?.email?.takeIf(::isNativeAccountId)
+        val verifiedId = identity?.accountId ?: result.accountId
+        val sameNativeAccount = if (existingId != null && verifiedId != null) {
+            existingId == verifiedId
+        } else {
+            email.equals(nativeAccount?.email, ignoreCase = true)
+        }
+        if (isReauthentication && !sameNativeAccount) {
+            return UiState.VerificationFailed(uiText(R.string.onboarding_quire_reauth_same_account))
+        }
+        if (credentialStore.getAccount() != previous) {
+            return UiState.VerificationFailed(uiText(R.string.onboarding_quire_connection_changed))
+        }
+
+        val candidate = AccountCredentials.Bearer(
+            baseUrl = serverUrl,
+            email = email,
+            token = result.token,
+            expiresAtEpochMs = result.expiresAtEpochMs,
+            accountId = verifiedId ?: existingId?.takeIf { sameServer && sameNativeAccount },
+        )
+        credentialStore.saveBearerAccount(
+            baseUrl = candidate.baseUrl,
+            email = candidate.email,
+            token = candidate.token,
+            expiresAtEpochMs = candidate.expiresAtEpochMs,
+            accountId = candidate.accountId,
+            previousHighlightScope = legacyHighlightScopeFor(previous, candidate, identity?.legacyCalibreUserId),
+        )
+        return UiState.Completed
     }
 
     /**
@@ -182,7 +249,7 @@ class ConnectServerViewModel(
             }
             _state.value = when (result) {
                 is VerificationOutcome.OkOpds -> {
-                    credentialStore.saveOpdsAccount(catalogUrl, username, password)
+                    credentialStore.setCatalog(AccountCredentials.OpdsOnly(catalogUrl, username, password))
                     UiState.Completed
                 }
                 is VerificationOutcome.Failure -> UiState.VerificationFailed(result.message)
@@ -347,7 +414,7 @@ class ConnectServerViewModel(
                     200 -> {
                         val body = resp.body?.string().orEmpty()
                         val parsed = parseLogin(body)
-                        if (parsed == null || parsed.token.isBlank()) {
+                        if (parsed == null || parsed.token.isBlank() || parsed.token.any(Char::isWhitespace)) {
                             VerificationOutcome.Failure(
                                 uiText(R.string.onboarding_server_returned_200_but_the_response_didn),
                             )
@@ -378,6 +445,32 @@ class ConnectServerViewModel(
         }
     }
 
+    private fun canonicalQuireUrl(value: String): String? =
+        normalizeCatalogUrl(value)?.takeUnless { '?' in it }?.trimEnd('/')
+
+    private data class NativeIdentity(val accountId: String, val legacyCalibreUserId: String?)
+
+    private fun fetchNativeIdentity(serverUrl: String, token: String): NativeIdentity? {
+        val request = Request.Builder()
+            .url("$serverUrl/auth/v1/me")
+            .header("Accept", "application/json")
+            .header("Authorization", "Bearer $token")
+            .build()
+        return runCatching {
+            onboardingClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return null
+                val payload = Json.parseToJsonElement(response.body?.string().orEmpty()) as? JsonObject
+                val user = payload?.get("user") as? JsonObject ?: return null
+                if ((user["backend"] as? JsonPrimitive)?.contentOrNull != "native") return null
+                val accountId = (user["id"] as? JsonPrimitive)?.contentOrNull
+                    ?.takeIf(::isNativeAccountId) ?: return null
+                NativeIdentity(accountId, (user["legacy_calibre_user_id"] as? JsonPrimitive)?.contentOrNull)
+            }
+        }.getOrNull()
+    }
+
+    private fun isNativeAccountId(value: String): Boolean = value.matches(Regex("native:[1-9][0-9]{0,17}"))
+
     /** Token plus optional absolute expiry, parsed from a login response. */
     private data class ParsedLogin(val token: String, val expiresAtEpochMs: Long?, val accountId: String?, val accountSubject: String?)
 
@@ -390,12 +483,12 @@ class ConnectServerViewModel(
      */
     private fun parseLogin(body: String): ParsedLogin? = runCatching {
         val parsed = Json.parseToJsonElement(body) as? JsonObject ?: return null
-        val token = (parsed["token"] as? JsonPrimitive)?.content ?: return null
-        val expiresAt = (parsed["expires_at"] as? JsonPrimitive)?.content
+        val token = (parsed["token"] as? JsonPrimitive)?.contentOrNull ?: return null
+        val expiresAt = (parsed["expires_at"] as? JsonPrimitive)?.contentOrNull
             ?.let { raw -> runCatching { OffsetDateTime.parse(raw).toInstant().toEpochMilli() }.getOrNull() }
-        val accountId = (parsed["account_id"] as? JsonPrimitive)?.content
-            ?.takeIf { it.matches(Regex("native:[1-9][0-9]{0,17}")) }
-        val accountSubject = (parsed["account_subject"] as? JsonPrimitive)?.content
+        val accountId = (parsed["account_id"] as? JsonPrimitive)?.contentOrNull
+            ?.takeIf(::isNativeAccountId)
+        val accountSubject = (parsed["account_subject"] as? JsonPrimitive)?.contentOrNull
             ?.takeIf { it.isNotBlank() && it.length <= 320 }
         ParsedLogin(token, expiresAt, accountId, accountSubject)
     }.getOrNull()

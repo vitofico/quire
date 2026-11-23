@@ -12,8 +12,10 @@ abstract class HighlightSyncDao {
     @Query("SELECT * FROM highlights WHERE ownerScope = :scope AND (syncedAt IS NULL OR syncedAt != updatedAt) AND (:supportsComments OR (comment IS NULL AND NOT commentCleared)) ORDER BY id LIMIT :limit")
     abstract suspend fun dirty(scope: String, supportsComments: Boolean = true, limit: Int = 500): List<HighlightEntity>
 
-    @Query("SELECT * FROM highlights WHERE ownerScope = ''")
-    abstract suspend fun unowned(): List<HighlightEntity>
+    suspend fun unowned(): List<HighlightEntity> = ownedBy("")
+
+    @Query("SELECT * FROM highlights WHERE ownerScope = :scope")
+    abstract suspend fun ownedBy(scope: String): List<HighlightEntity>
 
     @Query("SELECT * FROM highlights WHERE ownerScope = :scope AND id = :id")
     abstract suspend fun find(scope: String, id: String): HighlightEntity?
@@ -21,8 +23,8 @@ abstract class HighlightSyncDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun put(row: HighlightEntity)
 
-    @Query("DELETE FROM highlights WHERE ownerScope = '' AND id = :id")
-    abstract suspend fun deleteUnowned(id: String)
+    @Query("DELETE FROM highlights WHERE ownerScope = :scope")
+    abstract suspend fun deleteOwnedBy(scope: String)
 
     @Query("INSERT OR REPLACE INTO sync_state (tableName, lastPulledAt) VALUES (:key, :cursor)")
     abstract suspend fun setCursor(key: String, cursor: Long)
@@ -31,18 +33,32 @@ abstract class HighlightSyncDao {
     @Transaction
     open suspend fun claimUnowned(scope: String) {
         require(scope.isNotEmpty())
-        for (row in unowned()) {
+        transferScope("", scope)
+    }
+
+    /** Called only after a confirmed association of both scopes to the same principal. */
+    @Transaction
+    open suspend fun moveOwnership(previousScopes: List<String>, scope: String) {
+        require(scope.isNotEmpty())
+        for (previous in previousScopes) {
+            if (previous.isNotEmpty() && previous != scope) transferScope(previous, scope)
+        }
+    }
+
+    private suspend fun transferScope(previousScope: String, scope: String) {
+        for (row in ownedBy(previousScope)) {
             val existing = find(scope, row.id)
             val version = maxOf(row.identityHashVersion, existing?.identityHashVersion ?: 1)
             val candidate = row.copy(ownerScope = scope, identityHashVersion = version, syncedAt = null)
             val normalizedExisting = existing?.copy(identityHashVersion = version)
-            if (normalizedExisting == null || compareHighlights(candidate, normalizedExisting) > 0) {
+            val comparison = normalizedExisting?.let { compareHighlights(candidate, it) } ?: 1
+            if (comparison > 0 || (comparison == 0 && candidate.commentCleared && existing?.commentCleared != true)) {
                 put(candidate)
-            } else if (existing.identityHashVersion != version) {
-                put(normalizedExisting.copy(syncedAt = null))
+            } else if (existing != null && existing.identityHashVersion != version) {
+                put(existing.copy(identityHashVersion = version, syncedAt = null))
             }
-            deleteUnowned(row.id)
         }
+        deleteOwnedBy(previousScope)
     }
 
     /**

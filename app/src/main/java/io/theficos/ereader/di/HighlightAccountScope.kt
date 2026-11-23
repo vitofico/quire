@@ -6,7 +6,7 @@ import java.security.MessageDigest
 import java.util.Base64
 import okhttp3.HttpUrl.Companion.toHttpUrl
 
-/** Password/token refresh preserves ownership; server, catalog, scheme or subject changes do not. */
+/** Password/token refresh preserves ownership; changes to the owning server or principal do not. */
 internal fun AccountCredentials?.highlightScope(): String {
     val account = this ?: return ""
     val server = account.quireServerUrlOrNull()
@@ -33,4 +33,20 @@ internal fun AccountCredentials?.highlightSession(): HighlightSyncSession? {
         is AccountCredentials.OpdsOnly -> return null
     }
     return HighlightSyncSession(account.highlightScope(), base, authorization)
+}
+
+
+internal fun AccountCredentials?.previousHighlightScope(
+    native: AccountCredentials.Bearer,
+    linkedLegacyId: String?,
+): String? {
+    val priorServer = this?.quireServerUrlOrNull()?.toHttpUrl()?.toString()?.trimEnd('/') ?: return null
+    if (priorServer != native.baseUrl.toHttpUrl().toString().trimEnd('/')) return null
+    val matched = when (this) {
+        is AccountCredentials.Basic -> linkedLegacyId == subject
+        is AccountCredentials.Bearer -> accountId == null && native.accountId != null &&
+            email.equals(native.email, ignoreCase = true)
+        else -> false
+    }
+    return if (matched) highlightScope() else null
 }

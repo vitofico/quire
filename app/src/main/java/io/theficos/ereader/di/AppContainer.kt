@@ -2,6 +2,7 @@ package io.theficos.ereader.di
 
 import android.content.Context
 import io.theficos.ereader.auth.AccountCredentials
+import io.theficos.ereader.auth.catalogAccount
 import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.core.identity.extractIdentity
 import io.theficos.ereader.core.metadata.readOpfBundle
@@ -26,7 +27,6 @@ import io.theficos.ereader.data.opds.OpdsClient
 import io.theficos.ereader.data.opds.OpdsHttpClient
 import io.theficos.ereader.data.opds.OpenLibraryClient
 import io.theficos.ereader.data.sync.HighlightSyncer
-import io.theficos.ereader.data.sync.HighlightSyncSession
 import io.theficos.ereader.data.sync.SyncClient
 import io.theficos.ereader.data.sync.SyncDependencies
 import io.theficos.ereader.data.sync.SyncEnqueuer
@@ -121,22 +121,23 @@ class AppContainer internal constructor(context: Context, private val db: EReade
 
     val syncClient: SyncClient = SyncClient(
         baseUrlProvider = { credentialStore.getAccount()?.quireServerUrlOrNull() },
-        okHttp = opdsHttp.okHttp,
+        okHttp = opdsHttp.quireHttp,
+    )
+    private val highlightSyncer = HighlightSyncer(
+        syncClient, db.highlightSyncDao(), syncStateDao,
+        sessionProvider = { credentialStore.getAccount().highlightSession() },
     )
     val syncOrchestrator: SyncOrchestrator = SyncOrchestrator(
         client = syncClient,
         progressDao = db.progressDao(),
         documentRepo = documentRepository,
         syncState = syncStateDao,
-        highlights = HighlightSyncer(
-            syncClient, db.highlightSyncDao(), syncStateDao,
-            sessionProvider = { credentialStore.getAccount().highlightSession() },
-        ),
+        highlights = highlightSyncer,
     )
 
     val aiClient: AiClient = AiClient(
         baseUrlProvider = { credentialStore.getAccount()?.quireServerUrlOrNull() },
-        http = opdsHttp.okHttp,
+        http = opdsHttp.quireHttp,
     )
     val insightDao = db.insightDao()
 
@@ -148,20 +149,13 @@ class AppContainer internal constructor(context: Context, private val db: EReade
      */
     val catalogInsightStash: CatalogInsightStash = CatalogInsightStash()
 
-    /**
-     * Subject identifier used to partition the [catalogInsightStash] and
-     * the promote alias. Delegated to [AccountCredentials.subject] so the
-     * scheme owns the canonical form: lowercased calibre-web username for
-     * BASIC, lowercased email for BEARER. Matches the server's
-     * `principal.subject` derivation in both `auth_mode=basic` and
-     * `auth_mode=token`. See `docs/sync-api.md`.
-     */
+    /** Account ownership of catalog insight promotion on this device. */
     private fun currentSubject(): String? =
         credentialStore.getAccount()?.subject
 
     val libraryClient: LibraryClient = LibraryClient(
         baseUrlProvider = { credentialStore.getAccount()?.quireServerUrlOrNull() },
-        http = opdsHttp.okHttp,
+        http = opdsHttp.quireHttp,
     )
 
     /**
@@ -386,6 +380,20 @@ class AppContainer internal constructor(context: Context, private val db: EReade
     suspend fun runRestoreInProgress(onProgress: (Int, Int) -> Unit): RestoreSummary =
         withContext(Dispatchers.IO) { restoreInProgressUseCase().run(onProgress) }
 
+    fun legacyHighlightScopeFor(
+        priorAccount: AccountCredentials?,
+        native: AccountCredentials.Bearer,
+        legacyCalibreUserId: String?,
+    ): String? = priorAccount.previousHighlightScope(native, legacyCalibreUserId)
+
+    private suspend fun migrateHighlights(account: AccountCredentials.Bearer) {
+        val previous = account.previousHighlightScopes
+        if (previous.isEmpty()) return
+        highlightSyncer.moveOwnership(previous, account.highlightScope())
+        credentialStore.completeHighlightMigration(account, previous)
+        SyncEnqueuer.enqueue(appContext)
+    }
+
     private suspend fun readOpfBytes(doc: Document): ByteArray? = withContext(Dispatchers.IO) {
         runCatching {
             java.util.zip.ZipFile(doc.localPath).use { zip ->
@@ -422,18 +430,30 @@ class AppContainer internal constructor(context: Context, private val db: EReade
         LibraryMirrorPushDependencies.holder = LibraryMirrorPushDependencies.Holder(
             client = libraryClient,
             dao = db.documentDao(),
-            credentials = CredentialsProvider { credentialStore.get() != null },
+            credentials = CredentialsProvider { credentialStore.getAccount()?.quireServerUrlOrNull() != null },
         )
+        libraryUploaderScope.launch {
+            credentialStore.accountFlow.collect { account ->
+                if (account is AccountCredentials.Bearer) {
+                    try {
+                        migrateHighlights(account)
+                    } catch (e: android.database.SQLException) {
+                        // Keep the pending migration persisted for retry on the next app start.
+                        android.util.Log.w("AppContainer", "Couldn't transfer highlight ownership", e)
+                    }
+                }
+            }
+        }
         // PR-ζ: clear the catalog stash whenever the server base URL
         // changes (different deploy → entries are no longer relevant). The
         // AI opt-out toggle hook lives in PR-δ (Bundle 3); until then a
         // stale stash entry is harmless — its TTL expires within 30 min.
         libraryUploaderScope.launch {
-            var seen: String? = credentialStore.getAccount()?.baseUrl
+            var seen = credentialStore.getAccount()?.let { it.subject to it.catalogAccount()?.baseUrl }
             // Observe the scheme-aware account flow so a BASIC → BEARER
             // re-onboarding (different baseUrl) also clears the stash.
             credentialStore.accountFlow.collect { account ->
-                val next = account?.baseUrl
+                val next = account?.let { it.subject to it.catalogAccount()?.baseUrl }
                 if (next != seen) {
                     seen = next
                     catalogInsightStash.clearAll()

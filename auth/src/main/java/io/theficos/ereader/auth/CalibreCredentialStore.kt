@@ -12,24 +12,9 @@ import java.io.IOException
 import java.security.GeneralSecurityException
 
 /**
- * On-device credential store.
- *
- * Historically this was strictly a calibre-web (HTTP Basic) credential cache;
- * the class name is retained so existing callers don't churn. As of A-1 it
- * supports two account schemes — BASIC (calibre-web) and BEARER (Native-auth
- * `quire_server` / Quire Cloud) — selected at save time by the caller via
- * [saveBasicAccount] / [saveBearerAccount]. Onboarding UI (task A-2) is the
- * intended caller; this layer carries no probing or scheme detection logic.
- *
- * Storage backing is [EncryptedSharedPreferences]. Each save writes
- * scheme-specific keys and removes inverse-scheme keys in one editor
- * transaction; mutations are serialized under an intrinsic lock so the
- * stored record and the observable flows can't diverge.
- *
- * Backwards compatibility: pre-A-1 records (no `scheme` key) are treated as
- * BASIC if `base_url` + `username` + `password` are present. The scheme key
- * is best-effort backfilled on first load so subsequent reads don't keep
- * inferring.
+ * Encrypted local storage for the Quire login and the catalog connection.
+ * A legacy record without a scheme is interpreted as a shared Basic account.
+ * Writes are serialized with observable state updates and persist both connections together.
  */
 class CalibreCredentialStore(context: Context) {
 
@@ -153,7 +138,23 @@ class CalibreCredentialStore(context: Context) {
         email: String,
         token: String,
         expiresAtEpochMs: Long? = null,
-    ) {
+        accountId: String? = null,
+        previousHighlightScope: String? = null,
+    ) = synchronized(mutationLock) {
+        saveBearerAccount(
+            baseUrl, email, token, expiresAtEpochMs, getAccount().independentCatalog(), accountId, previousHighlightScope,
+        )
+    }
+
+    fun saveBearerAccount(
+        baseUrl: String,
+        email: String,
+        token: String,
+        expiresAtEpochMs: Long? = null,
+        catalog: AccountCredentials.OpdsOnly?,
+        accountId: String? = null,
+        previousHighlightScope: String? = null,
+    ) = synchronized(mutationLock) {
         require(baseUrl.isNotBlank()) { "baseUrl must not be blank" }
         require(email.isNotBlank()) { "email must not be blank" }
         require(token.isNotBlank()) { "token must not be blank" }
@@ -165,8 +166,26 @@ class CalibreCredentialStore(context: Context) {
             email = email,
             token = token,
             expiresAtEpochMs = expiresAtEpochMs,
+            catalog = catalog?.validatedCatalog(),
+            accountId = accountId?.takeIf { it.isNotBlank() },
         )
-        persistAccount(account)
+        val previous = getAccount() as? AccountCredentials.Bearer
+        val pending = if (previous != null && previous.baseUrl == account.baseUrl &&
+            (previous.subject == account.subject || previousHighlightScope != null)
+        ) previous.previousHighlightScopes else emptyList()
+        persistAccount(account.copy(previousHighlightScopes = (pending + listOfNotNull(previousHighlightScope)).distinct()))
+    }
+
+    /** Mark already transferred scopes so a restarted app only retries pending work. */
+    fun completeHighlightMigration(account: AccountCredentials.Bearer, scopes: List<String>) {
+        synchronized(mutationLock) {
+            val current = getAccount() as? AccountCredentials.Bearer ?: return
+            if (current.baseUrl != account.baseUrl || current.subject != account.subject) return
+            val remaining = current.previousHighlightScopes - scopes.toSet()
+            if (remaining != current.previousHighlightScopes) {
+                persistAccount(current.copy(previousHighlightScopes = remaining), preserveReauth = true)
+            }
+        }
     }
 
     /**
@@ -186,20 +205,41 @@ class CalibreCredentialStore(context: Context) {
         catalogUrl: String,
         username: String? = null,
         password: String? = null,
+        calibre: Boolean = false,
     ) {
-        require(catalogUrl.isNotBlank()) { "catalogUrl must not be blank" }
+        persistAccount(AccountCredentials.OpdsOnly(catalogUrl, username, password, calibre).validatedCatalog())
+    }
+
+    /** Replace the independent catalog while keeping the current Quire session. */
+    fun setCatalog(catalog: AccountCredentials.OpdsOnly?) {
+        synchronized(mutationLock) {
+            val validated = catalog?.validatedCatalog()
+            val account = getAccount()
+            when {
+                account is AccountCredentials.Bearer ->
+                    persistAccount(account.copy(catalog = validated), preserveReauth = true)
+                validated != null -> persistAccount(validated)
+                else -> clear()
+            }
+        }
+    }
+
+    /** Disconnect Quire services while retaining the independent catalog. */
+    fun disconnectQuire() {
+        synchronized(mutationLock) {
+            val catalog = getAccount().independentCatalog()
+            if (catalog == null) clear() else persistAccount(catalog)
+        }
+    }
+
+    private fun AccountCredentials.OpdsOnly.validatedCatalog(): AccountCredentials.OpdsOnly {
+        require(baseUrl.isNotBlank()) { "catalogUrl must not be blank" }
         val user = username?.takeIf { it.isNotBlank() }
         val pass = password?.takeIf { it.isNotBlank() }
         require((user == null) == (pass == null)) {
             "username and password must both be set or both be absent"
         }
-        persistAccount(
-            AccountCredentials.OpdsOnly(
-                baseUrl = catalogUrl.trim(),
-                username = user,
-                password = pass,
-            )
-        )
+        return copy(baseUrl = baseUrl.trim(), username = user, password = pass)
     }
 
     /**
@@ -211,9 +251,10 @@ class CalibreCredentialStore(context: Context) {
      * raises the signal the UI observes. No-op for Basic accounts and when no
      * account is configured.
      */
-    fun notifyUnauthorized() {
+    fun notifyUnauthorized(rejectedSession: AccountCredentials.Bearer? = null) {
         synchronized(mutationLock) {
-            if (_accountFlow.value is AccountCredentials.Bearer) {
+            val current = getAccount() as? AccountCredentials.Bearer ?: return
+            if (rejectedSession == null || current.baseUrl == rejectedSession.baseUrl && current.token == rejectedSession.token) {
                 _needsReauth.value = true
             }
         }
@@ -250,7 +291,7 @@ class CalibreCredentialStore(context: Context) {
         }
     }
 
-    private fun persistAccount(account: AccountCredentials) {
+    private fun persistAccount(account: AccountCredentials, preserveReauth: Boolean = false) {
         synchronized(mutationLock) {
             // One editor transaction writes the new shape and removes any
             // keys from the inverse scheme so we never end up with mixed
@@ -300,6 +341,19 @@ class CalibreCredentialStore(context: Context) {
                     }
                 }
             }
+            val catalog = (account as? AccountCredentials.Bearer)?.catalog
+            val bearer = account as? AccountCredentials.Bearer
+            val accountId = bearer?.accountId
+            val highlightScopes = bearer?.previousHighlightScopes.orEmpty()
+            editor.apply {
+                if (highlightScopes.isEmpty()) remove(KEY_PREVIOUS_HIGHLIGHT_SCOPES)
+                else putString(KEY_PREVIOUS_HIGHLIGHT_SCOPES, highlightScopes.joinToString(":"))
+                if (accountId == null) remove(KEY_ACCOUNT_ID) else putString(KEY_ACCOUNT_ID, accountId)
+                if (catalog == null) remove(KEY_CATALOG_URL) else putString(KEY_CATALOG_URL, catalog.baseUrl)
+                if (catalog?.username == null) remove(KEY_CATALOG_USER) else putString(KEY_CATALOG_USER, catalog.username)
+                if (catalog?.password == null) remove(KEY_CATALOG_PASS) else putString(KEY_CATALOG_PASS, catalog.password)
+                putBoolean(KEY_CATALOG_CALIBRE, (catalog ?: account as? AccountCredentials.OpdsOnly)?.calibre == true)
+            }
             val committed = editor.commit()
             if (!committed) {
                 // Don't update the in-memory flows when persistence failed —
@@ -310,9 +364,7 @@ class CalibreCredentialStore(context: Context) {
             }
             _accountFlow.value = account
             _flow.value = account.asLegacyBasicOrNull()
-            // A fresh save is a (re-)authentication: any pending re-auth
-            // signal is now satisfied.
-            _needsReauth.value = false
+            if (!preserveReauth) _needsReauth.value = false
         }
     }
 
@@ -360,20 +412,25 @@ class CalibreCredentialStore(context: Context) {
                 } else {
                     null
                 }
-                AccountCredentials.Bearer(baseUrl, email, token, expiresAt)
-            }
-            AuthScheme.OPDS -> {
-                // Credentials are optional here, so a missing username is a
-                // valid anonymous account rather than a corrupt record. Only
-                // accept the pair when both halves are present.
-                val user = prefs.getString(KEY_USER, null)
-                val pass = prefs.getString(KEY_PASS, null)
-                if (user != null && pass != null) {
-                    AccountCredentials.OpdsOnly(baseUrl, user, pass)
-                } else {
-                    AccountCredentials.OpdsOnly(baseUrl)
+                val catalog = prefs.getString(KEY_CATALOG_URL, null)?.let { catalogUrl ->
+                    readCatalog(catalogUrl, KEY_CATALOG_USER, KEY_CATALOG_PASS)
                 }
+                val accountId = prefs.getString(KEY_ACCOUNT_ID, null)
+                val highlightScopes = prefs.getString(KEY_PREVIOUS_HIGHLIGHT_SCOPES, null)?.split(':').orEmpty()
+                AccountCredentials.Bearer(baseUrl, email, token, expiresAt, catalog, accountId, highlightScopes)
             }
+            AuthScheme.OPDS -> readCatalog(baseUrl, KEY_USER, KEY_PASS)
+        }
+    }
+
+    private fun readCatalog(baseUrl: String, userKey: String, passKey: String): AccountCredentials.OpdsOnly {
+        val user = prefs.getString(userKey, null)
+        val pass = prefs.getString(passKey, null)
+        val calibre = prefs.getBoolean(KEY_CATALOG_CALIBRE, false)
+        return if (user != null && pass != null) {
+            AccountCredentials.OpdsOnly(baseUrl, user, pass, calibre)
+        } else {
+            AccountCredentials.OpdsOnly(baseUrl, calibre = calibre)
         }
     }
 
@@ -393,6 +450,12 @@ class CalibreCredentialStore(context: Context) {
         const val KEY_TOKEN = "token"
         const val KEY_EXPIRES_AT = "expires_at_epoch_ms"
         const val KEY_QUIRE_SERVER_URL = "quire_server_url"
+        const val KEY_PREVIOUS_HIGHLIGHT_SCOPES = "previous_highlight_scopes"
+        const val KEY_ACCOUNT_ID = "account_id"
+        const val KEY_CATALOG_URL = "catalog_url"
+        const val KEY_CATALOG_USER = "catalog_username"
+        const val KEY_CATALOG_PASS = "catalog_password"
+        const val KEY_CATALOG_CALIBRE = "catalog_calibre"
 
         /**
          * Opens the encrypted prefs, starting them over empty when they can't be decrypted. That

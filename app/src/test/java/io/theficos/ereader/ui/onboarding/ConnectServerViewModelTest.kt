@@ -57,9 +57,12 @@ class ConnectServerViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun newViewModel(): ConnectServerViewModel = ConnectServerViewModel(
+    private fun newViewModel(
+        legacyHighlightScopeFor: (AccountCredentials?, AccountCredentials.Bearer, String?) -> String? = { _, _, _ -> null },
+    ): ConnectServerViewModel = ConnectServerViewModel(
         credentialStore = store,
         ioDispatcher = testDispatcher,
+        legacyHighlightScopeFor = legacyHighlightScopeFor,
     )
 
     // ---------- issue #101 ----------
@@ -190,6 +193,96 @@ class ConnectServerViewModelTest {
         val result = vm.state.value as ConnectServerViewModel.UiState.VerificationFailed
         assertThat(result.message.asString(englishContext())).contains("expired")
         assertThat(store.getAccount()).isNull()
+    }
+
+    @Test fun `native sign in keeps an independent OPDS catalog`() = runTest {
+        val catalog = "https://books.example/reader/catalog"
+        store.saveOpdsAccount(catalog, "alice", "catalog-password")
+        server.enqueue(
+            MockResponse().setResponseCode(200)
+                .setBody("""{"token":"quire-token","account_id":"native:42"}"""),
+        )
+
+        val vm = newViewModel()
+        vm.verifyAndSaveBearer(server.url("/quire/").toString(), "alice@example.com", "quire-password")
+        advanceUntilIdle()
+
+        assertThat(vm.state.value).isEqualTo(ConnectServerViewModel.UiState.Completed)
+        val saved = store.getAccount() as AccountCredentials.Bearer
+        assertThat(saved.accountId).isEqualTo("native:42")
+        assertThat(saved.catalog?.baseUrl).isEqualTo(catalog)
+        assertThat(saved.catalog?.password).isEqualTo("catalog-password")
+        assertThat(server.awaitRequest().path).isEqualTo("/quire/auth/v1/login")
+    }
+
+    @Test fun `same-server legacy sign in uses authenticated binding and keeps calibre web`() = runTest {
+        val serverUrl = server.url("/quire").toString()
+        val calibreUrl = "https://books.example"
+        store.saveBasicAccount(calibreUrl, "alice", "catalog-password", serverUrl)
+        val prior = store.getAccount()
+        server.enqueue(
+            MockResponse().setResponseCode(200)
+                .setBody("""{"token":"quire-token","account_id":"native:42"}"""),
+        )
+        server.enqueue(
+            MockResponse().setResponseCode(200)
+                .setBody("""{"user":{"id":"native:42","backend":"native","legacy_calibre_user_id":"alice"}}"""),
+        )
+        val vm = newViewModel { previous, candidate, legacyId ->
+            assertThat(previous).isEqualTo(prior)
+            assertThat(candidate.accountId).isEqualTo("native:42")
+            assertThat(legacyId).isEqualTo("alice")
+            "legacy-highlight-scope"
+        }
+
+        vm.verifyAndSaveBearer(serverUrl, "alice@example.com", "quire-password")
+        advanceUntilIdle()
+
+        assertThat(vm.state.value).isEqualTo(ConnectServerViewModel.UiState.Completed)
+        val saved = store.getAccount() as AccountCredentials.Bearer
+        assertThat(saved.catalog?.baseUrl).isEqualTo("$calibreUrl/opds")
+        assertThat(saved.catalog?.calibre).isTrue()
+        assertThat(saved.previousHighlightScopes).containsExactly("legacy-highlight-scope")
+        server.awaitRequest()
+        val me = server.awaitRequest()
+        assertThat(me.path).isEqualTo("/quire/auth/v1/me")
+        assertThat(me.getHeader("Authorization")).isEqualTo("Bearer quire-token")
+    }
+
+    @Test fun `legacy identity check failure leaves the previous account available for retry`() = runTest {
+        val serverUrl = server.url("/quire").toString()
+        store.saveBasicAccount("https://books.example", "alice", "catalog-password", serverUrl)
+        val prior = store.getAccount()
+        server.enqueue(
+            MockResponse().setResponseCode(200)
+                .setBody("""{"token":"quire-token","account_id":"native:42"}"""),
+        )
+        server.enqueue(MockResponse().setResponseCode(503))
+        val vm = newViewModel { _, _, _ -> error("Adoption requires authenticated identity") }
+
+        vm.verifyAndSaveBearer(serverUrl, "alice@example.com", "quire-password")
+        advanceUntilIdle()
+
+        assertThat(vm.state.value).isInstanceOf(ConnectServerViewModel.UiState.VerificationFailed::class.java)
+        assertThat(store.getAccount()).isEqualTo(prior)
+    }
+
+    @Test fun `reauthentication cannot replace the expired account with another user`() = runTest {
+        val serverUrl = server.url("/quire").toString()
+        store.saveBearerAccount(serverUrl, "alice@example.com", "old-token", accountId = "native:42")
+        store.notifyUnauthorized()
+        server.enqueue(
+            MockResponse().setResponseCode(200)
+                .setBody("""{"token":"other-token","account_id":"native:43"}"""),
+        )
+        val vm = newViewModel()
+
+        assertThat(vm.isReauthentication).isTrue()
+        vm.verifyAndSaveBearer(serverUrl, "other@example.com", "quire-password")
+        advanceUntilIdle()
+
+        assertThat(vm.state.value).isInstanceOf(ConnectServerViewModel.UiState.VerificationFailed::class.java)
+        assertThat((store.getAccount() as AccountCredentials.Bearer).token).isEqualTo("old-token")
     }
 
 }

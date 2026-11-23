@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="quire_account_title">Compte Quire</string>
+    <string name="quire_account_url">URL du serveur Quire</string>
+    <string name="quire_account_connected">Connexion à Quire établie</string>
+    <string name="quire_account_expired">Ta session Quire a expiré. Reconnecte-toi pour reprendre la synchronisation et utiliser les fonctions d’IA.</string>
+    <string name="quire_account_legacy">Quire utilise une ancienne connexion Calibre-Web. Si tu synchronises déjà tes données, demande à la personne qui gère ton serveur Quire de lier ton ancien compte avant de te connecter afin de les conserver.</string>
+    <string name="quire_account_sign_in">Se connecter à Quire</string>
+    <string name="quire_account_sign_in_again">Se reconnecter à Quire</string>
+    <string name="quire_account_sign_in_description">Connecte-toi à ton serveur Quire pour la synchronisation et les fonctions d’IA. Tu peux garder ton catalogue de livres numériques sur un autre serveur.</string>
+    <string name="quire_account_sign_out">Déconnecter Quire sur cet appareil</string>
+    <string name="quire_account_sign_out_confirm">La déconnexion met en pause la synchronisation et les fonctions d’IA. Les livres téléchargés et les catalogues configurés séparément restent disponibles.</string>
+    <string name="quire_account_back">Retour</string>
+    <string name="quire_account_calibre_catalog">Catalogue Calibre-Web</string>
+    <string name="quire_account_legacy_catalog_hint">Connecte-toi à Quire séparément avant de remplacer l’ancien catalogue Calibre-Web par un autre catalogue OPDS.</string>
+    <string name="quire_account_using_opds">Ce catalogue OPDS est utilisé pour les livres numériques.</string>
+    <string name="onboarding_invalid_quire_url">Saisis l’adresse du serveur en commençant par http:// ou https:// et indique le sous-chemin, le cas échéant.</string>
+    <string name="onboarding_legacy_check_failed">Quire n’a pas pu vérifier le compte sur ce serveur. Essaie de te reconnecter. Ta connexion actuelle reste active.</string>
+    <string name="onboarding_quire_reauth_same_account">Connecte-toi avec le même compte Quire qu’auparavant.</string>
+    <string name="onboarding_quire_connection_changed">Tes connexions ont changé pendant la connexion. Ouvre les paramètres de Quire et réessaie.</string>
+    <string name="quire_account_catalog_missing">Connecte un catalogue de livres numériques dans les paramètres.</string>
+    <string name="quire_account_using_calibre">Ce catalogue Calibre-Web est utilisé pour les livres numériques.</string>
+    <string name="quire_account_remove_catalog">Déconnecter le catalogue</string>
+    <string name="quire_account_choose_first_connection">Cette adresse propose un catalogue Calibre-Web et un compte Quire. Choisis lequel configurer en premier. Tu peux ajouter l’autre dans les paramètres.</string>
+    <string name="quire_account_catalog_then_sync">Tu peux ajouter un compte Quire dans les paramètres pour synchroniser ta progression de lecture et utiliser les fonctions d’IA.</string>
+</resources>

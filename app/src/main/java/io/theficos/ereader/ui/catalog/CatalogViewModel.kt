@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.theficos.ereader.auth.AccountCredentials
+import io.theficos.ereader.auth.catalogAccount
 import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.core.identity.extractIdentity
 import io.theficos.ereader.core.metadata.readOpfBundle
@@ -33,6 +34,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -73,23 +75,25 @@ class CatalogViewModel(
 
     init {
         viewModelScope.launch {
-            // Observe the full account so credential changes retry a failed
-            // catalog even when its URL stays the same. StateFlow suppresses
-            // identical accounts without dropping username/password changes.
+            // Reload when the catalog or its authentication changes, including
+            // a password correction at the same URL.
             credentialStore.accountFlow
-                .collect { account ->
-                    if (!account?.baseUrl.isNullOrBlank()) loadRoot()
-                }
+                .map { it?.catalogAccount() }
+                .distinctUntilChanged()
+                .collect { loadRoot() }
         }
     }
 
     fun loadRoot() {
-        val account = credentialStore.getAccount()
+        val account = credentialStore.getAccount()?.catalogAccount()
+        backStack.clear()
+        failedSearch = null
+        _isRefreshing.value = false
         if (account == null || account.baseUrl.isBlank()) {
-            _state.value = CatalogUiState.Error(uiText(R.string.catalog_configure_a_server_in_settings_first))
+            _state.value = CatalogUiState.Error(uiText(R.string.quire_account_catalog_missing))
             return
         }
-        backStack.clear()
+        _state.value = CatalogUiState.Loading
         load(rootUrlFor(account))
     }
 
@@ -111,9 +115,11 @@ class CatalogViewModel(
         failedSearch = null
         val current = _state.value as? CatalogUiState.Loaded ?: return loadRoot()
         _isRefreshing.value = true
+        val catalog = credentialStore.getAccount()?.catalogAccount()
         viewModelScope.launch {
-            runCatching { client.fetch(current.url) }
-                .onSuccess { feed ->
+            val result = runCatching { client.fetch(current.url) }
+            if (catalog != credentialStore.getAccount()?.catalogAccount()) return@launch
+            result.onSuccess { feed ->
                     _state.value = CatalogUiState.Loaded(current.url, feed, canGoBack = backStack.isNotEmpty())
                 }
                 .onFailure { fail(it, current.url, current, uiText(R.string.common_fetch_failed)) }
@@ -125,9 +131,11 @@ class CatalogViewModel(
         failedSearch = null
         val current = _state.value as? CatalogUiState.Loaded
         _state.value = CatalogUiState.Loading
+        val catalog = credentialStore.getAccount()?.catalogAccount()
         viewModelScope.launch {
-            runCatching { client.fetch(url) }
-                .onSuccess { feed ->
+            val result = runCatching { client.fetch(url) }
+            if (catalog != credentialStore.getAccount()?.catalogAccount()) return@launch
+            result.onSuccess { feed ->
                     if (current != null) backStack.push(current.url to current.feed)
                     _state.value = CatalogUiState.Loaded(url, feed, canGoBack = backStack.isNotEmpty())
                 }
@@ -165,13 +173,16 @@ class CatalogViewModel(
         val link = current.feed.searchLink ?: return
         if (query.isBlank()) return
         _state.value = CatalogUiState.Loading
+        val catalog = credentialStore.getAccount()?.catalogAccount()
         viewModelScope.launch {
             var retryUrl = current.url
-            runCatching {
+            val result = runCatching {
                 val resolved = client.resolveSearchUrl(link, query.trim())
                 retryUrl = resolved
                 client.fetch(resolved) to resolved
-            }.onSuccess { (feed, resolved) ->
+            }
+            if (catalog != credentialStore.getAccount()?.catalogAccount()) return@launch
+            result.onSuccess { (feed, resolved) ->
                 failedSearch = null
                 if (retainParent) backStack.push(current.url to current.feed)
                 _state.value = CatalogUiState.Loaded(resolved, feed, canGoBack = backStack.isNotEmpty())

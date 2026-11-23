@@ -42,4 +42,15 @@ class HighlightAccountScopeTest {
         assertThat(session.toString()).doesNotContain("secret")
         assertThat(session.toString()).doesNotContain(session.authorization)
     }
+    @Test fun `only verified matching legacy principal on the same Quire server can transfer ownership`() {
+        val native = AccountCredentials.Bearer("https://sync.example", "reader@example.com", "token", accountId = "native:1")
+        assertThat(basic.previousHighlightScope(native, "reader")).isEqualTo(basic.highlightScope())
+        assertThat(basic.previousHighlightScope(native, "another")).isNull()
+        assertThat(basic.previousHighlightScope(native, null)).isNull()
+        assertThat(basic.previousHighlightScope(native.copy(baseUrl = "https://sync.example/other"), "reader")).isNull()
+        assertThat(basic.previousHighlightScope(native.copy(baseUrl = "https://catalog.example"), "reader")).isNull()
+        val oldNative = native.copy(accountId = null)
+        assertThat(oldNative.previousHighlightScope(native, null)).isEqualTo(oldNative.highlightScope())
+        assertThat(oldNative.previousHighlightScope(native.copy(email = "other@example.com"), null)).isNull()
+    }
 }

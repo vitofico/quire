@@ -505,4 +505,39 @@ class CalibreCredentialStoreTest {
             assertThat(CalibreCredentialStore(ctx).getAccount()).isInstanceOf(AccountCredentials.Basic::class.java)
         }
     }
+    @Test fun `native login keeps Calibre catalog independent across restart and disconnect`() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val store = CalibreCredentialStore(context)
+        store.clear()
+        store.saveBasicAccount("https://books.example", "reader", "catalog-password")
+        store.saveBearerAccount("https://quire.example", "a@b.c", "quire-token", accountId = "native:7")
+        val reread = CalibreCredentialStore(context)
+        val native = reread.getAccount() as AccountCredentials.Bearer
+        assertThat(native.accountId).isEqualTo("native:7")
+        assertThat(native.catalog).isEqualTo(
+            AccountCredentials.OpdsOnly("https://books.example/opds", "reader", "catalog-password", calibre = true)
+        )
+        reread.notifyUnauthorized(native)
+        reread.setCatalog(native.catalog!!.copy(password = "second-password"))
+        assertThat(reread.needsReauth.value).isTrue()
+
+        reread.disconnectQuire()
+        val standalone = CalibreCredentialStore(context).getAccount() as AccountCredentials.OpdsOnly
+        assertThat(standalone.calibre).isTrue()
+        assertThat(standalone.password).isEqualTo("second-password")
+        assertThat(reread.needsReauth.value).isFalse()
+    }
+
+    @Test fun `login keeps pending ownership transfer until migration is completed`() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val store = CalibreCredentialStore(context)
+        store.clear()
+        store.saveBearerAccount("https://quire.example", "a@b.c", "quire-token", previousHighlightScope = "abc")
+        val reread = CalibreCredentialStore(context)
+        val native = reread.getAccount() as AccountCredentials.Bearer
+        assertThat(native.previousHighlightScopes).containsExactly("abc")
+        assertThat(native.catalogAccount()).isNull()
+        reread.completeHighlightMigration(native, listOf("abc"))
+        assertThat((CalibreCredentialStore(context).getAccount() as AccountCredentials.Bearer).previousHighlightScopes).isEmpty()
+    }
 }
