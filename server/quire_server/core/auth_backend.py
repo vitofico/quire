@@ -45,7 +45,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal, Protocol
 
 from fastapi import HTTPException, Request, status
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from quire_server.core.auth import CalibreAuthValidator
@@ -57,7 +57,7 @@ from quire_server.core.native_auth import (
     hash_session_token,
     verify_password,
 )
-from quire_server.db.models import NativeSession, NativeUser
+from quire_server.db.models import CalibreAccountBinding, NativeSession, NativeUser
 
 logger = logging.getLogger(__name__)
 
@@ -71,12 +71,9 @@ logger = logging.getLogger(__name__)
 class AuthUser:
     """A request's authenticated identity, as seen by primary-auth callers.
 
-    ``user_id`` is the storage-scope identifier persisted into existing
-    user-scoped tables (``documents.user_id``, ``library_items.user_id``,
-    etc.). The format is backend-dependent:
-
-      * CalibreWeb: lowercase CWA username (e.g. ``"alice"``).
-      * Native: ``"native:<NativeUser.id>"`` (e.g. ``"native:42"``).
+    ``user_id`` is the authenticated account identifier: a lowercase Calibre
+    username or ``native:<id>``. Use ``storage_user_id`` for private data.
+    Migrated native users keep their verified Calibre storage scope.
 
     ``backend`` is the configured backend that authenticated this request.
     ``session_token_hash`` is set only under Native auth (it is the hash
@@ -87,6 +84,11 @@ class AuthUser:
     user_id: str
     backend: Literal["calibreweb", "native"]
     session_token_hash: str | None = None
+    legacy_calibre_user_id: str | None = None
+
+    @property
+    def storage_user_id(self) -> str:
+        return self.legacy_calibre_user_id or self.user_id
 
 
 class AuthBackend(Protocol):
@@ -114,8 +116,11 @@ class CalibreWebBasicAuth:
     ``user_id``, CWA probe + TTL cache) is preserved verbatim.
     """
 
-    def __init__(self, validator: CalibreAuthValidator) -> None:
+    def __init__(
+        self, validator: CalibreAuthValidator, session_factory: async_sessionmaker | None = None
+    ) -> None:
         self._validator = validator
+        self._sf = session_factory
 
     async def current_user(self, request: Request) -> AuthUser:
         auth = request.headers.get("authorization")
@@ -128,11 +133,27 @@ class CalibreWebBasicAuth:
         # let those propagate verbatim so the wire shape matches the
         # pre-refactor server.
         user_id = await self._validator.validate(auth)
+        if self._sf is not None:
+            async with self._sf() as session:
+                await require_unbound_calibre_scope(session, user_id)
         return AuthUser(
             user_id=user_id,
             backend="calibreweb",
             session_token_hash=None,
         )
+
+
+async def lock_calibre_scope(session, user_id: str, *, shared: bool = False) -> None:
+    lock = "pg_advisory_xact_lock_shared" if shared else "pg_advisory_xact_lock"
+    await session.execute(
+        text(f"SELECT {lock}(hashtextextended(:scope,0))"),
+        {"scope": "quire:calibre-scope:" + user_id},
+    )
+
+
+async def require_unbound_calibre_scope(session, user_id: str) -> None:
+    if await session.get(CalibreAccountBinding, user_id) is not None:
+        raise HTTPException(401, "native_login_required")
 
 
 # ----------------------------------------------------------------------------
@@ -343,19 +364,24 @@ class NativeAuth:
         now = self._clock()
 
         async with self._sf() as s:
-            row = (
+            result = (
                 await s.execute(
-                    select(NativeSession)
-                    .join(NativeUser)
+                    select(NativeSession, CalibreAccountBinding.calibre_user_id)
+                    .select_from(NativeSession)
+                    .join(NativeUser, NativeSession.user_id == NativeUser.id)
+                    .outerjoin(
+                        CalibreAccountBinding, CalibreAccountBinding.native_user_id == NativeUser.id
+                    )
                     .where(NativeSession.token_hash == token_hash, NativeUser.closed_at.is_(None))
                 )
-            ).scalar_one_or_none()
-            if row is None:
+            ).one_or_none()
+            if result is None:
                 logger.info("event=auth.session_invalid reason=unknown_token")
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="invalid credentials",
                 )
+            row, legacy_calibre_user_id = result
             if row.revoked_at is not None:
                 logger.info(
                     "event=auth.session_invalid reason=revoked user_id=%s",
@@ -378,7 +404,23 @@ class NativeAuth:
                 user_id=f"native:{row.user_id}",
                 backend="native",
                 session_token_hash=token_hash,
+                legacy_calibre_user_id=legacy_calibre_user_id,
             )
+
+
+class TransitionAuth(NativeAuth):
+    """Allow Calibre Basic for unbound accounts on non-identity routes."""
+
+    def __init__(self, *, legacy: CalibreWebBasicAuth, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._legacy = legacy
+
+    async def current_user(self, request: Request) -> AuthUser:
+        header = request.headers.get("authorization", "")
+        path = request.scope["path"]
+        if header.lower().startswith("basic ") and "/auth/v1/" not in path:
+            return await self._legacy.current_user(request)
+        return await super().current_user(request)
 
 
 # ----------------------------------------------------------------------------

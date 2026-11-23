@@ -64,7 +64,7 @@ from typing import Annotated, Literal, Protocol
 from fastapi import Depends, HTTPException, Request, status
 
 from quire_server.core.auth import CalibreAuthValidator
-from quire_server.core.auth_backend import AuthBackend
+from quire_server.core.auth_backend import AuthBackend, require_unbound_calibre_scope
 from quire_server.core.logging_ctx import request_id_var
 
 logger = logging.getLogger(__name__)
@@ -124,8 +124,9 @@ def _read_request_id() -> str | None:
 class BasicAuthAiAuthenticator:
     """Wraps the existing calibre-web verifier for today's single-tenant case."""
 
-    def __init__(self, validator: CalibreAuthValidator) -> None:
+    def __init__(self, validator: CalibreAuthValidator, session_factory=None) -> None:
         self._validator = validator
+        self._sf = session_factory
 
     async def authenticate(self, request: Request) -> AiPrincipal:
         auth = request.headers.get("authorization")
@@ -138,6 +139,9 @@ class BasicAuthAiAuthenticator:
         # let those propagate verbatim (their detail strings already match
         # what sync routes return).
         user_id = await self._validator.validate(auth)
+        if self._sf is not None:
+            async with self._sf() as session:
+                await require_unbound_calibre_scope(session, user_id)
         return AiPrincipal(
             subject=user_id,
             tenant_id="local",
@@ -159,7 +163,7 @@ class BackendAiAuthenticator:
 
     Mapping ``AuthUser -> AiPrincipal``:
 
-    * ``subject = auth_user.user_id`` (e.g. ``"native:42"``) — the per-user
+    * ``subject = auth_user.storage_user_id`` (e.g. ``"native:42"``) — the per-user
       storage scope, exactly as the primary routes use it.
     * ``tenant_id = "local"`` — identical to basic mode. The OSS server is one
       logical instance; per-user attribution already lives in ``subject``
@@ -180,10 +184,10 @@ class BackendAiAuthenticator:
     async def authenticate(self, request: Request) -> AiPrincipal:
         auth_user = await self._backend.current_user(request)
         return AiPrincipal(
-            subject=auth_user.user_id,
+            subject=auth_user.storage_user_id,
             tenant_id="local",
             scopes=(),
-            auth_mode="native",
+            auth_mode="native" if auth_user.backend == "native" else "basic",
             request_id=_read_request_id(),
         )
 
@@ -258,6 +262,7 @@ class TokenAiAuthenticator:
         issuer: str,
         audience: str,
         clock: callable = time.time,  # type: ignore[valid-type]
+        session_factory=None,
     ) -> None:
         if not secrets:
             # Defense-in-depth: startup validation in main.py should already
@@ -270,10 +275,11 @@ class TokenAiAuthenticator:
         self._issuer = issuer
         self._audience = audience
         self._clock = clock
+        self._sf = session_factory
 
     async def authenticate(self, request: Request) -> AiPrincipal:
         try:
-            return self._authenticate(request)
+            principal = self._authenticate(request)
         except _TokenError as e:
             # All failures collapse to 401. The reason goes to logs only.
             logger.info(
@@ -285,6 +291,10 @@ class TokenAiAuthenticator:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="invalid credentials",
             ) from None
+        if self._sf is not None:
+            async with self._sf() as session:
+                await require_unbound_calibre_scope(session, principal.subject)
+        return principal
 
     def _authenticate(self, request: Request) -> AiPrincipal:
         token = _extract_bearer_token(request)

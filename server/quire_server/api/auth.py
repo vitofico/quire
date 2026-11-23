@@ -4,7 +4,7 @@ Phase 0, task S-1 (per
 ``docs/superpowers/specs/2026-05-22-quire-monetization-design.md``,
 "Architectural changes → Thin auth abstraction in ``quire_server``").
 
-This router is mounted ONLY when ``QUIRE_SERVER_AUTH_BACKEND=native``. OSS
+This router is mounted under native or transition auth. Legacy-only
 deployments running CalibreWeb Basic never see these endpoints — a stray
 ``POST /auth/v1/login`` against an OSS server returns the FastAPI default
 404, which is exactly the right shape: the endpoints do not exist there.
@@ -79,8 +79,11 @@ async def me(
                 },
             )
         capabilities["deletion_authorized"] = bool(authorized)
+    identity = {"id": user.user_id, "backend": user.backend}
+    if user.legacy_calibre_user_id is not None:
+        identity["legacy_calibre_user_id"] = user.legacy_calibre_user_id
     return {
-        "user": {"id": user.user_id, "backend": user.backend},
+        "user": identity,
         "version": 1,
         "capabilities": capabilities,
         "csrf_token": csrf(token) if token else None,

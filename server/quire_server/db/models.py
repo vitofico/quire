@@ -567,6 +567,17 @@ class NativeUser(Base):
     )
 
 
+class CalibreAccountBinding(Base):
+    """Reserved legacy storage scope, retained when the native identity is deleted."""
+
+    __tablename__ = "calibre_account_bindings"
+
+    calibre_user_id: Mapped[str] = mapped_column(String, primary_key=True)
+    native_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("native_users.id", ondelete="SET NULL"), unique=True
+    )
+
+
 class NativeSession(Base):
     __tablename__ = "native_sessions"
     __table_args__ = (

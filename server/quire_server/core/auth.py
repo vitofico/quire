@@ -51,6 +51,8 @@ class CalibreAuthValidator:
             )
 
         b64 = auth_header[6:].strip()
+        if not b64.isascii():
+            raise HTTPException(401, "malformed credentials")
         key = hashlib.sha256(b64.encode("ascii")).digest()
         now = self._clock()
 
@@ -148,12 +150,11 @@ async def current_user_id(
 ) -> str:
     """Return the storage-scope user id for the authenticated request.
 
-    Format depends on the configured backend: CalibreWeb yields a lowercase
-    CWA username; NativeAuth yields ``"native:<id>"``. Existing user-scoped
-    tables persist this string verbatim.
+    Calibre and migrated native accounts use the existing lowercase Calibre
+    scope. Newly provisioned standalone accounts use ``"native:<id>"``.
     """
     user = await backend.current_user(request)  # type: ignore[attr-defined]
-    return user.user_id
+    return user.storage_user_id
 
 
 async def current_auth_user(

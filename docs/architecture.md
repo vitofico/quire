@@ -371,6 +371,13 @@ copies of those responses.
 
 ## AuthBackend abstraction (Phase 0, 2026-05-22)
 
+Self-hosted deployments can move from Calibre-Web Basic authentication to
+independent Quire accounts using the `transition` backend. Android uses separate
+connections for Quire sessions and OPDS catalog credentials. Bound readers have
+a native account ID for session management and retain their historical storage
+key for progress, library, highlights and personal AI data. See the
+[implementation plan](independent-login-plan.md) and [migration guide](independent-login-migration.md).
+
 The OSS server's primary authentication is now selected through a thin
 `AuthBackend` Protocol in `server/quire_server/core/auth_backend.py`. The
 public dependency `current_user_id` keeps its `-> str` signature; route

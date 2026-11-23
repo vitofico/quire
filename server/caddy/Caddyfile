@@ -1,7 +1,8 @@
 # Quire reference Caddyfile (full-stack compose).
 #
 # Path-based routing puts quire-server's `/sync/*`, `/library/*`, `/ai/*`,
-# `/agent/*`, `/mcp`, `/quire-admin`, `/health`, and `/readyz` in front of calibre-web, with
+# `/agent/*`, `/mcp`, `/quire-admin`, `/health`, `/readyz`, and the native
+# Android/API account operations in front of calibre-web, with
 # everything else falling through to calibre-web on `/`. The status page
 # lives at `/quire-admin` rather than `/admin` because calibre-web serves
 # its own admin pages under `/admin`.
@@ -19,7 +20,9 @@
 	# path (unlike `handle_path`, which strips the matched prefix);
 	# FastAPI mounts routers at `/sync/v1`, `/library/v1`, and
 	# `/ai/v1`, so we must forward the prefix intact.
-	@quire path /sync/* /ai/* /library/* /agent/* /mcp /mcp/* /quire-admin /quire-admin/* /health /readyz
+	# Keep browser session issuance and internal account lifecycle routes
+	# off the shared origin. Keep this account path allowlist exact.
+	@quire path /sync/* /ai/* /library/* /agent/* /mcp /mcp/* /quire-admin /quire-admin/* /health /readyz /auth/v1/login /auth/v1/me /auth/v1/logout /auth/v1/account/export
 	handle @quire {
 		reverse_proxy quire-server:8000
 	}
