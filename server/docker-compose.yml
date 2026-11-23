@@ -15,7 +15,7 @@ services:
       retries: 10
 
   quire-server:
-    image: ghcr.io/vitofico/quire-server:latest
+    image: ${QUIRE_SERVER_IMAGE:-ghcr.io/vitofico/quire-server:latest}
     restart: unless-stopped
     depends_on:
       postgres:

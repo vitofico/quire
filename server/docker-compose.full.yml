@@ -49,35 +49,32 @@ services:
       # Optional: ingest folder for drop-in book imports.
       # - /path/to/your/ingest:/cwa-book-ingest
     healthcheck:
-      # calibre-web-automated serves OPDS on :8083/opds. A 401 still
-      # means "process is up + routing"; only network failure or 5xx
-      # counts as unhealthy. We accept 200 or 401 via explicit status
-      # matching (do NOT use plain `curl -f` / `wget --spider` exit
-      # codes - they fail on 401). If `wget` is absent in a future
-      # image rev, swap to:
-      #   curl -o /dev/null -w '%{http_code}' http://localhost:8083/opds
-      #     | grep -qE '^(200|401)$'
-      test: ["CMD-SHELL", "wget -qO- --spider --server-response http://localhost:8083/opds 2>&1 | grep -qE 'HTTP/.* (200|401)' || exit 1"]
+      # OPDS can require credentials. Both 200 and 401 confirm that
+      # Calibre-Web is serving the route.
+      test:
+        - CMD-SHELL
+        - curl --silent --output /dev/null --write-out '%{http_code}' --max-time 5 http://localhost:8083/opds | grep -Eq '^(200|401)$$'
       interval: 10s
       timeout: 5s
       retries: 6
       start_period: 30s
 
   quire-server:
-    image: ghcr.io/vitofico/quire-server:latest
+    image: ${QUIRE_SERVER_IMAGE:-ghcr.io/vitofico/quire-server:latest}
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
     # Every QUIRE_SERVER_* line in .env reaches the container. The block
     # under `environment:` only pins what this compose topology decides:
-    # the bundled database and the in-network calibre-web.
+    # the bundled database and calibre-web catalogue addresses.
     env_file:
       - path: .env
         required: false
     environment:
       QUIRE_SERVER_DATABASE_URL: postgresql+asyncpg://opds_sync:${POSTGRES_PASSWORD:-changeme}@postgres:5432/opds_sync
       QUIRE_SERVER_CWA_BASE_URL: http://calibre-web:8083
+      QUIRE_SERVER_WEB_CATALOG_URL: ${QUIRE_SERVER_WEB_CATALOG_URL:-/opds}
     # Lets QUIRE_SERVER_AI_BASE_URL=http://host.docker.internal:11434/v1 reach
     # an Ollama running on the Docker host, on Linux as well as Docker Desktop.
     extra_hosts:

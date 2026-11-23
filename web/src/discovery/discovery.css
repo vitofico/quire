@@ -1,0 +1,57 @@
+.discovery-panel {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.discovery-panel form,
+.discovery-panel form label {
+  display: grid;
+  gap: 0.5rem;
+  justify-items: start;
+}
+
+.discovery-panel form label:has(input[type="checkbox"]) {
+  display: flex;
+  align-items: center;
+}
+
+.discovery-panel h2,
+.discovery-panel h3,
+.discovery-panel p {
+  margin-block: 0;
+}
+
+.discovery-panel article,
+.discovery-panel .discovery-insight,
+.discovery-panel .discovery-insight section {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.discovery-actions,
+.discovery-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+}
+
+.discovery-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(6rem, 1fr));
+}
+
+.discovery-stats dd {
+  margin: 0.25rem 0 0;
+  font-size: 1.4rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.discovery-cover {
+  max-width: 8rem;
+  height: auto;
+}
+
+.discovery-panel video {
+  display: block;
+  max-width: min(100%, 26rem);
+}

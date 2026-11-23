@@ -45,6 +45,7 @@ repos:
         exclude: |
           (?x)^(
             .*\.lock|
+            web/pnpm-lock\.yaml|
             .*\.sum|
             gradle/wrapper/.*|
             fastlane/metadata/.*

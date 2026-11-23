@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  An Android EPUB reader for the library you keep.<br>
+  An EPUB reader for Android and the web, for the library you keep.<br>
   Import your books, browse OPDS catalogs, and sync your place through a server you own.<br>
   No telemetry. Optional AI, off by default.
 </p>
@@ -106,6 +106,12 @@ actual Sherlock Holmes page in Sepia and Literata. Open a full-size example:
 </p>
 
 </details>
+
+## Read in your browser
+
+Open `/quire/` on an installation of Quire Server that includes the web client. Choose **Import EPUB** to read a local book, or connect an OPDS feed from **Catalog**. The library and reader work offline after the browser caches the app and the book. Browser storage belongs to the current browser profile.
+
+Sign in under **Settings → Account** to sync your shelf, progress and highlighted passages with Android. Books imported on another device appear with **Open your copy**. Select the same EPUB or download it from the catalog to resume reading. The private pause bookmark stays on the device where you saved it. [Browser setup and deployment](server/README.md)
 
 ## Bring your books
 

@@ -1050,7 +1050,36 @@ details. The server logs a deprecation warning at boot when this is `true`;
 
 When to change it: don't.
 
+### Quire Web
+
+#### `QUIRE_SERVER_WEB_ENABLED`
+
+Defaults to `true`. Set to `false` to stop serving the browser shell and its
+assets at `/quire/`. Already installed offline clients can retain their public
+shell in browser storage.
+
+#### `QUIRE_SERVER_WEB_NATIVE_AUTH_ENABLED`
+
+Defaults to `false`. Set to `true` with native authentication and
+`QUIRE_IDENTITY_PUBLIC_URL` on a dedicated Quire HTTPS origin. Keep
+calibre-web and other applications on separate origins. See the
+[isolated origin reference](../server/README.md#native-browser-authentication-on-an-isolated-origin).
+
+#### `QUIRE_SERVER_WEB_CATALOG_URL`
+
+Public browser OPDS feed URL. Use a same-origin path such as `/opds` or an
+absolute HTTPS URL for a catalogue that allows cross-origin browser requests.
+The full-stack Compose defaults to `/opds`. Leave unset in the minimal stack
+to let readers configure their own catalogue. Credentials belong in the
+browser's catalogue settings.
+
 ### Build and tooling
+
+#### `QUIRE_SERVER_IMAGE`
+
+Image reference used by both reference Compose deployments. Defaults to
+`ghcr.io/vitofico/quire-server:latest`. Set an image digest to pin a deployment
+or point to a previously verified build for rollback.
 
 #### `QUIRE_SERVER_VERSION`
 

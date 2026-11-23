@@ -396,7 +396,7 @@ table; the wire-vs-attribute naming split is documented in
 ### `POST /library/v1/sync`
 
 > **Status.** Phase 0 / pre-Cloud push-model contract, shipped
-> 2026-05-22. Currently consumed by the monorepo Android client. Pinned
+> 2026-05-22. Android and Quire Web use the same endpoint. Pinned
 > fields (`identity_hash`, `identity_hash_version`, `status`) are stable;
 > the rest of the request and response shape may evolve before the Cloud
 > private beta as new fields land.
@@ -404,6 +404,14 @@ table; the wire-vs-attribute naming split is documented in
 Bulk upsert + tombstone batch. The client pushes whatever entries it
 believes need attention; the server merges them into `library_items` in
 one transaction.
+
+Quire Web sends an optional `Idempotency-Key` header with the queued operation's
+UUID and exactly one item. Keep the key and payload unchanged when retrying.
+The server commits a receipt in the same transaction as the mutation and
+returns its original summary on replay, even if another device has since
+changed the item. Reusing the key with a different payload returns
+`409 idempotency_key_conflict`. Receipts are scoped to the authenticated user.
+Requests without the header retain the bulk push behavior.
 
 ```http
 POST /library/v1/sync

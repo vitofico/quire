@@ -1,19 +1,30 @@
+FROM node:26-bookworm-slim AS web_build
+WORKDIR /app/web
+RUN npm install --global pnpm@9.15.9
+COPY web/package.json web/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+COPY web/ ./
+COPY core/identity/src/test/resources/identity/ /app/core/identity/src/test/resources/identity/
+COPY reader/src/main/assets/ /app/reader/src/main/assets/
+COPY branding/ /app/branding/
+ARG QUIRE_VERSION=dev
+RUN QUIRE_VERSION="$QUIRE_VERSION" pnpm build \
+ && mkdir /app/web-licenses \
+ && cp node_modules/react/LICENSE /app/web-licenses/react-LICENSE \
+ && cp node_modules/react-dom/LICENSE /app/web-licenses/react-dom-LICENSE \
+ && cp node_modules/.pnpm/scheduler@*/node_modules/scheduler/LICENSE /app/web-licenses/scheduler-LICENSE \
+ && cp node_modules/fflate/LICENSE /app/web-licenses/fflate-LICENSE \
+ && cp node_modules/@noble/hashes/LICENSE /app/web-licenses/noble-hashes-LICENSE
+
 FROM postgres:16-bookworm AS postgres_tools
 
 FROM python:3.12-slim AS base
-
-# Build-time version identity. server-ci.yaml's `image` job passes the
-# commit sha; a local `docker build` with no --build-arg keeps "dev". Turned
-# into QUIRE_SERVER_VERSION below so the running process can read it
-# (quire_server.config.Settings.version).
-ARG QUIRE_VERSION=dev
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     VIRTUAL_ENV=/opt/venv \
-    PATH=/opt/venv/bin:$PATH \
-    QUIRE_SERVER_VERSION=$QUIRE_VERSION
+    PATH=/opt/venv/bin:$PATH
 
 WORKDIR /app
 
@@ -31,13 +42,23 @@ ENV PATH="/usr/local/pg16/bin:${PATH}"
 RUN pip install --no-cache-dir uv && uv venv "$VIRTUAL_ENV"
 
 # Source needs to be present so setuptools can discover the package.
-COPY pyproject.toml ./
-COPY quire_server ./quire_server
+COPY server/pyproject.toml ./
+COPY server/quire_server ./quire_server
 RUN uv pip install "."
 
-COPY migrations ./migrations
-COPY scripts ./scripts
-COPY alembic.ini ./
+COPY server/migrations ./migrations
+COPY server/scripts ./scripts
+COPY server/alembic.ini ./
+
+COPY --from=web_build /app/web/dist /app/web-dist
+COPY --from=web_build /app/web-licenses/ /app/licenses/
+COPY server/LICENSE /app/licenses/quire-server-LICENSE
+COPY LICENSE NOTICE /app/licenses/
+COPY reader/src/main/assets/fonts/*.txt /app/licenses/
+
+# Use the same build argument for API and browser reporting.
+ARG QUIRE_VERSION=dev
+ENV QUIRE_SERVER_VERSION=$QUIRE_VERSION
 
 LABEL org.opencontainers.image.title="quire-server" \
       org.opencontainers.image.source="https://github.com/vitofico/quire" \

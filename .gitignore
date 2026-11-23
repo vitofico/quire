@@ -25,3 +25,8 @@ docs/superpowers/
 
 # Python translation-helper tests
 scripts/**/__pycache__/
+
+web/node_modules/
+web/dist/
+web/test-results/
+web/playwright-report/

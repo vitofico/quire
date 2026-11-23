@@ -382,7 +382,20 @@ class ReaderViewModel(
     private val tracker = ProgressTracker(
         save = { progress.save(it) },
         scope = viewModelScope,
+        observeAnchor = ::observeProgressAnchor,
     )
+
+    private suspend fun observeProgressAnchor(locator: Locator): Locator? {
+        val driver = highlightNavigator ?: return null
+        val generation = domAnchorGeneration
+        fun isCurrent() = !suppressLocatorPublishing && !highlightProgressBlocked &&
+            loadedAccount == accountKey() && driver === highlightNavigator &&
+            generation == domAnchorGeneration && _currentLocator.value == locator &&
+            driver.currentLocator == locator
+        if (!isCurrent()) return null
+        val observed = driver.observeProgress()
+        return observed?.takeIf { isCurrent() }
+    }
 
     private var navigator: EpubNavigatorFragment? = null
 
