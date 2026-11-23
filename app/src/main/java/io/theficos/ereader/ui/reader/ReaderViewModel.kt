@@ -388,10 +388,11 @@ class ReaderViewModel(
     private suspend fun observeProgressAnchor(locator: Locator): Locator? {
         val driver = highlightNavigator ?: return null
         val generation = domAnchorGeneration
+        val viewportGeneration = anchorGeneration
         fun isCurrent() = !suppressLocatorPublishing && !highlightProgressBlocked &&
             loadedAccount == accountKey() && driver === highlightNavigator &&
-            generation == domAnchorGeneration && _currentLocator.value == locator &&
-            driver.currentLocator == locator
+            generation == domAnchorGeneration && viewportGeneration == anchorGeneration &&
+            _currentLocator.value == locator && driver.currentLocator == locator
         if (!isCurrent()) return null
         val observed = driver.observeProgress()
         return observed?.takeIf { isCurrent() }
@@ -413,11 +414,19 @@ class ReaderViewModel(
         else if (preferenceReflowPending) schedulePreferenceReanchor()
     }
 
+    internal fun recognizeReadingGesture() {
+        // Readium owns swipes and continuous scrolling. A genuine movement
+        // gesture escapes the reflow pin even within the same long paragraph.
+        reflowProgressAnchor = null
+    }
+
     fun pageForward() {
+        recognizeReadingGesture()
         viewModelScope.launch { navigator?.goForward() }
     }
 
     fun pageBackward() {
+        recognizeReadingGesture()
         viewModelScope.launch { navigator?.goBackward() }
     }
 
@@ -496,7 +505,29 @@ class ReaderViewModel(
     fun publishLocator(locator: Locator) {
         if (suppressLocatorPublishing || highlightProgressBlocked) return
         _currentLocator.value = locator
-        _locatorUpdates.tryEmit(locator)
+        val anchor = reflowProgressAnchor
+        if (anchor != null && locator.href == anchor.href && nowMs() < anchorPinnedUntil) {
+            val nav = navigator
+            val generation = anchorGeneration
+            viewModelScope.launch {
+                val stillOnAnchor = try {
+                    withTimeoutOrNull(ANCHOR_OBSERVATION_TIMEOUT_MS) { verifyAnchor(nav, anchor, preferences.value) }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    null
+                }
+                if (stillOnAnchor == false && !suppressLocatorPublishing && !highlightProgressBlocked &&
+                    reflowProgressAnchor === anchor && generation == anchorGeneration &&
+                    navigator === nav && _currentLocator.value == locator) {
+                    reflowProgressAnchor = null
+                    _locatorUpdates.tryEmit(locator)
+                }
+            }
+        } else {
+            reflowProgressAnchor = null
+            _locatorUpdates.tryEmit(locator)
+        }
         refreshDomAnchor()
     }
 
@@ -545,6 +576,7 @@ class ReaderViewModel(
     private var domAnchor: Locator? = null
     private var domAnchorGeneration = 0L
     private var anchorPinnedUntil: Long = 0L
+    private var reflowProgressAnchor: Locator? = null
 
     /**
      * Reports the reader viewport's measured size, on every layout pass.
@@ -678,7 +710,8 @@ class ReaderViewModel(
                     _anchorRecovery.value = false
                     anchorPinnedUntil = nowMs() + ANCHOR_PIN_MS
                     _currentLocator.value = anchor
-                    _locatorUpdates.tryEmit(anchor)
+                    // A layout-only change must not replace an already stored structural pin.
+                    reflowProgressAnchor = anchor
                     suppressLocatorPublishing = false
                     return@launch
                 }
@@ -714,6 +747,7 @@ class ReaderViewModel(
         preferenceReflowJob?.cancel()
         anchorGeneration++
         pendingRotationAnchor = null
+        reflowProgressAnchor = null
         suppressLocatorPublishing = false
     }
 

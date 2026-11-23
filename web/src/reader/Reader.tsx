@@ -257,10 +257,10 @@ export default function Reader({
     return warm.current
   }
 
-  function saveLocation(next: Locator) {
+  async function saveLocation(next: Locator) {
     const total = next.locations?.totalProgression ?? 0
     setProgress(total)
-    return Promise.resolve(callbacks.current.onProgress(JSON.stringify(next), total))
+    await callbacks.current.onProgress(JSON.stringify(next), total)
   }
 
   async function report(doc: Document, refine = false) {
@@ -288,8 +288,10 @@ export default function Reader({
       // Start durable storage on the user's input event. The destination must
       // survive an immediate reload even before its exact DOM range is available.
       const provisional = target.locator ?? locatorAt(epub, target.index, clamp(target.fraction ?? 0))
-      if (target.fragment) provisional.locations = {...provisional.locations, fragments: [target.fragment]}
-      void saveLocation(provisional).catch(() => setNotice(callbacks.current.t('Could not save reading position')))
+      const location = target.fragment
+        ? {...provisional, locations: {...provisional.locations, fragments: [target.fragment]}}
+        : provisional
+      void saveLocation(location).catch(() => setNotice(callbacks.current.t('Could not save reading position')))
     }
     setDestination(target)
   }

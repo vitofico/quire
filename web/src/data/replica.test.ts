@@ -278,7 +278,7 @@ describe('offline replica', () => {
     const api: SyncTransport = async (path, init) => {
       if (init?.method !== 'POST') {
         if (path.startsWith('/library/v1/items')) return Response.json({
-          items: [...(reactivating ? [{ ...remote, deleted_at: remote.updated_at }] : []), ...(collided ? [other] : [])],
+          items: [...(reactivating ? [{ ...remote, metadata_id: null, deleted_at: remote.updated_at }] : []), ...(collided ? [other] : [])],
         })
         return emptyPull(path)
       }

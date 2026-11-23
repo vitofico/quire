@@ -290,6 +290,7 @@ private fun ReaderScreenContent(
                             onHighlightNavigatorReady = viewModel::bindHighlightNavigator,
                             onPrev = viewModel::pageBackward,
                             onNext = viewModel::pageForward,
+                            onScrollGesture = viewModel::recognizeReadingGesture,
                             onToggleChrome = viewModel::toggleChrome,
                             chromeVisible = chromeVisible,
                             onPageLoaded = viewModel::reanchorViewport,
@@ -492,6 +493,7 @@ private fun ReaderContent(
     onHighlightNavigatorReady: (ReaderHighlightNavigator?) -> Unit,
     onPrev: () -> Unit,
     onNext: () -> Unit,
+    onScrollGesture: () -> Unit,
     onToggleChrome: () -> Unit,
     chromeVisible: Boolean,
     onPageLoaded: () -> Unit,
@@ -542,6 +544,7 @@ private fun ReaderContent(
         update = { wrapper ->
             wrapper.onPrev = onPrev
             wrapper.onNext = onNext
+            wrapper.onScrollGesture = onScrollGesture
             wrapper.onToggleChrome = onToggleChrome
             wrapper.chromeVisible = chromeVisible
             wrapper.tapNavigationEnabled = preferences.tapNavigationEnabled
