@@ -45,7 +45,10 @@ credentials are included. See the [screenshot notes](docs/assets/README.md).
 ## Made for reading
 
 - **Read offline.** Import EPUBs from your device or download them from an
-  OPDS catalog, then keep reading without a connection.
+  OPDS catalog, then keep reading without a connection. Long-press a book or
+  open **More** in the reader and choose **Save EPUB as…** to put a copy of the
+  file anywhere Android's file picker can write, such as local storage or a
+  cloud drive app.
 - **Make the page comfortable.** Adjust the typeface, text size, line spacing
   and page theme. The reader's bars and menus take the page's colours.
 - **Keep passages.** Enter Highlight mode to save coloured passages, change

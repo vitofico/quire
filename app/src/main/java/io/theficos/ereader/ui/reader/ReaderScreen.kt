@@ -66,6 +66,7 @@ import io.theficos.ereader.reader.ReaderHighlightNavigator
 import io.theficos.ereader.reader.declareReaderFonts
 import io.theficos.ereader.reader.toEpubPreferences
 import io.theficos.ereader.ui.components.QuireLoading
+import io.theficos.ereader.ui.components.rememberSaveEpubAs
 import io.theficos.ereader.ui.uiText
 import io.theficos.ereader.ui.theme.AppTheme
 import io.theficos.quire.R
@@ -133,6 +134,7 @@ private fun ReaderScreenContent(
     var selectionController by remember { mutableStateOf<ReaderSelectionController?>(null) }
     var selectionActive by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
+    val saveEpubAs = rememberSaveEpubAs(snackbar)
     var dragPercent by remember { mutableStateOf<Double?>(null) }
     var dragPreview by remember { mutableStateOf<Locator?>(null) }
     val isDragging = dragPercent != null
@@ -315,6 +317,7 @@ private fun ReaderScreenContent(
                         title = s.document.title,
                         onBack = handleBack,
                         onDetails = { showDetails = true },
+                        onSaveEpub = { saveEpubAs(s.document) },
                         onHighlights = {
                             selectionController?.dismissSelection()
                             viewModel.openHighlights()

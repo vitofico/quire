@@ -248,4 +248,7 @@
     <string name="band_strong">"Elevata"</string>
     <string name="band_moderate">"Moderata"</string>
     <string name="band_weak">"Bassa"</string>
+    <string name="common_save_epub_as">"Salva EPUB come…"</string>
+    <string name="common_epub_saved">"EPUB salvato."</string>
+    <string name="common_couldn_t_save_the_epub">"Impossibile salvare l’EPUB."</string>
 </resources>
