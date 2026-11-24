@@ -5,3 +5,4 @@ __pycache__/
 # Generated fixture PDFs and job output; regenerate with tests/fixtures/build.py
 tests/fixtures/out/
 jobs/
+corpus/results/
