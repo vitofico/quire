@@ -1,7 +1,7 @@
 package io.theficos.ereader.ui.settings
 
-import androidx.compose.foundation.border
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,13 +23,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -51,28 +53,29 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import io.theficos.ereader.ui.components.InkBackground
-import io.theficos.ereader.ui.theme.BackgroundStyle
+import io.theficos.ereader.auth.AccountCredentials
 import io.theficos.ereader.data.ai.AiHealthResponse
 import io.theficos.ereader.data.ai.RetrievalSourceHealth
 import io.theficos.ereader.reader.ReaderFontFamily
 import io.theficos.ereader.reader.ReaderTheme
+import io.theficos.ereader.ui.components.InkBackground
 import io.theficos.ereader.ui.components.QuireCard
 import io.theficos.ereader.ui.components.RadioOptionRow
 import io.theficos.ereader.ui.components.SectionLabel
 import io.theficos.ereader.ui.displayLabel
+import io.theficos.ereader.ui.onboarding.PairingQr
 import io.theficos.ereader.ui.reader.displayLabel
 import io.theficos.ereader.ui.theme.AppTheme
+import io.theficos.ereader.ui.theme.BackgroundStyle
 import io.theficos.ereader.ui.theme.Palette
 import io.theficos.ereader.ui.theme.ThemeMode
 import io.theficos.ereader.ui.toneLabel
-import io.theficos.ereader.auth.AccountCredentials
 import io.theficos.quire.R
 import java.time.Instant
 import java.time.format.DateTimeParseException
@@ -195,6 +198,9 @@ fun SettingsScreen(
             needsReauth = needsReauth,
             onSignIn = onQuireSignIn,
             onDisconnect = viewModel::disconnectQuire,
+            pairing = viewModel.pairing.collectAsState().value,
+            onAddDevice = viewModel::showPairingCode,
+            onDismissPairing = viewModel::hidePairingCode,
         )
 
         SectionLabel(stringResource(R.string.quire_account_calibre_catalog))
@@ -733,6 +739,9 @@ private fun QuireAccountSettings(
     needsReauth: Boolean,
     onSignIn: () -> Unit,
     onDisconnect: () -> Unit,
+    pairing: PairingState,
+    onAddDevice: () -> Unit,
+    onDismissPairing: () -> Unit,
 ) {
     val native = account as? AccountCredentials.Bearer
     var confirmDisconnect by remember { mutableStateOf(false) }
@@ -759,12 +768,36 @@ private fun QuireAccountSettings(
                     Text(stringResource(if (needsReauth) R.string.quire_account_sign_in_again else R.string.quire_account_sign_in))
                 }
             }
+            if (native != null && !needsReauth) {
+                Button(onClick = onAddDevice) { Text(stringResource(R.string.quire_pairing_add_device)) }
+            }
             if (native != null) {
                 TextButton(onClick = { confirmDisconnect = true }) {
                     Text(stringResource(R.string.quire_account_sign_out))
                 }
             }
         }
+    }
+    if (pairing != PairingState.Hidden) {
+        AlertDialog(
+            onDismissRequest = onDismissPairing,
+            title = { Text(stringResource(R.string.quire_pairing_add_device)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    when (pairing) {
+                        is PairingState.Ready -> {
+                            PairingQr(pairing.code, Modifier.fillMaxWidth().aspectRatio(1f))
+                            Text(stringResource(R.string.quire_pairing_show_help))
+                        }
+                        PairingState.Failed -> Text(stringResource(R.string.quire_pairing_failed))
+                        else -> CircularProgressIndicator()
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = onDismissPairing) { Text(stringResource(R.string.common_cancel)) }
+            },
+        )
     }
     if (confirmDisconnect && native != null) {
         AlertDialog(

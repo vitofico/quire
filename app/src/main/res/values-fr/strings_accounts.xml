@@ -24,4 +24,21 @@
     <string name="quire_account_remove_catalog">Déconnecter le catalogue</string>
     <string name="quire_account_choose_first_connection">Cette adresse propose un catalogue Calibre-Web et un compte Quire. Choisis lequel configurer en premier. Tu peux ajouter l’autre dans les paramètres.</string>
     <string name="quire_account_catalog_then_sync">Tu peux ajouter un compte Quire dans les paramètres pour synchroniser ta progression de lecture et utiliser les fonctions d’IA.</string>
+    <string name="quire_migration_title">Créer votre compte Quire</string>
+    <string name="quire_migration_description">Votre progression de lecture, votre bibliothèque et vos surlignages passent sur le nouveau compte. Cet appareil se connecte tout de suite et les autres suivront d’eux-mêmes à la prochaine ouverture de Quire. Votre catalogue Calibre-Web reste connecté.</string>
+    <string name="quire_migration_new_password">Nouveau mot de passe Quire</string>
+    <string name="quire_migration_password_too_short">Utilisez au moins 12 caractères.</string>
+    <string name="quire_migration_submit">Créer le compte et garder mes données</string>
+    <string name="quire_migration_or_sign_in">Vous avez déjà un compte Quire ? Connectez-vous ci-dessous.</string>
+    <string name="quire_migration_email_unavailable">Cette adresse appartient déjà à un compte Quire. Choisissez-en une autre ou connectez-vous ci-dessous.</string>
+    <string name="quire_migration_invalid_email">Saisissez une adresse e-mail valide.</string>
+    <string name="quire_migration_sign_in_instead">Cet identifiant Calibre-Web a déjà un compte Quire. Connectez-vous avec son e-mail et son mot de passe, ou scannez un code d’association depuis un appareil connecté.</string>
+    <string name="quire_migration_calibre_rejected">Calibre-Web a refusé l’identifiant enregistré sur cet appareil. Reconnectez le catalogue dans les Réglages, puis réessayez.</string>
+    <string name="quire_migration_unavailable">Ce serveur ne peut pas créer de compte Quire depuis l’application. Contactez l’administrateur du serveur.</string>
+    <string name="quire_pairing_add_device">Ajouter un autre appareil</string>
+    <string name="quire_pairing_show_help">Sur l’autre appareil, ouvrez Quire, choisissez « Scanner un code d’association » et visez cet écran. Le code ne sert qu’une fois et expire au bout de deux minutes.</string>
+    <string name="quire_pairing_failed">Impossible de créer un code d’association. Vérifiez la connexion et réessayez.</string>
+    <string name="quire_pairing_scan">Scanner un code d’association</string>
+    <string name="quire_pairing_scan_help">Sur un appareil déjà connecté à Quire, ouvrez Réglages → Compte Quire → Ajouter un autre appareil, puis visez le code avec cet appareil photo.</string>
+    <string name="quire_pairing_camera_denied">Quire a besoin de l’appareil photo pour lire un code d’association. Autorisez-le dans les réglages système, ou connectez-vous avec votre e-mail et votre mot de passe.</string>
 </resources>

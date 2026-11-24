@@ -930,6 +930,33 @@ See the [migration procedure](../server/README.md#moving-an-existing-calibre-rea
 
 How long a native login lasts in `native` or `transition` mode.
 
+#### `QUIRE_SERVER_SELF_MIGRATION_ENABLED`
+
+- Type: `true` or `false`
+- Default: `false`
+- Example: `QUIRE_SERVER_SELF_MIGRATION_ENABLED=true`
+
+Only read in `transition` mode. When `true`, a reader who still syncs with
+their Calibre-Web login can create their own Quire account from the app. The
+app sends that Calibre login once more, the server checks it with Calibre-Web,
+and the reader's existing library, progress and highlights move to the new
+account in one step. No operator command is needed. Leave it `false` if you
+prefer to verify and migrate each reader yourself.
+
+#### `QUIRE_SERVER_LEGACY_CLAIM_DAYS`
+
+- Type: whole days, `0` to `365`
+- Default: `30`
+- Example: `QUIRE_SERVER_LEGACY_CLAIM_DAYS=7`
+
+Only read when self-migration is enabled. For this many days after a reader
+migrates themselves, their other devices can exchange the old Calibre login
+for a Quire session without typing anything. During that window the Calibre
+password still opens the Quire account, and a claim needs Calibre-Web to be
+reachable. `0` turns claims off, so other devices sign in with the new
+password or by scanning a pairing code. Accounts migrated by an operator
+command are never claimable.
+
 #### `QUIRE_SERVER_AI_AUTH_MODE`
 
 - Type: `basic` or `token`

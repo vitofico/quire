@@ -24,4 +24,21 @@
     <string name="quire_account_remove_catalog">Katalog trennen</string>
     <string name="quire_account_choose_first_connection">Diese Adresse bietet einen Calibre-Web-Katalog und ein Quire-Konto. Wähle aus, was du zuerst einrichten möchtest. Das andere kannst du in den Einstellungen hinzufügen.</string>
     <string name="quire_account_catalog_then_sync">Du kannst in den Einstellungen ein Quire-Konto hinzufügen, um deinen Lesefortschritt zu synchronisieren und KI-Funktionen zu nutzen.</string>
+    <string name="quire_migration_title">Quire-Konto erstellen</string>
+    <string name="quire_migration_description">Lesefortschritt, Bibliothek und Markierungen wechseln zum neuen Konto. Dieses Gerät wird sofort angemeldet, deine anderen Geräte folgen von selbst, sobald sie Quire das nächste Mal öffnen. Dein Calibre-Web-Katalog bleibt verbunden.</string>
+    <string name="quire_migration_new_password">Neues Quire-Passwort</string>
+    <string name="quire_migration_password_too_short">Verwende mindestens 12 Zeichen.</string>
+    <string name="quire_migration_submit">Konto erstellen und Daten behalten</string>
+    <string name="quire_migration_or_sign_in">Du hast schon ein Quire-Konto? Melde dich unten an.</string>
+    <string name="quire_migration_email_unavailable">Diese E-Mail gehört bereits zu einem Quire-Konto. Wähle eine andere oder melde dich unten an.</string>
+    <string name="quire_migration_invalid_email">Gib eine gültige E-Mail-Adresse ein.</string>
+    <string name="quire_migration_sign_in_instead">Für diese Calibre-Web-Anmeldung gibt es bereits ein Quire-Konto. Melde dich mit E-Mail und Passwort an oder scanne einen Kopplungscode von einem angemeldeten Gerät.</string>
+    <string name="quire_migration_calibre_rejected">Calibre-Web hat die auf diesem Gerät gespeicherte Anmeldung abgelehnt. Verbinde den Katalog in den Einstellungen neu und versuche es erneut.</string>
+    <string name="quire_migration_unavailable">Dieser Server kann kein Quire-Konto aus der App erstellen. Frage die Serververwaltung.</string>
+    <string name="quire_pairing_add_device">Weiteres Gerät hinzufügen</string>
+    <string name="quire_pairing_show_help">Öffne Quire auf dem anderen Gerät, wähle „Kopplungscode scannen“ und richte die Kamera hierauf. Der Code gilt einmal und läuft nach zwei Minuten ab.</string>
+    <string name="quire_pairing_failed">Der Kopplungscode konnte nicht erstellt werden. Prüfe die Verbindung und versuche es erneut.</string>
+    <string name="quire_pairing_scan">Kopplungscode scannen</string>
+    <string name="quire_pairing_scan_help">Öffne auf einem bereits bei Quire angemeldeten Gerät Einstellungen → Quire-Konto → Weiteres Gerät hinzufügen und richte diese Kamera auf den Code.</string>
+    <string name="quire_pairing_camera_denied">Quire braucht die Kamera, um einen Kopplungscode zu lesen. Erlaube sie in den Systemeinstellungen oder melde dich mit E-Mail und Passwort an.</string>
 </resources>

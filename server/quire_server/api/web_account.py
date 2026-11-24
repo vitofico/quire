@@ -52,6 +52,7 @@ def install_web_account(app: FastAPI, settings: Settings, identity: IdentitySett
             "login": login,
             "password": native,
             "oidc": native and bool(identity.oidc_issuer),
+            "migration": login == "transition" and settings.self_migration_enabled,
             "catalogUrl": settings.web_catalog_url,
             "accountManagement": (
                 identity.public_url + "/cloud/account" if native and identity.oidc_issuer else None

@@ -11,6 +11,7 @@ export type Bootstrap = {
   login: 'none' | 'native' | 'basic' | 'transition'
   password: boolean
   oidc: boolean
+  migration?: boolean
   catalogUrl: string | null
   accountManagement: string | null
   nativeWebUrl?: string | null
@@ -30,6 +31,12 @@ function parseNativeWebUrl(value?: string | null): URL | undefined {
   } catch { /* Ignore misconfigured destinations. */ }
 }
 const nativeLoginRequired = 'This Calibre-Web account now uses Quire sign-in.'
+const migrationErrors: Record<string, string> = {
+  already_migrated: nativeLoginRequired,
+  email_unavailable: 'This email already has a Quire account.',
+  invalid_email: 'Enter a valid email address.',
+  invalid_password: 'Use a new password of at least 12 characters.',
+}
 
 type Identity = { id: string, backend: 'native' | 'calibreweb' }
 type Session = {
@@ -151,6 +158,19 @@ async function getSession(path: string, backend: Identity['backend'], authorizat
   const session = await response.json() as Session
   if (session.version !== 1 || !validIdentity(session.user) || session.user.backend !== backend ||
       (backend === 'native' && !session.csrf_token)) throw new Error('Invalid account response.')
+  return session
+}
+
+async function passwordSession(email: string, password: string, remember: boolean): Promise<Session> {
+  const response = await fetchPrivate('/auth/v1/browser/login', {
+    method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password, destination: 'quire', remember_browser: remember }),
+  })
+  if (!response.ok) throw new Error('Sign-in failed. Check your credentials and try again.')
+  const issued = await response.json() as { account_id: string }
+  const session = await getSession('/auth/v1/me', 'native')
+  if (issued.account_id !== session.user.id) throw new Error('The account changed in another tab.')
+  store(logoutKey)
   return session
 }
 
@@ -447,17 +467,27 @@ export function useAccount() {
     signInPassword: async (email: string, password: string, remember = false) => {
       const config = configuration.current
       if (!allowsNative(config) || !config?.password) return
+      await signIn(() => passwordSession(email, password, remember), remember)
+    },
+    // Proves ownership with the Calibre-Web login, then signs in to the new Quire account.
+    migrateCalibre: async (username: string, calibrePassword: string, email: string, password: string, remember = false) => {
+      const config = configuration.current
+      if (!config?.migration || !config.password) return
+      let authorization: string
+      try { authorization = encodeBasic(username, calibrePassword) }
+      catch (reason) { setError((reason as Error).message); return }
       await signIn(async () => {
-        const response = await fetchPrivate('/auth/v1/browser/login', {
-          method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password, destination: 'quire', remember_browser: remember }),
+        const response = await fetchPrivate('/auth/v1/migrate', {
+          method: 'POST', credentials: 'omit',
+          headers: { Authorization: authorization, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
         })
-        if (!response.ok) throw new Error('Sign-in failed. Check your credentials and try again.')
-        const issued = await response.json() as { account_id: string }
-        const session = await getSession('/auth/v1/me', 'native')
-        if (issued.account_id !== session.user.id) throw new Error('The account changed in another tab.')
-        store(logoutKey)
-        return session
+        if (!response.ok) {
+          const detail = await response.json().then(value => value?.detail, () => undefined)
+          throw new Error(response.status === 401 ? 'Check your Calibre-Web username and password.'
+            : migrationErrors[detail] ?? 'The account could not be moved. Try again.')
+        }
+        return passwordSession(email, password, remember)
       }, remember)
     },
     signInOidc: (remember = false) => {

@@ -126,6 +126,10 @@ fun ConnectServerScreen(
             ) {
                 Text(stringResource(R.string.common_probe_server))
             }
+            ScanPairingCodeButton(
+                enabled = state !is ConnectServerViewModel.UiState.Verifying,
+                onPairing = viewModel::verifyAndSavePairing,
+            )
 
             ResultPanel(
                 state = state,
@@ -154,7 +158,9 @@ fun QuireSignInScreen(
     val verifying = state is ConnectServerViewModel.UiState.Verifying
     val reauth = viewModel.isReauthentication
     var serverUrl by rememberSaveable { mutableStateOf(viewModel.initialQuireUrl) }
+    val migrationOffered by viewModel.migrationOffered.collectAsState()
 
+    LaunchedEffect(Unit) { viewModel.claimLegacyAccount() }
     LaunchedEffect(state) {
         if (state is ConnectServerViewModel.UiState.Completed) onCompleted()
     }
@@ -182,6 +188,10 @@ fun QuireSignInScreen(
                 ),
                 modifier = Modifier.fillMaxWidth(),
             )
+            if (migrationOffered) {
+                MigrationCard(enabled = !verifying, onSubmit = viewModel::migrateLegacyAccount)
+                Text(stringResource(R.string.quire_migration_or_sign_in), style = MaterialTheme.typography.bodySmall)
+            }
             BearerCredentialCard(
                 canonicalBaseUrl = serverUrl,
                 headline = null,
@@ -190,6 +200,7 @@ fun QuireSignInScreen(
                 onSubmit = viewModel::verifyAndSaveBearer,
                 onPairing = viewModel::verifyAndSavePairing,
             )
+            ScanPairingCodeButton(enabled = !verifying, onPairing = viewModel::verifyAndSavePairing)
             when (val current = state) {
                 is ConnectServerViewModel.UiState.VerificationFailed -> Text(
                     current.message.asString(),
@@ -365,6 +376,53 @@ private fun BasicCredentialCard(
                 enabled = username.isNotBlank() && password.isNotBlank(),
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(stringResource(R.string.common_sign_in)) }
+        }
+    }
+}
+
+@Composable
+private fun MigrationCard(enabled: Boolean, onSubmit: (String, String) -> Unit) {
+    var email by rememberSaveable { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+
+    QuireCard(modifier = Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            SectionLabel(stringResource(R.string.quire_migration_title))
+            Text(stringResource(R.string.quire_migration_description), style = MaterialTheme.typography.bodyMedium)
+            OutlinedTextField(
+                value = email,
+                onValueChange = { email = it },
+                label = { Text(stringResource(R.string.common_email)) },
+                singleLine = true,
+                enabled = enabled,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Email,
+                    imeAction = ImeAction.Next,
+                    autoCorrect = false,
+                    capitalization = KeyboardCapitalization.None,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it },
+                label = { Text(stringResource(R.string.quire_migration_new_password)) },
+                supportingText = { Text(stringResource(R.string.quire_migration_password_too_short)) },
+                singleLine = true,
+                enabled = enabled,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Password,
+                    imeAction = ImeAction.Go,
+                    autoCorrect = false,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Button(
+                onClick = { onSubmit(email, password) },
+                enabled = enabled && '@' in email && password.toByteArray().size >= 12,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(stringResource(R.string.quire_migration_submit)) }
         }
     }
 }

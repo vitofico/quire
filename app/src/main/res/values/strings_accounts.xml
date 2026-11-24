@@ -24,4 +24,21 @@
     <string name="quire_account_remove_catalog">Disconnect catalog</string>
     <string name="quire_account_choose_first_connection">This address offers a Calibre-Web catalog and a Quire account. Choose which to set up first. You can add the other in Settings.</string>
     <string name="quire_account_catalog_then_sync">You can add a Quire account in Settings to sync reading progress and access AI features.</string>
+    <string name="quire_migration_title">Create your Quire account</string>
+    <string name="quire_migration_description">Your reading progress, library and highlights move to the new account. This device signs in right away, and your other devices follow by themselves the next time they open Quire. Your Calibre-Web catalog stays connected.</string>
+    <string name="quire_migration_new_password">New Quire password</string>
+    <string name="quire_migration_password_too_short">Use at least 12 characters.</string>
+    <string name="quire_migration_submit">Create account and keep my data</string>
+    <string name="quire_migration_or_sign_in">Already have a Quire account? Sign in below.</string>
+    <string name="quire_migration_email_unavailable">That email already belongs to a Quire account. Choose another or sign in below.</string>
+    <string name="quire_migration_invalid_email">Enter a valid email address.</string>
+    <string name="quire_migration_sign_in_instead">This Calibre-Web login already has a Quire account. Sign in with its email and password, or scan a pairing code from a signed-in device.</string>
+    <string name="quire_migration_calibre_rejected">Calibre-Web rejected the login saved on this device. Reconnect your catalog in Settings, then try again.</string>
+    <string name="quire_migration_unavailable">This server can’t create a Quire account from the app. Ask your server administrator.</string>
+    <string name="quire_pairing_add_device">Add another device</string>
+    <string name="quire_pairing_show_help">On the other device, open Quire, choose “Scan pairing code” and point it here. The code works once and expires after two minutes.</string>
+    <string name="quire_pairing_failed">Couldn’t create a pairing code. Check your connection and try again.</string>
+    <string name="quire_pairing_scan">Scan pairing code</string>
+    <string name="quire_pairing_scan_help">On a device already signed in to Quire, open Settings → Quire account → Add another device, then point this camera at the code.</string>
+    <string name="quire_pairing_camera_denied">Quire needs the camera to read a pairing code. Allow it in system settings, or sign in with your email and password.</string>
 </resources>

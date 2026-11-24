@@ -5,10 +5,10 @@ import httpx
 import pytest
 from sqlalchemy import select, text
 
+from quire_server.api.calibre_migration import MigrationError, provision
 from quire_server.core.auth import CalibreAuthValidator
 from quire_server.core.auth_backend import CalibreWebBasicAuth
 from quire_server.db.models import CalibreAccountBinding, LibraryItem
-from scripts.migrate_calibre_account import MigrationError, provision
 
 PASSWORD = "fixture-new-password"
 SERVICE = "fixture-service-token-32-characters"
@@ -201,3 +201,121 @@ async def test_binding_waits_for_an_inflight_basic_request(
         assert (await writing).status_code == 200
         _, counts = await migrating
         assert counts["library_items"] == 1
+
+
+async def test_reader_migrates_from_the_app_and_other_devices_claim(
+    client_factory, app, session, cwa_transport, basic_header
+):
+    async with (
+        client_factory(
+            auth_backend="transition",
+            ai_enabled=False,
+            self_migration_enabled=True,
+            skip_auth_overrides=True,
+        ) as client,
+        install_mock_calibre(app, cwa_transport),
+    ):
+        alice = {"Authorization": basic_header("alice", "alicepass")}
+        bob = {"Authorization": basic_header("bob", "bobpass")}
+        session.add(LibraryItem(user_id="alice", content_hash="fixture", title="Alice's book"))
+        await session.commit()
+        account = {"email": EMAIL, "password": PASSWORD}
+
+        assert (await client.post("/auth/v1/migrate/claim", json={}, headers=alice)).json() == {
+            "detail": "not_migrated"
+        }
+        wrong = {"Authorization": basic_header("alice", "not-her-password")}
+        assert (
+            await client.post("/auth/v1/migrate", json=account, headers=wrong)
+        ).status_code == 401
+        assert (await client.post("/auth/v1/migrate", json=account)).status_code == 401
+        short = await client.post(
+            "/auth/v1/migrate", json={"email": EMAIL, "password": "short"}, headers=alice
+        )
+        assert (short.status_code, short.json()["detail"]) == (409, "invalid_password")
+        assert (await client.get("/library/v1/items", headers=alice)).status_code == 200
+
+        migrated = await client.post(
+            "/auth/v1/migrate", json={**account, "device_name": "Pixel"}, headers=alice
+        )
+        assert migrated.status_code == 200, migrated.text
+        assert migrated.json()["account_subject"] == EMAIL
+        first = {"Authorization": "Bearer " + migrated.json()["token"]}
+        assert "Alice's book" in (await client.get("/library/v1/items", headers=first)).text
+        assert (await client.get("/library/v1/items", headers=alice)).status_code == 401
+        assert (await client.post("/auth/v1/login", json=account)).status_code == 200
+
+        again = await client.post("/auth/v1/migrate", json=account, headers=alice)
+        assert (again.status_code, again.json()["detail"]) == (409, "already_migrated")
+        taken = await client.post("/auth/v1/migrate", json=account, headers=bob)
+        assert (taken.status_code, taken.json()["detail"]) == (409, "email_unavailable")
+        limited = [
+            await client.post("/auth/v1/migrate/claim", json={}, headers=alice) for _ in "12"
+        ]
+        assert limited[-1].json() == {"detail": "login_rate_limited"}
+        app.state.native_login_guard.ips.clear()
+
+        claimed = await client.post(
+            "/auth/v1/migrate/claim", json={"device_name": "Tablet"}, headers=alice
+        )
+        assert claimed.status_code == 200, claimed.text
+        assert claimed.json()["account_id"] == migrated.json()["account_id"]
+        assert claimed.json()["token"] != migrated.json()["token"]
+        second = {"Authorization": "Bearer " + claimed.json()["token"]}
+        assert "Alice's book" in (await client.get("/library/v1/items", headers=second)).text
+        assert (
+            await client.post("/auth/v1/migrate/claim", json={}, headers=wrong)
+        ).status_code == 401
+
+        await session.execute(
+            text(
+                "UPDATE calibre_account_bindings "
+                "SET self_migrated_at = now() - interval '31 days' WHERE calibre_user_id='alice'"
+            )
+        )
+        await session.commit()
+        late = await client.post("/auth/v1/migrate/claim", json={}, headers=alice)
+        assert (late.status_code, late.json()["detail"]) == (403, "native_login_required")
+        assert (await client.get("/library/v1/items", headers=second)).status_code == 200
+
+        # An operator migration tells the reader Basic stops at once, so it never opens a window.
+        await session.execute(text("UPDATE calibre_account_bindings SET self_migrated_at = NULL"))
+        await session.commit()
+        assert (
+            await client.post("/auth/v1/migrate/claim", json={}, headers=alice)
+        ).status_code == 403
+
+
+async def test_browser_migration_issues_no_bearer(
+    client_factory, app, session, cwa_transport, basic_header
+):
+    async with (
+        client_factory(
+            auth_backend="transition",
+            ai_enabled=False,
+            self_migration_enabled=True,
+            skip_auth_overrides=True,
+        ) as client,
+        install_mock_calibre(app, cwa_transport),
+    ):
+        # A browser sends no device name: it signs in afterwards for its own cookie.
+        migrated = await client.post(
+            "/auth/v1/migrate",
+            json={"email": EMAIL, "password": PASSWORD},
+            headers={"Authorization": basic_header("alice", "alicepass")},
+        )
+        assert (migrated.status_code, set(migrated.json())) == (200, {"account_id"})
+
+
+async def test_self_migration_is_absent_unless_the_operator_enables_it(
+    client_factory, app, cwa_transport, basic_header
+):
+    async with (
+        client_factory(
+            auth_backend="transition", ai_enabled=False, skip_auth_overrides=True
+        ) as client,
+        install_mock_calibre(app, cwa_transport),
+    ):
+        alice = {"Authorization": basic_header("alice", "alicepass")}
+        for path in ("/auth/v1/migrate", "/auth/v1/migrate/claim"):
+            assert (await client.post(path, json={}, headers=alice)).status_code == 404

@@ -46,6 +46,14 @@ export function AccountSettings({ account, pending, sync, clear, t = label => la
     else void account.signInPassword(username, password, remember)
   }
 
+  function migrate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const body = new FormData(event.currentTarget)
+    const field = (name: string) => String(body.get(name) ?? '')
+    event.currentTarget.reset()
+    void account.migrateCalibre(field('username'), field('calibre-password'), field('email'), field('password'), remember)
+  }
+
   const signInForm = (legacy: boolean) => <form onSubmit={event => signIn(event, legacy)}>
     <label>{legacy ? t('Calibre-Web username') : t('Email')} <input type={legacy ? 'text' : 'email'} name="username" autoComplete="username" required /></label>
     <label>{t('Password')} <input type="password" name="password" autoComplete="current-password" required /></label>
@@ -102,6 +110,17 @@ export function AccountSettings({ account, pending, sync, clear, t = label => la
           <legend>{t('Quire account')}</legend>
           {password && signInForm(false)}
           {oidc && <button type="button" onClick={() => account.signInOidc(remember)}>{t('Continue with identity provider')}</button>}
+        </fieldset>}
+        {bootstrap?.migration && password && <fieldset>
+          <legend>{t('Move a Calibre-Web account to Quire')}</legend>
+          <p>{t('Create your Quire account with your Calibre-Web login. Your reading progress and highlights move with it.')}</p>
+          <form onSubmit={migrate}>
+            <label>{t('Calibre-Web username')} <input type="text" name="username" autoComplete="off" required /></label>
+            <label>{t('Calibre-Web password')} <input type="password" name="calibre-password" autoComplete="off" required /></label>
+            <label>{t('Email')} <input type="email" name="email" autoComplete="email" required /></label>
+            <label>{t('New password')} <input type="password" name="password" autoComplete="new-password" minLength={12} required /></label>
+            <button type="submit">{t('Create Quire account')}</button>
+          </form>
         </fieldset>}
       </fieldset>}
       {bootstrap?.ai && !bootstrap.aiAvailable && <p>{t('Insights are unavailable for browser accounts on this server.')}</p>}

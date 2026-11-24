@@ -247,6 +247,15 @@ class Settings(BaseSettings):
     # at this stage (deferred per spec).
     native_session_ttl_s: int = 30 * 24 * 3600
 
+    # Transition mode only. Lets a reader move their own Calibre reading scope
+    # to a new Quire account from the app, proving ownership with the Calibre
+    # login the device already holds (`POST /auth/v1/migrate`).
+    self_migration_enabled: bool = False
+
+    # After a reader migrates themselves, how long their other devices may
+    # exchange the old Calibre login for a Quire session. 0 disables claims.
+    legacy_claim_days: int = Field(default=30, ge=0, le=365)
+
     # Issue #102: who may open the server status page (`/quire-admin`).
     # Comma-separated user ids as the auth backend reports them: the
     # calibre-web username, or `native:<id>` under native auth. Compared

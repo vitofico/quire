@@ -18,6 +18,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import okhttp3.mockwebserver.MockResponse
+import okhttp3.Credentials
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Before
@@ -215,6 +216,90 @@ class ConnectServerViewModelTest {
         assertThat(saved.catalog?.baseUrl).isEqualTo(catalog)
         assertThat(saved.catalog?.password).isEqualTo("catalog-password")
         assertThat(server.awaitRequest().path).isEqualTo("/quire/auth/v1/login")
+    }
+
+    private val boundIdentity =
+        """{"user":{"id":"native:42","backend":"native","legacy_calibre_user_id":"alice"}}"""
+
+    @Test fun `a legacy device whose reader already migrated signs in without typing anything`() = runTest {
+        val serverUrl = server.url("/quire").toString()
+        store.saveBasicAccount("https://books.example", "alice", "catalog-password", serverUrl)
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"token":"claimed-token","account_id":"native:42","account_subject":"alice@example.com"}""",
+            ),
+        )
+        server.enqueue(MockResponse().setResponseCode(200).setBody(boundIdentity))
+        val vm = newViewModel { _, _, _ -> "legacy-highlight-scope" }
+
+        vm.claimLegacyAccount()
+        advanceUntilIdle()
+
+        assertThat(vm.state.value).isEqualTo(ConnectServerViewModel.UiState.Completed)
+        val saved = store.getAccount() as AccountCredentials.Bearer
+        assertThat(saved.token).isEqualTo("claimed-token")
+        assertThat(saved.email).isEqualTo("alice@example.com")
+        assertThat(saved.catalog?.baseUrl).isEqualTo("https://books.example/opds")
+        assertThat(saved.previousHighlightScopes).containsExactly("legacy-highlight-scope")
+        val claim = server.awaitRequest()
+        assertThat(claim.path).isEqualTo("/quire/auth/v1/migrate/claim")
+        assertThat(claim.getHeader("Authorization")).isEqualTo(Credentials.basic("alice", "catalog-password"))
+    }
+
+    @Test fun `an unmigrated legacy reader is offered migration and keeps their data`() = runTest {
+        val serverUrl = server.url("/quire").toString()
+        store.saveBasicAccount("https://books.example", "alice", "catalog-password", serverUrl)
+        val prior = store.getAccount()
+        server.enqueue(MockResponse().setResponseCode(409).setBody("""{"detail":"not_migrated"}"""))
+        val vm = newViewModel()
+
+        vm.claimLegacyAccount()
+        advanceUntilIdle()
+
+        assertThat(vm.migrationOffered.value).isTrue()
+        assertThat(vm.state.value).isEqualTo(ConnectServerViewModel.UiState.Idle)
+        assertThat(store.getAccount()).isEqualTo(prior)
+
+        server.enqueue(MockResponse().setResponseCode(409).setBody("""{"detail":"email_unavailable"}"""))
+        vm.migrateLegacyAccount("taken@example.com", "a-long-new-password")
+        advanceUntilIdle()
+        assertThat(vm.state.value).isEqualTo(
+            ConnectServerViewModel.UiState.VerificationFailed(uiText(R.string.quire_migration_email_unavailable)),
+        )
+        assertThat(store.getAccount()).isEqualTo(prior)
+
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"token":"new-token","account_id":"native:42","account_subject":"alice@example.com"}""",
+            ),
+        )
+        server.enqueue(MockResponse().setResponseCode(200).setBody(boundIdentity))
+        vm.migrateLegacyAccount(" alice@example.com ", "a-long-new-password")
+        advanceUntilIdle()
+
+        assertThat(vm.state.value).isEqualTo(ConnectServerViewModel.UiState.Completed)
+        assertThat((store.getAccount() as AccountCredentials.Bearer).token).isEqualTo("new-token")
+        server.awaitRequest()
+        server.awaitRequest()
+        val migrate = server.awaitRequest()
+        assertThat(migrate.path).isEqualTo("/quire/auth/v1/migrate")
+        assertThat(migrate.getHeader("Authorization")).isEqualTo(Credentials.basic("alice", "catalog-password"))
+        assertThat(migrate.body.readUtf8()).contains("\"email\":\"alice@example.com\"")
+    }
+
+    @Test fun `a server without self-service migration leaves a legacy device alone`() = runTest {
+        val serverUrl = server.url("/quire").toString()
+        store.saveBasicAccount("https://books.example", "alice", "catalog-password", serverUrl)
+        val prior = store.getAccount()
+        for (code in listOf(404, 403, 401, 500)) {
+            server.enqueue(MockResponse().setResponseCode(code))
+            val vm = newViewModel()
+            vm.claimLegacyAccount()
+            advanceUntilIdle()
+            assertThat(vm.migrationOffered.value).isFalse()
+            assertThat(vm.state.value).isEqualTo(ConnectServerViewModel.UiState.Idle)
+        }
+        assertThat(store.getAccount()).isEqualTo(prior)
     }
 
     @Test fun `same-server legacy sign in uses authenticated binding and keeps calibre web`() = runTest {

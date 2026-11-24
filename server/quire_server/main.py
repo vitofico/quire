@@ -19,6 +19,7 @@ import logging
 import os
 import warnings
 from contextlib import AsyncExitStack
+from datetime import timedelta
 
 import httpx
 from fastapi import Depends, FastAPI
@@ -330,6 +331,11 @@ def create_app() -> FastAPI:
 
         app.include_router(browser_router, prefix="/auth/v1")
         app.include_router(lifecycle_router)
+        if settings.auth_backend == "transition" and settings.self_migration_enabled:
+            from quire_server.api.calibre_migration import router as migration_router
+
+            app.state.legacy_claim_window = timedelta(days=settings.legacy_claim_days)
+            app.include_router(migration_router, prefix="/auth/v1")
         if identity_settings.oidc_issuer:
             from quire_server.core.oidc import OIDCClient
 
@@ -357,6 +363,8 @@ def create_app() -> FastAPI:
                 "/auth/v1/oidc/start",
                 "/auth/v1/oidc/callback",
                 "/auth/v1/pairing/exchange",
+                "/auth/v1/migrate",
+                "/auth/v1/migrate/claim",
             }
             legacy_ai = request.url.path.startswith("/ai/") and settings.ai_auth_mode == "token"
             if (

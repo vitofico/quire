@@ -23,12 +23,16 @@ import io.theficos.ereader.reader.ReaderPreferences
 import io.theficos.ereader.reader.ReaderPreferencesStore
 import io.theficos.ereader.reader.ReaderTheme
 import io.theficos.ereader.ui.UiText
+import io.theficos.ereader.ui.onboarding.ConnectServerViewModel
+import io.theficos.ereader.ui.onboarding.PairingCode
+import io.theficos.ereader.ui.onboarding.requestPairingCode
 import io.theficos.ereader.ui.theme.AppTheme
-import io.theficos.ereader.ui.theme.BackgroundStyle
 import io.theficos.ereader.ui.theme.AppThemePreferencesStore
+import io.theficos.ereader.ui.theme.BackgroundStyle
 import io.theficos.ereader.ui.uiText
 import io.theficos.quire.R
 import java.io.File
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -40,6 +44,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class SyncUiState(
     val hasCredentials: Boolean,
@@ -90,6 +95,26 @@ class SettingsViewModel(
     private val restoreInProgress: (suspend ((Int, Int) -> Unit) -> RestoreSummary)? = null,
 ) : ViewModel() {
     val account = store.accountFlow
+
+    private val _pairing = MutableStateFlow<PairingState>(PairingState.Hidden)
+
+    /** The "Add another device" QR code: a short-lived ticket for this Quire account. */
+    val pairing: StateFlow<PairingState> = _pairing.asStateFlow()
+
+    fun showPairingCode() {
+        val native = account.value as? AccountCredentials.Bearer ?: return
+        _pairing.value = PairingState.Loading
+        viewModelScope.launch {
+            val code = withContext(Dispatchers.IO) {
+                requestPairingCode(ConnectServerViewModel.defaultOnboardingClient(), native)
+            }
+            if (_pairing.value == PairingState.Loading) {
+                _pairing.value = code?.let(PairingState::Ready) ?: PairingState.Failed
+            }
+        }
+    }
+
+    fun hidePairingCode() { _pairing.value = PairingState.Hidden }
     private val initialAccount = account.value
     val needsReauth = store.needsReauth
 
@@ -455,6 +480,13 @@ class SettingsViewModel(
  * It may itself be a credential (some catalogs embed a full-account API key as
  * a path segment), which is why the screen masks it behind a reveal toggle.
  */
+sealed interface PairingState {
+    data object Hidden : PairingState
+    data object Loading : PairingState
+    data object Failed : PairingState
+    data class Ready(val code: PairingCode) : PairingState
+}
+
 data class OpdsUiState(
     val catalogUrl: String,
     val username: String,

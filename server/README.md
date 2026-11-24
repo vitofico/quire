@@ -31,6 +31,14 @@ the usual self-hosted AI auth mode and is incompatible with hosted policy.
 Follow the [operator and reader migration guide](../docs/independent-login-migration.md)
 for the dry run, private password setup, app upgrade and rollback procedure.
 
+With `QUIRE_SERVER_SELF_MIGRATION_ENABLED=true`, readers do this themselves from
+the app. `POST /auth/v1/migrate` takes the Calibre Basic login the device already
+holds plus a new email and password, runs the same atomic create-and-bind as the
+operator script, and returns a device session. For `QUIRE_SERVER_LEGACY_CLAIM_DAYS`
+afterwards, `POST /auth/v1/migrate/claim` exchanges that Calibre login for a
+session on the reader's other devices. Both share the login rate limit, and a
+claim is refused for closed accounts and for operator-migrated ones.
+
 Authenticated `POST /auth/v1/pairing` creates a random 120-second one-use ticket;
 `POST /auth/v1/pairing/exchange` yields a native device session and server-issued
 stable account subject. Cookie mutations require exact Origin and CSRF proof.
@@ -255,7 +263,7 @@ environment. If enabling OIDC, register
 read.example.com {
     @quire path /quire /quire/* /sync/* /library/* /ai/* /health /readyz
     @browserAuth path /auth/v1/browser /auth/v1/browser/login /auth/v1/me /auth/v1/logout /auth/v1/oidc/start /auth/v1/oidc/callback
-    @deviceAuth path /auth/v1/login /auth/v1/pairing /auth/v1/pairing/exchange /auth/v1/account/export
+    @deviceAuth path /auth/v1/login /auth/v1/pairing /auth/v1/pairing/exchange /auth/v1/migrate /auth/v1/migrate/claim /auth/v1/account/export
     handle @browserAuth {
         reverse_proxy quire-server:8000
     }
