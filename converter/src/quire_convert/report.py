@@ -54,6 +54,9 @@ class Report:
     # "href#id" -> source pages of each aligned output block, in reading order. Ids and
     # page numbers only, so evaluation can map navigation targets back to the PDF.
     block_pages: dict[str, list[int]] = field(default_factory=dict)
+    # Region accounting summary from align.coverage.account: ratios and counts per
+    # content kind (prose, notes, illustrations), no book text.
+    coverage: dict[str, Any] = field(default_factory=dict)
     diagnostics: bool = False
 
     def to_dict(self) -> dict[str, Any]:

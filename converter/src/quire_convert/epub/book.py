@@ -239,7 +239,7 @@ class Book:
         blocks = []
         for doc in self.docs:
             for el in doc.body.iter(etree.Element):
-                if not _is_block(el):
+                if not is_block(el):
                     continue
                 if el.get("id") is None:
                     while (ident := f"{BLOCK_ID_PREFIX}b{counter:05d}") in taken:
@@ -308,7 +308,7 @@ class Book:
         _move_tail(chain, body, new_doc.body)
         for wrapper in chain[1:]:
             if len(wrapper) == 0 and not (wrapper.text or "").strip() and wrapper.get("id") is None:
-                _remove_keep_tail(wrapper)
+                remove_keep_tail(wrapper)
         moved = {
             f"{href}#{ident}": f"{new_doc.href}#{ident}"
             for node in new_doc.body.iter(etree.Element)
@@ -380,7 +380,7 @@ def _is_xhtml(el: etree._Element) -> bool:
     return isinstance(el.tag, str) and el.tag.startswith(f"{{{XHTML_NS}}}")
 
 
-def _is_block(el: etree._Element) -> bool:
+def is_block(el: etree._Element) -> bool:
     if not _is_xhtml(el):
         return False
     name = local_name(el)
@@ -403,7 +403,7 @@ def _own_text(el: etree._Element) -> str:
 
     def collect(node: etree._Element) -> None:
         for child in node:
-            if isinstance(child.tag, str) and not _is_block(child):
+            if isinstance(child.tag, str) and not is_block(child):
                 if local_name(child) not in ("script", "style"):
                     parts.append(child.text or "")
                     collect(child)
@@ -444,7 +444,7 @@ def _move_tail(chain: list[etree._Element], body: etree._Element, new_body: etre
             dest.append(sibling)
 
 
-def _remove_keep_tail(el: etree._Element) -> None:
+def remove_keep_tail(el: etree._Element) -> None:
     parent = el.getparent()
     if el.tail:
         prev = el.getprevious()

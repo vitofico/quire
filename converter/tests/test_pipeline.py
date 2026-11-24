@@ -242,10 +242,11 @@ def test_invalid_epub_fails_validate_and_rerun_hides_older_epub(stages, pdf, tmp
     assert manifest["attempt"] == 2 and "epub" not in manifest["artifacts"]
 
 
-def test_baseline_skips_alignment_and_repairs(stages, pdf, tmp_path):
+def test_baseline_detects_but_skips_repairs(stages, pdf, tmp_path):
     result = _convert(pdf, tmp_path, variant="baseline")
     assert result.outcome is Outcome.READY
-    assert not {"align", "repair", "coverage"} & set(stages.calls)
+    assert {"align", "coverage"} <= set(stages.calls)
+    assert "repair" not in stages.calls
 
 
 def test_identical_inputs_give_identical_bytes(stages, pdf, tmp_path):

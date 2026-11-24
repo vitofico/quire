@@ -221,8 +221,7 @@ def _stages(
         )
         ctx.blocks = book.ensure_block_ids()
         run.ctx = ctx
-    if ctx.variant != "baseline":
-        _rules(run, ctx)
+    _detect_and_repair(run, ctx)
 
     epub = attempt.path("book.epub")
     with run.stage_of("package"):
@@ -237,20 +236,30 @@ def _stages(
     return decide_outcome(ctx.issues, checked, run.semantic, [])
 
 
-def _rules(run: _Run, ctx: ConvertContext) -> None:
+def _detect_and_repair(run: _Run, ctx: ConvertContext) -> None:
+    # Detection runs for every variant, so a direct-Calibre baseline cannot report Ready
+    # while it silently lost a drawing; only the repairs are variant-specific.
     with run.stage_of("align"):
         from .align.align import align_book
 
         align_book(ctx)
-    with run.stage_of("repair"):
-        from .repair import REPAIRS
-    for repair in REPAIRS:
-        with run.stage_of(f"repair.{repair.__name__}"):
-            repair(ctx)
+    if ctx.variant != "baseline":
+        with run.stage_of("repair"):
+            from .repair import REPAIRS
+        for repair in REPAIRS:
+            with run.stage_of(f"repair.{_repair_name(repair)}"):
+                repair(ctx)
     with run.stage_of("coverage"):
         from .align.coverage import account
 
         account(ctx)
+
+
+def _repair_name(repair) -> str:
+    # Repair families expose ``apply`` in their own module; name the stage after the module.
+    if repair.__name__ == "apply":
+        return repair.__module__.rsplit(".", 1)[-1]
+    return repair.__name__
 
 
 def _build_report(
@@ -285,6 +294,7 @@ def _build_report(
         repairs=list(ctx.repairs) if ctx else [],
         metadata=list(ctx.metadata) if ctx else [],
         block_pages=_block_pages(ctx),
+        coverage=ctx.alignment.coverage if ctx and ctx.alignment else {},
         diagnostics=diagnostics,
     )
 
