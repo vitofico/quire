@@ -82,7 +82,7 @@ def test_active_content_is_stripped(sample_epub, tmp_path):
     book = Book.load(sample_epub)
     book.save(tmp_path / "a.epub", modified=MODIFIED)
     assert len(book.stripped) == 4  # script, onclick, remote img, remote CSS import
-    assert not any("example.com" in note for note in book.stripped)
+    assert not any("example" in note for note in book.stripped)  # notes never quote URLs
     with zipfile.ZipFile(tmp_path / "a.epub") as zf:
         ch2 = zf.read(CH2).decode()
         css = zf.read("OEBPS/Styles/style.css").decode()

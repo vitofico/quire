@@ -156,8 +156,7 @@ def inspect_summary(source: SourceInventory) -> dict[str, Any]:
     return {
         "sha256": source.sha256,
         "pages": source.page_count,
-        "encrypted": source.encrypted,
-        "needs_password": source.needs_password,
+        "encryption": _encryption(source),
         "language": source.language,
         "page_types": dict(sorted(Counter(p.page_type for p in source.pages).items())),
         "page_flags": dict(sorted(Counter(f for p in source.pages for f in p.flags).items())),
@@ -169,6 +168,12 @@ def inspect_summary(source: SourceInventory) -> dict[str, Any]:
     }
 
 
+def _encryption(source: SourceInventory) -> str:
+    if not source.encrypted:
+        return "no"
+    return "yes, needs a password to open" if source.needs_password else "yes"
+
+
 def format_inspect(summary: dict[str, Any]) -> str:
     def pairs(d: dict[str, Any]) -> str:
         return ", ".join(f"{k} {v}" for k, v in d.items()) or "none"
@@ -177,14 +182,11 @@ def format_inspect(summary: dict[str, Any]) -> str:
         f"{r['style']} {r['first']}-{r['last']} (pages {r['start']}-{r['end']})"
         for r in summary["page_label_runs"]
     ]
-    encryption = "yes" if summary["encrypted"] else "no"
-    if summary["needs_password"]:
-        encryption += ", needs a password"
     lines = [
         f"pages: {summary['pages']}",
         f"page types: {pairs(summary['page_types'])}",
         f"page flags: {pairs(summary['page_flags'])}",
-        f"encrypted: {encryption}",
+        f"encrypted: {summary['encryption']}",
         f"language: {summary['language'] or 'unknown'}",
         f"page labels: {'; '.join(runs) or 'none'}",
         f"bookmarks: {summary['bookmarks']}",

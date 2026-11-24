@@ -129,7 +129,9 @@ def _handler(app: FakeCalibreWeb):
         def _session(self) -> tuple[str, dict]:
             cookie = self.headers.get("Cookie", "")
             match = re.search(r"session=(\w+)", cookie)
-            sid = match.group(1) if match and match.group(1) in app.sessions else None
+            # Take the id from our own table, never echo the request's cookie back.
+            asked = match.group(1) if match else None
+            sid = next((known for known in app.sessions if known == asked), None)
             if sid is None:
                 sid = secrets.token_hex(8)
                 app.sessions[sid] = {"csrf": secrets.token_hex(8), "user": None}
