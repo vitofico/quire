@@ -405,7 +405,7 @@ function Workspace({ account }: { account: AccountState }) {
     await replica.putHighlight(h)
   }
   const nav = (
-    <header className="top">
+    <header className="rail">
       <a className="wordmark" href="#/library">
         Quire
       </a>
@@ -837,7 +837,11 @@ function Workspace({ account }: { account: AccountState }) {
       </>
     )
   return (
-    <div className={art === 'on' ? 'artwork' : ''}>
+    <div
+      className={
+        (route.view === 'read' ? '' : 'shell ') + (art === 'on' ? 'artwork' : '')
+      }
+    >
       <a
         className="skip"
         href="#content"
