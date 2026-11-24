@@ -31,9 +31,9 @@ repos:
     rev: v0.16.8
     hooks:
       - id: ruff-check
-        files: ^server/
+        files: ^(server|converter)/
       - id: ruff-format
-        files: ^server/
+        files: ^(server|converter)/
 
   # Catch credentials / API keys before they're committed. Generates a
   # .secrets.baseline on first run; review and commit it once.

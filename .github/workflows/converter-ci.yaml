@@ -1,0 +1,84 @@
+name: converter-ci
+
+on:
+  # Only main pushes here; feature branches are validated by the pull_request trigger.
+  # Mirrors server-ci.yaml.
+  push:
+    branches: [main]
+    paths:
+      - "converter/**"
+      - ".github/workflows/converter-ci.yaml"
+  pull_request:
+    paths:
+      - "converter/**"
+      - ".github/workflows/converter-ci.yaml"
+
+concurrency:
+  group: converter-ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+env:
+  # Keep in step with CALIBRE_PIN and EPUBCHECK_PIN in converter/src/quire_convert/tools.py.
+  CALIBRE_VERSION: 9.19.0
+  # From https://calibre-ebook.com/signatures/calibre-9.19.0-x86_64.txz.sha512
+  CALIBRE_SHA512: 907e477a74f1292deaea822a1dc110fd420fcfc6d4e62746edbfd9749b15a87513fb4c8047f1e9dd39726a980fbe80de1cf74ce1868f7943268716840ab278e7  # pragma: allowlist secret
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: converter
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Install
+        run: |
+          uv venv
+          uv pip install -e ".[dev]"
+      - name: Lint
+        run: uv run ruff check . && uv run ruff format --check .
+      - name: Install Poppler and Calibre's runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils xz-utils \
+            libegl1 libopengl0 libxcb-cursor0 libxkbcommon0 libglx0 libnss3
+      - name: Install pinned Calibre
+        run: |
+          tarball="calibre-$CALIBRE_VERSION-x86_64.txz"
+          curl -fsSL -o "$RUNNER_TEMP/$tarball" \
+            "https://download.calibre-ebook.com/$CALIBRE_VERSION/$tarball"
+          echo "$CALIBRE_SHA512  $RUNNER_TEMP/$tarball" | sha512sum -c -
+          mkdir -p "$RUNNER_TEMP/calibre"
+          tar -xJf "$RUNNER_TEMP/$tarball" -C "$RUNNER_TEMP/calibre"
+          echo "QC_EBOOK_CONVERT=$RUNNER_TEMP/calibre/ebook-convert" >> "$GITHUB_ENV"
+      - name: Install pinned EPUBCheck
+        run: echo "EPUBCHECK_JAR=$(scripts/fetch-epubcheck.sh)" >> "$GITHUB_ENV"
+      - name: Show tool versions
+        env:
+          QC_JAVA: ${{ env.JAVA_HOME_21_X64 }}/bin/java
+        run: |
+          "$QC_EBOOK_CONVERT" --version | head -1
+          pdfinfo -v 2>&1 | head -1
+          "$QC_JAVA" -version 2>&1 | head -1
+      - name: Test
+        env:
+          QC_JAVA: ${{ env.JAVA_HOME_21_X64 }}/bin/java
+          QT_QPA_PLATFORM: offscreen
+        # The Calibre-Web acceptance tests need a local calibre-web-automated image; they
+        # run on a developer machine (pytest -m docker).
+        run: uv run pytest -m "not docker" --junitxml="$RUNNER_TEMP/converter-junit.xml"
+      - name: Retain converter test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: converter-tests
+          path: ${{ runner.temp }}/converter-junit.xml
+          if-no-files-found: ignore
+          retention-days: 3

@@ -1,0 +1,42 @@
+[project]
+name = "quire-convert"
+version = "0.1.0"
+description = "Standalone PDF to reflowable EPUB converter with a source-backed repair report"
+license = "AGPL-3.0-only"
+requires-python = ">=3.12"
+# External tools (not Python packages), located by quire_convert.tools:
+#   calibre ebook-convert (pinned 9.18.x), poppler utils (pdftotext, pdftohtml,
+#   pdftoppm, pdfimages, pdfinfo), a Java 17+ runtime and EPUBCheck 5.4.0
+#   (scripts/fetch-epubcheck.sh).
+dependencies = [
+    # crypto: owner-password-only AES PDFs (common for retail books) stay readable.
+    "pypdf[crypto]>=5.0",
+    "lxml>=5.2",
+    "pillow>=10.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    # Fixture generation only; never imported by the converter itself.
+    "reportlab>=4.2",
+    # Pinned to match server/ and the ruff-pre-commit rev.
+    "ruff==0.16.8",
+]
+
+[project.scripts]
+quire-convert = "quire_convert.cli:main"
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "tools: needs calibre, poppler, java and EPUBCheck on this machine",
+    "docker: needs a local docker daemon and image",
+]
