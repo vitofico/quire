@@ -9,6 +9,26 @@ type Props = {
   storage: ReactNode
   conflict?: ReactNode
 }
+function languageName(code?: string | null) {
+  if (!code) return null
+  try {
+    return (
+      new Intl.DisplayNames(document.documentElement.lang, {
+        type: 'language',
+      }).of(code) ?? code
+    )
+  } catch {
+    return code
+  }
+}
+function fileSize(bytes: number) {
+  const unit = bytes < 1_000_000 ? 'kilobyte' : 'megabyte'
+  return new Intl.NumberFormat(document.documentElement.lang, {
+    style: 'unit',
+    unit,
+    maximumFractionDigits: unit === 'kilobyte' ? 0 : 1,
+  }).format(bytes / (unit === 'kilobyte' ? 1_000 : 1_000_000))
+}
 export function BookDetails({
   book,
   progress,
@@ -25,18 +45,9 @@ export function BookDetails({
         .join(' · '),
     ],
     [t('Publisher'), book.publisher],
-    [t('Language'), book.language],
+    [t('Language'), languageName(book.language)],
     ['ISBN', book.isbn],
-    [
-      t('File size'),
-      book.sizeBytes
-        ? new Intl.NumberFormat(document.documentElement.lang, {
-            style: 'unit',
-            unit: 'megabyte',
-            maximumFractionDigits: 2,
-          }).format(book.sizeBytes / 1_000_000)
-        : null,
-    ],
+    [t('File size'), book.sizeBytes ? fileSize(book.sizeBytes) : null],
     [
       t('Progress'),
       progress

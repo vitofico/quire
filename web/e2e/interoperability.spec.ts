@@ -120,7 +120,7 @@ test('imports, selects across inline markup, reopens the passage and isolates ch
   await page.reload()
   await expect(chapter.getByText(followup)).toBeVisible()
 
-  await page.getByRole('button', { name: 'Library', exact: true }).click()
+  await page.getByRole('button', { name: 'Close book', exact: true }).click()
   await page.getByRole('link', { name: 'Highlights', exact: true }).click()
   await expect(page.getByText(sentence, { exact: true })).toBeVisible()
   await expect(page.getByText(comment, { exact: true })).toBeVisible()

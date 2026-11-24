@@ -11,7 +11,8 @@ export interface CatalogProps {
   url: string
   authorization?: string
   request?: Request
-  onAcquire: (blob: Blob, publication: OpdsPublication) => Promise<void>
+  /** Resolves to the library key of the imported book, when there is one. */
+  onAcquire: (blob: Blob, publication: OpdsPublication, cover?: Blob) => Promise<string | void>
   onImport?: () => void
   t?: (key: string) => string
   apiRequest?: Request
@@ -52,13 +53,14 @@ export function Catalog({
   catalogAuthenticated, signInCatalog, signOutCatalog,
 }: CatalogProps) {
   const [feed, setFeed] = useState<OpdsFeed>()
+  const [latest, setLatest] = useState<OpdsFeed>()
   const [client, setClient] = useState<Client>()
   const [trail, setTrail] = useState<OpdsFeed[]>([])
   const [searchLink, setSearchLink] = useState<OpdsSearch>()
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState('catalog')
   const [selected, setSelected] = useState<OpdsPublication>()
-  const [acquired, setAcquired] = useState<string>()
+  const [acquired, setAcquired] = useState<{ href: string; key?: string }>()
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [downloading, setDownloading] = useState(false)
@@ -81,6 +83,11 @@ export function Catalog({
       if (operation.signal.aborted) return
       setFeed(result)
       setTrail(history)
+      // A catalog home that only lists categories still shows its newest books.
+      if (!history.length && !result.publications.length && result.latest) {
+        void active.feed(result.latest, operation.signal)
+          .then(recent => { if (!operation.signal.aborted) setLatest(recent) }, () => undefined)
+      }
       if (result.search) setSearchLink(result.search)
     } catch (reason) {
       if (!operation.signal.aborted) setError(reason instanceof Error ? reason.message : String(reason))
@@ -91,6 +98,7 @@ export function Catalog({
 
   useEffect(() => {
     setFeed(undefined)
+    setLatest(undefined)
     setClient(undefined)
     setTrail([])
     setSearchLink(undefined)
@@ -159,9 +167,13 @@ export function Catalog({
     setError('')
     try {
       const blob = await client.acquire(publication.epubHref, operation.signal)
+      // The catalog's cover stands in for books that carry none inside the EPUB.
+      const cover = publication.coverHref
+        ? await client.cover(publication.coverHref, operation.signal).catch(() => undefined)
+        : undefined
       if (operation.signal.aborted) return
-      await onAcquire(blob, publication)
-      if (!operation.signal.aborted) setAcquired(publication.epubHref)
+      const key = await onAcquire(blob, publication, cover)
+      if (!operation.signal.aborted) setAcquired({ href: publication.epubHref, key: key || undefined })
     } catch (reason) {
       if (!operation.signal.aborted) setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
@@ -170,7 +182,16 @@ export function Catalog({
     }
   }
 
-  const publications = [...(feed?.publications ?? [])]
+  const needsSignIn = !feed && !catalogAuthenticated && !!signInCatalog &&
+    error === 'The catalog requires valid credentials'
+  useEffect(() => {
+    if (needsSignIn) setShowCredentials(true)
+  }, [needsSignIn])
+  const done = !!selected && acquired?.href === selected.epubHref
+  const openKey = done ? acquired?.key : undefined
+
+  const home = !trail.length && !feed?.publications.length && latest?.publications.length ? latest : undefined
+  const publications = home ? home.publications.slice(0, 12) : [...(feed?.publications ?? [])]
   if (sort === 'title') publications.sort((a, b) => a.title.localeCompare(b.title))
   if (sort === 'author') publications.sort((a, b) =>
     (a.authors[0] ?? '').localeCompare(b.authors[0] ?? '') || a.title.localeCompare(b.title))
@@ -182,21 +203,22 @@ export function Catalog({
         {trail.length > 0 && <button type="button" onClick={back} disabled={loading || downloading}>{t('Back')}</button>}
         {catalogAuthenticated && signOutCatalog &&
           <button type="button" onClick={signOutCatalog} disabled={downloading}>{t('Sign out of catalog')}</button>}
-        {!catalogAuthenticated && signInCatalog &&
+        {!catalogAuthenticated && signInCatalog && !needsSignIn &&
           <button type="button" onClick={() => setShowCredentials(open => !open)} aria-expanded={showCredentials}>
             {t('Catalog sign-in')}
           </button>}
         {onImport && <button type="button" onClick={onImport}>{t('Import EPUB')}</button>}
       </div>
     </header>
+    {needsSignIn && <p>{t('Sign in to browse this catalog.')}</p>}
     {showCredentials && signInCatalog && <form className="catalog-credentials" onSubmit={connect}>
-      <label>{t('Catalog username')} <input name="catalogUsername" autoComplete="username" required /></label>
+      <label>{t('Catalog username')} <input name="catalogUsername" autoComplete="username" required autoFocus /></label>
       <label>{t('Catalog password')} <input name="catalogPassword" type="password" autoComplete="current-password" required /></label>
       <button type="submit" disabled={authenticating}>{t(authenticating ? 'Signing in…' : 'Catalog sign-in')}</button>
     </form>}
-    {error && <p role="alert">{t(error)}</p>}
+    {error && !needsSignIn && <p role="alert">{t(error)}</p>}
     {loading && <p role="status">{t('Loading catalog…')}</p>}
-    {!loading && error && !feed && client &&
+    {!loading && error && !needsSignIn && !feed && client &&
       <button type="button" onClick={() => void load(client, { href: url }, [])}>{t('Retry')}</button>}
     {searchLink && <form className="catalog-actions" onSubmit={search}>
       <input type="search" aria-label={t('Search catalog')} placeholder={t('Search catalog')} value={query}
@@ -204,25 +226,30 @@ export function Catalog({
       <button type="submit" disabled={loading || downloading || !query.trim()}>{t('Search')}</button>
     </form>}
     {client && selected && <article className="catalog-details" aria-label={selected.title}>
-      <button type="button" onClick={() => setSelected(undefined)} disabled={downloading}>{t('Close details')}</button>
       <Cover client={client} publication={selected} />
-      <h2>{selected.title}</h2>
-      {selected.authors.length > 0 && <p>{selected.authors.join(', ')}</p>}
-      {selected.description && <p>{selected.description}</p>}
-      <button type="button" onClick={() => void acquire(selected)} disabled={downloading || acquired === selected.epubHref}>
-        {t(downloading ? 'Downloading…' : acquired === selected.epubHref ? 'Download complete' : 'Download EPUB')}
-      </button>
+      <div className="catalog-summary">
+        <h2>{selected.title}</h2>
+        {selected.authors.length > 0 && <p>{selected.authors.join(', ')}</p>}
+        {selected.description && <p>{selected.description}</p>}
+        <div className="catalog-actions">
+          <button type="button" className={done ? undefined : 'primary'} onClick={() => void acquire(selected)}
+            disabled={downloading || done}>
+            {t(downloading ? 'Downloading…' : done ? 'Download complete' : 'Download EPUB')}
+          </button>
+          {openKey && <a className="button primary" href={'#/book/' + encodeURIComponent(openKey)}>{t('Open in library')}</a>}
+          <button type="button" onClick={() => setSelected(undefined)} disabled={downloading}>{t('Close details')}</button>
+        </div>
+      </div>
       {aiAvailable && apiRequest && <InsightPanel t={t} request={apiRequest} aiAvailable
         identity={{ ...catalogInsightIdentity(selected.epubHref, selected.metadataId), calibre_book_id: selected.calibreBookId }}
         metadata={{ title: selected.title, author: selected.authors.join(', '), description: selected.description }} />}
     </article>}
     {!selected && feed && <>
-      {feed.navigation.length > 0 && <ul className="catalog-navigation">
-        {feed.navigation.map(link => <li key={link.href}>
-          <button type="button" disabled={loading} onClick={() => navigate(link.href)}>{link.title}</button>
-        </li>)}
-      </ul>}
-      {publications.length > 0 && <label>{t('Sort by')} <select value={sort} onChange={event => setSort(event.target.value)}>
+      {home && <div className="catalog-heading">
+        <h2>{t('Recently added')}</h2>
+        <button type="button" onClick={() => navigate(home.url)} disabled={loading}>{t('Show all')}</button>
+      </div>}
+      {!home && publications.length > 0 && <label>{t('Sort by')} <select value={sort} onChange={event => setSort(event.target.value)}>
         <option value="catalog">{t('Catalog order')}</option>
         <option value="title">{t('Title')}</option>
         <option value="author">{t('Author')}</option>
@@ -234,6 +261,12 @@ export function Catalog({
             <strong>{book.title}</strong>
             <span>{book.authors.join(', ')}</span>
           </button>
+        </li>)}
+      </ul>}
+      {home && feed.navigation.length > 0 && <h2>{t('Browse')}</h2>}
+      {feed.navigation.length > 0 && <ul className="catalog-navigation">
+        {feed.navigation.map(link => <li key={link.href}>
+          <button type="button" disabled={loading} onClick={() => navigate(link.href)}>{link.title}</button>
         </li>)}
       </ul>}
       {!feed.navigation.length && !publications.length && <p>{t('No EPUB books in this feed.')}</p>}

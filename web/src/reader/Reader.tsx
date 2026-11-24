@@ -3,7 +3,7 @@ import type { Replica } from '../data'
 import type { Epub } from '../books/epub'
 import { captureRange, chapterProgress, displayRange, parseLocator, readAnchor, resolveRange, viewportRange, type Locator } from './anchors'
 import { chapterShell, readerSandbox, jumpFragment, mountChapter, chapterSearchText } from './publication'
-import { chapterStyles, defaults, palettes, sanitizePreferences, type PauseBookmark, type ReaderPreferences } from './preferences'
+import { chapterStyles, palettes, sanitizePreferences, type PauseBookmark, type ReaderPreferences } from './preferences'
 import { findMatches, matchRange, searchableText } from './search'
 import { loadReaderFonts } from './fonts'
 import { readerStrings } from './strings'
@@ -123,7 +123,9 @@ export default function Reader({
   onProgress, onCreateHighlight, onEditHighlight, onDeleteHighlight, onBack, locale,
 }: Props) {
   const t = readerStrings(locale ?? document.documentElement.lang)
-  const [preferences, setPreferences] = useState(defaults)
+  // Palette and colour values are stored identifiers; their labels are sentence case.
+  const option = (value: string) => t(value[0].toUpperCase() + value.slice(1).toLowerCase())
+  const [preferences, setPreferences] = useState(() => sanitizePreferences(undefined))
   const preferencesRef = useRef(preferences)
   preferencesRef.current = preferences
   const [pause, setPause] = useState<PauseBookmark>()
@@ -714,7 +716,7 @@ export default function Reader({
     })}
   </ol>
   const colourControl = <label>{t('Colour')} <select value={colour} onChange={event => setColour(event.target.value as ReaderColour)}>
-    {colours.map(item => <option key={item} value={item}>{t(item)}</option>)}
+    {colours.map(item => <option key={item} value={item}>{option(item)}</option>)}
   </select></label>
   const panelName = panel === 'contents' ? 'Contents' : panel === 'find' ? 'Find' : panel === 'type' ? 'Appearance'
     : panel === 'pause' ? 'Pause & return' : 'Passages'
@@ -722,7 +724,7 @@ export default function Reader({
   return <section className="qr-reader" ref={reader} tabIndex={-1} onKeyDown={keyAction}
     style={{'--qr-page': palettes[preferences.palette].background} as CSSProperties} aria-label={t('Reader')}>
     <header className="qr-bar">
-      <button type="button" onClick={onBack}>{t('Library')}</button>
+      <button type="button" onClick={onBack}>{t('Close book')}</button>
       <h1>{title}</h1>
       <div className="qr-tools">
         <button type="button" aria-pressed={panel === 'contents'} onClick={event => toggle('contents', event.currentTarget)}>{t('Contents')}</button>
@@ -759,7 +761,7 @@ export default function Reader({
         </form>}
         {settingsReady && panel === 'type' && <div className="qr-fields">
           <label>{t('Palette')} <select value={preferences.palette} onChange={event => changePreferences({palette: event.target.value as ReaderPreferences['palette']})}>
-            {Object.keys(palettes).map(item => <option key={item} value={item}>{t(item)}</option>)}
+            {Object.keys(palettes).map(item => <option key={item} value={item}>{option(item)}</option>)}
           </select></label>
           <label>{t('Font')} <select value={preferences.font} onChange={event => changePreferences({font: event.target.value as ReaderPreferences['font']})}>
             <option value="serif">{t('Serif')}</option><option value="sans">{t('Sans serif')}</option><option value="mono">{t('Monospace')}</option><option value="publisher">{t('Publisher font')}</option>

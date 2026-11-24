@@ -45,8 +45,13 @@ export function OfflineSettings({
       <h2>{t('Storage')}</h2>
       <p>{t(ready ? 'Available offline' : 'Offline app cache unavailable')}</p>
       <p>
-        {t('Downloaded')}: {downloads}
-        {bytes != null && ' · ' + Math.ceil(bytes / (1024 * 1024)) + ' MB'}
+        {t('Downloaded books')}: {downloads}
+        {bytes != null &&
+          ' · ' +
+            t('Storage used') +
+            ': ' +
+            Math.ceil(bytes / (1024 * 1024)) +
+            ' MB'}
       </p>
       {typeof navigator.storage?.persist === 'function' && !persistent && (
         <button

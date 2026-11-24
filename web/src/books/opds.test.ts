@@ -35,6 +35,16 @@ describe('OPDS catalogs', () => {
     })
   })
 
+  it('finds the newest-books feed by OPDS relation or Calibre-Web path', () => {
+    const entry = (rel: string, href: string) =>
+      `<entry><title>${href}</title><link ${rel} type="application/atom+xml;profile=opds-catalog" href="${href}"/></entry>`
+    const feed = (...entries: string[]) => parseOpdsFeed(`<feed xmlns="http://www.w3.org/2005/Atom">${entries.join('')}</feed>`, base)
+    expect(feed(entry('', '/opds/books'), entry('', '/opds/new')).latest).toBe('https://catalog.example/opds/new')
+    expect(feed(entry('', '/opds/new'), entry('rel="http://opds-spec.org/sort/new"', '/recent')).latest)
+      .toBe('https://catalog.example/recent')
+    expect(feed(entry('', '/opds/newsletters')).latest).toBeNull()
+  })
+
   it('binds authorization to the configured catalog origin', async () => {
     const zip = new Uint8Array([80, 75, 3, 4, 0, 0])
     const mockFetch = vi.fn(async (href: string, _init?: RequestInit) =>

@@ -19,13 +19,15 @@ export function Passages({ passages, books, t, open, report }: Props) {
   return (
     <>
       <h1>{t('Highlights')}</h1>
-      <input
-        type="search"
-        aria-label={t('Search passages or comments')}
-        placeholder={t('Search passages or comments')}
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-      />
+      <div className="tools">
+        <input
+          type="search"
+          aria-label={t('Search passages or comments')}
+          placeholder={t('Search passages or comments')}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </div>
       {filtered.map((h) => {
         const book = books.find((b) => b.key === h.document.content_hash)
         const quote =
@@ -60,7 +62,11 @@ export function Passages({ passages, books, t, open, report }: Props) {
           </article>
         )
       })}
-      {!filtered.length && <p>{t('No saved passages')}</p>}
+      {!filtered.length && (
+        <p className="muted">
+          {t(passages.length ? 'No matching passages' : 'No saved passages')}
+        </p>
+      )}
     </>
   )
 }

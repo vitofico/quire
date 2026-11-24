@@ -10,6 +10,7 @@
   --accent: #665039;
   background: var(--paper);
   color: var(--ink);
+  accent-color: var(--accent);
 }
 :root[data-theme='sage'] {
   --paper: #edf0e7;
@@ -54,20 +55,42 @@ textarea {
 button,
 select,
 input,
-textarea {
+textarea,
+.button {
   padding: 0.62rem 0.85rem;
   border: 1px solid var(--control-line);
   border-radius: 0.5rem;
   background: var(--card);
 }
-button {
+input[type='checkbox'],
+input[type='radio'],
+input[type='range'] {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+input[type='checkbox'],
+input[type='radio'] {
+  width: 1.05rem;
+  height: 1.05rem;
+  margin: 0 0.5rem 0 0;
+  vertical-align: -0.15rem;
+}
+button,
+summary {
   cursor: pointer;
+}
+.button {
+  display: inline-block;
+  color: inherit;
+  text-decoration: none;
 }
 button:disabled {
   opacity: 0.5;
   cursor: default;
 }
-button:hover:not(:disabled) {
+button:hover:not(:disabled),
+.button:hover {
   border-color: var(--accent);
 }
 :focus-visible {
@@ -82,7 +105,8 @@ fieldset {
   border-radius: 0.6rem;
   margin: 1rem 0;
 }
-button.primary {
+button.primary,
+.button.primary {
   background: var(--ink);
   color: var(--paper);
   border-color: var(--ink);
@@ -264,6 +288,21 @@ small {
 .continue h2 {
   margin: 0.35rem 0 1rem;
 }
+.continue {
+  display: flex;
+  align-items: center;
+  gap: clamp(1rem, 3vw, 2rem);
+}
+.continue-cover {
+  flex: 0 0 clamp(4rem, 12vw, 6.5rem);
+}
+.continue-cover .cover {
+  font-size: 0.65rem;
+  padding: 0.3rem;
+}
+.empty h2 {
+  margin-top: 0;
+}
 .quote {
   border-left: 3px solid var(--accent);
   margin: 1rem 0;
@@ -287,6 +326,23 @@ small {
 }
 .settings-grid label select {
   margin-inline-start: 1rem;
+}
+.settings-grid label > input:not([type='checkbox']):not([type='radio']) {
+  display: block;
+  margin-top: 0.35rem;
+  width: min(100%, 22rem);
+}
+.settings-grid h2 {
+  margin-top: 0;
+}
+.settings-grid fieldset {
+  padding: 0.6rem 1rem 1rem;
+}
+.settings-grid fieldset fieldset {
+  margin-bottom: 0;
+}
+.settings-grid details {
+  margin: 0.75rem 0;
 }
 .skip {
   position: absolute;

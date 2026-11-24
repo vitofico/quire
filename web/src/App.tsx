@@ -181,6 +181,18 @@ function Workspace({ account }: { account: AccountState }) {
   useEffect(() => {
     document.documentElement.lang = lang
   }, [lang])
+  const section =
+    route.view === 'book' || route.view === 'read'
+      ? 'Library'
+      : (sections.find((name) => name.toLowerCase() === route.view) ??
+        'Library')
+  const pageTitle =
+    (route.view === 'book' || route.view === 'read') && book
+      ? book.title
+      : t(section)
+  useEffect(() => {
+    document.title = 'Quire · ' + pageTitle
+  }, [pageTitle])
   useEffect(() => {
     const previous = previousRoute.current
     previousRoute.current = route
@@ -263,6 +275,7 @@ function Workspace({ account }: { account: AccountState }) {
     blob: Blob,
     acquisition?: string | null,
     match?: string,
+    catalogCover?: Blob,
   ) {
     if (!replica) throw new Error('Storage is unavailable.')
     const parsed = await openEpub(blob),
@@ -289,7 +302,7 @@ function Workspace({ account }: { account: AccountState }) {
         ? new Blob([new Uint8Array(cover)], {
             type: parsed.mediaType(m.coverHref!) ?? 'image/jpeg',
           })
-        : undefined,
+        : catalogCover,
     }
     try {
       await replica.putBook(record, blob, { matchKey: match })
@@ -377,9 +390,7 @@ function Workspace({ account }: { account: AccountState }) {
           <a
             key={name}
             href={href(name)}
-            aria-current={
-              route.view === name.toLowerCase() ? 'page' : undefined
-            }
+            aria-current={section === name ? 'page' : undefined}
           >
             {t(name)}
           </a>
@@ -601,54 +612,64 @@ function Workspace({ account }: { account: AccountState }) {
       />
     )
   } else if (route.view === 'catalog') {
-    content = (
+    const source = (
+      <form
+        className="tools"
+        onSubmit={(e) => {
+          e.preventDefault()
+          void run(async () => {
+            const v = new URL(catalogDraft || catalogUrl, location.origin)
+            if (
+              v.username ||
+              v.password ||
+              v.searchParams.has('token') ||
+              !['https:', 'http:'].includes(v.protocol)
+            )
+              throw new Error('Use a catalog URL without credentials.')
+            await replica?.setPreference('catalog', v.href)
+            setCatalogOverride(v.href)
+            setCatalogDraft('')
+          })
+        }}
+      >
+        <input
+          aria-label={t('Catalog URL')}
+          value={catalogDraft}
+          placeholder={catalogUrl || 'https://books.example.org/opds'}
+          onChange={(e) => setCatalogDraft(e.target.value)}
+        />
+        <button disabled={!catalogDraft.trim()}>{t('Open catalog')}</button>
+      </form>
+    )
+    content = catalogUrl ? (
+      <>
+        <Catalog
+          key={catalogUrl + ':' + (active.catalogRevision ?? 0)}
+          url={catalogUrl}
+          request={active.catalogRequest}
+          apiRequest={active.request}
+          aiAvailable={aiAvailable}
+          t={t}
+          onImport={() => choose()}
+          onAcquire={(blob, p, cover) =>
+            imported(blob, p.epubHref, undefined, cover)
+          }
+          signInCatalog={account.signInCatalog}
+          signOutCatalog={account.signOutCatalog}
+          catalogAuthenticated={active.catalogAuthenticated}
+        />
+        {!active.catalogUrl && (
+          <details className="catalog-source">
+            <summary>{t('Use a different catalog')}</summary>
+            {source}
+          </details>
+        )}
+      </>
+    ) : (
       <>
         <h1>{t('Catalog')}</h1>
-        <form
-          className="tools"
-          onSubmit={(e) => {
-            e.preventDefault()
-            void run(async () => {
-              const v = new URL(catalogDraft || catalogUrl, location.origin)
-              if (
-                v.username ||
-                v.password ||
-                v.searchParams.has('token') ||
-                !['https:', 'http:'].includes(v.protocol)
-              )
-                throw new Error('Use a catalog URL without credentials.')
-              await replica?.setPreference('catalog', v.href)
-              setCatalogOverride(v.href)
-            })
-          }}
-        >
-          <input
-            aria-label={t('Catalog URL')}
-            disabled={!!active.catalogUrl}
-            value={catalogDraft}
-            placeholder={catalogUrl || 'https://books.example.org/opds'}
-            onChange={(e) => setCatalogDraft(e.target.value)}
-          />
-          <button disabled={!!active.catalogUrl}>{t('Open catalog')}</button>
-        </form>
-        {catalogUrl && (
-          <Catalog
-            key={catalogUrl + ':' + (active.catalogRevision ?? 0)}
-            url={catalogUrl}
-            request={active.catalogRequest}
-            apiRequest={active.request}
-            aiAvailable={aiAvailable}
-            t={t}
-            onImport={() => choose()}
-            onAcquire={async (blob, p) => {
-              await imported(blob, p.epubHref)
-              setNotice(p.title + ' · ' + t('Downloaded'))
-            }}
-            signInCatalog={account.signInCatalog}
-            signOutCatalog={account.signOutCatalog}
-            catalogAuthenticated={active.catalogAuthenticated}
-          />
-        )}
+        <p>{t('Enter the address of an OPDS catalog, such as Calibre-Web’s /opds.')}</p>
+        {source}
       </>
     )
   } else if (route.view === 'discover') {
@@ -725,24 +746,28 @@ function Workspace({ account }: { account: AccountState }) {
             t={t}
             downloads={snapshot.books.filter((book) => book.hasDownload).length}
           />
-          <AccountSettings
-            account={account}
-            pending={snapshot.pending}
-            sync={sync}
-            clear={clearNamespace}
-            t={t}
-          />
-          {active.mode === 'connected' && syncEnabled && replica && (
-            <GuestImport destination={replica} t={t} />
-          )}
-          {transport && (
-            <p>
-              {snapshot.pending} {t('pending')} ·{' '}
-              <button disabled={busy} onClick={() => void run(sync)}>
-                {t(busy ? 'Syncing…' : 'Sync now')}
-              </button>
-            </p>
-          )}
+          <div className="panel">
+            <AccountSettings
+              account={account}
+              pending={snapshot.pending}
+              sync={sync}
+              clear={clearNamespace}
+              t={t}
+            />
+            {transport && (
+              <p className="actions">
+                <button disabled={busy} onClick={() => void run(sync)}>
+                  {t(busy ? 'Syncing…' : 'Sync now')}
+                </button>
+                <span className="muted">
+                  {snapshot.pending} {t('pending')}
+                </span>
+              </p>
+            )}
+            {active.mode === 'connected' && syncEnabled && replica && (
+              <GuestImport destination={replica} t={t} />
+            )}
+          </div>
           {aiAvailable && (
             <AiSettings
               t={t}
@@ -758,21 +783,34 @@ function Workspace({ account }: { account: AccountState }) {
               )}
             </p>
           </details>
-          <a href={noticesUrl}>{t('Open-source licenses')}</a>
-          <a href="https://github.com/vitofico/quire">{t('Source code')}</a>
+          <p className="actions">
+            <a href={noticesUrl}>{t('Open-source licenses')}</a>
+            <a href="https://github.com/vitofico/quire">{t('Source code')}</a>
+          </p>
         </div>
       </>
     )
   } else
     content = (
-      <Shelf
-        ready={!!replica && account.status !== 'loading'}
-        t={t}
-        data={snapshot}
-        choose={() => choose()}
-        read={read}
-        details={details}
-      />
+      <>
+        {active.mode !== 'connected' && account.retained.length > 0 && (
+          <p className="notice">
+            {t('Your library for {account} is locked on this device.').replace(
+              '{account}',
+              account.retained.map(({ identity }) => identity.id).join(', '),
+            )}{' '}
+            <a href="#/settings">{t('Sign in again')}</a>
+          </p>
+        )}
+        <Shelf
+          ready={!!replica && account.status !== 'loading'}
+          t={t}
+          data={snapshot}
+          choose={() => choose()}
+          read={read}
+          details={details}
+        />
+      </>
     )
   return (
     <div className={art === 'on' ? 'artwork' : ''}>
@@ -831,7 +869,13 @@ function Workspace({ account }: { account: AccountState }) {
             if (files.length) void run(() => importFiles(files, target.current))
           }}
         />
-        <Suspense fallback={<p aria-busy="true">Quire…</p>}>{content}</Suspense>
+        <Suspense
+          fallback={
+            <p aria-busy="true" className="muted">
+              {t('Loading…')}
+            </p>
+          }
+        >{content}</Suspense>
       </main>
     </div>
   )

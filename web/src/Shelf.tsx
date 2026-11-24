@@ -99,20 +99,26 @@ export function Shelf({ ready, data, t, choose, details, read }: Props) {
       )}
       {!!recent && (
         <section className="continue">
-          <small>{t('Continue reading')}</small>
-          <h2>{recent.book.title}</h2>
-          <p>
-            {authors(recent.book)} · {Math.round(recent.p!.percent * 100)}%
-          </p>
-          <button
-            onClick={() =>
-              recent.book.hasDownload
-                ? read(recent.book.key)
-                : details(recent.book.key)
-            }
-          >
-            {t(recent.book.hasDownload ? 'Read' : 'Book details')}
-          </button>
+          <span className="continue-cover">
+            <Cover book={recent.book} />
+          </span>
+          <div>
+            <small>{t('Continue reading')}</small>
+            <h2>{recent.book.title}</h2>
+            <p>
+              {authors(recent.book)} · {Math.round(recent.p!.percent * 100)}%
+            </p>
+            <button
+              className="primary"
+              onClick={() =>
+                recent.book.hasDownload
+                  ? read(recent.book.key)
+                  : details(recent.book.key)
+              }
+            >
+              {t(recent.book.hasDownload ? 'Read' : 'Book details')}
+            </button>
+          </div>
         </section>
       )}
       {!ready ? (
@@ -121,6 +127,7 @@ export function Shelf({ ready, data, t, choose, details, read }: Props) {
         <section className="empty">
           <h2>{t('Add your first book')}</h2>
           <p>{t('Drop an EPUB here or choose a file.')}</p>
+          <button onClick={choose}>{t('Choose a file')}</button>
         </section>
       ) : (
         <>
