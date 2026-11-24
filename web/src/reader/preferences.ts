@@ -23,9 +23,15 @@ const fonts: Record<Font, string> = {
   publisher: 'Georgia, serif',
 }
 
+/** Until a reader picks a palette, the page follows the app's light or dark theme. */
+export function shellPalette(): Palette {
+  const theme = document.documentElement.dataset.theme
+  return theme && Object.hasOwn(palettes, theme) ? theme as Palette : defaults.palette
+}
+
 export function sanitizePreferences(value: Partial<ReaderPreferences> | undefined): ReaderPreferences {
   return {
-    palette: value?.palette && Object.hasOwn(palettes, value.palette) ? value.palette : defaults.palette,
+    palette: value?.palette && Object.hasOwn(palettes, value.palette) ? value.palette : shellPalette(),
     font: value?.font && Object.hasOwn(fonts, value.font) ? value.font : defaults.font,
     size: bounded(value?.size, 14, 36, defaults.size),
     spacing: bounded(value?.spacing, 1.2, 2.4, defaults.spacing),
@@ -56,5 +62,6 @@ export function chapterStyles(prefs: ReaderPreferences) {
     ::highlight(quire-green) { background: #88c796ab; }
     ::highlight(quire-pink) { background: #e99cb5ab; }
     ::highlight(quire-active) { background: #d88940b3; text-decoration: underline; }
+    ::highlight(quire-yellow), ::highlight(quire-green), ::highlight(quire-pink), ::highlight(quire-active) { color: #1d1a14; }
   `
 }

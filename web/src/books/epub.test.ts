@@ -15,8 +15,8 @@ const container = '<container xmlns="urn:oasis:names:tc:opendocument:xmlns:conta
 const chapter = '<html xmlns="http://www.w3.org/1999/xhtml"><body><p id="target">A <em>small</em> book.</p></body></html>'
 const nav = '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body><nav epub:type="toc"><ol><li><a href="Text/A%20B.xhtml#target">Chapter</a></li></ol></nav></body></html>'
 
-function fixture(opf = sampleOpf, chapterText = chapter, extra: Record<string, string> = {}) {
-  const manifest = '<manifest><item id="a" href="Text/A%20B.xhtml" media-type="application/xhtml+xml"/><item id="b" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/></manifest><spine><itemref idref="a"/></spine>'
+function fixture(opf = sampleOpf, chapterText = chapter, extra: Record<string, string> = {}, items = '') {
+  const manifest = '<manifest><item id="a" href="Text/A%20B.xhtml" media-type="application/xhtml+xml"/><item id="b" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>' + items + '</manifest><spine><itemref idref="a"/></spine>'
   const entries = {
     'mimetype': 'application/epub+zip',
     'META-INF/container.xml': container,
@@ -81,5 +81,28 @@ describe('EPUB resource boundaries', () => {
     await expect(openEpub(fixture(sampleOpf, chapter, { '../outside.xhtml': chapter }).blob)).rejects.toThrow('path')
     const encryption = '<encryption><EncryptionMethod Algorithm="urn:unknown"/></encryption>'
     await expect(openEpub(fixture(sampleOpf, chapter, { 'META-INF/encryption.xml': encryption }).blob)).rejects.toThrow('encrypted')
+  })
+})
+
+describe('EPUB cover', () => {
+  const coverPage = (body: string) => ({ 'OPS/Text/cover.xhtml': `<html xmlns="http://www.w3.org/1999/xhtml"><body>${body}</body></html>`, 'OPS/Images/cover.jpg': 'JPEG' })
+  const book = (metadata: string, manifest: string, guide = '', extra = coverPage('<img src="../Images/cover.jpg"/>')) =>
+    fixture(sampleOpf.replace('</metadata>', metadata + '</metadata>').replace('</package>', guide + '</package>'), chapter, extra, manifest)
+  const image = '<item id="art" href="Images/cover.jpg" media-type="image/jpeg"/>'
+  const page = '<item id="page" href="Text/cover.xhtml" media-type="application/xhtml+xml"/>'
+  const guide = '<guide><reference type="cover" href="Text/cover.xhtml"/></guide>'
+
+  it.each([
+    ['a cover meta naming the image href', '<meta name="cover" content="Images/cover.jpg"/>', image, ''],
+    ['a cover meta naming the cover page', '<meta name="cover" content="page"/>', image + page, ''],
+    ['a guide cover page with an img', '', image + page, guide],
+    ['an image whose id mentions the cover', '', '<item id="cover-image" href="Images/cover.jpg" media-type="image/jpeg"/>', ''],
+  ])('finds %s', async (_, metadata, manifest, guideElement) => {
+    expect((await openEpub(book(metadata, manifest, guideElement).blob)).metadata.coverHref).toBe('OPS/Images/cover.jpg')
+  })
+
+  it('finds an SVG-wrapped guide cover', async () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><image xlink:href="../Images/cover.jpg"/></svg>'
+    expect((await openEpub(book('', image + page, guide, coverPage(svg)).blob)).metadata.coverHref).toBe('OPS/Images/cover.jpg')
   })
 })

@@ -233,8 +233,29 @@ export async function openEpub(blob: Blob): Promise<Epub> {
   const index = named('calibre:series_index') ?? (seriesRef ? property('group-position', seriesRef) : null)
   const isbn = dcValues('identifier').map(id => id.replace(/^(urn:)?isbn[:\s]+/i, '').replace(/[\s-]/g, ''))
     .find(id => /^(?:\d{9}[\dXx]|97[89]\d{10})$/.test(id))
+  const byHref = new Map(Array.from(items.values(), item => [item.href.split('#')[0], item]))
+  const manifestItem = (href: string | null | undefined) =>
+    href ? byHref.get(resolveEpubHref(packageHref, href)?.split('#')[0] ?? '') : undefined
+  // Older EPUBs name the cover through <meta name="cover">, the <guide>, or a cover page that wraps the image.
+  const coverImage = (item: ManifestItem | undefined): ManifestItem | undefined => {
+    if (!item || item.mediaType.startsWith('image/')) return item
+    if (!['application/xhtml+xml', 'text/html'].includes(item.mediaType)) return
+    try {
+      const page = xml(text(item.href), item.href)
+      const source = elements(page, 'img')[0]?.getAttribute('src') ?? elements(page, 'image')
+        .map(image => image.getAttributeNS('http://www.w3.org/1999/xlink', 'href') ?? image.getAttribute('href')).find(Boolean)
+      const target = source ? byHref.get(resolveEpubHref(item.href, source)?.split('#')[0] ?? '') : undefined
+      return target?.mediaType.startsWith('image/') ? target : undefined
+    } catch { return }
+  }
+  const declaredCover = named('cover')
+  const guideCover = children(children(root, 'guide')[0], 'reference')
+    .find(reference => reference.getAttribute('type')?.toLowerCase() === 'cover')?.getAttribute('href')
   const cover = Array.from(items.values()).find(item => item.properties.includes('cover-image'))
-    ?? items.get(named('cover') ?? '')
+    ?? coverImage(items.get(declaredCover ?? '') ?? manifestItem(declaredCover))
+    ?? coverImage(manifestItem(guideCover))
+    ?? Array.from(items).find(([id, item]) => item.mediaType.startsWith('image/') &&
+      /cover/i.test(id + ' ' + item.href.split('/').pop()))?.[1]
   const metadata: EpubMetadata = {
     title: dcValues('title')[0] ?? 'Untitled',
     authors: dcValues('creator'),

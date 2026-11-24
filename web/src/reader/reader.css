@@ -47,6 +47,7 @@
 .qr-footer input { flex: 1; min-width: 3rem; }
 @media (max-width: 670px) {
   .qr-panel { position: absolute; inset: auto 0 0; max-height: 100%; width: 100%; z-index: 1; border: 1px solid var(--qr-border); border-radius: .75rem .75rem 0 0; box-shadow: 0 -.4rem 1.2rem #0003; }
-  .qr-tools { width: 100%; gap: .25rem; }
-  .qr-bar { padding: .45rem; }
+  .qr-tools { width: 100%; gap: .25rem; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .qr-bar button { flex: none; padding: .4rem .6rem; font-size: .85rem; }
+  .qr-bar { padding: .45rem; min-width: 0; }
 }

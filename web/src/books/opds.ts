@@ -37,6 +37,8 @@ export interface OpdsFeed {
   next: string | null
   previous: string | null
   search: OpdsSearch | null
+  /** The newest-books feed linked from this one, if any. */
+  latest: string | null
 }
 
 interface CatalogOptions {
@@ -124,6 +126,7 @@ export function parseOpdsFeed(source: string, url: string): OpdsFeed {
     next: hrefOf(links.find(link => rel(link) === 'next'), url),
     previous: hrefOf(links.find(link => ['previous', 'prev'].includes(rel(link))), url),
     search,
+    latest: null,
   }
   const byDownload = new Map<string, OpdsPublication>()
   for (const entry of root.localName === 'entry' ? [root] : children(root, 'entry')) {
@@ -134,9 +137,14 @@ export function parseOpdsFeed(source: string, url: string): OpdsFeed {
     const epubHref = hrefOf(acquisition, url)
     if (!epubHref) {
       const navigation = entryLinks.find(link => mediaType(link) === 'application/atom+xml' &&
-        ['subsection', 'alternate', 'related'].includes(rel(link)))
+        (['subsection', 'alternate', 'related'].includes(rel(link)) ||
+          /^http:\/\/opds-spec\.org\/(sort\/|featured|recommended|shelf|subscriptions)/.test(rel(link))))
       const href = hrefOf(navigation, url)
-      if (href) feed.navigation.push({ title, href })
+      if (!href) continue
+      feed.navigation.push({ title, href })
+      // OPDS marks it with sort/new; Calibre-Web and calibre's server only use the /new path.
+      if (rel(navigation!) === 'http://opds-spec.org/sort/new' ||
+          (!feed.latest && /\/new\/?$/.test(new URL(href).pathname))) feed.latest = href
       continue
     }
     const covers = ['http://opds-spec.org/image/thumbnail', 'http://opds-spec.org/thumbnail',
