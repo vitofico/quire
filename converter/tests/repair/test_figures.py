@@ -150,6 +150,9 @@ def test_text_panel_and_figure_mention_are_left_alone(tmp_path, tools):
     assert "Figure 1 shows the low deck" in body
     assert "coverage.lost_figure" not in codes(ctx)
     assert "figure.caption_unmatched" not in codes(ctx)
+    # The tinted panel is counted by coverage itself; no paragraph is tagged to stand in.
+    assert ctx.alignment.coverage["illustrations"]["text_panels"] == 1
+    assert all(el.get("data-qc-source") is None for _, el in elements(ctx, "p"))
     assert_valid(ctx, tmp_path, tools)
 
 

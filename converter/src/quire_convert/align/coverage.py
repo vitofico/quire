@@ -32,8 +32,45 @@ _NOTE_MARKER = re.compile(r"^(\(?\d{1,3}[.):]?|\[\d{1,3}\]|[*†‡§¶]+|[⁰¹
 NOTE_ZONE = 0.5  # notes start in the lower half of the page
 NOTE_SIZE_RATIO = 0.92  # and are set smaller than the body text
 FIGURE_TEXT_SHARE = 0.8  # a text block this much inside an image region is its label
+TEXT_PANEL_WORDS = 25  # more words than this inside a region make it a text panel
 PARTIAL_RUN = 3  # unmatched words that make a partial loss or addition worth flagging
 LOST_SHARE = 0.25  # a block with less of its words aligned counts as lost entirely
+
+
+def _inside_regions(source: SourceInventory) -> dict[str, list[TextBlock]]:
+    """Text blocks lying inside each image region, by region id."""
+    found: dict[str, list[TextBlock]] = {}
+    for page in source.pages:
+        for block in page.blocks:
+            area = block.box.area
+            for region in page.images:
+                if area and region.box.intersection_area(block.box) >= FIGURE_TEXT_SHARE * area:
+                    found.setdefault(region.id, []).append(block)
+                    break
+    return found
+
+
+def _is_panel(blocks: list[TextBlock]) -> bool:
+    words = sum(len(line.words) for b in blocks for line in b.lines)
+    prose = sum(1 for b in blocks for line in b.lines if len(line.words) >= 5)
+    return words > TEXT_PANEL_WORDS or prose >= 2
+
+
+def text_panels(source: SourceInventory) -> set[str]:
+    """Ids of image regions that are tinted boxes or panels of body text, not illustrations.
+    Their reflowed text shows them, so their words are accounted as prose."""
+    return {rid for rid, blocks in _inside_regions(source).items() if _is_panel(blocks)}
+
+
+def figure_text(source: SourceInventory) -> dict[str, str]:
+    """Text blocks that belong to an illustration (labels drawn in it): block id -> region id.
+    Text inside a text panel is prose, so it is not listed."""
+    return {
+        block.id: rid
+        for rid, blocks in _inside_regions(source).items()
+        if not _is_panel(blocks)
+        for block in blocks
+    }
 
 
 def running_furniture(source: SourceInventory) -> set[str]:
@@ -115,7 +152,8 @@ class _Accounting:
         self.notes = note_blocks(self.source, self.furniture)
         self.regions = {r.id: r for p in self.source.pages for r in p.images}
         self.blocks = {b.id: b for p in self.source.pages for b in p.blocks}
-        self.figure_text = self._figure_text()
+        self.figure_text = figure_text(self.source)
+        self.panels = text_panels(self.source)
         self.counts: Counter[str] = Counter()
 
     def run(self) -> dict[str, Any]:
@@ -131,17 +169,6 @@ class _Accounting:
         return summary
 
     # ---- source side
-
-    def _figure_text(self) -> dict[str, str]:
-        inside = {}
-        for page in self.source.pages:
-            for block in page.blocks:
-                for region in page.images:
-                    area = block.box.area
-                    if area and region.box.intersection_area(block.box) >= FIGURE_TEXT_SHARE * area:
-                        inside[block.id] = region.id
-                        break
-        return inside
 
     def _text_block(self, block: TextBlock, page_prose: dict[int, list[int]]) -> None:
         al, c = self.al, self.counts
@@ -216,6 +243,9 @@ class _Accounting:
 
     def _region(self, region) -> None:
         c = self.counts
+        if region.id in self.panels:
+            c["text_panels"] += 1
+            return
         if region.kind == "unexplained_ink":
             c["ink_regions"] += 1
             if region.id in self.al.images:
@@ -374,6 +404,7 @@ class _Accounting:
                 "accounted": c["illustrations_accounted"],
                 "ratio": _share(c["illustrations_accounted"], c["illustrations"]),
                 "figure_text_blocks": c["figure_text_blocks"],
+                "text_panels": c["text_panels"],
             },
             "unexplained_ink": {"regions": c["ink_regions"], "accounted": c["ink_accounted"]},
             "furniture": {"blocks": c["furniture_blocks"], "kept": c["furniture_kept"]},

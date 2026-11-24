@@ -36,7 +36,7 @@ from lxml import etree
 from PIL import Image
 
 from ..align import align
-from ..align.coverage import FIGURE_TEXT_SHARE, note_blocks, running_furniture
+from ..align.coverage import FIGURE_TEXT_SHARE, note_blocks, running_furniture, text_panels
 from ..epub.book import remove_keep_tail
 from ..epub.inline import merge, split_at, text_of
 from ..epub.package import XHTML_NS, local_name, relative_href, resolve_href
@@ -66,7 +66,6 @@ FULL_PAGE = 0.9  # a scan's embedded image covering this share of the page is a 
 CAPTION_GAP = 0.08  # farthest a caption sits from its figure, as a page share
 UNNUMBERED_GAP = 0.03  # an unlabelled caption must sit this close
 CAPTION_TIE = 0.015  # candidates closer than this to each other are equally plausible
-TEXT_BOX_WORDS = 25  # more words than this inside a region make it a text panel
 _INK_SHARE, _INK_DELTA = 0.0005, 24  # same blank test as epub.validate
 _CAPTION = re.compile(
     r"^(?P<label>(?:figure|figura|fig|tavola|tav|plate|illustration|table|tabella|tab)\b\.?)"
@@ -330,6 +329,7 @@ class _Figures:
         self.source = ctx.source
         self.book = ctx.book
         self.furniture = running_furniture(ctx.source)
+        self.panels = text_panels(ctx.source)
         self.notes = note_blocks(ctx.source, self.furniture)
         self.body_size = body_font_size(ctx.source, self.furniture)
         self.edits = Edits(ctx)
@@ -419,9 +419,8 @@ class _Figures:
             self._use(caption)
             self._table(page, region, caption)
             return
-        if self._text_box(inside):
-            self._claim_text_box(region, inside)
-            return
+        if region.id in self.panels:
+            return  # a panel of body text: coverage counts its reflowed text as showing it
         self.ordinal += 1
         if caption is not None:
             self._use(caption)
@@ -451,27 +450,6 @@ class _Figures:
             and b.id not in self.furniture
             and region.box.intersection_area(b.box) >= FIGURE_TEXT_SHARE * b.box.area
         ]
-
-    @staticmethod
-    def _text_box(inside: list[TextBlock]) -> bool:
-        words = sum(len(line.words) for b in inside for line in b.lines)
-        prose = sum(1 for b in inside for line in b.lines if len(line.words) >= 5)
-        return words > TEXT_BOX_WORDS or prose >= 2
-
-    def _claim_text_box(self, region: ImageRegion, inside: list[TextBlock]) -> None:
-        """A panel of body text: its reflowed text shows it. Mark the first output block
-        holding that text so the region counts as shown, and change nothing else."""
-        for block in inside:
-            for i in self.al.source_block_tokens(block.id):
-                if (j := self.al.src_to_out[i]) < 0:
-                    continue
-                out = self.al.output[j].block
-                _, el = self.book.element(f"{self.blocks[out].href}#{out}")
-                if el.get(SOURCE_ATTR) is None:
-                    el.set(SOURCE_ATTR, region.id)
-                    self.changed = True
-                    self._record("claim_text_box", self._anchor_of(el), [region.id, block.id, out])
-                return
 
     def _table(self, page: PageInventory, region: ImageRegion, caption: _Caption) -> None:
         if region.id in self.al.images:

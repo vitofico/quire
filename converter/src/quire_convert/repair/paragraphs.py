@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING
 from lxml import etree
 
 from ..align.align import DUPLICATE, MOVED, reading_order, refresh
-from ..align.coverage import FIGURE_TEXT_SHARE, note_blocks, running_furniture
+from ..align.coverage import figure_text, note_blocks, running_furniture
 from ..align.normalize import tokenize
 from ..epub import inline
 from ..epub.book import ContentDoc, is_block, remove_keep_tail
@@ -171,7 +171,7 @@ class _Segmenter:
         self.furniture = furniture
         self.notes = notes
         self.out = _Segmentation()
-        self.figure_text = _figure_text(self.source)
+        self.figure_text = figure_text(self.source)
         body_lines = [
             line
             for page in self.source.pages
@@ -450,18 +450,6 @@ def hyphen_join(left_word: str, right_word: str, vocab: Counter[str]) -> tuple[b
 def _size(line: Line) -> float | None:
     sizes = [w.font_size for w in line.words if w.font_size]
     return statistics.median(sizes) if sizes else None
-
-
-def _figure_text(source) -> set[str]:
-    inside = set()
-    for page in source.pages:
-        for block in page.blocks:
-            area = block.box.area
-            if area and any(
-                r.box.intersection_area(block.box) >= FIGURE_TEXT_SHARE * area for r in page.images
-            ):
-                inside.add(block.id)
-    return inside
 
 
 # --------------------------------------------------------------------------- output edits

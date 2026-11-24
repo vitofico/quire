@@ -112,6 +112,7 @@ def test_figures_account_for_regions(tmp_path):
         "accounted": 1,
         "ratio": 1.0,
         "figure_text_blocks": 0,
+        "text_panels": 0,
     }
     shown = ctx.alignment.images["s1-i0"]
     assert ctx.alignment.block_pages(shown) == [1]
