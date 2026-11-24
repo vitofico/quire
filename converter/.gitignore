@@ -1,0 +1,7 @@
+__pycache__/
+.venv/
+*.egg-info/
+.pytest_cache/
+# Generated fixture PDFs and job output; regenerate with tests/fixtures/build.py
+tests/fixtures/out/
+jobs/
