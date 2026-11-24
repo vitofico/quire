@@ -256,6 +256,26 @@ class Settings(BaseSettings):
     # exchange the old Calibre login for a Quire session. 0 disables claims.
     legacy_claim_days: int = Field(default=30, ge=0, le=365)
 
+    # The one address apps should use for this server. A signed-in app that
+    # reaches the server at another address moves itself here.
+    canonical_url: str | None = None
+
+    @field_validator("canonical_url")
+    @classmethod
+    def _canonical_origin(cls, value: str | None) -> str | None:
+        if not value:
+            return None
+        parts = urlsplit(value)
+        if (
+            parts.scheme not in {"http", "https"}
+            or not parts.netloc
+            or parts.username
+            or parts.query
+            or parts.fragment
+        ):
+            raise ValueError("QUIRE_SERVER_CANONICAL_URL must be an http(s) URL without a query")
+        return value.rstrip("/")
+
     # Issue #102: who may open the server status page (`/quire-admin`).
     # Comma-separated user ids as the auth backend reports them: the
     # calibre-web username, or `native:<id>` under native auth. Compared
