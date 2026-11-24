@@ -176,6 +176,23 @@ class CalibreCredentialStore(context: Context) {
         persistAccount(account.copy(previousHighlightScopes = (pending + listOfNotNull(previousHighlightScope)).distinct()))
     }
 
+    /**
+     * The same server under another address: keep the session and queue the highlights
+     * owned under the old address for transfer. False when the account changed meanwhile.
+     */
+    fun moveQuireServer(account: AccountCredentials.Bearer, baseUrl: String, highlightScope: String): Boolean =
+        synchronized(mutationLock) {
+            if (getAccount() != account) return false
+            persistAccount(
+                account.copy(
+                    baseUrl = baseUrl.trim().trimEnd('/'),
+                    previousHighlightScopes = (account.previousHighlightScopes + highlightScope).distinct(),
+                ),
+                preserveReauth = true,
+            )
+            true
+        }
+
     /** Mark already transferred scopes so a restarted app only retries pending work. */
     fun completeHighlightMigration(account: AccountCredentials.Bearer, scopes: List<String>) {
         synchronized(mutationLock) {

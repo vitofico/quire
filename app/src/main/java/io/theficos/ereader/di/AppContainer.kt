@@ -48,6 +48,7 @@ import io.theficos.ereader.ui.library.LibraryInsightsViewModel
 import io.theficos.ereader.ui.library.LibraryPreferencesStore
 import io.theficos.ereader.ui.library.LibraryStatsCache
 import io.theficos.ereader.ui.library.LibraryStatsViewModel
+import io.theficos.ereader.ui.onboarding.ConnectServerViewModel
 import io.theficos.ereader.ui.onboarding.WelcomePreferencesStore
 import io.theficos.ereader.ui.settings.WhatsNewPreferencesStore
 import io.theficos.ereader.ui.scan.ScanResultRegistry
@@ -445,6 +446,18 @@ class AppContainer internal constructor(context: Context, private val db: EReade
             dao = db.documentDao(),
             credentials = CredentialsProvider { credentialStore.getAccount()?.quireServerUrlOrNull() != null },
         )
+        // Once per launch, follow the server if it has moved to another address.
+        libraryUploaderScope.launch {
+            try {
+                ServerAddressFollower(
+                    credentialStore,
+                    ConnectServerViewModel.defaultOnboardingClient(),
+                    memoryBookmarkDao::moveAccount,
+                ).follow()
+            } catch (e: android.database.SQLException) {
+                android.util.Log.w("AppContainer", "Couldn't follow the server address", e)
+            }
+        }
         libraryUploaderScope.launch {
             credentialStore.accountFlow.collect { account ->
                 if (account is AccountCredentials.Bearer) {

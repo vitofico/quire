@@ -244,6 +244,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title="quire-server", version=settings.version)
     app.state.config_warnings = boot_warnings
     app.state.identity_settings = identity_settings
+    app.state.canonical_url = settings.canonical_url
     app.state.identity_factory = session_factory
     app.state.native_login_guard = LoginGuard()
     hosted_policy = (

@@ -89,6 +89,10 @@ async def test_existing_data_survives_binding_and_basic_cannot_reclaim_scope(
             "id": account,
             "legacy_calibre_user_id": "alice",
         }
+        assert "server_url" not in me.json()
+        app.state.canonical_url = "https://quire.example.test"
+        moved = await client.get("/auth/v1/me", headers=bearer)
+        assert moved.json()["server_url"] == "https://quire.example.test"
         assert "Alice's book" in (await client.get("/library/v1/items", headers=bearer)).text
         export = await client.get("/auth/v1/account/export", headers=bearer)
         assert export.json()["account_id"] == account

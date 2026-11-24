@@ -34,6 +34,10 @@ interface MemoryBookmarkDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun save(bookmark: MemoryBookmark)
 
+    /** The same reader under a new key, e.g. after their server changed address. */
+    @Query("UPDATE OR IGNORE memory_bookmarks SET accountKey = :to WHERE accountKey = :from")
+    suspend fun moveAccount(from: String, to: String)
+
     @Query("DELETE FROM memory_bookmarks WHERE documentId = :documentId AND accountKey = :accountKey")
     suspend fun remove(documentId: Long, accountKey: String)
 }

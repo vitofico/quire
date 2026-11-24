@@ -943,6 +943,21 @@ and the reader's existing library, progress and highlights move to the new
 account in one step. No operator command is needed. Leave it `false` if you
 prefer to verify and migrate each reader yourself.
 
+#### `QUIRE_SERVER_CANONICAL_URL`
+
+- Type: `http(s)` URL without a query
+- Default: unset
+- Example: `QUIRE_SERVER_CANONICAL_URL=https://quire.example.org`
+
+The one address apps should use for this server. Set it when the server is
+reachable under more than one address and you want readers on a single one,
+for example after giving Quire its own hostname. An Android app signed in to a
+Quire account at any other address checks on launch, confirms the same account
+answers at this address, and moves itself there. Reading progress, highlights
+and notes stay with the reader and the catalog connection is untouched. The
+address must serve the sync, library, AI and account routes before you set it.
+Devices still on a Calibre-Web login are not moved.
+
 #### `QUIRE_SERVER_LEGACY_CLAIM_DAYS`
 
 - Type: whole days, `0` to `365`

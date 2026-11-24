@@ -86,12 +86,15 @@ async def me(
     identity = {"id": user.user_id, "backend": user.backend}
     if user.legacy_calibre_user_id is not None:
         identity["legacy_calibre_user_id"] = user.legacy_calibre_user_id
-    return {
+    result = {
         "user": identity,
         "version": 1,
         "capabilities": capabilities,
         "csrf_token": csrf(token) if token else None,
     }
+    if request.app.state.canonical_url:
+        result["server_url"] = request.app.state.canonical_url
+    return result
 
 
 # ----------------------------------------------------------------------------
