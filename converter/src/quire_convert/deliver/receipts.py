@@ -110,9 +110,16 @@ class ReceiptStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.lock_dir = self.path.with_name(self.path.name + ".locks")
         self.lock_dir.mkdir(exist_ok=True)
-        with self._connect() as db:
-            db.execute("PRAGMA journal_mode=WAL")
-            db.execute(_SCHEMA)
+        # Switching a new file to WAL fails at once with "database is locked" when another
+        # process does the same, without waiting out the busy timeout: serialize the setup.
+        fd = os.open(self.lock_dir / "setup.lock", os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            with self._connect() as db:
+                db.execute("PRAGMA journal_mode=WAL")
+                db.execute(_SCHEMA)
+        finally:
+            os.close(fd)
 
     @contextlib.contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
