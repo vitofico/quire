@@ -24,6 +24,9 @@ class ConvertContext:
     settings: dict[str, Any] = field(default_factory=dict)
     catalog_metadata: dict[str, Any] | None = None  # highest-trust metadata, if supplied
     blocks: list[OutputBlock] = field(default_factory=list)  # aligned output blocks
+    # Word-level source<->output map built by quire_convert.align.align; repairs that
+    # change block structure call align.align.refresh(ctx) to rebuild it.
+    alignment: Any = None
     issues: list[Issue] = field(default_factory=list)
     repairs: list[Repair] = field(default_factory=list)
     metadata: list[MetadataField] = field(default_factory=list)
