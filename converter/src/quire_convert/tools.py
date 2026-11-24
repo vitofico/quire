@@ -11,7 +11,7 @@ from pathlib import Path
 
 from .models import StageError
 
-CALIBRE_PIN = "9.18"  # major.minor; any 9.18.x patch release is accepted
+CALIBRE_PIN = "9.19"  # major.minor; any 9.19.x patch release is accepted
 EPUBCHECK_PIN = "5.4.0"
 
 _CALIBRE_APP = Path("/Applications/calibre.app/Contents/MacOS")

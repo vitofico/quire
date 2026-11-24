@@ -258,8 +258,9 @@ def test_quote_opening_and_line_end_compound_are_kept(converted):
     second = block(ctx, "A second paragraph")
     assert "a compound that is well-known to everyone" in second.text
     assert "hyphenated word that continues here" in second.text
-    join = actions(ctx, "join_hyphenated")
-    assert len(join) == 1 and "continues" in join[0].after
+    # Calibre 9.19 closes up "conti-nues" on one page itself, so there is nothing left to
+    # join; the page-break case keeps testing the join.
+    assert not actions(ctx, "join_hyphenated")
     assert not [t for t in texts(ctx) if "wellknown" in t]
 
 

@@ -9,7 +9,7 @@ from quire_convert.epub.book import Book
 from quire_convert.epub.calibre import run_calibre
 from quire_convert.epub.validate import run_epubcheck, semantic_check
 from quire_convert.models import StageError
-from quire_convert.tools import Toolchain, find_tools
+from quire_convert.tools import CALIBRE_PIN, Toolchain, find_tools
 
 
 def _script(path: Path, body: str) -> Path:
@@ -102,7 +102,7 @@ def test_calibre_baseline_round_trip(tmp_path):
     tools = find_tools()
     pdf = _two_chapter_pdf(tmp_path / "two.pdf")
     run = run_calibre(pdf, tmp_path / "raw.epub", tmp_path / "work", tools)
-    assert run.version.startswith("9.18")
+    assert run.version.startswith(CALIBRE_PIN)
     book = Book.load(run.epub_path)
     assert [e.title for e in book.toc] == ["Chapter One", "Chapter Two"]
     headings = [
