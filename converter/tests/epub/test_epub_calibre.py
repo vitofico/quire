@@ -35,7 +35,14 @@ def test_unusable_override_counts_as_missing(monkeypatch, tmp_path):
 
 def test_calibre_runs_isolated_and_logs_to_file(tmp_path):
     # A stand-in ebook-convert that records its environment and writes an empty EPUB.
-    fake = _script(tmp_path / "ebook-convert", 'env > "$PWD/../env.txt"; echo noisy; : > "$2"')
+    fake = _script(
+        tmp_path / "ebook-convert",
+        (
+            # The version probe runs outside the sandbox; answer it without dumping anything.
+            '[ "$1" = --version ] && { echo "ebook-convert (calibre 9.18.0)"; exit 0; }\n'
+            'env > "$(pwd -P)/../env.txt"; echo noisy; : > "$2"'
+        ),
+    )
     pdf = tmp_path / "in.pdf"
     pdf.write_bytes(b"%PDF-1.4")
     run = run_calibre(pdf, tmp_path / "out" / "book.epub", tmp_path / "work", Toolchain(fake))
