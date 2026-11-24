@@ -38,4 +38,5 @@ where = ["src"]
 testpaths = ["tests"]
 markers = [
     "tools: needs calibre, poppler, java and EPUBCheck on this machine",
+    "docker: needs a local docker daemon and image",
 ]

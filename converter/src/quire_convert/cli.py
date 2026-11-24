@@ -64,6 +64,10 @@ def build_parser() -> _Parser:
     evaluate.add_argument("--holdout", action="store_true", help="run the frozen holdout books")
     evaluate.add_argument("--freeze", action="store_true", help="freeze gates and holdout hash")
     evaluate.add_argument("--record-machine", action="store_true", help="write machine.json")
+
+    from .deliver.command import add_arguments as add_deliver_arguments
+
+    add_deliver_arguments(sub.add_parser("deliver", help="save a converted EPUB to Calibre-Web"))
     return parser
 
 
@@ -79,6 +83,10 @@ def main(argv: list[str] | None = None) -> int:
             return _inspect(args)
         if args.command == "convert":
             return _convert(args)
+        if args.command == "deliver":
+            from .deliver.command import run as deliver
+
+            return deliver(args)
         return _evaluate(args)
     except UsageError as exc:
         parser.exit(USAGE_EXIT_CODE, f"quire-convert: error: {exc}\n")
