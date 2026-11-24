@@ -77,14 +77,14 @@ async def test_readyz_200_when_at_ai_head(
     assert body["ready"] is True
     # Phase 0, task S-1 added the always-materialized `auth` branch:
     # The enabled branch heads are sorted in the readiness response.
-    assert body["heads_applied"] == ["ai_010", "auth_004", "progress_006"]
+    assert body["heads_applied"] == ["ai_010", "auth_005", "progress_006"]
 
 
 async def test_readyz_503_when_db_below_backbone(
     managed_app_factory, monkeypatch, postgres_url, alembic_upgrade, restore_after
 ):
     """DB stamped below backbone; with both modes enabled, required heads
-    include ai_010 (ai@head since provider preference) and auth_004 (auth@head
+    include ai_010 (ai@head since provider preference) and auth_005 (auth@head
     after Phase 0 / S-1) — both should be reported missing.
     """
     await _stamp(postgres_url, "0003")
@@ -95,7 +95,7 @@ async def test_readyz_503_when_db_below_backbone(
     body = r.json()
     assert body["ready"] is False
     assert "ai_010" in body["missing"]
-    assert "auth_004" in body["missing"]
+    assert "auth_005" in body["missing"]
 
 
 async def test_readyz_200_with_neither_mode_at_backbone(
@@ -104,10 +104,10 @@ async def test_readyz_200_with_neither_mode_at_backbone(
     """With neither feature-mode enabled, the required heads collapse to
     {backbone, auth} — `auth` is unconditionally required (Phase 0 / S-1).
 
-    Stamp the DB to ``(0004, auth_004)`` to exercise the "fresh sync-only
+    Stamp the DB to ``(0004, auth_005)`` to exercise the "fresh sync-only
     deploy that never materialized the ai or progress branches" code path.
     """
-    await _stamp(postgres_url, ("0004", "auth_004"))
+    await _stamp(postgres_url, ("0004", "auth_005"))
     app = _build_app(managed_app_factory, monkeypatch, postgres_url, progress=False, ai=False)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         r = await c.get("/readyz")
@@ -117,7 +117,7 @@ async def test_readyz_200_with_neither_mode_at_backbone(
     # ``heads_applied`` lists every row in ``alembic_version`` (sorted).
     # We stamped both to simulate a deploy that explicitly walked the
     # backbone + always-on ``auth`` branch.
-    assert body["heads_applied"] == ["0004", "auth_004"]
+    assert body["heads_applied"] == ["0004", "auth_005"]
 
 
 async def test_readyz_503_with_neither_mode_below_backbone(
@@ -130,4 +130,4 @@ async def test_readyz_503_with_neither_mode_below_backbone(
     assert r.status_code == 503
     body = r.json()
     # Both the backbone tip and the always-on `auth` head are missing.
-    assert "auth_004" in body["missing"]
+    assert "auth_005" in body["missing"]

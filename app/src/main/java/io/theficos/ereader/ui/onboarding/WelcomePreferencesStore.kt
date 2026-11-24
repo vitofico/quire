@@ -40,6 +40,13 @@ class WelcomePreferencesStore(context: Context) {
         _completed.value = true
     }
 
+    /** True the first time only, so a legacy reader is led to the migration screen once. */
+    fun takeMigrationPrompt(): Boolean {
+        if (prefs.getBoolean(KEY_MIGRATION_PROMPTED, false)) return false
+        prefs.edit().putBoolean(KEY_MIGRATION_PROMPTED, true).apply()
+        return true
+    }
+
     /** Test/reset hook. Not invoked from production code. */
     fun reset() {
         prefs.edit().remove(KEY_COMPLETED).apply()
@@ -49,6 +56,7 @@ class WelcomePreferencesStore(context: Context) {
     private companion object {
         const val PREFS_NAME = "welcome_prefs"
         const val KEY_COMPLETED = "completed"
+        const val KEY_MIGRATION_PROMPTED = "migration_prompted"
     }
 }
 

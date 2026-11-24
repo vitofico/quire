@@ -281,3 +281,44 @@ test('shared origin account settings render a Calibre-Web form and safe native s
   expect(screen.getByLabelText('Calibre-Web username')).toBeTruthy()
   expect(screen.queryByLabelText('Email')).toBeNull()
 })
+
+test('a Calibre-Web reader creates a Quire account from the browser and lands signed in', async () => {
+  let migrated = false
+  const fetcher = vi.fn(async (path: string | URL, init?: RequestInit) => {
+    const headers = new Headers(init?.headers)
+    if (path === '/quire/v1/bootstrap') return Response.json({ ...config, login: 'transition', password: true, migration: true })
+    if (path === '/auth/v1/migrate') {
+      expect(init?.credentials).toBe('omit')
+      if (headers.get('Authorization') !== 'Basic ' + btoa('reader:calibre-secret')) {
+        return Response.json({ detail: 'invalid credentials' }, { status: 401 })
+      }
+      const body = JSON.parse(String(init?.body))
+      expect(body).toEqual({ email: 'reader@example.test', password: body.password })
+      if (body.password.length < 12) return Response.json({ detail: 'invalid_password' }, { status: 409 })
+      migrated = true
+      return Response.json({ account_id: 'native:42' })
+    }
+    expect(headers.get('Authorization')).toBeNull()
+    if (path === '/auth/v1/browser/login') return Response.json({ account_id: 'native:42' })
+    expect(path).toBe('/auth/v1/me')
+    return migrated
+      ? Response.json({ version: 1, user: { id: 'native:42', backend: 'native' }, csrf_token: 'csrf' })
+      : Response.json({ detail: 'not_authenticated' }, { status: 401 })
+  })
+  vi.stubGlobal('fetch', fetcher)
+  const { result } = renderHook(() => useAccount())
+  await waitFor(() => expect(result.current.status).toBe('ready'))
+
+  await act(async () => { await result.current.migrateCalibre('reader', 'wrong', 'reader@example.test', 'a-long-new-password') })
+  expect(result.current.error).toBe('Check your Calibre-Web username and password.')
+  await act(async () => { await result.current.migrateCalibre('reader', 'calibre-secret', 'reader@example.test', 'short') })
+  expect(result.current.error).toBe('Use a new password of at least 12 characters.')
+  expect(result.current.active.mode).toBe('local')
+
+  await act(async () => { await result.current.migrateCalibre('reader', 'calibre-secret', 'reader@example.test', 'a-long-new-password') })
+  expect(result.current.error).toBe('')
+  expect(result.current.active.identity).toEqual({ id: 'native:42', backend: 'native' })
+
+  render(<AccountSettings account={{ ...result.current, active: { ...result.current.active, mode: 'local' } }} pending={0} sync={async () => {}} clear={async () => {}} />)
+  expect(screen.getByText('Move a Calibre-Web account to Quire')).toBeTruthy()
+})

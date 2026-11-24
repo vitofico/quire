@@ -576,6 +576,10 @@ class CalibreAccountBinding(Base):
     native_user_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("native_users.id", ondelete="SET NULL"), unique=True
     )
+    # Set only when the reader migrated themselves; opens the device claim window.
+    self_migrated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 class NativeSession(Base):

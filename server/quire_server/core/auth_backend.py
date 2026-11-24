@@ -432,6 +432,13 @@ class TransitionAuth(NativeAuth):
             return await self._legacy.current_user(request)
         return await super().current_user(request)
 
+    async def calibre_username(self, request: Request) -> str:
+        """Verify a Calibre login whether or not its scope is already bound."""
+        header = request.headers.get("authorization", "")
+        if not header.lower().startswith("basic "):
+            raise HTTPException(401, "invalid credentials")
+        return await self._legacy._validator.validate(header)
+
 
 # ----------------------------------------------------------------------------
 # Helpers

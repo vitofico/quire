@@ -24,4 +24,21 @@
     <string name="quire_account_remove_catalog">Desconectar catálogo</string>
     <string name="quire_account_choose_first_connection">Esta dirección ofrece un catálogo de Calibre-Web y una cuenta de Quire. Elige cuál configurar primero. Puedes añadir el otro en Ajustes.</string>
     <string name="quire_account_catalog_then_sync">Puedes añadir una cuenta de Quire en Ajustes para sincronizar el progreso de lectura y usar las funciones de IA.</string>
+    <string name="quire_migration_title">Crea tu cuenta de Quire</string>
+    <string name="quire_migration_description">Tu progreso de lectura, biblioteca y subrayados pasan a la nueva cuenta. Este dispositivo inicia sesión al momento y los demás lo harán solos la próxima vez que abran Quire. Tu catálogo de Calibre-Web sigue conectado.</string>
+    <string name="quire_migration_new_password">Nueva contraseña de Quire</string>
+    <string name="quire_migration_password_too_short">Usa al menos 12 caracteres.</string>
+    <string name="quire_migration_submit">Crear cuenta y conservar mis datos</string>
+    <string name="quire_migration_or_sign_in">¿Ya tienes una cuenta de Quire? Inicia sesión abajo.</string>
+    <string name="quire_migration_email_unavailable">Ese correo ya pertenece a una cuenta de Quire. Elige otro o inicia sesión abajo.</string>
+    <string name="quire_migration_invalid_email">Introduce un correo electrónico válido.</string>
+    <string name="quire_migration_sign_in_instead">Este acceso de Calibre-Web ya tiene una cuenta de Quire. Inicia sesión con su correo y contraseña, o escanea un código de vinculación desde un dispositivo con sesión iniciada.</string>
+    <string name="quire_migration_calibre_rejected">Calibre-Web rechazó el acceso guardado en este dispositivo. Vuelve a conectar el catálogo en Ajustes e inténtalo de nuevo.</string>
+    <string name="quire_migration_unavailable">Este servidor no puede crear una cuenta de Quire desde la app. Consulta a quien administra el servidor.</string>
+    <string name="quire_pairing_add_device">Añadir otro dispositivo</string>
+    <string name="quire_pairing_show_help">En el otro dispositivo, abre Quire, elige «Escanear código de vinculación» y apunta aquí. El código sirve una sola vez y caduca a los dos minutos.</string>
+    <string name="quire_pairing_failed">No se pudo crear el código de vinculación. Comprueba la conexión e inténtalo de nuevo.</string>
+    <string name="quire_pairing_scan">Escanear código de vinculación</string>
+    <string name="quire_pairing_scan_help">En un dispositivo con sesión iniciada en Quire, abre Ajustes → Cuenta de Quire → Añadir otro dispositivo y apunta esta cámara al código.</string>
+    <string name="quire_pairing_camera_denied">Quire necesita la cámara para leer el código de vinculación. Permítela en los ajustes del sistema o inicia sesión con tu correo y contraseña.</string>
 </resources>

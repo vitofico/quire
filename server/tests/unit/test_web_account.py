@@ -39,6 +39,7 @@ async def test_bootstrap_and_verified_calibre_session(monkeypatch):
             "login": "basic",
             "password": False,
             "oidc": False,
+            "migration": False,
             "catalogUrl": "/opds",
             "accountManagement": None,
         }

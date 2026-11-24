@@ -5,86 +5,9 @@ import asyncio
 import getpass
 import sys
 
-from sqlalchemy import select, text
-
-from quire_server.api.account_lifecycle import PRIVATE, TENANT_SCOPED, exists
+from quire_server.api.calibre_migration import MigrationError, provision, validated_names
 from quire_server.config import get_settings
-from quire_server.core.auth_backend import lock_calibre_scope
-from quire_server.core.native_auth import canonical_email, hash_password
-from quire_server.db.models import CalibreAccountBinding, NativeUser
 from quire_server.db.session import make_engine, make_session_factory
-
-SCOPE_COLUMNS = {**PRIVATE, "book_insights": "generated_by"}
-
-
-class MigrationError(ValueError):
-    pass
-
-
-def validated_names(username: str, email: str) -> tuple[str, str]:
-    if (
-        not username.strip()
-        or ":" in username
-        or any(ord(char) < 32 or ord(char) == 127 for char in username)
-        or len(username.encode("utf-8")) > 256
-    ):
-        raise MigrationError("Enter a valid Calibre username.")
-    email = canonical_email(email)
-    if (
-        not 1 <= len(email) <= 320
-        or email.count("@") != 1
-        or any(not part for part in email.split("@"))
-        or any(char.isspace() or ord(char) < 32 for char in email)
-    ):
-        raise MigrationError("Enter the separately verified native email address.")
-    return username.lower(), email
-
-
-async def scope_counts(session, user_id: str) -> dict[str, int]:
-    counts = {}
-    for table, column in SCOPE_COLUMNS.items():
-        if await exists(session, table):
-            if table in TENANT_SCOPED and await session.scalar(
-                text(f"SELECT 1 FROM {table} WHERE {column}=:id AND tenant_id<>'local' LIMIT 1"),
-                {"id": user_id},
-            ):
-                raise MigrationError(
-                    "This scope conflicts with an existing non-local AI principal."
-                )
-            counts[table] = await session.scalar(
-                text(f"SELECT count(*) FROM {table} WHERE {column}=:id"),
-                {"id": user_id},
-            )
-    return counts
-
-
-async def provision(factory, username: str, email: str, password: str | None):
-    """Keep the dry run read-only and the account plus reservation atomic."""
-    username, email = validated_names(username, email)
-    if password is not None and not 12 <= len(password.encode("utf-8")) <= 1024:
-        raise MigrationError("Use a new password between 12 and 1024 UTF-8 bytes.")
-    password_hash = await hash_password(password) if password is not None else None
-
-    async with factory.begin() as session:
-        if password_hash is not None:
-            await lock_calibre_scope(session, username)
-
-        if await session.get(CalibreAccountBinding, username) is not None:
-            raise MigrationError("This Calibre scope is already reserved.")
-        if await session.scalar(select(NativeUser.id).where(NativeUser.email == email)) is not None:
-            raise MigrationError("This email already has a native account.")
-
-        counts = await scope_counts(session, username)
-        if password_hash is None:
-            return None, counts
-
-        native = NativeUser(email=email, password_hash=password_hash)
-        session.add(native)
-        await session.flush()
-        if any((await scope_counts(session, f"native:{native.id}")).values()):
-            raise MigrationError("The new native account scope already contains data.")
-        session.add(CalibreAccountBinding(calibre_user_id=username, native_user_id=native.id))
-        return native.id, counts
 
 
 async def run(username: str, email: str, password: str | None):

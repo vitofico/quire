@@ -4,6 +4,18 @@ Use this guide if you already sign in with your Calibre-Web username to sync rea
 
 Updating the app or enabling transition mode on the server does not migrate anyone automatically. **The switch happens when your administrator applies the migration for your username.** From that point, each of your devices needs your new Quire login to sync.
 
+## The short way: migrate from the app
+
+If your administrator has turned on self-service migration, none of the steps below need them.
+
+1. Update Quire on your phone. It opens **Create your Quire account** once by itself. You can also reach it from **Settings → Quire account → Sign in to Quire**.
+2. Choose an email and a new password of at least 12 characters. The phone proves who you are with the Calibre-Web login it already holds, so your library, progress and highlights move to the new account in the same step. Your Calibre-Web catalog stays connected.
+3. Your other Android devices sign themselves in the next time they open Quire, for as long as the administrator's claim window lasts (30 days by default). After that, or on a brand new device, open **Settings → Quire account → Add another device** on a signed-in phone and scan the code from the other one with **Scan pairing code**. The email and password work too.
+
+No phone at hand? Quire Web offers the same step: open **Settings → Account → Move a Calibre-Web account to Quire**, enter your Calibre-Web login, an email and a new password, and you are signed in to the new account in that browser.
+
+During the claim window your Calibre-Web password can still open your Quire account. If that worries you, ask your administrator to set the window to `0` and use the pairing code.
+
 ## If you read on Android
 
 1. **Before the switch**, check that each device has a compatible version of Quire with **Settings → Quire account → Sign in to Quire**. Upgrade in place and keep the app data, especially on devices with offline highlights. If a compatible build is unavailable on one of your devices, ask your administrator to wait.
@@ -37,6 +49,10 @@ For a server with many readers, start with one volunteer who uses two devices. S
 2. Deploy the new server with `QUIRE_SERVER_AUTH_BACKEND=transition`. Point `QUIRE_SERVER_CWA_BASE_URL` at the existing Calibre-Web instance so legacy readers can still authenticate. Run `python /app/scripts/migrate.py` with the installation's existing feature flags. Confirm readiness after migration. Leave `QUIRE_IDENTITY_PUBLIC_URL` unset on a shared ebook hostname.
 3. Expose `POST /auth/v1/login`, `GET /auth/v1/me`, `POST /auth/v1/logout` and `GET /auth/v1/account/export` to Quire on the mobile service origin. Existing reading, library, AI and agent routes continue to target Quire. Preserve Calibre-Web routing for `/`, OPDS, covers and downloads. Keep `/internal/v1/` inaccessible from the public ingress. The Theficos manifests use exact path matches for the four account operations.
 4. Verify login with a dedicated test reader. Check the library, progress, an authenticated catalog feed and an EPUB acquisition. Verify that a Quire logout ends the Quire session and the catalog still works. Avoid generating a paid AI result for a health check.
+
+## Let readers migrate themselves
+
+Set `QUIRE_SERVER_SELF_MIGRATION_ENABLED=true` in `transition` mode and route `POST /auth/v1/migrate`, `POST /auth/v1/migrate/claim`, `POST /auth/v1/pairing` and `POST /auth/v1/pairing/exchange` to Quire on the address the phones already use. The server accepts a migration only with a Calibre login that Calibre-Web confirms at that moment, which is stronger evidence than a matching name or email. `QUIRE_SERVER_LEGACY_CLAIM_DAYS` sets how long a reader's other devices may sign in with that same Calibre login (`0` turns it off). The manual procedure below remains for readers who cannot update the app, for conflicting emails, and for installations that prefer to verify each reader. An account you migrate by hand is never claimable.
 
 ## Migrate an existing reader
 

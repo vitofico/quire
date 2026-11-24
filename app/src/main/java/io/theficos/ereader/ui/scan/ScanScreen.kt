@@ -152,9 +152,12 @@ fun ScanScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             if (hasCameraPermission) {
-                CameraPreview(
-                    onIsbnDecoded = { viewModel.onIsbnSubmitted(it) },
-                    state = state,
+                // Re-arm on every outcome the user can scan again from. Working keeps
+                // the latch held, and a Result navigates away.
+                BarcodeCameraPreview(
+                    onDecoded = { viewModel.onIsbnSubmitted(it) },
+                    rearmKey = state,
+                    rearm = state != ScanUiState.Working && state !is ScanUiState.Result,
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(3f / 4f),
@@ -263,14 +266,16 @@ private fun StatusArea(state: ScanUiState) {
  * idle) so auto-decoding resumes without forcing the manual-entry fallback.
  */
 @Composable
-private fun CameraPreview(
-    onIsbnDecoded: (String) -> Unit,
-    state: ScanUiState,
+internal fun BarcodeCameraPreview(
+    onDecoded: (String) -> Unit,
+    rearmKey: Any?,
+    rearm: Boolean,
     modifier: Modifier = Modifier,
+    formats: List<BarcodeFormat> = listOf(BarcodeFormat.EAN_13, BarcodeFormat.EAN_8, BarcodeFormat.UPC_A),
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val currentOnDecoded by rememberUpdatedState(onIsbnDecoded)
+    val currentOnDecoded by rememberUpdatedState(onDecoded)
 
     val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
     // Used to marshal a successful decode back onto the main thread, since the
@@ -287,18 +292,8 @@ private fun CameraPreview(
     // never auto-decode again, silently forcing manual entry. A successful
     // Result navigates away and disposes this composable, so it deliberately
     // does not reset; Working keeps the latch held while a scan is in flight.
-    LaunchedEffect(state) {
-        when (state) {
-            ScanUiState.Idle,
-            ScanUiState.InvalidIsbn,
-            ScanUiState.NotFound,
-            ScanUiState.ReauthRequired,
-            is ScanUiState.Failed,
-            -> decoded.set(false)
-            ScanUiState.Working,
-            is ScanUiState.Result,
-            -> Unit
-        }
+    LaunchedEffect(rearmKey) {
+        if (rearm) decoded.set(false)
     }
     // Hints are passed to reader.decode(bitmap, hints) on every frame rather
     // than stashed once via setHints(): the single-arg MultiFormatReader.decode
@@ -306,11 +301,7 @@ private fun CameraPreview(
     // and TRY_HARDER. Passing them explicitly keeps them in force every decode.
     val decodeHints = remember {
         mapOf<DecodeHintType, Any>(
-            DecodeHintType.POSSIBLE_FORMATS to listOf(
-                BarcodeFormat.EAN_13,
-                BarcodeFormat.EAN_8,
-                BarcodeFormat.UPC_A,
-            ),
+            DecodeHintType.POSSIBLE_FORMATS to formats,
             DecodeHintType.TRY_HARDER to true,
         )
     }

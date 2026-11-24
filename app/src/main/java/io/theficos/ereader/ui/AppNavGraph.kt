@@ -53,6 +53,7 @@ import io.theficos.ereader.ui.library.LibraryViewModel
 import io.theficos.ereader.ui.main.MainScaffold
 import io.theficos.ereader.ui.main.Tab
 import io.theficos.ereader.ui.onboarding.CloudComingSoonScreen
+import io.theficos.ereader.auth.AccountCredentials
 import io.theficos.ereader.ui.onboarding.ConnectServerScreen
 import io.theficos.ereader.ui.onboarding.QuireSignInScreen
 import io.theficos.ereader.ui.onboarding.ConnectServerViewModel
@@ -101,6 +102,28 @@ fun AppNavGraph(
     LaunchedEffect(needsReauth) {
         if (needsReauth) {
             nav.navigate("quire-sign-in") { launchSingleTop = true }
+        }
+    }
+    // A device still syncing with its Calibre login asks once per launch whether the
+    // reader already has a Quire account (signed in silently) or may create one.
+    if (container.credentialStore.accountFlow.collectAsState().value is AccountCredentials.Basic) {
+        val claim: ConnectServerViewModel = viewModel(
+            key = "legacy-claim",
+            factory = viewModelFactory {
+                initializer {
+                    ConnectServerViewModel(
+                        credentialStore = container.credentialStore,
+                        legacyHighlightScopeFor = container::legacyHighlightScopeFor,
+                    )
+                }
+            },
+        )
+        LaunchedEffect(Unit) { claim.claimLegacyAccount() }
+        val offered by claim.migrationOffered.collectAsState()
+        LaunchedEffect(offered) {
+            if (offered && container.welcomePreferencesStore.takeMigrationPrompt()) {
+                nav.navigate("quire-sign-in") { launchSingleTop = true }
+            }
         }
     }
     NavHost(navController = nav, startDestination = startDestination) {

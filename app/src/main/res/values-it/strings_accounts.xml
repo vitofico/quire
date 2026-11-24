@@ -24,4 +24,21 @@
     <string name="quire_account_remove_catalog">Disconnetti il catalogo</string>
     <string name="quire_account_choose_first_connection">Questo indirizzo offre un catalogo Calibre-Web e un account Quire. Scegli quale configurare per primo. Puoi aggiungere l’altro nelle impostazioni.</string>
     <string name="quire_account_catalog_then_sync">Puoi aggiungere un account Quire nelle impostazioni per sincronizzare i progressi di lettura e usare le funzioni di IA.</string>
+    <string name="quire_migration_title">Crea il tuo account Quire</string>
+    <string name="quire_migration_description">I progressi di lettura, la libreria e le evidenziazioni passano al nuovo account. Questo dispositivo accede subito e gli altri lo seguono da soli alla prossima apertura di Quire. Il catalogo Calibre-Web resta collegato.</string>
+    <string name="quire_migration_new_password">Nuova password Quire</string>
+    <string name="quire_migration_password_too_short">Usa almeno 12 caratteri.</string>
+    <string name="quire_migration_submit">Crea l’account e conserva i miei dati</string>
+    <string name="quire_migration_or_sign_in">Hai già un account Quire? Accedi qui sotto.</string>
+    <string name="quire_migration_email_unavailable">Questa email appartiene già a un account Quire. Scegline un’altra o accedi qui sotto.</string>
+    <string name="quire_migration_invalid_email">Inserisci un indirizzo email valido.</string>
+    <string name="quire_migration_sign_in_instead">Questo accesso Calibre-Web ha già un account Quire. Accedi con email e password, oppure scansiona un codice di abbinamento da un dispositivo già connesso.</string>
+    <string name="quire_migration_calibre_rejected">Calibre-Web ha rifiutato l’accesso salvato su questo dispositivo. Ricollega il catalogo nelle Impostazioni e riprova.</string>
+    <string name="quire_migration_unavailable">Questo server non può creare un account Quire dall’app. Chiedi all’amministratore del server.</string>
+    <string name="quire_pairing_add_device">Aggiungi un altro dispositivo</string>
+    <string name="quire_pairing_show_help">Sull’altro dispositivo apri Quire, scegli “Scansiona codice di abbinamento” e inquadra questo schermo. Il codice funziona una sola volta e scade dopo due minuti.</string>
+    <string name="quire_pairing_failed">Impossibile creare un codice di abbinamento. Controlla la connessione e riprova.</string>
+    <string name="quire_pairing_scan">Scansiona codice di abbinamento</string>
+    <string name="quire_pairing_scan_help">Su un dispositivo già connesso a Quire apri Impostazioni → Account Quire → Aggiungi un altro dispositivo, poi inquadra il codice con questa fotocamera.</string>
+    <string name="quire_pairing_camera_denied">Quire ha bisogno della fotocamera per leggere il codice di abbinamento. Consentila nelle impostazioni di sistema, oppure accedi con email e password.</string>
 </resources>

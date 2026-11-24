@@ -87,6 +87,12 @@ class ConnectServerViewModel(
     val initialQuireEmail = nativeAccount?.email?.takeIf { '@' in it }.orEmpty()
     private val initialCanonicalQuireUrl = canonicalQuireUrl(initialQuireUrl)
     val isReauthentication = credentialStore.needsReauth.value && nativeAccount != null
+    private val legacyAccount = account as? AccountCredentials.Basic
+
+    private val _migrationOffered = MutableStateFlow(false)
+
+    /** True once the server says this legacy reader may create their own Quire account. */
+    val migrationOffered: StateFlow<Boolean> = _migrationOffered.asStateFlow()
 
     /** Reset any in-flight result, ready for a fresh URL. */
     fun resetToIdle() {
@@ -149,6 +155,48 @@ class ConnectServerViewModel(
             return
         }
         verifyAndSaveBearerRequest(canonicalBaseUrl, "", "", trimmed)
+    }
+
+    /**
+     * Quietly exchange the stored Calibre login for a Quire session. A reader who
+     * already migrated on another device is signed in without typing anything; one
+     * who has not is offered [migrateLegacyAccount]. Every other answer, including
+     * a server without self-service migration, leaves the legacy account untouched.
+     */
+    fun claimLegacyAccount() {
+        val legacy = legacyAccount ?: return
+        val serverUrl = initialCanonicalQuireUrl ?: return
+        viewModelScope.launch {
+            val result = withContext(ioDispatcher) { runBearerVerification(serverUrl, "", "", legacy = legacy) }
+            when (result) {
+                is VerificationOutcome.OkBearer ->
+                    if (saveNativeAccount(serverUrl, "", result) == UiState.Completed) _state.value = UiState.Completed
+                is VerificationOutcome.Failure -> if (result.canMigrate) _migrationOffered.value = true
+                else -> Unit
+            }
+        }
+    }
+
+    /** Create the reader's Quire account, authorised by the Calibre login this device already holds. */
+    fun migrateLegacyAccount(email: String, password: String) {
+        val legacy = legacyAccount
+        val serverUrl = initialCanonicalQuireUrl
+        if (legacy == null || serverUrl == null) {
+            _state.value = UiState.VerificationFailed(uiText(R.string.onboarding_quire_connection_changed))
+            return
+        }
+        verifyJob?.cancel()
+        _state.value = UiState.Verifying
+        verifyJob = viewModelScope.launch {
+            val result = withContext(ioDispatcher) {
+                runBearerVerification(serverUrl, email.trim(), password, legacy = legacy)
+            }
+            _state.value = when (result) {
+                is VerificationOutcome.OkBearer -> saveNativeAccount(serverUrl, email, result)
+                is VerificationOutcome.Failure -> UiState.VerificationFailed(result.message)
+                else -> error("unreachable in migration flow")
+            }
+        }
     }
 
     private fun verifyAndSaveBearerRequest(
@@ -387,6 +435,7 @@ class ConnectServerViewModel(
         email: String,
         password: String,
         pairingTicket: String? = null,
+        legacy: AccountCredentials.Basic? = null,
     ): VerificationOutcome {
         // Build the LoginRequest body via kotlinx.serialization's JSON
         // builder. We avoid `@Serializable` data classes here because the
@@ -397,12 +446,20 @@ class ConnectServerViewModel(
             if (pairingTicket != null) {
                 put("ticket", JsonPrimitive(pairingTicket))
                 put("device_name", JsonPrimitive("Android phone"))
+            } else if (legacy != null && email.isEmpty()) {
+                put("device_name", JsonPrimitive("Android phone"))
             } else {
+                if (legacy != null) put("device_name", JsonPrimitive("Android phone"))
                 put("email", JsonPrimitive(email))
                 put("password", JsonPrimitive(password))
             }
         }.toString()
-        val path = if (pairingTicket != null) "pairing/exchange" else "login"
+        val path = when {
+            pairingTicket != null -> "pairing/exchange"
+            legacy == null -> "login"
+            email.isEmpty() -> "migrate/claim"
+            else -> "migrate"
+        }
         val req = Request.Builder()
             .url("$canonicalBaseUrl/auth/v1/$path")
             .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
@@ -410,11 +467,21 @@ class ConnectServerViewModel(
                 Headers.Builder()
                     .add("Accept", "application/json")
                     .add("User-Agent", ServerProbe.USER_AGENT)
+                    .apply {
+                        if (legacy != null) {
+                            val basic = Base64.getEncoder()
+                                .encodeToString("${legacy.username}:${legacy.password}".toByteArray())
+                            add("Authorization", "Basic $basic")
+                        }
+                    }
                     .build()
             )
             .build()
         return try {
             onboardingClient.newCall(req).execute().use { resp ->
+                if (legacy != null && resp.code != 200) {
+                    return legacyMigrationFailure(resp.code, resp.body?.string().orEmpty())
+                }
                 when (resp.code) {
                     200 -> {
                         val body = resp.body?.string().orEmpty()
@@ -447,6 +514,27 @@ class ConnectServerViewModel(
                 if (cleartextBlockedMessage(e) != null) uiText(R.string.error_cleartext_blocked)
                 else e.localizedMessage?.let(UiText::Dynamic) ?: uiText(R.string.common_network_error),
             )
+        }
+    }
+
+    private fun legacyMigrationFailure(code: Int, body: String): VerificationOutcome.Failure {
+        val detail = runCatching {
+            ((Json.parseToJsonElement(body) as? JsonObject)?.get("detail") as? JsonPrimitive)?.contentOrNull
+        }.getOrNull()
+        return when {
+            code == 409 && detail == "not_migrated" ->
+                VerificationOutcome.Failure(uiText(R.string.quire_migration_unavailable), canMigrate = true)
+            code == 409 && detail == "email_unavailable" ->
+                VerificationOutcome.Failure(uiText(R.string.quire_migration_email_unavailable))
+            code == 409 && detail == "invalid_email" ->
+                VerificationOutcome.Failure(uiText(R.string.quire_migration_invalid_email))
+            code == 409 && detail == "invalid_password" ->
+                VerificationOutcome.Failure(uiText(R.string.quire_migration_password_too_short))
+            code == 409 && detail == "already_migrated" || code == 403 ->
+                VerificationOutcome.Failure(uiText(R.string.quire_migration_sign_in_instead))
+            code == 401 -> VerificationOutcome.Failure(uiText(R.string.quire_migration_calibre_rejected))
+            code in 500..599 -> VerificationOutcome.Failure(uiText(R.string.onboarding_server_error_try_again_later, code))
+            else -> VerificationOutcome.Failure(uiText(R.string.quire_migration_unavailable))
         }
     }
 
@@ -512,7 +600,7 @@ class ConnectServerViewModel(
         object OkBasic : VerificationOutcome()
         object OkOpds : VerificationOutcome()
         data class OkBearer(val token: String, val expiresAtEpochMs: Long?, val accountId: String? = null, val accountSubject: String? = null) : VerificationOutcome()
-        data class Failure(val message: UiText) : VerificationOutcome()
+        data class Failure(val message: UiText, val canMigrate: Boolean = false) : VerificationOutcome()
     }
 
     companion object {
