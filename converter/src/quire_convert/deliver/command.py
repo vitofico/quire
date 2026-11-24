@@ -32,7 +32,12 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         "--password-env", required=True, metavar="VAR", help="environment variable to read"
     )
     target = parser.add_mutually_exclusive_group()
-    target.add_argument("--book-id", type=int, help="attach the EPUB to this record")
+    target.add_argument(
+        "--book-id",
+        type=int,
+        help="attach the EPUB to this record; an EPUB another client adds to the same "
+        "record in the seconds before ours is applied can be replaced",
+    )
     target.add_argument("--new", action="store_true", help="add the EPUB as a new book")
     parser.add_argument("--instance", help="catalog name in receipts (default: the URL)")
     parser.add_argument("--receipts", type=Path, help=f"default: <job root>/{RECEIPTS_FILE}")

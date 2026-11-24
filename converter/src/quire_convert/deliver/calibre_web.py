@@ -15,6 +15,13 @@ Uploading a format the record already has replaces it on the server, so the adap
 never uploads unless it has just read the record's formats and found no EPUB, and it
 reads them again afterwards. Calibre-Web Automated queues format uploads to its ingest
 service, so a write shows up seconds later: every write is confirmed by a readback.
+
+Known window, accepted: the server has no "don't replace" option, so the adapter can only
+detect a competing write, not prevent one. If another client adds an EPUB to the same
+record between our last read and the server applying our upload (up to the ingest queue's
+delay on Calibre-Web Automated, seconds), ours replaces theirs and the readback cannot tell.
+When theirs lands last, the readback sees it and the receipt becomes a conflict. Our own
+deliveries of one key are serialized, and the PDF and metadata are never touched.
 """
 
 from __future__ import annotations
