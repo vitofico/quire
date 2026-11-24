@@ -58,18 +58,19 @@ jobs:
           mkdir -p "$RUNNER_TEMP/calibre"
           tar -xJf "$RUNNER_TEMP/$tarball" -C "$RUNNER_TEMP/calibre"
           echo "QC_EBOOK_CONVERT=$RUNNER_TEMP/calibre/ebook-convert" >> "$GITHUB_ENV"
-      - name: Install pinned EPUBCheck
-        run: echo "EPUBCHECK_JAR=$(scripts/fetch-epubcheck.sh)" >> "$GITHUB_ENV"
+      - name: Install pinned EPUBCheck on the runner's JDK 21
+        # JAVA_HOME_21_X64 is a runner variable, not in the env context: read it in the shell.
+        run: |
+          test -x "$JAVA_HOME_21_X64/bin/java"
+          echo "QC_JAVA=$JAVA_HOME_21_X64/bin/java" >> "$GITHUB_ENV"
+          echo "EPUBCHECK_JAR=$(scripts/fetch-epubcheck.sh)" >> "$GITHUB_ENV"
       - name: Show tool versions
-        env:
-          QC_JAVA: ${{ env.JAVA_HOME_21_X64 }}/bin/java
         run: |
           "$QC_EBOOK_CONVERT" --version | head -1
           pdfinfo -v 2>&1 | head -1
           "$QC_JAVA" -version 2>&1 | head -1
       - name: Test
         env:
-          QC_JAVA: ${{ env.JAVA_HOME_21_X64 }}/bin/java
           QT_QPA_PLATFORM: offscreen
         # The Calibre-Web acceptance tests need a local calibre-web-automated image; they
         # run on a developer machine (pytest -m docker).
