@@ -112,9 +112,9 @@ actual Sherlock Holmes page in Sepia and Literata. Open a full-size example:
 
 ## Read in your browser
 
-Open `/quire/` on an installation of Quire Server that includes the web client. Choose **Import EPUB** to read a local book, or connect an OPDS feed from **Catalog**. The library and reader work offline after the browser caches the app and the book. Browser storage belongs to the current browser profile.
+Open `/quire/` on an installation of Quire Server that includes the web client. A server with a hostname of its own can serve the reader at the root instead (`QUIRE_SERVER_WEB_AT_ROOT`), and old `/quire/` links keep working. Choose **Import EPUB** to read a local book, or connect an OPDS feed from **Catalog**. The library and reader work offline after the browser caches the app and the book. Browser storage belongs to the current browser profile.
 
-Sign in under **Settings → Account** to sync your shelf, progress and highlighted passages with Android. Books imported on another device appear with **Open your copy**. Select the same EPUB or download it from the catalog to resume reading. The private pause bookmark stays on the device where you saved it. [Browser setup and deployment](server/README.md)
+Sign in under **Settings → Account** to sync your shelf, progress and highlighted passages with Android. Books imported on another device appear with **Open your copy**, and show their cover once you have signed in to the catalog they came from. Select the same EPUB or download it from the catalog to resume reading. The private pause bookmark stays on the device where you saved it. [Browser setup and deployment](server/README.md)
 
 ## Bring your books
 
@@ -135,6 +135,47 @@ to import an EPUB with Android's file picker; opening an EPUB shared by another
 app also imports it. **Connect to my server** sets up remote browsing and
 compatible server sign-in. If your Quire sync server has a separate address,
 enter its optional URL in Settings.
+
+### One Quire account, on every device
+
+A Quire account keeps sync working when the catalog is offline, and it is
+separate from your Calibre-Web login.
+
+- **Move an existing Calibre-Web login yourself.** Where the server allows it,
+  the app offers **Create your Quire account** once: choose an email and a
+  password, and your library, progress and highlights move with you. Quire Web
+  has the same step under **Settings → Account**.
+- **Add a device without typing a password.** On a signed-in phone open
+  **Settings → Quire account → Add another device**, then scan the code from
+  the other one with **Scan pairing code**.
+- **Follow the server when it moves.** If the operator gives Quire Server a new
+  address (`QUIRE_SERVER_CANONICAL_URL`), a signed-in app switches to it on its
+  next launch and keeps its local bookmarks and highlights.
+
+The [migration guide](docs/independent-login-migration.md) has the reader and
+operator steps.
+
+## Turn a PDF into an EPUB
+
+`converter/` holds `quire-convert`, a command-line tool that turns a text PDF
+into a reflowable EPUB and tells you how much to trust the result. It compares
+the EPUB with the PDF word by word and region by region, so lost figures,
+dropped notes, missing or reordered text and doubtful metadata end up in a
+report instead of going unnoticed.
+
+```bash
+cd converter && uv sync
+./scripts/fetch-epubcheck.sh
+uv run quire-convert inspect book.pdf
+uv run quire-convert convert book.pdf --out book.epub --report report.json --html-report report.html
+```
+
+The exit code is the verdict: `0` ready, `2` needs review, `3` unsupported
+(scans, multi-column or right-to-left layouts, equations), `1` failed.
+`quire-convert deliver` saves a converted book to Calibre-Web. The tool needs
+Python 3.12, Calibre's `ebook-convert`, the Poppler utilities and Java 17 for
+EPUBCheck. It runs on your computer; the Android app and Quire Server do not
+convert PDFs.
 
 Quire is the native Kotlin / Compose / Readium client. Quire Server is an
 optional FastAPI service backed by Postgres, available as
@@ -252,6 +293,8 @@ data/sync/            quire-server REST client + WorkManager job
 data/library/         quire-server /library/v1 HTTP client (stats today)
 reader/               Readium navigator integration
 server/               quire-server (Python / FastAPI)
+web/                  Quire Web (React), shipped inside the server image
+converter/            quire-convert: checked PDF to EPUB conversion (Python CLI)
 docs/                 Architecture, development, sync API reference
 scripts/dgradle       Gradle wrapper that runs inside the project's Docker image
 Dockerfile            Reproducible Android build environment (linux/amd64)
