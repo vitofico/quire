@@ -226,6 +226,17 @@ describe('offline replica', () => {
     expect((await replica.snapshot()).books).toMatchObject([{ key: 'different', hasDownload: true, localOnly: true }])
   })
 
+  it('keeps a catalog cover for a synced book until its own EPUB brings one', async () => {
+    const api: SyncTransport = async (path) => path.startsWith('/library/v1/items') ? Response.json({ items: [remote] }) : emptyPull(path)
+    const replica = await open(api)
+    await replica.sync()
+    await replica.setCatalogCover(book.key, new Blob(['catalog'], { type: 'image/jpeg' }))
+    const shown = async () => (await (await open(api)).snapshot()).books[0].cover as Blob
+    expect(await (await shown()).text()).toBe('catalog')
+    await replica.putBook({ ...book, cover: new Blob(['epub'], { type: 'image/png' }) }, new Blob(['epub bytes']))
+    expect(await (await shown()).text()).toBe('epub')
+  })
+
   it('reuses the durable library idempotency key and request body after reopening', async () => {
     const attempts: Array<{ key: string | null; body: BodyInit | null | undefined }> = []
     const api: SyncTransport = async (path, init) => {
