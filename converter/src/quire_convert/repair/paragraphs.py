@@ -23,6 +23,7 @@ import logging
 import re
 import statistics
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -34,7 +35,16 @@ from ..align.normalize import tokenize
 from ..epub import inline
 from ..epub.book import ContentDoc, is_block, remove_keep_tail
 from ..epub.package import XHTML_NS, local_name
-from ..models import BLOCK_ID_PREFIX, Box, Line, PageInventory, Severity, StageError, TextBlock
+from ..models import (
+    BLOCK_ID_PREFIX,
+    Box,
+    Line,
+    PageInventory,
+    Severity,
+    SourceInventory,
+    StageError,
+    TextBlock,
+)
 from ..source import poppler
 
 if TYPE_CHECKING:
@@ -192,21 +202,7 @@ class _Segmenter:
     # ---- metrics
 
     def _vocabulary(self) -> Counter[str]:
-        """Words as printed mid-line, so hyphen decisions can consult the rest of the book."""
-        vocab: Counter[str] = Counter()
-        for page in self.source.pages:
-            for block in page.blocks:
-                if not self._body(block):
-                    continue
-                broken = False
-                for line in block.lines:
-                    words = [w.text for w in line.words]
-                    hyphen = _ends_hyphen(line.text)
-                    lo = 1 if broken else 0
-                    hi = len(words) - (1 if hyphen else 0)
-                    vocab.update(_core(w) for w in words[lo:hi])
-                    broken = hyphen
-        return vocab
+        return mid_line_vocabulary(self.source, self._body)
 
     def _indent_tol(self, page: PageInventory) -> float:
         return INDENT_EM * self.body_size / (page.width_pt or 1.0)
@@ -400,23 +396,9 @@ class _Segmenter:
         return not any(r.box.intersection_area(between) > 0 for r in ln.page.images)
 
     def _hyphen(self, prev: _Ln, ln: _Ln) -> _Hyphen:
-        left_word = prev.line.words[-1].text
-        right_word = ln.line.words[0].text
-        left = _core(left_word.rstrip(HYPHENS))
-        right = _core(right_word)
-        joined, hyphenated = self.vocab[left + right], self.vocab[f"{left}-{right}"]
-        counts = f"joined={joined} hyphenated={hyphenated}"
-        if left_word.endswith("­"):
-            join, rule = True, "soft_hyphen"
-        elif joined != hyphenated:
-            join, rule = joined > hyphenated, "book_usage"
-        elif joined:
-            join, rule = False, "usage_tie"
-        elif self.vocab[left] and self.vocab[right]:
-            # Both halves are words of the book: read it as a compound ("well-known").
-            join, rule = False, "compound_parts"
-        else:
-            join, rule = True, "never_mid_line"
+        join, rule, counts = hyphen_join(
+            prev.line.words[-1].text, ln.line.words[0].text, self.vocab
+        )
         return _Hyphen(
             (prev.block.id, prev.k, len(prev.line.words) - 1),
             (ln.block.id, ln.k, 0),
@@ -424,6 +406,45 @@ class _Segmenter:
             rule,
             counts,
         )
+
+
+def mid_line_vocabulary(
+    source: SourceInventory, keep: Callable[[TextBlock], bool] = lambda block: True
+) -> Counter[str]:
+    """Words as printed mid-line, so hyphen decisions can consult the rest of the book."""
+    vocab: Counter[str] = Counter()
+    for page in source.pages:
+        for block in page.blocks:
+            if not keep(block):
+                continue
+            broken = False
+            for line in block.lines:
+                words = [w.text for w in line.words]
+                hyphen = _ends_hyphen(line.text)
+                lo = 1 if broken else 0
+                hi = len(words) - (1 if hyphen else 0)
+                vocab.update(_core(w) for w in words[lo:hi])
+                broken = hyphen
+    return vocab
+
+
+def hyphen_join(left_word: str, right_word: str, vocab: Counter[str]) -> tuple[bool, str, str]:
+    """Whether a line-end hyphen between two words breaks one word, decided on the book's
+    own usage: ``(join, rule, counts)``."""
+    left = _core(left_word.rstrip(HYPHENS))
+    right = _core(right_word)
+    joined, hyphenated = vocab[left + right], vocab[f"{left}-{right}"]
+    counts = f"joined={joined} hyphenated={hyphenated}"
+    if left_word.endswith("\u00ad"):
+        return True, "soft_hyphen", counts
+    if joined != hyphenated:
+        return joined > hyphenated, "book_usage", counts
+    if joined:
+        return False, "usage_tie", counts
+    if vocab[left] and vocab[right]:
+        # Both halves are words of the book: read it as a compound ("well-known").
+        return False, "compound_parts", counts
+    return True, "never_mid_line", counts
 
 
 def _size(line: Line) -> float | None:

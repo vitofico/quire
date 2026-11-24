@@ -14,6 +14,7 @@ import logging
 import re
 import statistics
 import unicodedata
+from collections import Counter
 from dataclasses import dataclass
 from typing import Any
 
@@ -21,9 +22,10 @@ from PIL import Image
 
 from ..context import ConvertContext
 from ..epub.package import XHTML_NS
-from ..models import Line, MetadataField, PageInventory, Severity, StageError
+from ..models import Line, MetadataField, PageInventory, Severity, SourceInventory, StageError
 from ..source.language import primary
 from ..source.render import render_region
+from .paragraphs import hyphen_join, mid_line_vocabulary
 
 log = logging.getLogger(__name__)
 
@@ -535,14 +537,16 @@ def _from_title_page(
 # --------------------------------------------------------------------------- blurb
 
 
-def _paragraph(lines: list[Line]) -> str:
-    """Line texts joined with single spaces; a line-end hyphen before a lowercase letter
-    is a broken word and is closed up, as the paragraph repair does."""
+def _paragraph(lines: list[Line], vocab: Counter[str]) -> str:
+    """Line texts joined with single spaces. A line-end hyphen joins the next line with no
+    space, and is dropped only when the paragraph repair's rule reads it as a broken word,
+    so "mag-nificent" closes up and "long-awaited" keeps its hyphen."""
     text = ""
     for line in lines:
         part = " ".join(line.text.split())
-        if re.search(r"[^\W\d_]-$", text) and part[:1].islower():
-            text = text[:-1] + part
+        if re.search(r"[^\W\d_]-$", text) and part:
+            broken, _, _ = hyphen_join(text.rsplit(" ", 1)[-1], part.split()[0], vocab)
+            text = (text[:-1] if broken else text) + part
         else:
             text = f"{text} {part}" if text else part
     return text
@@ -554,7 +558,7 @@ def _blurb_cues(texts: list[str]) -> list[str]:
     return found + weak if found or len(weak) >= 2 else []
 
 
-def _blurb_page(page: PageInventory) -> Candidate | None:
+def _blurb_page(page: PageInventory, vocab: Counter[str]) -> Candidate | None:
     """Promotional prose printed on ``page``, or None when it could be anything else."""
     if any(block.role == "folio" for block in page.blocks):
         return None  # numbered pages belong to the book's body flow
@@ -572,7 +576,7 @@ def _blurb_page(page: PageInventory) -> Candidate | None:
         if block.role in _FURNITURE:
             continue
         texts = [" ".join(line.text.split()) for line in block.lines]
-        text = _paragraph(block.lines)
+        text = _paragraph(block.lines, vocab)
         if len(text.split()) < 8 or text.startswith(_QUOTE_OPEN):
             continue  # labels, titles and review quotes are not the description
         if any(rx.search(t) for rx in every for t in texts):
@@ -587,15 +591,17 @@ def _blurb_page(page: PageInventory) -> Candidate | None:
     return Candidate("description", "\n\n".join(paragraphs), "blurb_page", evidence)
 
 
-def _from_blurb(pages: list[PageInventory]) -> list[Candidate]:
+def _from_blurb(source: SourceInventory) -> list[Candidate]:
     """A back-cover or jacket blurb from the last two pages or the two after a cover."""
+    pages = source.pages
     if len(pages) < 2:
         return []
     order = [len(pages) - 1, len(pages) - 2]
     if cover_evidence(pages[0], _body_size(pages)):
         order += [1, 2]
+    vocab = mid_line_vocabulary(source)
     for index in dict.fromkeys(i for i in order if 0 < i < len(pages)):
-        found = _blurb_page(pages[index])
+        found = _blurb_page(pages[index], vocab)
         if found:
             return [found]
     return []
@@ -676,7 +682,7 @@ def apply(ctx: ConvertContext) -> None:
     copyright_cands, copyright_pages, holders = _from_copyright(source.pages)
     known = holders + [a for c in cands if c.field == "authors" for a in c.value]
     cands += copyright_cands + _from_title_page(source.pages, copyright_pages, known)
-    cands += _from_blurb(source.pages)
+    cands += _from_blurb(source)
     if source.language:
         cands.append(Candidate("language", source.language, "detected", "source:language"))
     if ctx.catalog_metadata:

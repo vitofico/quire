@@ -319,3 +319,18 @@ def test_catalog_description_wins_over_blurb(tmp_path):
     assert ctx.book.metadata.description == catalog["description"]
     conflicts = [i.evidence for i in ctx.issues if i.code == "meta.conflict"]
     assert conflicts == ["meta:description kept=src:catalog over=src:blurb_page"]
+
+
+def test_blurb_keeps_real_compounds_and_closes_broken_words():
+    from collections import Counter
+
+    from quire_convert.models import Box, Line, Word
+    from quire_convert.repair.metadata import _paragraph
+
+    def line(text):
+        box = Box(0, 0, 1, 0.1)
+        return Line([Word(w, box) for w in text.split()], box)
+
+    vocab = Counter({"long": 2, "awaited": 1})
+    lines = [line("the long-"), line("awaited sequel, a mag-"), line("nificent book")]
+    assert _paragraph(lines, vocab) == "the long-awaited sequel, a magnificent book"
