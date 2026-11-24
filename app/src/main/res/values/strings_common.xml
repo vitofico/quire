@@ -246,4 +246,7 @@
     <string name="band_strong">"Strong"</string>
     <string name="band_moderate">"Moderate"</string>
     <string name="band_weak">"Weak"</string>
+    <string name="common_save_epub_as">"Save EPUB as…"</string>
+    <string name="common_epub_saved">"EPUB saved."</string>
+    <string name="common_couldn_t_save_the_epub">"Couldn\'t save the EPUB."</string>
 </resources>

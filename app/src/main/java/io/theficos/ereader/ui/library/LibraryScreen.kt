@@ -81,8 +81,10 @@ import io.theficos.ereader.ui.components.MarbledInk
 import io.theficos.ereader.ui.components.QuireLoading
 import io.theficos.ereader.ui.components.CoverInfoButton
 import io.theficos.ereader.ui.components.SectionLabel
+import io.theficos.ereader.ui.components.rememberSaveEpubAs
 import io.theficos.quire.R
 import kotlinx.coroutines.launch
+import java.io.File
 
 private val sortLabels: List<Pair<LibrarySort, Int>> = listOf(
     LibrarySort.RECENTLY_READ to R.string.common_recently_read,
@@ -133,6 +135,7 @@ fun LibraryScreen(
     val canRestore by viewModel.canRestore.collectAsState()
     val restoreRunning by viewModel.restoreRunning.collectAsState()
     val restoreProgress by viewModel.restoreProgress.collectAsState()
+    val saveEpubAs = rememberSaveEpubAs(snackbarHostState)
 
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
@@ -500,6 +503,18 @@ fun LibraryScreen(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                 ) {
                     Text(stringResource(R.string.common_restart_book), modifier = Modifier.fillMaxWidth())
+                }
+                // Only a book whose EPUB is on this device can be handed to the file picker.
+                if (remember(doc.localPath) { File(doc.localPath).isFile }) {
+                    TextButton(
+                        onClick = {
+                            saveEpubAs(doc)
+                            menuFor = null
+                        },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    ) {
+                        Text(stringResource(R.string.common_save_epub_as), modifier = Modifier.fillMaxWidth())
+                    }
                 }
                 // pr-δ: Mark / Unmark abandoned (Lock #18 — augment the existing
                 // sheet, do not introduce a new menu). Snackbar with Undo on mark

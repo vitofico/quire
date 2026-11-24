@@ -76,6 +76,7 @@ fun ReaderTopBar(
     hasMemory: Boolean = false,
     onHighlights: () -> Unit = {},
     highlightsAreNew: Boolean = false,
+    onSaveEpub: (() -> Unit)? = null,
 ) {
     var moreExpanded by remember { mutableStateOf(false) }
     AnimatedVisibility(
@@ -153,6 +154,12 @@ fun ReaderTopBar(
                             text = { Text(stringResource(R.string.common_book_details)) },
                             onClick = { moreExpanded = false; onDetails() },
                         )
+                        if (onSaveEpub != null) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.common_save_epub_as)) },
+                                onClick = { moreExpanded = false; onSaveEpub() },
+                            )
+                        }
                     }
                 }
                 // "Aa" is how reading apps label their type settings; it is the most used action
