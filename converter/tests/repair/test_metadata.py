@@ -206,6 +206,7 @@ def test_junk_only_pdf_has_no_cover_and_flags_missing(tmp_path, fixture_pdfs):
     metadata.apply(ctx)
     md = ctx.book.metadata
     assert md.title is None and md.authors == [] and md.subjects == []
+    assert md.description is None  # the last page is the index, not a blurb
     assert md.cover_href is None and not ctx.book.assets
     assert {"meta.missing_title", "meta.missing_author"} <= set(codes(ctx))
 
@@ -243,3 +244,78 @@ def test_cover_from_full_page_image(tmp_path):
     assert len(book.docs) == 1  # no cover page inserted into the spine
     cover = next(f for f in ctx.metadata if f.name == "cover")
     assert cover.source == "first_page" and is_safe_evidence(cover.evidence)
+
+
+BLURB = (
+    "When the lighthouse keeper vanishes one winter night, his daughter rows out",
+    "across the bay to find him. What she uncovers on the island will change the",
+    "village for ever: a ledger of ships that never sailed and a long-buried ferry-",
+    "man's promise.",
+)
+BLURB_2 = (
+    "A spare and luminous novel about grief, tides and the stories a small town",
+    "tells itself to keep the sea at bay.",
+)
+WANT_BLURB = " ".join(BLURB).replace("ferry- man", "ferryman") + "\n\n" + " ".join(BLURB_2)
+
+
+def novel_pdf(path: Path, back_cover: bool) -> Path:
+    """Title page, one numbered body page, then a back cover or the novel's last page."""
+    w, h = 420, 600
+    c = Canvas(str(path), pagesize=(w, h), invariant=1)
+    c.setFont("Times-Bold", 28)
+    c.drawCentredString(w / 2, 420, "The Keeper")
+    c.showPage()
+    for page in range(2):
+        if page == 1 and back_cover:
+            break
+        c.setFont("Times-Roman", 12)
+        for i in range(22):
+            c.drawString(44, 540 - 18 * i, "She rowed on through the dark and did not look back.")
+        if page == 0:
+            c.setFont("Times-Italic", 10)
+            c.drawCentredString(w / 2, 24, "1")
+        c.showPage()
+    if back_cover:
+        c.setFont("Times-Roman", 12)
+        for lines, top in ((BLURB, 520), (BLURB_2, 420)):
+            for i, line in enumerate(lines):
+                c.drawString(44, top - 16 * i, line)
+        c.setFont("Times-Italic", 12)
+        c.drawString(44, 320, "\u201cA patient, haunting book.\u201d")
+        c.drawString(60, 302, "\u2014 The Harbour Review")
+        c.setFont("Times-Roman", 10)
+        c.drawString(44, 90, "ISBN 978-0-306-40615-7")
+        c.drawString(300, 90, "\u00a39.99")
+        c.showPage()
+    c.save()
+    return path
+
+
+@pytest.mark.tools
+def test_back_cover_blurb_fills_description(tmp_path):
+    ctx = context(tmp_path, novel_pdf(tmp_path / "keeper.pdf", back_cover=True))
+    metadata.apply(ctx)
+    assert ctx.book.metadata.description == WANT_BLURB
+    field = next(f for f in ctx.metadata if f.name == "description")
+    assert field.source == "blurb_page" and is_safe_evidence(field.evidence)
+    assert field.evidence == "s2-b0 s2-b1 page=2 cue=review_quote"
+    assert "meta.conflict" not in codes(ctx)
+
+
+@pytest.mark.tools
+def test_final_page_of_a_novel_is_not_a_blurb(tmp_path):
+    ctx = context(tmp_path, novel_pdf(tmp_path / "keeper.pdf", back_cover=False))
+    metadata.apply(ctx)
+    assert ctx.book.metadata.description is None
+    assert not [f for f in ctx.metadata if f.name == "description"]
+
+
+@pytest.mark.tools
+def test_catalog_description_wins_over_blurb(tmp_path):
+    catalog = {"description": "The publisher's own catalogue description."}
+    ctx = context(tmp_path, novel_pdf(tmp_path / "keeper.pdf", back_cover=True), catalog)
+    metadata.apply(ctx)
+    assert ctx.book.metadata.description == catalog["description"]
+    conflicts = [i.evidence for i in ctx.issues if i.code == "meta.conflict"]
+    assert conflicts == ["meta:description kept=src:catalog over=src:blurb_page"]

@@ -1,7 +1,8 @@
 """Fill the EPUB's package metadata from evidence instead of Calibre's defaults.
 
-Candidates come from, in rising trust: the PDF info dictionary, XMP, the title and
-copyright pages, the detected language, and the catalog record. Each field takes the
+Candidates come from, in rising trust: the PDF info dictionary, a printed back-cover or
+jacket blurb (description only), XMP, the title and copyright pages, the detected
+language, and the catalog record. Each field takes the
 most trusted candidate that survived the junk filters; a material disagreement with a
 less trusted source becomes a ``meta.conflict`` issue. Nothing is invented from prose.
 """
@@ -26,7 +27,15 @@ from ..source.render import render_region
 
 log = logging.getLogger(__name__)
 
-TRUST = {"info": 0, "xmp": 1, "title_page": 2, "copyright_page": 2, "detected": 3, "catalog": 4}
+TRUST = {
+    "info": 0,
+    "blurb_page": 1,
+    "xmp": 2,
+    "title_page": 3,
+    "copyright_page": 3,
+    "detected": 4,
+    "catalog": 5,
+}
 SCALARS = (
     "title",
     "subtitle",
@@ -89,6 +98,29 @@ _HOLDER = re.compile(
 _EDITION_LINE = re.compile(r"first published|prima edizione|first edition", re.I)
 _RESERVED = re.compile(r"all rights reserved|tutti i diritti riservati", re.I)
 _PUBLISHER = re.compile(r"\b(?:published\b.*?\bby|edito da|pubblicato da|editore:)\s+(.+)", re.I)
+# Back-cover cues. Strong ones mark a page as a blurb on their own; weak ones need a second.
+_STRONG_CUES = {
+    "praise_for": re.compile(r"^\s*(?:advance\s+)?(?:praise|acclaim)\s+for\b", re.I),
+    "review_quote": re.compile(r"^\s*[—–]\s*(?:the\s+)?[A-Z]"),
+    "cover_note": re.compile(
+        r"\b(?:in copertina|quarta di copertina|l['’]autore|l['’]autrice)\b", re.I
+    ),
+}
+_WEAK_CUES = {
+    "isbn": re.compile(r"\bISBN\b", re.I),
+    "price": re.compile(r"[$£€]\s?\d+[.,]\d{2}\b|\b\d+[.,]\d{2}\s?(?:€|EUR|USD|GBP)\b"),
+    "author_bio": re.compile(
+        r"\bis the author of\b|\bè (?:anche )?(?:l['’])?(?:autore|autrice) di\b", re.I
+    ),
+}
+_STATEMENT = re.compile(
+    r"©|\bcopyright\b|all rights reserved|published by|first published|prima edizione"
+    r"|tutti i diritti riservati|edito da|pubblicato da",
+    re.I,
+)
+_LOCATOR = re.compile(r"(?:\.{2,}|\s)\s*[\divxlc]+$|,\s*\d+(?:[-–]\d+)?(?:,\s*\d+)*$", re.I)
+_QUOTE_OPEN = tuple("\"“‘'«")
+_BLURB_MIN_WORDS = 20
 _AUTHOR_SPLIT = re.compile(r"\s*;\s*|\s+&\s+|\s+and\s+|\s+e\s+")
 
 
@@ -500,6 +532,75 @@ def _from_title_page(
     return [c for c in found if c.field != "title" or not junk_title(c.value, set())]
 
 
+# --------------------------------------------------------------------------- blurb
+
+
+def _paragraph(lines: list[Line]) -> str:
+    """Line texts joined with single spaces; a line-end hyphen before a lowercase letter
+    is a broken word and is closed up, as the paragraph repair does."""
+    text = ""
+    for line in lines:
+        part = " ".join(line.text.split())
+        if re.search(r"[^\W\d_]-$", text) and part[:1].islower():
+            text = text[:-1] + part
+        else:
+            text = f"{text} {part}" if text else part
+    return text
+
+
+def _blurb_cues(texts: list[str]) -> list[str]:
+    found = [name for name, rx in _STRONG_CUES.items() if any(rx.search(t) for t in texts)]
+    weak = [name for name, rx in _WEAK_CUES.items() if any(rx.search(t) for t in texts)]
+    return found + weak if found or len(weak) >= 2 else []
+
+
+def _blurb_page(page: PageInventory) -> Candidate | None:
+    """Promotional prose printed on ``page``, or None when it could be anything else."""
+    if any(block.role == "folio" for block in page.blocks):
+        return None  # numbered pages belong to the book's body flow
+    lines = [" ".join(line.text.split()) for _, line in _lines(page)]
+    if not lines or any(_norm(t) in _HEADINGS or _STATEMENT.search(t) for t in lines):
+        return None
+    if sum(1 for t in lines if _LOCATOR.search(t)) >= 0.3 * len(lines):
+        return None  # contents or index
+    cues = _blurb_cues(lines)
+    if not cues:
+        return None
+    every = [*_STRONG_CUES.values(), *_WEAK_CUES.values()]
+    ids, paragraphs = [], []
+    for block in page.blocks:
+        if block.role in _FURNITURE:
+            continue
+        texts = [" ".join(line.text.split()) for line in block.lines]
+        text = _paragraph(block.lines)
+        if len(text.split()) < 8 or text.startswith(_QUOTE_OPEN):
+            continue  # labels, titles and review quotes are not the description
+        if any(rx.search(t) for rx in every for t in texts):
+            continue
+        ids.append(block.id)
+        paragraphs.append(text)
+    if not paragraphs or sum(len(p.split()) for p in paragraphs) < _BLURB_MIN_WORDS:
+        return None
+    if paragraphs[0][:1].islower():
+        return None  # continues a sentence from the page before
+    evidence = f"{' '.join(ids)} page={page.index} cue={cues[0]}"
+    return Candidate("description", "\n\n".join(paragraphs), "blurb_page", evidence)
+
+
+def _from_blurb(pages: list[PageInventory]) -> list[Candidate]:
+    """A back-cover or jacket blurb from the last two pages or the two after a cover."""
+    if len(pages) < 2:
+        return []
+    order = [len(pages) - 1, len(pages) - 2]
+    if cover_evidence(pages[0], _body_size(pages)):
+        order += [1, 2]
+    for index in dict.fromkeys(i for i in order if 0 < i < len(pages)):
+        found = _blurb_page(pages[index])
+        if found:
+            return [found]
+    return []
+
+
 # --------------------------------------------------------------------------- resolution
 
 
@@ -575,6 +676,7 @@ def apply(ctx: ConvertContext) -> None:
     copyright_cands, copyright_pages, holders = _from_copyright(source.pages)
     known = holders + [a for c in cands if c.field == "authors" for a in c.value]
     cands += copyright_cands + _from_title_page(source.pages, copyright_pages, known)
+    cands += _from_blurb(source.pages)
     if source.language:
         cands.append(Candidate("language", source.language, "detected", "source:language"))
     if ctx.catalog_metadata:
