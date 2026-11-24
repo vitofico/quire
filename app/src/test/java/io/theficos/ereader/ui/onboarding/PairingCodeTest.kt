@@ -6,6 +6,7 @@ import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.Test
+import java.util.concurrent.TimeUnit
 
 class PairingCodeTest {
     private val ticket = "synthetic-ticket-1234567890"
@@ -36,7 +37,7 @@ class PairingCodeTest {
             val account = AccountCredentials.Bearer(base, "alice@example.com", "device-token")
 
             assertThat(requestPairingCode(OkHttpClient(), account)).isEqualTo(PairingCode(base, ticket))
-            val request = server.takeRequest()
+            val request = server.takeRequest(10, TimeUnit.SECONDS)!!
             assertThat(request.path).isEqualTo("/quire/auth/v1/pairing")
             assertThat(request.getHeader("Authorization")).isEqualTo("Bearer device-token")
             assertThat(requestPairingCode(OkHttpClient(), account)).isNull()
