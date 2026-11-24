@@ -371,7 +371,7 @@ def create_app() -> FastAPI:
             if (
                 issuance
                 or legacy_ai
-                or request.url.path == "/quire"
+                or request.url.path in {"/", "/quire"}
                 or (
                     request.url.path.startswith("/quire/")
                     and not request.url.path.startswith("/quire/v1/")
@@ -601,7 +601,7 @@ def create_app() -> FastAPI:
 
     from quire_server.web import install_web
 
-    install_web(app, enabled=settings.web_enabled)
+    install_web(app, enabled=settings.web_enabled, at_root=settings.web_at_root)
     return app
 
 

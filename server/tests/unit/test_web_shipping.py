@@ -42,6 +42,37 @@ def test_public_web_delivery(tmp_path):
     assert TestClient(disabled).get("/quire/", headers=nav).status_code == 404
 
 
+def test_reader_at_the_root_of_a_dedicated_host(tmp_path):
+    (tmp_path / "index.html").write_text("shell")
+    (tmp_path / "sw.js").write_text("worker")
+    (tmp_path / "manifest.webmanifest").write_text(
+        '{"id": "/quire/", "start_url": "/quire/", "scope": "/quire/", "name": "Quire"}'
+    )
+    app = FastAPI()
+    install_web(app, tmp_path, at_root=True)
+    client = TestClient(app)
+    nav = {"Accept": "text/html"}
+
+    assert client.get("/", headers=nav).text == "shell"
+    for old in ("/quire", "/quire/"):
+        assert client.get(old, headers=nav, follow_redirects=False).headers["location"] == "/"
+    # The worker precaches the shell by its file path, which must not redirect.
+    assert client.get("/quire/index.html").text == "shell"
+    assert client.get("/quire/sw.js").headers["service-worker-allowed"] == "/"
+    assert client.get("/quire/manifest.webmanifest").json() == {
+        "id": "/quire/",
+        "start_url": "/",
+        "scope": "/",
+        "name": "Quire",
+    }
+    assert client.get("/missing", headers=nav).status_code == 404
+
+    shared = FastAPI()
+    install_web(shared, tmp_path)
+    assert TestClient(shared).get("/", headers=nav).status_code == 404
+    assert "service-worker-allowed" not in TestClient(shared).get("/quire/sw.js").headers
+
+
 def test_static_files_are_limited_to_the_packaged_allowlist(tmp_path):
     dist = tmp_path / "dist"
     assets = dist / "assets"

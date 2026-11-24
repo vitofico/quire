@@ -16,7 +16,7 @@ export function OfflineSettings({
     let mounted = true
     const worker = navigator.serviceWorker
     async function refresh() {
-      const registration = await worker?.getRegistration('/quire/')
+      const registration = await worker?.getRegistration()
       if (mounted) {
         setReady(!!registration?.active)
         setUpdate(!!registration?.waiting)
