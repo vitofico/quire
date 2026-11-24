@@ -10,6 +10,9 @@ export function findProgress(book: ShelfBook, rows: Progress[]) {
       : undefined)
   )
 }
+// A book without artwork gets a steady colour of its own, so a shelf of them is not one block.
+const tint = (title: string) =>
+  `hsl(${[...title].reduce((sum, char) => sum + char.charCodeAt(0), 0) * 47 % 360} 24% 33%)`
 export function Cover({ book }: { book: ShelfBook }) {
   const [url, setUrl] = useState('')
   useEffect(() => {
@@ -22,8 +25,22 @@ export function Cover({ book }: { book: ShelfBook }) {
     return () => URL.revokeObjectURL(source)
   }, [book.cover])
   return (
-    <span className={'cover' + (url ? ' with-image' : '')}>
+    <span
+      className={'cover' + (url ? ' with-image' : '')}
+      style={url ? undefined : { background: tint(book.title) }}
+    >
       {url ? <img src={url} alt="" /> : book.title}
+    </span>
+  )
+}
+function Meter({ percent }: { percent: number }) {
+  const label = Math.round(percent * 100) + '%'
+  return (
+    <span className="meter">
+      <span>
+        <i style={{ width: label }} />
+      </span>
+      <small>{label}</small>
     </span>
   )
 }
@@ -52,7 +69,8 @@ export function Shelf({ ready, data, t, choose, details, read }: Props) {
     .filter(({ p }) => p && !p.finished_at && !p.abandoned_at && p.percent > 0)
     .sort((a, b) =>
       b.p!.client_updated_at.localeCompare(a.p!.client_updated_at),
-    )[0]
+    )
+    .slice(0, 3)
   const conflicts = data.books.filter(book => book.editionConflict)
   const matches = rows
     .filter(({ book, p }) => {
@@ -97,27 +115,26 @@ export function Shelf({ ready, data, t, choose, details, read }: Props) {
           </ul>
         </section>
       )}
-      {!!recent && (
-        <section className="continue">
-          <span className="continue-cover">
-            <Cover book={recent.book} />
-          </span>
-          <div>
-            <small>{t('Continue reading')}</small>
-            <h2>{recent.book.title}</h2>
-            <p>
-              {authors(recent.book)} · {Math.round(recent.p!.percent * 100)}%
-            </p>
-            <button
-              className="primary"
-              onClick={() =>
-                recent.book.hasDownload
-                  ? read(recent.book.key)
-                  : details(recent.book.key)
-              }
-            >
-              {t(recent.book.hasDownload ? 'Read' : 'Book details')}
-            </button>
+      {recent.length > 0 && (
+        <section aria-label={t('Continue reading')}>
+          <h2 className="eyebrow">{t('Continue reading')}</h2>
+          <div className="keep">
+            {recent.map(({ book, p }) => (
+              <button
+                className="keep-card"
+                key={book.key}
+                onClick={() =>
+                  book.hasDownload ? read(book.key) : details(book.key)
+                }
+              >
+                <Cover book={book} />
+                <span>
+                  <strong>{book.title}</strong>
+                  <small>{authors(book)}</small>
+                  <Meter percent={p!.percent} />
+                </span>
+              </button>
+            ))}
           </div>
         </section>
       )}
@@ -179,9 +196,15 @@ export function Shelf({ ready, data, t, choose, details, read }: Props) {
                 onClick={() => details(book.key)}
               >
                 <Cover book={book} />
-                <strong>{book.title}</strong>
-                <small>{authors(book)}</small>
-                {p && <small>{Math.round(p.percent * 100)}%</small>}
+                <span className="who">
+                  <strong>{book.title}</strong>
+                  <small>{authors(book)}</small>
+                </span>
+                {p?.finished_at ? (
+                  <small>{t('Finished')}</small>
+                ) : (
+                  !!p?.percent && <Meter percent={p.percent} />
+                )}
               </button>
             ))}
           </div>
