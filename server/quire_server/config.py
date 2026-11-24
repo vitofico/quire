@@ -72,6 +72,8 @@ class Settings(BaseSettings):
     cwa_base_url: str = "http://calibre-web.calibre-web.svc.cluster.local:8083"
     cwa_probe_path: str = "/opds"
     web_enabled: bool = True
+    # Serve the reader at `/` on a host that belongs to Quire alone.
+    web_at_root: bool = False
     web_native_auth_enabled: bool = False
     web_catalog_url: str | None = None
 

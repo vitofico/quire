@@ -4,6 +4,8 @@ const CACHE = PREFIX + "__BUILD_HASH__";
 const PUBLIC_PATHS = __PUBLIC_PATHS__;
 const PUBLIC = new Set(PUBLIC_PATHS);
 const INDEX = "/quire/index.html";
+// "/" when this host serves the reader at its root, otherwise "/quire/".
+const HOME = new URL(self.registration.scope).pathname;
 
 function cached(path) {
   return caches.open(CACHE).then((cache) => cache.match(path)).catch(() => undefined);
@@ -38,7 +40,8 @@ self.addEventListener("fetch", (event) => {
   const { request } = event;
   const url = new URL(request.url);
   if (request.method !== "GET" || url.origin !== self.location.origin ||
-      !url.pathname.startsWith("/quire/") || request.headers.has("Authorization")) return;
+      !(url.pathname.startsWith("/quire/") || url.pathname === HOME) ||
+      request.headers.has("Authorization")) return;
 
   if (request.mode === "navigate" &&
       url.pathname !== "/quire/assets" &&

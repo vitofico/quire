@@ -1097,6 +1097,14 @@ Defaults to `true`. Set to `false` to stop serving the browser shell and its
 assets at `/quire/`. Already installed offline clients can retain their public
 shell in browser storage.
 
+#### `QUIRE_SERVER_WEB_AT_ROOT`
+
+Defaults to `false`. Set to `true` on a hostname that serves only Quire, so
+readers open `https://quire.example.org/` and not `/quire/`. Old `/quire/`
+links and installed apps are redirected and offline books stay, because the
+browser keeps them per hostname. Route `/` to Quire as an exact path. Leave it
+`false` when Quire shares a hostname with Calibre-Web, where `/` is Calibre's.
+
 #### `QUIRE_SERVER_WEB_NATIVE_AUTH_ENABLED`
 
 Defaults to `false`. Set to `true` with native authentication and
