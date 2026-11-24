@@ -16,7 +16,7 @@ from quire_convert.models import (
     StageError,
 )
 
-SECRET = "the white post stood alone"
+SECRET = "the white post stood alone"  # pragma: allowlist secret
 
 
 class FakeToolchain:

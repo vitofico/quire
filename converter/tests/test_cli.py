@@ -117,7 +117,7 @@ def test_evaluate_needs_a_variant(tmp_path):
     assert _usage(["evaluate", str(corpus), "--variant", "assisted"]) == USAGE_EXIT_CODE
 
 
-SECRET = "Mara could see the river"
+SECRET = "Mara could see the river"  # pragma: allowlist secret
 
 
 def _inventory():

@@ -336,7 +336,7 @@ def test_password_protected_pdf_returns_needs_password(tmp_path):
 
 def test_owner_password_only_is_read_normally(tmp_path):
     writer = PdfWriter(clone_from=str(_pdf(tmp_path, "open", [_text_page])))
-    writer.encrypt("", owner_password="owner", algorithm="RC4-128")
+    writer.encrypt("", owner_password="owner", algorithm="RC4-128")  # pragma: allowlist secret
     pdf = tmp_path / "restricted.pdf"
     writer.write(str(pdf))
 

@@ -105,7 +105,7 @@ def test_denied_upload_permission_fails_cleanly(server, job, tmp_path):
 
 def test_wrong_password_and_missing_record_fail(server, job, tmp_path):
     book = server.add_book("The Bridge", pdf=PDF)
-    server.users["alice"].password = "changed"
+    server.users["alice"].password = "changed"  # pragma: allowlist secret
     d = load_deliverable(job.dir)
     client = CalibreWeb(Http(server.url), "alice", "secret-pw")
     key = ReceiptKey("alice", server.url, f"book:{book}", d.rendition_id)
@@ -228,4 +228,4 @@ def test_server_links_resolve_under_a_prefixed_base_url():
     assert http.relative("https://books.example/calibre/tasks") == "/tasks"
     assert Http("http://cat:8083").relative("/admin/book/4") == "/admin/book/4"
     with pytest.raises(Exception, match="no credentials"):
-        Http("http://user:pw@cat:8083")
+        Http("http://user:pw@cat:8083")  # pragma: allowlist secret

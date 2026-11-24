@@ -40,7 +40,7 @@ from quire_convert.deliver.receipts import ReceiptKey, ReceiptStore, State
 
 IMAGE = "crocodilestick/calibre-web-automated:v4.0.8"
 ADMIN = ("admin", "admin123")  # the image's documented first-run login
-PASSWORD = "Quire-test-pass-1234"
+PASSWORD = "Quire-test-pass-1234"  # pragma: allowlist secret
 READBACK = Policy(wait=120, ambiguous_after=900)
 USERS = {
     "alice": ("download", "upload", "edit"),

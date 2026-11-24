@@ -7,7 +7,7 @@ from fake_calibre_web import FakeCalibreWeb
 from quire_convert import cli
 from quire_convert.models import USAGE_EXIT_CODE, Outcome
 
-PASSWORD = "secret-pw"
+PASSWORD = "secret-pw"  # pragma: allowlist secret
 
 
 @pytest.fixture
