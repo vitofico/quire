@@ -88,6 +88,22 @@ describe('OPDS catalogs', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1)
   })
 
+  it('finds the cover of a book known only by its download link', async () => {
+    const found = source.replace('rel="search" type="application/opensearchdescription+xml" href="search.xml"',
+      'rel="search" type="application/atom+xml" href="find?q={searchTerms}"')
+    const mockFetch = vi.fn(async (href: string) => href.endsWith('.jpg')
+      ? new Response('image', { headers: { 'Content-Type': 'image/jpeg' } })
+      : new Response(found))
+    vi.stubGlobal('fetch', mockFetch)
+    const client = makeCatalogClient({ url: base })
+    await expect(client.coverOf('One Book', 'https://cdn.example/library/42.epub')).resolves.toMatchObject({ type: 'image/jpeg' })
+    await expect(client.coverOf('One Book', 'https://cdn.example/library/43.epub')).resolves.toBeUndefined()
+    expect(mockFetch.mock.calls.map(([url]) => url)).toEqual([
+      base, 'https://catalog.example/books/find?q=One%20Book', 'https://cdn.example/library/covers/42.jpg',
+      'https://catalog.example/books/find?q=One%20Book',
+    ])
+  })
+
   it('resolves OpenSearch descriptions and URL-encodes user input', async () => {
     const description = '<OpenSearchDescription xmlns="http://a9.com/-/spec/opensearch/1.1/"><Url type="application/atom+xml" template="find?q={searchTerms}&amp;page={startPage?}"/></OpenSearchDescription>'
     const mockFetch = vi.fn(async (href: string) => new Response(href.endsWith('search.xml') ? description : source))

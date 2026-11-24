@@ -119,9 +119,12 @@ export class Replica {
 
   async snapshot(): Promise<ReplicaSnapshot> {
     const data = await this.read(
-      ['books', 'epubs', 'library', 'progress', 'highlights', 'localProgress', 'localHighlights', 'queue'],
+      ['books', 'epubs', 'library', 'progress', 'highlights', 'localProgress', 'localHighlights', 'queue', 'settings'],
       async (store) => {
-        const [local, downloads, library, progress, highlights, localProgress, localHighlights, queue] = await Promise.all([
+        const catalogCovers = IDBKeyRange.bound('cover:', 'cover:\uffff')
+        const [coverKeys, coverBlobs, local, downloads, library, progress, highlights, localProgress, localHighlights, queue] = await Promise.all([
+          result(store('settings').getAllKeys(catalogCovers)),
+          result<StoredBlob[]>(store('settings').getAll(catalogCovers)),
           result<LocalRecord[]>(store('books').getAll()),
           result(store('epubs').getAllKeys()),
           result<LibraryRow[]>(store('library').getAll()),
@@ -131,7 +134,8 @@ export class Replica {
           result<Highlight[]>(store('localHighlights').getAll()),
           result<Queued[]>(store('queue').getAll()),
         ])
-        return { local, downloads, library, progress, highlights, localProgress, localHighlights, queue }
+        const covers = new Map(coverKeys.map((key, index) => [String(key).slice('cover:'.length), coverBlobs[index]]))
+        return { covers, local, downloads, library, progress, highlights, localProgress, localHighlights, queue }
       },
     )
     this.assertActive()
@@ -170,6 +174,10 @@ export class Replica {
         if (!current || compareTimestamps(value.client_updated_at, current.client_updated_at) >= 0) progress.set(key, value)
       }
       if (entry.kind === 'highlight') highlights.set(entry.value.id, entry.value)
+    }
+    for (const [key, cover] of data.covers) {
+      const book = books.get(key)
+      if (book && !(book.cover instanceof Blob)) book.cover = decodeBlob(cover)
     }
     return {
       books: [...books.values()],
@@ -341,6 +349,11 @@ export class Replica {
 
   setPreference<T>(key: string, value: T): Promise<void> {
     return this.setSetting(`preference:${key}`, value)
+  }
+
+  /** A catalog's cover for a book whose EPUB is not in this browser. Local only, like every cover. */
+  async setCatalogCover(key: string, cover: Blob): Promise<void> {
+    return this.setSetting(`cover:${key}`, await encodeBlob(cover))
   }
 
   getBookmark<T>(key: string): Promise<T | undefined> {

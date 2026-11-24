@@ -156,6 +156,30 @@ function Workspace({ account }: { account: AccountState }) {
   const catalogUrl =
     active.catalogUrl || catalogOverride || bootstrap?.catalogUrl || ''
   const [drag, setDrag] = useState(false)
+  // Books synced from another device carry no cover. Ask the catalog once per visit and keep the answer.
+  const coverless = useRef(new Set<string>())
+  useEffect(() => {
+    const missing = snapshot.books.filter(
+      (b) => b.opds_href && !(b.cover instanceof Blob) && !coverless.current.has(b.key),
+    )
+    if (!replica || !catalogUrl || !missing.length) return
+    const stop = new AbortController()
+    void (async () => {
+      const catalog = makeCatalogClient({ url: catalogUrl, request: active.catalogRequest })
+      for (const b of missing) {
+        try {
+          const cover = await catalog.coverOf(b.title, b.opds_href!, stop.signal)
+          if (stop.signal.aborted) return
+          coverless.current.add(b.key)
+          if (cover) await replica.setCatalogCover(b.key, cover)
+        } catch {
+          // Catalog offline or not signed in: try again when that changes.
+          return
+        }
+      }
+    })()
+    return () => stop.abort()
+  }, [replica, snapshot.books, catalogUrl, active.catalogRequest])
   const file = useRef<HTMLInputElement>(null),
     target = useRef<string | undefined>(undefined),
     alive = useRef(true)

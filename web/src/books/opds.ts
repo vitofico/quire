@@ -245,34 +245,48 @@ export function makeCatalogClient(options: CatalogOptions) {
     return parseOpdsFeed(await (await limitedBody(response, MAX_FEED_SIZE)).text(), response.url || href)
   }
 
+  let home: Promise<OpdsFeed> | undefined
+
+  async function search(link: OpdsSearch, query: string, signal?: AbortSignal): Promise<OpdsFeed> {
+    if (link.href.includes('{searchTerms')) return feed(searchHref(link, query), signal)
+    const response = await get(new URL(link.href, link.base).href, 'application/opensearchdescription+xml', signal)
+    const document = xmlDocument(await (await limitedBody(response, MAX_FEED_SIZE)).text())
+    const urls = Array.from(document.getElementsByTagNameNS('*', 'Url'))
+    const template = urls.find(node => mediaType(node) === 'application/atom+xml' &&
+      node.getAttribute('template')?.includes('{searchTerms'))?.getAttribute('template')
+    if (!template) throw new Error('This catalog does not provide an Atom search template')
+    return feed(searchHref({ href: template, base: response.url || link.base }, query), signal)
+  }
+
+  async function cover(href: string, signal?: AbortSignal): Promise<Blob> {
+    const coverUrl = safeUrl(href, root)
+    if (!coverUrl || ((options.request || options.authorization) && coverUrl.origin !== origin)) {
+      throw new Error('This catalog cover is unavailable')
+    }
+    const response = await get(coverUrl.href, 'image/avif, image/webp, image/png, image/jpeg, image/gif', signal)
+    const blob = await limitedBody(response, MAX_COVER_SIZE)
+    if (!/^image\/(avif|webp|png|jpeg|gif)$/i.test(blob.type)) throw new Error('Unsupported catalog cover')
+    return blob
+  }
+
   return {
     feed,
+    cover,
+    search,
+    /** The cover of a book known only by its download link: found by searching the catalog for its title. */
+    async coverOf(title: string, epubHref: string, signal?: AbortSignal): Promise<Blob | undefined> {
+      const link = (await (home ??= feed())).search
+      if (!link) return
+      const wanted = safeUrl(epubHref, root)?.href
+      const match = (await search(link, title, signal)).publications.find(book => book.epubHref === wanted)
+      return match?.coverHref ? cover(match.coverHref, signal) : undefined
+    },
     async acquire(href: string, signal?: AbortSignal): Promise<Blob> {
       const response = await get(href, EPUB_TYPE, signal)
       const blob = await limitedBody(response, MAX_BOOK_SIZE)
       const zip = new Uint8Array(await blob.slice(0, 4).arrayBuffer())
       if (zip[0] !== 80 || zip[1] !== 75 || zip[2] !== 3 || zip[3] !== 4) throw new Error('The catalog did not return an EPUB')
       return blob.slice(0, blob.size, EPUB_TYPE)
-    },
-    async cover(href: string, signal?: AbortSignal): Promise<Blob> {
-      const coverUrl = safeUrl(href, root)
-      if (!coverUrl || ((options.request || options.authorization) && coverUrl.origin !== origin)) {
-        throw new Error('This catalog cover is unavailable')
-      }
-      const response = await get(coverUrl.href, 'image/avif, image/webp, image/png, image/jpeg, image/gif', signal)
-      const blob = await limitedBody(response, MAX_COVER_SIZE)
-      if (!/^image\/(avif|webp|png|jpeg|gif)$/i.test(blob.type)) throw new Error('Unsupported catalog cover')
-      return blob
-    },
-    async search(link: OpdsSearch, query: string, signal?: AbortSignal): Promise<OpdsFeed> {
-      if (link.href.includes('{searchTerms')) return feed(searchHref(link, query), signal)
-      const response = await get(new URL(link.href, link.base).href, 'application/opensearchdescription+xml', signal)
-      const document = xmlDocument(await (await limitedBody(response, MAX_FEED_SIZE)).text())
-      const urls = Array.from(document.getElementsByTagNameNS('*', 'Url'))
-      const template = urls.find(node => mediaType(node) === 'application/atom+xml' &&
-        node.getAttribute('template')?.includes('{searchTerms'))?.getAttribute('template')
-      if (!template) throw new Error('This catalog does not provide an Atom search template')
-      return feed(searchHref({ href: template, base: response.url || link.base }, query), signal)
     },
   }
 }
