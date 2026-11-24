@@ -24,7 +24,7 @@ env:
   # Keep in step with CALIBRE_PIN and EPUBCHECK_PIN in converter/src/quire_convert/tools.py.
   CALIBRE_VERSION: 9.19.0
   # From https://calibre-ebook.com/signatures/calibre-9.19.0-x86_64.txz.sha512
-  CALIBRE_SHA512: 907e477a74f1292deaea822a1dc110fd420fcfc6d4e62746edbfd9749b15a87513fb4c8047f1e9dd39726a980fbe80de1cf74ce1868f7943268716840ab278e7
+  CALIBRE_SHA512: 907e477a74f1292deaea822a1dc110fd420fcfc6d4e62746edbfd9749b15a87513fb4c8047f1e9dd39726a980fbe80de1cf74ce1868f7943268716840ab278e7  # pragma: allowlist secret
 
 jobs:
   test:
