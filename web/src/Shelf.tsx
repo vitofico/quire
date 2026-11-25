@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { type ReplicaSnapshot, type ShelfBook, type Progress } from './data'
 import { Icon } from './icons'
+import { withDetails } from './details'
 export const authors = (book: ShelfBook) =>
   book.authors?.join(', ') || book.author || ''
 export function findProgress(book: ShelfBook, rows: Progress[]) {
@@ -64,7 +65,7 @@ export function Shelf({ ready, local, art, data, t, choose, details, read }: Pro
   const rows = useMemo(
     () =>
       data.books.map((book) => ({
-        book,
+        book: withDetails(book),
         p: findProgress(book, data.progress),
       })),
     [data],

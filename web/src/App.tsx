@@ -37,6 +37,9 @@ import { useReplica } from './useReplica'
 import noticesUrl from './legal/notices.txt?url'
 import { translator, languages } from './language'
 import { catalogInsightIdentity, promotePreview } from './discovery/api'
+import { missingProvider, useAiState } from './discovery/aiState'
+import { bookIdentity, fillDetails } from './details'
+import { TidyDetails } from './TidyDetails'
 import { allowsBasic, allowsNative } from './account/useAccount'
 import { Welcome } from './Welcome'
 import { Icon, type IconName } from './icons'
@@ -307,15 +310,15 @@ function Workspace({
   const [drag, setDrag] = useState(false)
   // Books synced from another device carry no cover. Ask the catalog once per visit and keep the answer.
   const coverless = useRef(new Set<string>())
+  const awaitsCatalogCover = (b: ShelfBook) =>
+    !!catalogUrl &&
+    !!b.opds_href &&
+    !b.catalog_id &&
+    !(b.cover instanceof Blob) &&
+    !coverless.current.has(b.key)
   useEffect(() => {
-    const missing = snapshot.books.filter(
-      (b) =>
-        b.opds_href &&
-        !b.catalog_id &&
-        !(b.cover instanceof Blob) &&
-        !coverless.current.has(b.key),
-    )
-    if (!replica || !catalogUrl || !missing.length) return
+    const missing = snapshot.books.filter(awaitsCatalogCover)
+    if (!replica || !missing.length) return
     const stop = new AbortController()
     void (async () => {
       const catalog = makeCatalogClient({ url: catalogUrl, request: active.catalogRequest })
@@ -340,6 +343,25 @@ function Workspace({
   const current = book && findProgress(book, snapshot.progress)
   const editionConflict = book?.editionConflict
   const aiAvailable = bootstrap?.aiAvailable === true && !!active.request
+  // Finding and tidying details needs the server's feature and the reader's AI opt-in.
+  const { settings: ai } = useAiState(
+    active.request,
+    aiAvailable && active.capabilities?.book_details !== false,
+  )
+  const detailsRequest =
+    ai?.config.configured &&
+    ai.config.details_supported &&
+    ai.preferences.ai_enabled &&
+    !missingProvider(ai.config, ai.preferences)
+      ? active.request
+      : undefined
+  const detailsFor =
+    route.view === 'book' ? (book ? [book] : []) : route.view === 'library' ? snapshot.books : []
+  useEffect(() => {
+    // Wait for a catalog's own cover before asking for one to be found or drawn.
+    if (replica && detailsRequest)
+      fillDetails(replica, detailsRequest, detailsFor.filter((b) => !awaitsCatalogCover(b)))
+  }, [replica, detailsRequest, snapshot.books, route.view, route.id])
   const passages = snapshot.highlights.filter((h) => !h.deleted_at)
   useEffect(() => {
     alive.current = true
@@ -711,6 +733,7 @@ function Workspace({
             )
           }
           back={back}
+          tidy={<TidyDetails key={book.key} book={book} store={replica} request={detailsRequest} t={t} />}
           actions={
             <div className="actions">
               {book.hasDownload ? (
@@ -795,13 +818,7 @@ function Workspace({
             t={t}
             request={active.request}
             aiAvailable={aiAvailable}
-            identity={{
-              ...bookDocument(book),
-              isbn: book.isbn,
-              opds_href: book.opds_href
-                ? catalogInsightIdentity(book.opds_href).opds_href
-                : undefined,
-            }}
+            identity={bookIdentity(book)}
             metadata={{
               ...book,
               author: authors(book),

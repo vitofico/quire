@@ -1,5 +1,5 @@
 import { clearStorage, openStorage, result, transaction, type Store } from './storage'
-import { EditionConflict, SyncError, type Highlight, type LocalBook, type Progress, type ReplicaSnapshot, type ShelfBook, type SyncTransport } from './types'
+import { EditionConflict, SyncError, type BookDetails, type Highlight, type LocalBook, type Progress, type ReplicaSnapshot, type ShelfBook, type SyncTransport } from './types'
 import {
   compareTimestamps, libraryEntry, newerProgress, requestJson,
   type HighlightsPull, type HighlightsPush, type LibraryPull, type LibraryRow,
@@ -11,6 +11,7 @@ export * from './types'
 type StoredBlob = { bytes: ArrayBuffer; type: string }
 type StoredBook = Omit<LocalBook, 'cover'> & { cover?: LocalBook['cover'] | StoredBlob }
 type LocalRecord = { book: StoredBook; localOnly: boolean }
+type StoredDetails = Omit<BookDetails, 'cover'> & { cover?: StoredBlob }
 
 async function encodeBlob(blob: Blob): Promise<StoredBlob> {
   return { bytes: await blob.arrayBuffer(), type: blob.type }
@@ -122,9 +123,12 @@ export class Replica {
       ['books', 'epubs', 'library', 'progress', 'highlights', 'localProgress', 'localHighlights', 'queue', 'settings'],
       async (store) => {
         const catalogCovers = IDBKeyRange.bound('cover:', 'cover:\uffff')
-        const [coverKeys, coverBlobs, local, downloads, library, progress, highlights, localProgress, localHighlights, queue] = await Promise.all([
+        const bookDetails = IDBKeyRange.bound('details:', 'details:\uffff')
+        const [coverKeys, coverBlobs, detailKeys, detailRecords, local, downloads, library, progress, highlights, localProgress, localHighlights, queue] = await Promise.all([
           result(store('settings').getAllKeys(catalogCovers)),
           result<StoredBlob[]>(store('settings').getAll(catalogCovers)),
+          result(store('settings').getAllKeys(bookDetails)),
+          result<StoredDetails[]>(store('settings').getAll(bookDetails)),
           result<LocalRecord[]>(store('books').getAll()),
           result(store('epubs').getAllKeys()),
           result<LibraryRow[]>(store('library').getAll()),
@@ -135,7 +139,8 @@ export class Replica {
           result<Queued[]>(store('queue').getAll()),
         ])
         const covers = new Map(coverKeys.map((key, index) => [String(key).slice('cover:'.length), coverBlobs[index]]))
-        return { covers, local, downloads, library, progress, highlights, localProgress, localHighlights, queue }
+        const details = new Map(detailKeys.map((key, index) => [String(key).slice('details:'.length), detailRecords[index]]))
+        return { covers, details, local, downloads, library, progress, highlights, localProgress, localHighlights, queue }
       },
     )
     this.assertActive()
@@ -179,6 +184,10 @@ export class Replica {
     for (const [key, cover] of data.covers) {
       const book = books.get(key)
       if (book && !(book.cover instanceof Blob)) book.cover = decodeBlob(cover)
+    }
+    for (const [key, { cover, ...details }] of data.details) {
+      const book = books.get(key)
+      if (book) book.details = { ...details, cover: cover && decodeBlob(cover) }
     }
     return {
       books: [...books.values()],
@@ -302,7 +311,7 @@ export class Replica {
       }
       await Promise.all([
         result(store('books').delete(key)), result(store('epubs').delete(key)),
-        result(store('settings').delete(`bookmark:${key}`)),
+        result(store('settings').delete(`bookmark:${key}`)), result(store('settings').delete(`details:${key}`)),
       ])
     })
   }
@@ -355,6 +364,11 @@ export class Replica {
   /** A catalog's cover for a book whose EPUB is not in this browser. Local only, like every cover. */
   async setCatalogCover(key: string, cover: Blob): Promise<void> {
     return this.setSetting(`cover:${key}`, await encodeBlob(cover))
+  }
+
+  /** Found and tidied details of a book. Local only, like every cover. */
+  async setDetails(key: string, { cover, ...details }: BookDetails): Promise<void> {
+    return this.setSetting(`details:${key}`, { ...details, cover: cover && await encodeBlob(cover) } satisfies StoredDetails)
   }
 
   getBookmark<T>(key: string): Promise<T | undefined> {

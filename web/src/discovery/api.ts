@@ -87,6 +87,7 @@ export type Preferences = {
 export type AiConfig = {
   configured: boolean;
   progress_supported?: boolean;
+  details_supported?: boolean;
   providers: { id: string; label: string; base_url_host: string; model_id: string }[];
   sources_enabled: string[];
   daily_budget: number;
@@ -94,7 +95,8 @@ export type AiConfig = {
 };
 
 export class DiscoveryHttpError extends Error {
-  constructor(readonly status: number, readonly detail: unknown) {
+  /** Seconds from the response's Retry-After header, when it sent one. */
+  constructor(readonly status: number, readonly detail: unknown, readonly retryAfter?: number) {
     super(`Discovery request failed (${status})`);
   }
 }
@@ -107,7 +109,8 @@ export async function discoveryJson<T>(
   const response = await request(path, init);
   if (!response.ok) {
     const data = await response.json().catch(() => null) as { detail?: unknown } | null;
-    throw new DiscoveryHttpError(response.status, data?.detail);
+    const wait = Number(response.headers.get("Retry-After"));
+    throw new DiscoveryHttpError(response.status, data?.detail, wait > 0 ? wait : undefined);
   }
   return (response.status === 204 ? undefined : await response.json()) as T;
 }

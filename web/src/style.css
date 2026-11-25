@@ -345,7 +345,8 @@ label:has(> input[type='checkbox']) {
   background: none;
   font-size: 0.9rem;
 }
-.chip[aria-pressed='true'] {
+.chip[aria-pressed='true'],
+.tidy [aria-pressed='true'] {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--on-accent);
@@ -1023,6 +1024,22 @@ dialog.ask .actions {
 }
 .book-detail details {
   margin-top: 1rem;
+}
+/* Where a value came from, when it is not the book's own. */
+.origin {
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+.detail-cover .origin,
+.book-intro h1 + .origin {
+  display: block;
+  margin-top: 0.4rem;
+}
+.book-intro h1 + .origin {
+  margin: -0.2rem 0 0.4rem;
+}
+.tidy {
+  margin-top: 1.5rem;
 }
 
 /* Highlights */
