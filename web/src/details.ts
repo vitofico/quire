@@ -146,7 +146,8 @@ export async function fetchDetails(
         cover = await coverOf(request, answer, signal)
         cover_url = cover && answer.cover.url
       } catch (error) {
-        // Keep the answer; only the image is tried again.
+        // Keep the answer and the image already shown; only the new image is tried again.
+        cover_url = previous?.cover_url
         retry_at = Math.min(retry_at ?? Infinity, Date.now() + waitOf(error))
       }
     }
@@ -284,7 +285,8 @@ export function fillDetails(store: DetailsStore, request: DiscoveryRequest, book
 export function foundCover(book: ShelfBook): string | undefined {
   const record = book.details
   const url = record?.cover_url
-  return !(book.cover instanceof Blob) && url && !record.original && record.answer?.cover.url === url ? url : undefined
+  // `cover_url` names the image kept, which may be an earlier one while a newer one is not yet downloaded.
+  return !(book.cover instanceof Blob) && url && !record.original && record.answer ? url : undefined
 }
 
 /** What to say about a value that is not the book's own; `null` when it is. */

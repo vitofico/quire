@@ -377,6 +377,25 @@ describe('a cover being painted', () => {
     expect(foundCover({ ...messy, details: second })).toBe(painted.url)
   })
 
+  it('keeps showing the drawn cover until the painted one downloads', async () => {
+    const store = memoryStore()
+    let downloads = 0
+    const request = vi.fn(async (path: string) => {
+      if (path === '/details/v1/lookup') return Response.json(answer({ cover: painted }))
+      return ++downloads === 1 ? new Response(null, { status: 503 }) : new Response(new Blob(['jpg'], { type: 'image/jpeg' }))
+    })
+    const drawnRecord = { attempted_at: 0, answer: answer({ cover: { ...drawn, painting: true } }), cover_url: drawn.url! }
+    const failed = (await fetchDetails(store, request, { ...messy, details: drawnRecord }, 'lookup'))!
+    expect(failed).toMatchObject({ cover_url: drawn.url, answer: { cover: painted } })
+    expect(failed.retry_at).toBeDefined()
+    expect(store.covers.has('hash-1')).toBe(false)
+    expect(foundCover({ ...messy, details: failed })).toBe(drawn.url)
+
+    const fetched = (await fetchDetails(store, request, { ...messy, details: failed }, 'lookup'))!
+    expect(fetched.cover_url).toBe(painted.url)
+    expect(await store.covers.get('hash-1')?.text()).toBe('jpg')
+  })
+
   it(`stops asking after ${paintingChecks} answers that it is still painting`, async () => {
     const store = memoryStore()
     const request = vi.fn(async (path: string) =>
