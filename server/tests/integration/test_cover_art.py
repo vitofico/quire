@@ -59,8 +59,14 @@ async def paint_with(
     return calls
 
 
-async def lookup(client, user="alice", **kw):
-    r = await client.post("/details/v1/lookup", headers=creds(user), json=body(**kw))
+def painted_body(choice="paint", **kw):
+    return {**body(**kw), "cover_choice": choice}
+
+
+async def lookup(client, user="alice", choice="paint", **kw):
+    r = await client.post(
+        "/details/v1/lookup", headers=creds(user), json=painted_body(choice, **kw)
+    )
     assert r.status_code == 200, r.text
     return r.json()
 
@@ -128,7 +134,7 @@ async def test_a_refusal_is_remembered_and_not_retried(client_factory, app, sess
         await lookup(client)
         await app.state.cover_artist.drain()
         again = await lookup(client)
-        forced = await client.post("/details/v1/tidy", headers=creds("alice"), json=body())
+        forced = await client.post("/details/v1/tidy", headers=creds("alice"), json=painted_body())
         await app.state.cover_artist.drain()
 
     assert len(calls) == 1
@@ -171,7 +177,7 @@ async def test_off_by_default_nothing_changes(client_factory, app, session):
     async with client_factory(**AI_ENV) as client:
         install(app, tidy_answer())
         await opt_in(client, "alice")
-        first = await lookup(client)
+        first = await lookup(client, choice="keep")
         # Artwork stored while the feature was on is no longer offered.
         row = (await session.execute(select(BookDetails))).scalars().one()
         session.add(
@@ -180,7 +186,7 @@ async def test_off_by_default_nothing_changes(client_factory, app, session):
             )
         )
         await session.commit()
-        second = await lookup(client)
+        second = await lookup(client, choice="keep")
         cover = await client.get(second["cover"]["url"].split("?")[0], headers=creds("alice"))
 
     assert app.state.cover_artist is None
@@ -193,7 +199,7 @@ async def test_enabled_without_a_provider_paints_nothing(client_factory, app, se
     async with client_factory(**AI_ENV, cover_art_enabled=True) as client:
         install(app, tidy_answer())
         await opt_in(client, "alice")
-        answer = await lookup(client)
+        answer = await lookup(client, choice="keep")
 
     assert app.state.cover_artist is None
     assert answer["cover"]["painting"] is False
@@ -209,15 +215,15 @@ async def test_artwork_is_painted_from_the_shared_record_not_a_readers_own_field
     web = {
         **body(title="Dune", authors=["Frank Herbert"], description="Their own private blurb."),
         "source": "catalog",
+        "cover_choice": "paint",
     }
     async with client_factory(**ART_ENV) as client:
         install(app, tidy_answer())
         calls = await paint_with(app)
         await opt_in(client, "alice")
-        artist, app.state.cover_artist = app.state.cover_artist, None
+        artist = app.state.cover_artist
         # The record is made from the phone's fields, which have no description.
-        phone = await lookup(client)
-        app.state.cover_artist = artist
+        phone = await lookup(client, choice="draw")
         r = await client.post("/details/v1/lookup", headers=creds("alice"), json=web)
         other_device = r.json()
         await artist.drain()
@@ -250,9 +256,8 @@ async def test_a_painting_in_flight_or_lost_counts_against_the_budget(client_fac
         install(app, tidy_answer())
         calls = await paint_with(app)
         await opt_in(client, "alice")
-        artist, app.state.cover_artist = app.state.cover_artist, None
-        await lookup(client)
-        app.state.cover_artist = artist
+        artist = app.state.cover_artist
+        await lookup(client, choice="draw")
         # A server that crashed mid-painting left this row today.
         row = (await session.execute(select(BookDetails))).scalars().one()
         session.add(BookCoverArt(key=row.key, status="pending", model_id="art-model"))
@@ -261,3 +266,48 @@ async def test_a_painting_in_flight_or_lost_counts_against_the_budget(client_fac
         await artist.drain()
 
     assert calls == []
+
+
+async def test_only_a_reader_who_asks_gets_a_painting(client_factory, app, session):
+    async with client_factory(**ART_ENV) as client:
+        install(app, tidy_answer())
+        calls = await paint_with(app)
+        await opt_in(client, "alice", "bob")
+        config = (await client.get("/ai/v1/config", headers=creds("alice"))).json()
+        kept = await lookup(client, choice="keep")
+        drawn = await lookup(client, choice="draw")
+        await app.state.cover_artist.drain()
+        assert calls == []
+        asked = await lookup(client)
+        await app.state.cover_artist.drain()
+        painted = await lookup(client)
+        # The artwork is the record's, but a reader who did not ask keeps the drawn cover.
+        bob_drawn = await lookup(client, "bob", choice="draw")
+        bob_kept = await lookup(client, "bob", choice="keep")
+
+    assert config["cover_choice_supported"] is True and config["cover_painting_supported"] is True
+    assert kept["cover"]["url"] == drawn["cover"]["url"]
+    assert (kept["cover"]["painting"], drawn["cover"]["painting"]) == (False, False)
+    assert asked["cover"]["painting"] is True and len(calls) == 1
+    assert painted["cover"]["painted"] is True and painted["cover"]["url"] != drawn["cover"]["url"]
+    for answer in (bob_drawn, bob_kept):
+        assert answer["cover"]["url"] == drawn["cover"]["url"]
+        assert answer["cover"]["painted"] is False and answer["cover"]["painting"] is False
+
+
+async def test_a_painted_cover_may_replace_the_books_own(client_factory, app, session):
+    own = {
+        **painted_body(title="Dune", authors=["Frank Herbert"], description="A desert planet."),
+        "cover": "file",
+    }
+    async with client_factory(**ART_ENV) as client:
+        install(app, tidy_answer(description="A desert planet."))
+        calls = await paint_with(app)
+        await opt_in(client, "alice")
+        r = await client.post("/details/v1/tidy", headers=creds("alice"), json=own)
+        await app.state.cover_artist.drain()
+
+    cover = r.json()["cover"]
+    assert cover["source"] == "generated" and cover["painting"] is True
+    assert r.json()["tidy"] == "not_needed"
+    assert len(calls) == 1

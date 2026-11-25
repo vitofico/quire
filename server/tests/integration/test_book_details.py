@@ -1,6 +1,7 @@
 """/details/v1: find, tidy, share and draw, against Postgres and a stubbed model."""
 
 import base64
+import dataclasses
 import io
 import json
 
@@ -531,7 +532,8 @@ async def test_another_device_of_the_same_reader_is_served_the_same_record(
 
     data = other_device.json()
     assert other_device.status_code == 200, other_device.text
-    assert data["cached"] is True and data["tidy"] == "done"
+    # The record says what this device already shows: nothing to tidy.
+    assert data["cached"] is True and data["tidy"] == "not_needed"
     assert data["key"] == phone["key"]
     assert data["book"]["title"] == "Dune"
     # The device that shows its own cover keeps it.
@@ -562,3 +564,111 @@ async def test_a_pointer_to_a_record_from_an_older_prompt_is_ignored(client_fact
 
     assert web.json()["key"] != phone["key"] and web.json()["cached"] is False
     assert len(calls) == 2
+
+
+DUNE_WITH_COVER = dataclasses.replace(DUNE, cover_url="https://covers.openlibrary.org/b/id/1-L.jpg")
+
+
+def clean(choice="keep", **book):
+    """A book that needs nothing, with a cover of its own."""
+    fields = {
+        "description": "A desert planet.",
+        "subjects": ["Science fiction"],
+        "language": "en",
+        "isbn": "9780441013593",
+        "year": 1965,
+        **book,
+    }
+    return {
+        **body(title="Dune", authors=["Frank Herbert"], **fields),
+        "cover": "file",
+        "cover_choice": choice,
+    }
+
+
+async def test_a_tidy_that_changes_nothing_says_so(client_factory, app, session):
+    async with client_factory(**AI_ENV) as client:
+        # The model renames a clean book; the guard keeps the reader's title.
+        calls = install(app, tidy_answer(title="Dune Messiah", description="A desert planet."))
+        await opt_in(client, "alice")
+        same = await client.post("/details/v1/tidy", headers=creds("alice"), json=clean())
+        messy = await client.post("/details/v1/tidy", headers=creds("alice"), json=body())
+
+    assert len(calls) == 2
+    assert same.json()["tidy"] == "not_needed" and same.json()["book"]["title"] == "Dune"
+    assert same.json()["cover"]["source"] == "file"
+    assert messy.json()["tidy"] == "done" and messy.json()["book"]["authors"] == ["Frank Herbert"]
+
+
+async def test_a_reader_may_ask_for_another_cover_than_the_books_own(client_factory, app, session):
+    found = StubRetriever(DUNE_WITH_COVER)
+    async with client_factory(**AI_ENV) as client:
+        calls = install(app, tidy_answer(description="A desert planet."), retriever=found)
+        await opt_in(client, "alice")
+
+        async def tidy(choice):
+            r = await client.post("/details/v1/tidy", headers=creds("alice"), json=clean(choice))
+            assert r.status_code == 200, r.text
+            return r.json()["cover"]
+
+        kept = await tidy("keep")
+        assert found.lookups == 0  # nothing missing: Open Library is not asked
+        from_library = await tidy("find")
+        drawn = await tidy("draw")
+        found.book = DUNE  # Open Library has no cover for it
+        none_found = await tidy("find")
+
+    assert len(calls) == 4
+    assert kept == {"source": "file", "url": None, "generated": False, **UNPAINTED}
+    assert from_library["source"] == "openlibrary"
+    assert from_library["url"] == DUNE_WITH_COVER.cover_url
+    assert drawn["source"] == "generated" and drawn["generated"] is True
+    assert drawn["url"].startswith("/details/v1/covers/")
+    # Nothing to find: the drawn cover instead.
+    assert none_found["source"] == "generated"
+
+
+async def test_a_cover_choice_on_lookup_is_served_from_the_stored_record(
+    client_factory, app, session
+):
+    found = StubRetriever(DUNE_WITH_COVER)
+    async with client_factory(**AI_ENV) as client:
+        calls = install(app, tidy_answer(description="A desert planet."), retriever=found)
+        await opt_in(client, "alice")
+        await client.post("/details/v1/tidy", headers=creds("alice"), json=clean())
+        drawn = (
+            await client.post("/details/v1/lookup", headers=creds("alice"), json=clean("draw"))
+        ).json()
+        # The record was made without asking Open Library; asking now costs no model call.
+        from_library = (
+            await client.post("/details/v1/lookup", headers=creds("alice"), json=clean("find"))
+        ).json()
+        kept = (
+            await client.post("/details/v1/lookup", headers=creds("alice"), json=clean())
+        ).json()
+
+    assert len(calls) == 1 and found.lookups == 1
+    assert drawn["cached"] is True and drawn["cover"]["source"] == "generated"
+    assert from_library["cached"] is True and from_library["cover"]["source"] == "openlibrary"
+    assert kept["cover"]["source"] == "file"
+
+
+async def test_painting_needs_the_cover_artist(client_factory, app, session):
+    async with client_factory(**AI_ENV) as client:
+        calls = install(app, tidy_answer())
+        await opt_in(client, "alice")
+        config = (await client.get("/ai/v1/config", headers=creds("alice"))).json()
+        responses = [
+            await client.post(f"/details/v1/{path}", headers=creds("alice"), json=clean("paint"))
+            for path in ("lookup", "tidy")
+        ]
+        unknown = await client.post(
+            "/details/v1/tidy", headers=creds("alice"), json=clean("repaint")
+        )
+
+    assert config["cover_choice_supported"] is True
+    assert config["cover_painting_supported"] is False
+    for r in responses:
+        assert (r.status_code, r.json()) == (409, {"detail": "cover_art_unavailable"})
+    assert unknown.status_code == 422
+    assert calls == []

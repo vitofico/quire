@@ -97,6 +97,8 @@ async def _run(
     *,
     force: bool,
 ) -> DetailsResponse:
+    if body.cover_choice == "paint" and getattr(request.app.state, "cover_artist", None) is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="cover_art_unavailable")
     # Counted before anything else so a flood reaches neither Open Library
     # nor the model.
     limiter: RateLimit = request.app.state.details_lookup_limit
@@ -127,15 +129,17 @@ async def _run(
         )
     except QuotaExceeded as exc:
         raise _quota_http_exception(exc) from exc
+    if body.cover_choice != "paint":
+        return answer
     return await _with_art(request, session, answer, principal)
 
 
 async def _with_art(
     request: Request, session: AsyncSession, answer: DetailsResponse, principal: AiPrincipal
 ) -> DetailsResponse:
-    """A generated cover on its painted artwork when there is some, or with
-    a painting queued when the artwork is on and one is due. Nothing changes
-    with the artwork off."""
+    """For a reader who asked for a painted cover: the generated cover on
+    its painted artwork when there is some, or with a painting queued when
+    one is due. Any other reader of the record gets the drawn cover."""
     artist: cover_art.CoverArtist | None = getattr(request.app.state, "cover_artist", None)
     if artist is None or answer.cover.source != "generated":
         return answer

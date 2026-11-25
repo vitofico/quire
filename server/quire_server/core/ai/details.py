@@ -139,7 +139,8 @@ def details_key(identity: str, fields: BookFields) -> str:
 
     Every field the client sends is in it, not only the ones the tidy reads,
     so the record can never be served for input it was not made from. The
-    client's cover flag, the enabled sources and the model are not: they
+    client's cover flag and cover choice, the enabled sources and the model
+    are not: they
     change what is looked up or who wrote it, not what the record may say.
     """
     canonical = json.dumps(
@@ -241,6 +242,11 @@ async def find(
             raw = None
         language = _normalize_book_language(raw) if raw else None
     return Found(book=book, language=language)
+
+
+def kept_cover(body: DetailsLookupBody) -> str | None:
+    """The client's own cover, unless the reader asked for another one."""
+    return body.cover if body.cover_choice == "keep" else None
 
 
 def needs_tidy(fields: BookFields, found: Found, *, cover: str | None) -> bool:
@@ -633,6 +639,7 @@ async def lookup(
     """
     fields = body.book
     key = details_key(identity, fields)
+    cover = kept_cover(body)
     if not force:
         row = await _pointed(session, user_id=user_id, identity=identity)
         if row is None:
@@ -640,9 +647,11 @@ async def lookup(
         if row is not None:
             return await _serve(orch, session, body, row, user_id, tenant_id, identity)
 
-    found = await find(orch, session, fields, cover=body.cover)
+    found = await find(orch, session, fields, cover=cover)
     if not force:
-        if not needs_tidy(fields, found, cover=body.cover):
+        # A drawn cover the reader asked for needs the tidy's design.
+        drawn = body.cover_choice in ("draw", "paint")
+        if not drawn and not needs_tidy(fields, found, cover=cover):
             return assemble(body, key, None, found, tidy="not_needed", cached=False)
         if failures is not None and failures.recent(key):
             return assemble(body, key, None, found, tidy="failed", cached=False)
@@ -660,7 +669,7 @@ async def lookup(
                 identity=identity,
                 fields=fields,
                 found=found,
-                cover=body.cover,
+                cover=cover,
                 user_id=user_id,
                 tenant_id=tenant_id,
                 is_regen=existing is not None,
@@ -700,7 +709,14 @@ async def _serve(
     """Answer with a stored record, free, and point the reader at it."""
     await _point(session, user_id=user_id, identity=identity, key=row.key)
     await _log_hit(orch, session, user_id=user_id, tenant_id=tenant_id)
-    found = _stored_found(row) or found or await find(orch, session, body.book, cover=body.cover)
+    cover = kept_cover(body)
+    found = _stored_found(row) or found or await find(orch, session, body.book, cover=cover)
+    if body.cover_choice == "find" and found.book is None:
+        # The record was made while the book's own cover stood, so Open
+        # Library was not asked: ask now, still without a model call.
+        again = await find(orch, session, body.book, cover=None)
+        if again.book is not None:
+            found = again
     return assemble(body, row.key, row, found, tidy="done", cached=True)
 
 
@@ -716,7 +732,9 @@ def assemble(
     """Merge the client's fields, the find and the tidy, in that order of
     trust for facts: the client's own values always win. A stored or found
     value that fails the field caps is left out rather than failing the
-    answer."""
+    answer. A record that leaves the title, authors, series and description
+    as the client sent them answers ``tidy="not_needed"``: there is nothing
+    for the reader to see."""
     book = found.book
     record = row.record if row is not None else {}
     values = body.book.model_dump()
@@ -743,9 +761,15 @@ def assemble(
         if value not in (None, [])
     }
 
-    if body.cover is not None:
+    if tidy == "done" and all(values[name] == getattr(body.book, name) for name in _TIDIED):
+        tidy = "not_needed"
+
+    # The reader's choice first; what it names may not exist (no tidy ran,
+    # Open Library has no cover), and then the next one in line is given.
+    choice = body.cover_choice
+    if kept_cover(body) is not None:
         cover = DetailsCover(source=body.cover)
-    elif book and book.cover_url:
+    elif choice in ("keep", "find") and book and book.cover_url:
         cover = DetailsCover(source="openlibrary", url=book.cover_url)
     elif row is not None:
         cover = DetailsCover(
@@ -754,7 +778,7 @@ def assemble(
             generated=True,
         )
     else:
-        cover = DetailsCover(source=None)
+        cover = DetailsCover(source=body.cover)
     if cover.source in ("openlibrary", "generated"):
         origins["cover"] = "openlibrary" if cover.source == "openlibrary" else "ai"
     elif cover.source is not None:

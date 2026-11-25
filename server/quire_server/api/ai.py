@@ -325,6 +325,8 @@ async def get_config(
     # deploys never load `core.ai._compat` (coordinator §3.18).
     from quire_server.core.ai._compat import _resolve_prompt_version
 
+    details = bool(settings.ai_enabled and settings.details_enabled)
+
     return ConfigResponse(
         providers=providers,
         provider_id=selected_id,
@@ -344,7 +346,10 @@ async def get_config(
         profile_timeout_s=(
             math.ceil(runtime.get("ai_profile_timeout_s")) if settings.ai_enabled else None
         ),
-        details_supported=bool(settings.ai_enabled and settings.details_enabled),
+        details_supported=details,
+        cover_choice_supported=details,
+        cover_painting_supported=details
+        and getattr(request.app.state, "cover_artist", None) is not None,
         conversion_supported=request.app.state.hosting_capabilities["pdf_conversion"],
     )
 
