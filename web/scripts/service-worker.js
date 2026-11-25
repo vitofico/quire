@@ -23,16 +23,28 @@ self.addEventListener("install", (event) => {
       return [path, response];
     }));
     await Promise.all(responses.map(([path, response]) => cache.put(path, response)));
+    // Take over from the previous build at once instead of waiting for every tab to close.
+    await self.skipWaiting();
   })());
 });
 
-// Let the previous worker serve its own build until its clients close.
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
+    let replaced = false;
     for (const key of await caches.keys()) {
-      if (key.startsWith(PREFIX) && key !== CACHE) await caches.delete(key);
+      if (key.startsWith(PREFIX) && key !== CACHE) {
+        await caches.delete(key);
+        replaced = true;
+      }
     }
     await self.clients.claim();
+    // Open tabs still run the previous build, whose lazy chunks are gone now: reload them.
+    // Pages reload themselves too, since WebKit ignores navigate(); this covers older builds.
+    if (replaced) {
+      for (const client of await self.clients.matchAll({ type: "window" })) {
+        client.navigate(client.url).catch(() => {});
+      }
+    }
   })());
 });
 

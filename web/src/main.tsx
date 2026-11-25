@@ -7,6 +7,13 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   const changed = () => window.dispatchEvent(new Event('quire-offline-status'))
   // The reader lives at `/` on a host of its own, and under `/quire/` on a shared one.
   const scope = location.pathname === '/' ? '/' : '/quire/'
+  // A new build takes over open tabs at once; reload so later chunks come from that build.
+  // The first worker to control a fresh page serves the build it already runs.
+  let controlled = Boolean(navigator.serviceWorker.controller)
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (controlled) location.reload()
+    controlled = true
+  })
   window.addEventListener('load', () => {
     if (scope === '/')
       // The worker from before this host moved the reader to `/` controls nothing now.
