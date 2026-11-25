@@ -1051,6 +1051,8 @@ dialog.ask .actions {
     linear-gradient(90deg, var(--paper) 38%, color-mix(in srgb, var(--paper) 55%, transparent) 75%),
     url(../../branding/background-ink.webp) right center / cover no-repeat,
     var(--paper);
+  /* Size the artwork to the window, so opening a section below doesn't move it. */
+  background-attachment: fixed;
 }
 .welcome-main {
   width: min(100%, 30rem);
