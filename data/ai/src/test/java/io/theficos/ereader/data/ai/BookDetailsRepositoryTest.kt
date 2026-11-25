@@ -332,8 +332,11 @@ class BookDetailsRepositoryTest {
         assertThat(repo.runAutoPass()).isNull()
 
         assertThat(lookups()).hasSize(2)
-        waitFor { File(shownFor(doc.id).coverPath!!).readText() == "painted" }
+        // The stored row moves to the new file before the old one goes; the shelf follows a moment later.
+        val stored = db.bookDetailsDao().find(doc.id)!!.coverPath!!
+        assertThat(File(stored).readText()).isEqualTo("painted")
         assertThat(drawn.exists()).isFalse()
+        waitFor { shownFor(doc.id).coverPath == stored }
         now += 24 * 3_600_000L
         repo.runAutoPass()
         assertThat(lookups()).hasSize(2)
