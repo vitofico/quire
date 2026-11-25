@@ -28,7 +28,7 @@ import logging
 import re
 import unicodedata
 from collections.abc import AsyncIterator, Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from urllib.parse import quote
 
@@ -55,11 +55,26 @@ _LOOKUP_KEY_VERSION = "v2"
 _SNIPPET_CAP = 1200
 # Search hits whose summary is fetched before the lookup gives up.
 _MAX_HIT_SUMMARIES = 2
-_OL_SEARCH_FIELDS = "key,title,author_name,first_publish_year"
+_OL_SEARCH_FIELDS = "key,title,author_name,first_publish_year,cover_i"
+_OL_COVERS = "https://covers.openlibrary.org/b/id"
+_WORK_KEY = re.compile(r"/works/OL\d+W")
 # pr-β author-bibliography cache TTLs (coordinator §3.7).
 _BIBLIO_TTL = timedelta(days=30)
 _BIBLIO_NEG_TTL = timedelta(hours=24)
 _BIBLIO_429_CAP = timedelta(hours=6)
+
+
+@dataclass(frozen=True)
+class OpenLibraryBook:
+    """The facts Open Library holds about the work a book matched."""
+
+    url: str
+    title: str
+    authors: list[str]
+    first_publish_year: int | None
+    cover_url: str | None
+    description: str | None
+    subjects: list[str]
 
 
 @dataclass(frozen=True)
@@ -126,7 +141,7 @@ _VOLUME_SUBTITLE = re.compile(
 _TRAILING_VOLUME = re.compile(
     rf"\s(?:\bvol(?:ume)?\.?{_VOLUME_NUMBER}|{_VOLUME_HASH})\s*$", re.IGNORECASE
 )
-_TRAILING_BRACKET = re.compile(r"\s*[(\[{][^()\[\]{}]*[)\]}]\s*$")
+_TRAILING_BRACKET = re.compile(r"[(\[{][^()\[\]{}]*[)\]}]\s*$")
 _SUBTITLE_SEP = re.compile(r":\s|\s[-\u2013\u2014]\s")
 _ROMAN = {"i": 1, "v": 5, "x": 10}
 _STOPWORDS = frozenset("a an and at by for from in of on or the to with".split())
@@ -134,7 +149,7 @@ _STOPWORDS = frozenset("a an and at by for from in of on or the to with".split()
 
 def _tidy_title(s: str) -> str:
     s = re.sub(r"\s+", " ", s)
-    s = re.sub(r"\s+([,;:])", r"\1", s)
+    s = re.sub(r" ([,;:])", r"\1", s)
     s = re.sub(r"([,;:])(?:\s*[,;:])+", r"\1", s)
     return s.strip(" ,;:/-\u2013\u2014")
 
@@ -170,7 +185,7 @@ def _strip_markers(title: str) -> tuple[str, float | None]:
         s = _MARKER_SEGMENT.sub(drop, s)
         s = _VOLUME_SUBTITLE.sub(drop, s)
         s = _TRAILING_VOLUME.sub(drop, s)
-        s = _TRAILING_BRACKET.sub("", s)
+        s = _TRAILING_BRACKET.sub("", s).rstrip()
         if s == before:
             return _tidy_title(s), (volumes[0] if volumes else None)
 
@@ -238,6 +253,73 @@ def _surname(author: str) -> str | None:
     first = re.split(r"[,;&]|\band\b", author, maxsplit=1, flags=re.IGNORECASE)[0]
     words = [w for w in _match_form(first).split() if w not in _NAME_SUFFIXES]
     return words[-1] if words else None
+
+
+# Letters NFKD leaves whole, spelled the way an English catalogue does.
+_FOLD = str.maketrans(
+    {
+        **dict(zip("øØłŁđĐı", "oOlLdDi", strict=True)),
+        **{"ß": "ss", "æ": "ae", "Æ": "Ae", "œ": "oe", "Œ": "Oe", "þ": "th", "Þ": "Th"},
+    }
+)
+# Words in an author field that are not a name, or not this person's.
+_NOT_A_NAME = frozenset(
+    "ed eds edited editor editors phd dr mr mrs ms sir prof various anonymous unknown anon"
+    " author authors translator trans translated illustrator foreword introduction by and"
+    " the jr sr iii".split()
+)
+
+
+def _name_words(name: str) -> list[str]:
+    """A name's words of three or more letters, folded to plain Latin where
+    it is Latin: "Jo Nesbø" gives ["nesbo"], "Ellen Datlow (ed.)" ["ellen",
+    "datlow"], "Tolkien J.R.R." ["tolkien"]."""
+    words = _match_form(name.translate(_FOLD)).split()
+    return [w for w in words if len(w) >= 3 and w not in _NOT_A_NAME]
+
+
+def _latin(words: list[str]) -> bool:
+    return all(w.isascii() for w in words)
+
+
+def _one_letter_off(a: str, b: str) -> bool:
+    """Whether two words of six letters or more differ by one letter added,
+    dropped or changed."""
+    if min(len(a), len(b)) < 6 or abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) > len(b):
+        a, b = b, a
+    i = 0
+    while i < len(a) and a[i] == b[i]:
+        i += 1
+    return a[i + 1 :] == b[i + 1 :] if len(a) == len(b) else a[i:] == b[i + 1 :]
+
+
+def _same_author(author: str, credited: list[str]) -> bool:
+    """Whether a result's credited authors can be this book's author.
+
+    Names match on any word of three letters or more, so spelling ("Høeg",
+    "Hoeg"), order ("Murakami Haruki") and initials do not matter, a long
+    word one letter off still counts ("Dostoevsky", "Dostoyevsky"), and
+    "LeGuin" finds "Le Guin" by its run of letters. A name in another
+    script, or one that is no name ("Various", "Anonymous"), says nothing,
+    so it never refuses a result."""
+    mine = _name_words(author)
+    if not mine:
+        return True
+    mine_run = "".join(mine)
+    for name in credited:
+        theirs = _name_words(name)
+        if not theirs or _latin(theirs) != _latin(mine):
+            return True
+        if set(mine) & set(theirs) or any(_one_letter_off(a, b) for a in mine for b in theirs):
+            return True
+        theirs_run = "".join(theirs)
+        if any(len(w) >= 5 and w in theirs_run for w in mine) or any(
+            len(w) >= 5 and w in mine_run for w in theirs
+        ):
+            return True
+    return False
 
 
 def _by_someone_else(page: dict, qualifier: re.Match[str] | None, surname: str) -> bool:
@@ -326,7 +408,7 @@ def _formats(title: str) -> set[str]:
 
 
 def _matching_openlibrary_doc(
-    docs: list[dict], title: str, candidates: list[str], *, by_isbn: bool
+    docs: list[dict], title: str, candidates: list[str], *, by_isbn: bool, author: str | None
 ) -> dict | None:
     """The first search result that is the same book, or None.
 
@@ -337,13 +419,18 @@ def _matching_openlibrary_doc(
     "Vol. 14" never borrows that of the unnumbered first book. An ISBN result
     is the exact edition, so its volume is not checked. A result that names a
     format the book's title does not, such as "(manga)", is another book.
+    When the author is known, a title result that credits only other
+    authors is another book with the same title, since Open Library's
+    author filter matches loosely. An ISBN result is not checked: the ISBN
+    names the edition, and its credit may be a translator or an editor.
     """
     volume = _volume_number(title) or 1
     formats = _formats(title)
     for wanted in (_match_form(c) for c in candidates):
         for doc in docs:
             doc_title = doc.get("title") or ""
-            if not (doc.get("key") or "").startswith("/works/"):
+            # The key goes into URLs; anything but a work id is not one.
+            if not _WORK_KEY.fullmatch(doc.get("key") or ""):
                 continue
             doc_cleaned, doc_volume = _strip_markers(doc_title)
             if _match_form(doc_cleaned) != wanted:
@@ -352,8 +439,53 @@ def _matching_openlibrary_doc(
                 continue
             if _formats(doc_title) - formats:
                 continue
+            names = [a for a in doc.get("author_name") or [] if isinstance(a, str)]
+            if author and not by_isbn and names and not _same_author(author, names):
+                continue
             return doc
     return None
+
+
+def _work_description(work: dict | None) -> str | None:
+    """A work's description as plain text. Open Library descriptions are
+    Markdown: a rule of dashes starts a list of other editions ("Also
+    contained in:"), and the text ends with link references ("([source][1])",
+    "[1]: https://..."). All of that is dropped, and so are HTML tags."""
+    description = (work or {}).get("description")
+    if isinstance(description, dict):
+        description = description.get("value")
+    if not isinstance(description, str):
+        return None
+    text = re.split(r"^\s*-{3,}\s*$", description, maxsplit=1, flags=re.MULTILINE)[0]
+    return plain_text(text) or None
+
+
+def plain_text(text: str, *, drop_addresses: bool = True) -> str:
+    """Markdown and HTML reduced to plain text on one line: link references
+    ("([source][1])", "[1]: https://..."), links unwrapped to their words,
+    tags and emphasis marks removed, and bare addresses too unless
+    ``drop_addresses`` is false."""
+    text = re.sub(r"^\s*\[\d+\]:\s*\S+\s*$", "", text, flags=re.MULTILINE)
+    text = re.sub(r"\(\s*\[[^\]]*\]\s*\[\d+\]\s*\)", "", text)
+    text = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", text)
+    if drop_addresses:
+        text = re.sub(r"(?:https?://|www\.)\S+", "", text, flags=re.I)
+    # Block tags part words; inline ones such as <b> sit inside a sentence.
+    text = re.sub(r"<(?:br|/?p|/?div|/?li|/?ul|/?ol)\b[^>]*>", " ", text, flags=re.I)
+    text = re.sub(r"<[a-zA-Z/!][^>]*(?:>|$)", "", text)
+    text = re.sub(r"(\*{1,3}|_{2,3})(\S(?:.*?\S)?)\1", r"\2", text)
+    # One underscore marks emphasis only outside a word, never in snake_case.
+    text = re.sub(r"(?<!\w)_(\S(?:.*?\S)?)_(?!\w)", r"\1", text)
+    return " ".join(text.split())
+
+
+def _work_subjects(work: dict | None) -> list[str]:
+    # Subjects like "nyt:manga=2010-05-09" or "series:Twilight" are bookkeeping.
+    return [
+        s
+        for s in (work or {}).get("subjects") or []
+        if isinstance(s, str) and ":" not in s and "=" not in s
+    ]
 
 
 def _openlibrary_snippet(doc: dict, work: dict | None) -> str:
@@ -371,12 +503,7 @@ def _openlibrary_snippet(doc: dict, work: dict | None) -> str:
         description = description.get("value")
     if isinstance(description, str) and description.strip():
         snippet += " " + " ".join(description.split())
-    # Subjects like "nyt:manga=2010-05-09" or "series:Twilight" are bookkeeping.
-    subjects = [
-        s
-        for s in work.get("subjects") or []
-        if isinstance(s, str) and ":" not in s and "=" not in s
-    ]
+    subjects = _work_subjects(work)
     if subjects:
         snippet += f" Subjects: {', '.join(subjects[:5])}."
     return snippet[:_SNIPPET_CAP]
@@ -720,10 +847,74 @@ class Retriever:
         if cached is not None:
             return [Citation.model_validate(c) for c in cached.get("citations", [])]
 
-        # The ISBN names the edition exactly; the title searches catch the
-        # books whose ISBN Open Library does not know. A title search needs
-        # every word to match, so a subtitle Open Library does not store hides
-        # the book until the main title is tried on its own.
+        try:
+            found = await self._openlibrary_work(
+                author=author, title=title, isbn=isbn, series=series
+            )
+        except _SourceDown:
+            return []
+        citations = []
+        if found is not None:
+            doc, work = found
+            citations = [
+                Citation(
+                    kind="openlibrary",
+                    title=doc.get("title") or title,
+                    url=f"{_OL_BASE}{doc['key']}",
+                    snippet=_openlibrary_snippet(doc, work),
+                )
+            ]
+
+        await self._write_cache(
+            "openlibrary",
+            key,
+            {"citations": [c.model_dump() for c in citations]},
+        )
+        return citations
+
+    async def lookup_openlibrary_book(
+        self, *, author: str | None, title: str, isbn: str | None
+    ) -> OpenLibraryBook | None:
+        """The facts of the Open Library work this book is, found and checked
+        as ``lookup_openlibrary`` does, or None. Cached on its own key, since
+        it keeps more of the answer than the citation does."""
+        key = _lookup_key(title, author=author, isbn=isbn)
+        cached = await self._read_cache("openlibrary_book", key)
+        if cached is not None:
+            return OpenLibraryBook(**cached["book"]) if cached.get("book") else None
+
+        try:
+            found = await self._openlibrary_work(author=author, title=title, isbn=isbn)
+        except _SourceDown:
+            return None
+        book = None
+        if found is not None:
+            doc, work = found
+            cover = doc.get("cover_i")
+            year = doc.get("first_publish_year")
+            book = OpenLibraryBook(
+                url=f"{_OL_BASE}{doc['key']}",
+                title=doc.get("title") or title,
+                authors=[a for a in doc.get("author_name") or [] if isinstance(a, str)][:5],
+                first_publish_year=year if isinstance(year, int) else None,
+                cover_url=f"{_OL_COVERS}/{cover}-L.jpg" if isinstance(cover, int) else None,
+                description=_work_description(work),
+                subjects=_work_subjects(work)[:10],
+            )
+        await self._write_cache("openlibrary_book", key, {"book": asdict(book) if book else None})
+        return book
+
+    async def _openlibrary_work(
+        self, *, author: str | None, title: str, isbn: str | None, series: str | None = None
+    ) -> tuple[dict, dict | None] | None:
+        """The search result that is this book and its work record, or None.
+
+        The ISBN names the edition exactly; the title searches catch the
+        books whose ISBN Open Library does not know. A title search needs
+        every word to match, so a subtitle Open Library does not store hides
+        the book until the main title is tried on its own. Raises
+        ``_SourceDown`` when Open Library cannot answer.
+        """
         candidates = _title_candidates(title, series=series)
         searches: list[dict[str, str]] = []
         if isbn:
@@ -734,42 +925,23 @@ class Retriever:
                 by_title["author"] = author
             searches.append(by_title)
 
-        citations: list[Citation] = []
         deadline = asyncio.get_running_loop().time() + self._budget_s
-        try:
-            async with self._http() as http, self._within(deadline, "openlibrary"):
-                for params in searches:
-                    data = await self._get_json(
-                        http,
-                        "openlibrary",
-                        f"{_OL_BASE}/search.json",
-                        params={**params, "limit": "5", "fields": _OL_SEARCH_FIELDS},
-                    )
-                    docs = (data or {}).get("docs") or []
-                    doc = _matching_openlibrary_doc(
-                        docs, title, candidates, by_isbn="isbn" in params
-                    )
-                    if doc is None:
-                        continue
+        async with self._http() as http, self._within(deadline, "openlibrary"):
+            for params in searches:
+                data = await self._get_json(
+                    http,
+                    "openlibrary",
+                    f"{_OL_BASE}/search.json",
+                    params={**params, "limit": "5", "fields": _OL_SEARCH_FIELDS},
+                )
+                docs = (data or {}).get("docs") or []
+                doc = _matching_openlibrary_doc(
+                    docs, title, candidates, by_isbn="isbn" in params, author=author
+                )
+                if doc is not None:
                     work = await self._get_json(http, "openlibrary", f"{_OL_BASE}{doc['key']}.json")
-                    citations = [
-                        Citation(
-                            kind="openlibrary",
-                            title=doc.get("title") or title,
-                            url=f"{_OL_BASE}{doc['key']}",
-                            snippet=_openlibrary_snippet(doc, work),
-                        )
-                    ]
-                    break
-        except _SourceDown:
-            return []
-
-        await self._write_cache(
-            "openlibrary",
-            key,
-            {"citations": [c.model_dump() for c in citations]},
-        )
-        return citations
+                    return doc, work
+        return None
 
     async def work_exists(self, *, title: str, author: str) -> bool | None:
         """Whether Open Library lists a work with this title by this author.

@@ -13,6 +13,7 @@ from quire_server.core.ai.retrieval import (
     _normalize_key,
     _openlibrary_snippet,
     _parse_openlibrary_language,
+    _same_author,
     _title_candidates,
     _volume_number,
 )
@@ -1159,3 +1160,110 @@ async def test_work_exists_false_for_an_author_with_no_name(session: AsyncSessio
     )
     assert await r.work_exists(title="Dune", author="—") is False
     assert seen == []
+
+
+@pytest.mark.asyncio
+async def test_openlibrary_same_title_by_another_author_is_another_book(session: AsyncSession):
+    """Open Library's author filter matches loosely; a title result
+    crediting only others is rejected."""
+    seen: list[str] = []
+    docs = [{"title": "Shadow", "key": "/works/OL1W", "author_name": ["Karen Miller"]}]
+    r = Retriever(session=session, transport=_ol_router(docs, {}, seen), timeout_s=5.0)
+
+    assert await r.lookup_openlibrary(author="Will Elliott", title="Shadow", isbn=None) == []
+    assert await r.lookup_openlibrary_book(author="Will Elliott", title="Shadow", isbn=None) is None
+    assert not any("/works/" in u for u in seen)  # no work record was fetched
+
+
+@pytest.mark.asyncio
+async def test_openlibrary_isbn_result_is_not_checked_against_the_author(session: AsyncSession):
+    """The ISBN names the edition; its credit may be the translator."""
+    docs = [{"title": "Crime and Punishment", "key": "/works/OL1W", "author_name": ["Garnett"]}]
+    r = Retriever(session=session, transport=_ol_router(docs, {}, []), timeout_s=5.0)
+
+    book = await r.lookup_openlibrary_book(
+        author="Fyodor Dostoevsky", title="Crime and Punishment", isbn="9780000000002"
+    )
+    assert book is not None and book.title == "Crime and Punishment"
+
+
+@pytest.mark.parametrize(
+    ("author", "credited", "same"),
+    [
+        ("Jo Nesbo", ["Jo Nesbø"], True),
+        ("Czeslaw Milosz", ["Czesław Miłosz"], True),
+        ("Peter Høeg", ["Peter Hoeg"], True),
+        ("Fyodor Dostoevsky", ["Fyodor Dostoyevsky"], True),
+        ("Dostoevsky", ["Fyodor Dostoyevsky"], True),
+        ("Fyodor Dostoevsky", ["Фёдор Михайлович Достоевский"], True),
+        ("村上春樹", ["Haruki Murakami"], True),
+        ("Murakami Haruki", ["Haruki Murakami"], True),
+        ("Ursula LeGuin", ["Ursula K. Le Guin"], True),
+        ("Ellen Datlow (ed.)", ["Ellen Datlow"], True),
+        ("Datlow, Ellen (Editor)", ["Ellen Datlow"], True),
+        ("Isaac Asimov Ph.D.", ["Isaac Asimov"], True),
+        ("Various", ["Ellen Datlow"], True),
+        ("Unknown", ["Anonymous"], True),
+        ("Anonymous", ["Beowulf Poet"], True),
+        ("Tolkien J.R.R.", ["J.R.R. Tolkien"], True),
+        # "Tolkien J.R.R." once read as the surname "r", which matched anyone
+        # with an R initial.
+        ("Tolkien J.R.R.", ["George R. R. Martin"], False),
+        ("Will Elliott", ["Karen Miller"], False),
+        ("Frank Herbert", ["Kevin J. Anderson"], False),
+    ],
+)
+def test_author_names_match_across_spelling_order_and_script(author, credited, same):
+    assert _same_author(author, credited) is same
+
+
+@pytest.mark.asyncio
+async def test_openlibrary_result_without_a_work_key_is_skipped(session: AsyncSession):
+    """The key goes into the work and cover URLs; only a work id is used."""
+    seen: list[str] = []
+    docs = [
+        {"title": "Dune", "key": "/works/../authors/OL1A", "author_name": ["Frank Herbert"]},
+        {"title": "Dune", "key": "/books/OL2M", "author_name": ["Frank Herbert"]},
+    ]
+    r = Retriever(session=session, transport=_ol_router(docs, {}, seen), timeout_s=5.0)
+
+    assert await r.lookup_openlibrary_book(author="Frank Herbert", title="Dune", isbn=None) is None
+    assert all("/search.json" in u for u in seen)  # nothing was fetched by those keys
+
+
+@pytest.mark.asyncio
+async def test_openlibrary_book_keeps_cover_year_and_a_clean_description(session: AsyncSession):
+    seen: list[str] = []
+    docs = [
+        {
+            "title": "Dune",
+            "key": "/works/OL893415W",
+            "author_name": ["Frank Herbert"],
+            "first_publish_year": 1965,
+            "cover_i": 11481354,
+        }
+    ]
+    works = {
+        "/works/OL893415W.json": {
+            "description": {
+                "type": "/type/text",
+                "value": "Set on <b>Arrakis</b>.<br>Spice. ([source][1])\n\n[1]: https://example.org/x\n"
+                "----------\nAlso contained in:\n- [Dune Trilogy](https://openlibrary.org/x)",
+            },
+            "subjects": ["Science fiction", "nyt:fiction=2020-01-01", "Desert planets"],
+        }
+    }
+    r = Retriever(session=session, transport=_ol_router(docs, works, seen), timeout_s=5.0)
+
+    book = await r.lookup_openlibrary_book(author="Frank Herbert", title="Dune", isbn=None)
+
+    assert book is not None
+    assert book.url == "https://openlibrary.org/works/OL893415W"
+    assert book.cover_url == "https://covers.openlibrary.org/b/id/11481354-L.jpg"
+    assert book.first_publish_year == 1965
+    assert book.description == "Set on Arrakis. Spice."
+    assert book.subjects == ["Science fiction", "Desert planets"]
+    # Cached: a second lookup makes no request.
+    calls = len(seen)
+    assert await r.lookup_openlibrary_book(author="Frank Herbert", title="Dune", isbn=None) == book
+    assert len(seen) == calls

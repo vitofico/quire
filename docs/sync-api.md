@@ -166,6 +166,9 @@ the operator migrates. Plan cutover within the two-minor-release window.
 | `GET` | `/ai/v1/profile` | yes | Cached reader profile (narrative + recommendations); 404 if never refreshed |
 | `POST` | `/ai/v1/profile/refresh` | yes | Recompute the reader profile (budgeted) |
 | `DELETE` | `/ai/v1/profile` | yes | Wipe the caller's reader profile row |
+| `POST` | `/details/v1/lookup` | yes | Fill a book's missing details from Open Library; tidy them when due |
+| `POST` | `/details/v1/tidy` | yes | Tidy a book's details now, replacing the stored record (budgeted) |
+| `GET` | `/details/v1/covers/{key}` | yes | The designed cover of a tidied record, as PNG |
 
 `/sync/v1/documents/alias` and `/sync/v1/bookmarks` are designed but not
 shipped. Everything else above is on `main`.
@@ -1058,7 +1061,8 @@ Returns the user-visible AI configuration. Public to authed users.
   "prompt_version": "5",
   "progress_supported": true,
   "generation_timeout_s": 120,
-  "profile_timeout_s": 90
+  "profile_timeout_s": 90,
+  "details_supported": true
 }
 ```
 
@@ -1091,6 +1095,13 @@ its wait for that call from the server's actual profile timeout instead of
 `generation_timeout_s`, which is never too short but was longer than
 needed. Older deploys omit the field; the client falls back to sizing the
 profile-refresh wait off `generation_timeout_s`.
+
+`details_supported` is true when the server mounts
+[`/details/v1`](#book-details-and-covers-details-v1), that is when
+`QUIRE_SERVER_DETAILS_ENABLED` is on. Like the insights, the details also
+need `configured` and the reader's opt-in. Older servers omit the field and
+clients read it as false. Browser clients find the same flag as
+`capabilities.book_details` in the session response.
 
 ### `GET /ai/v1/preferences` / `PUT /ai/v1/preferences`
 
@@ -1628,3 +1639,249 @@ most recently observed model on a successful chat completion (not necessarily
 equal to `AI_MODEL`; see `/ai/v1/config` for the configured value). On
 failure, `last_failure_at` and `last_failure_class` are set and cleared on
 the next success.
+
+## Book details and covers (`/details/v1`)
+
+When a book has no cover, no description or a title that is really a file
+name ("dune_frank_herbert_(retail).epub"), the server can fill in what is
+missing and tidy what is messy. It runs in two steps:
+
+1. **Find.** If the book lacks a cover, a description, subjects, a
+   language, an ISBN or a year, the server looks it up on Open Library,
+   with the same check the insights use that the result is this book: the
+   title forms, the volume number, the format and, when an author is
+   given and the match came from the title rather than the ISBN, that the
+   result credits the same person (any name word of three letters or more,
+   ignoring accents, word order, initials and words such as "ed." or
+   "Various"). A title alone is never looked up. No match means nothing is
+   filled, never a guess. This step makes no model call
+   and costs nothing.
+2. **Tidy.** One model call reads the book's own fields and the Open
+   Library record and returns a cleaned title, authors, series and
+   description, plus a cover design. The server then removes anything the
+   model may not say: the answer has no field for a year, an ISBN, a
+   publisher or a language, which only ever come from the client or Open
+   Library; a title, author or series whose words are not whole words of
+   the input is refused, and a title that was not a file name keeps the
+   input's words in their order, losing only a series, the author's name
+   or a volume word; a series number must appear in the input; and
+   description sentences that state a publication detail, carry a web
+   address or hold a number the sources do not are dropped. A tidy counts as one generation against the
+   reader's allowance ([quota model](#quota-model)); serving a stored tidy
+   is free.
+
+The endpoints are mounted only when AI is on
+(`QUIRE_SERVER_AI_ENABLED=true`) and `QUIRE_SERVER_DETAILS_ENABLED` is
+true (the default); otherwise every path answers **404**. Clients check
+`details_supported` in [`GET /ai/v1/config`](#get-aiv1config), or
+`capabilities.book_details` in a browser session. They use the same
+authentication as `/ai/v1` and require the reader's AI opt-in, because the
+book's details reach the model provider.
+
+### When a lookup tidies on its own
+
+`POST /details/v1/lookup` spends a generation only when one of these holds
+and no stored record exists for the same input:
+
+- the title looks like a file name: underscores, an ebook extension, a
+  release tag such as "(retail)", "[epub]" or "v5", words joined by dots or
+  dashes, no capital letter at all, or the author's surname inside a title
+  of several words;
+- the book has no cover, from the client or from Open Library, so the tidy
+  is needed to design one;
+- Open Library matched but the client sent no authors, or neither the
+  client nor Open Library has a description.
+
+Otherwise the answer is the client's fields plus what the find added, with
+`tidy: "not_needed"`. `POST /details/v1/tidy` always tidies, for a reader
+who asks.
+
+A stored record is served with the Open Library result found when it was
+tidied, so serving it makes no Open Library request. When a tidy fails
+for a reason other than the allowance, the server remembers the record key
+for about 15 minutes (in each server process): lookups of that book answer
+`tidy: "failed"` at once without calling the model again, while
+`POST /details/v1/tidy` still tries.
+
+### Sharing and keying
+
+Records live in `book_details`, shared by every account like
+`book_insights`: there is no user column, and a second reader with the same
+book gets the stored record free. The key is a SHA-256 over the book's
+canonical identity (`metadata_id:...` or `content_hash:...`, resolved from
+alias hints as the insights do), every field of `book`, and the tidy's
+prompt version. Because every input field is part of the key, a client that
+sends false fields only writes a record that no client with the true fields
+will be served. The model id is stored with the record but is not part of
+the key. Each tidy, and each record served from the store, writes one
+`ai_generation_log` row of kind `details` for cost attribution.
+
+The same reader's devices often send different fields for one book (the
+phone reads them from the file, the web from the catalog), which gives a
+different key. So the server also keeps, per reader, a pointer from the
+book's canonical identity to the record that reader was last given
+(`book_details_reader`). A `/lookup` checks it first, before Open Library
+or the model: when the pointed record exists, the answer is that record,
+with `cached: true` and `tidy: "done"`, free, even though the fields sent
+differ. Every lookup that serves or stores a record, and every `/tidy`,
+moves the pointer to that record. The pointer belongs to one reader and
+only ever picks among records made for their own lookups, so it cannot
+change what any other reader is served. It is deleted with the account and
+included in the account export.
+
+### `POST /details/v1/lookup` and `POST /details/v1/tidy`
+
+Body:
+
+```json
+{
+  "identity": { "metadata_id": "urn:uuid:4b6f...", "content_hash": "abc..." },
+  "book": {
+    "title": "dune_frank_herbert_(retail)",
+    "authors": ["Herbert, Frank"],
+    "series_name": null,
+    "series_index": null,
+    "description": null,
+    "subjects": [],
+    "language": null,
+    "isbn": "9780441013593",
+    "year": null,
+    "publisher": null
+  },
+  "source": "file",
+  "cover": null
+}
+```
+
+- `identity`: as for [`/ai/v1/insights/lookup`](#post-aiv1insightslookup).
+- `book`: the details the client holds. Only `title` is required. Caps:
+  `title <= 512`, `authors <= 16 x 256`, `series_name <= 256`,
+  `series_index 0-10000`, `description <= 8192`, `subjects <= 64 x 80`,
+  `language <= 32`, `isbn <= 64`, `year 0-9999`, `publisher <= 256`.
+  Runs of whitespace collapse to one space and blank values count as
+  missing. Unknown keys are rejected.
+- `source`: where `book` came from, `"file"` (the book file) or
+  `"catalog"` (its catalog entry). It is echoed as the origin of the
+  fields the client sent.
+- `cover`: `"file"` or `"catalog"` when the client already shows a real
+  cover, else `null`. A generated cover never replaces a real one.
+
+Response:
+
+```json
+{
+  "key": "3f1c...64 hex characters",
+  "book": {
+    "title": "Dune",
+    "authors": ["Frank Herbert"],
+    "series_name": null,
+    "series_index": null,
+    "description": "...",
+    "subjects": ["Science fiction", "Desert planets"],
+    "language": null,
+    "isbn": "9780441013593",
+    "year": 1965,
+    "publisher": null
+  },
+  "origins": {
+    "title": "ai",
+    "authors": "ai",
+    "description": "openlibrary",
+    "subjects": "openlibrary",
+    "isbn": "file",
+    "year": "openlibrary",
+    "cover": "openlibrary"
+  },
+  "cover": {
+    "source": "openlibrary",
+    "url": "https://covers.openlibrary.org/b/id/12345-L.jpg",
+    "generated": false
+  },
+  "tidy": "done",
+  "cached": false,
+  "openlibrary_url": "https://openlibrary.org/works/OL893415W"
+}
+```
+
+- `book`: the merged details. The client's own values always win for
+  facts; the tidy replaces only the title, authors, series and
+  description; the find fills only fields the client left empty.
+- `origins`: for every field that has a value, where it came from:
+  `"file"` or `"catalog"` (echoing `source`), `"openlibrary"` or `"ai"`.
+  For `description` there are two model origins: `"ai"` when the model
+  cleaned a description the client or Open Library had (whenever the text
+  differs from that source at all, since a cleaned text may still say
+  something the source did not), and `"ai_written"` when neither had one
+  and the model wrote it from the Open Library record, which happens only
+  when Open Library matched.
+  `cover` is `"file"`/`"catalog"` for the client's own, `"openlibrary"`,
+  or `"ai"` for a generated cover.
+- `cover`: the cover to show, in the order the client's own, Open
+  Library's, then a generated one. `source` is `null` when there is none
+  (no tidy ran). For a generated cover, `url` is a server path such as
+  `/details/v1/covers/<key>?v=<etag>` and `generated` is true, so the
+  client can label it.
+- `tidy`: `"done"` when the answer includes a tidy, `"not_needed"` when
+  nothing called for one, and on a lookup `"quota_exceeded"` or
+  `"failed"` when one was due but the allowance was spent or the model
+  call failed. A lookup never fails because of the tidy: it answers with
+  what the find gave.
+- `cached`: true when the tidy was served from the shared store, at no
+  cost, including a record found through the reader's pointer.
+- `openlibrary_url`: the matched Open Library work, for attribution;
+  `null` when nothing matched.
+
+Every text field is plain text: the server strips HTML tags, Markdown
+links and emphasis, and web addresses from descriptions. Clients must still
+render every field as plain text, never as HTML or Markdown, since a
+record holds text written by other readers and by the model.
+
+ISBN and publisher are never filled from Open Library, because a work has
+many editions; `year` is the work's first publication year; `language`
+is filled only from the edition of the book's own ISBN.
+
+| Status | Body | When |
+|---|---|---|
+| 200 | the response above | Success. On `/lookup` also when the tidy could not run; see `tidy`. |
+| 401 | | Not authenticated. |
+| 404 | | The feature is off (`QUIRE_SERVER_DETAILS_ENABLED=false`) or AI is off. |
+| 409 | `{"detail": "ai_not_opted_in"}` | The reader has not opted in to AI. |
+| 409 | `{"detail": "ai_provider_unavailable"}` | The reader picked a provider this server no longer has. |
+| 422 | | The body fails validation, or no canonical identity resolves. |
+| 429 | `{"detail": "details_rate_limited"}`, `Retry-After` | The reader made more than `QUIRE_SERVER_DETAILS_LOOKUP_RATE_PER_MIN` lookups and tidies together in the last minute (counted per server process). Checked before Open Library or the model is reached, so it costs nothing. The `detail` code is stable. |
+| 429 | quota body, `Retry-After` | `/tidy` only: the daily allowance or the regeneration limit is spent ([quota model](#quota-model)), or the hosted monthly allowance (`{"detail": "monthly_ai_quota_exhausted"}`). |
+| 502, 504 | [provider error](#ai-provider-errors) | `/tidy` only: the model call failed. |
+| 503 | `{"detail": "ai_disabled"}` | AI is on but no provider is configured. Also when the hosted allowance service cannot answer. |
+
+Wherever a 429 here or on the cover endpoint below carries `Retry-After`,
+it is a whole number of seconds, at least 1, never an HTTP date. The
+rate-limit 429s always carry it; the hosted monthly allowance's does not. The rate-limit body is
+exactly `{"detail": "details_rate_limited"}` (or `"cover_rate_limited"`),
+so a client can tell it from the allowance's 429 by `detail` alone: wait
+`Retry-After` seconds and send the same request again.
+
+A forced tidy of a book that already has a stored record counts as a
+regeneration (`AI_REGEN_DAILY_LIMIT`); the first tidy of a book counts as
+a generation.
+
+### `GET /details/v1/covers/{key}`
+
+The designed cover of the record with this `key`, as a 600 x 900 PNG. It
+is drawn on request from the stored design, title and authors, so the same
+record always gives the same image. Use the `url` from the lookup
+response: it carries the current `ETag` as `?v=`, so a changed cover has a
+new address.
+
+Response headers: `Content-Type: image/png`, `ETag`,
+`Cache-Control: private, max-age=31536000, immutable`, and
+`X-Quire-Cover: generated`, which marks the image as drawn by the server
+rather than a real cover.
+
+| Status | When |
+|---|---|
+| 200 | The PNG. |
+| 304 | `If-None-Match` matches the current `ETag`. |
+| 401 | Not authenticated. |
+| 404 | `{"detail": "cover_not_found"}`: no record has this key, or `?v=` names a cover since redrawn (look the book up again for the new address). Also when the feature or AI is off. |
+| 409 | `{"detail": "ai_not_opted_in"}`: the reader has not opted in to AI. |
+| 429 | `{"detail": "cover_rate_limited"}` with `Retry-After`: the reader fetched more than `QUIRE_SERVER_DETAILS_COVER_RATE_PER_MIN` covers in the last minute (counted per server process; a `304` does not count). |

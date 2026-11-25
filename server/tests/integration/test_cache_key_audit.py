@@ -27,6 +27,8 @@ import pytest
 from sqlalchemy import inspect
 
 from quire_server.db.models import (
+    BookDetails,
+    BookDetailsReader,
     BookInsight,
     BookTheme,
     ExternalSourceCacheEntry,
@@ -50,6 +52,7 @@ SHARED_CACHE_TABLES = [
     pytest.param(BookInsight, id="book_insights"),
     pytest.param(ExternalSourceCacheEntry, id="external_source_cache"),
     pytest.param(BookTheme, id="book_themes"),  # PR3 (2026-05-17)
+    pytest.param(BookDetails, id="book_details"),  # ai_012
 ]
 
 # Tables where `user_id` is INTENTIONAL cache-key scoping, NOT a tenant-leak.
@@ -58,6 +61,8 @@ SHARED_CACHE_TABLES = [
 # on different calibre-web instances.
 SCOPED_ALIAS_TABLES = [
     pytest.param(InsightIdentityAlias, id="insight_identity_aliases"),  # PR2
+    # Each reader's pointer to the shared record they were last given.
+    pytest.param(BookDetailsReader, id="book_details_reader"),  # ai_012
 ]
 
 
