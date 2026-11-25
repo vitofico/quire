@@ -18,6 +18,7 @@ on:
       - "docs/configuration.md"
       - ".github/workflows/server-ci.yaml"
       - "core/identity/src/test/resources/identity/**"
+      - "converter/tests/fixtures/worker-results.json"
   pull_request:
     paths:
       - "server/**"
@@ -31,6 +32,7 @@ on:
       - "docs/configuration.md"
       - ".github/workflows/server-ci.yaml"
       - "core/identity/src/test/resources/identity/**"
+      - "converter/tests/fixtures/worker-results.json"
 
 # Cancel superseded runs on the same branch / PR.
 concurrency:
