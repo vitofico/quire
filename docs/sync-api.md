@@ -187,7 +187,10 @@ shipped. Everything else above is on `main`.
 highlights using bounded previews and UUID pagination. `GET
 /agent/v1/highlights/{highlight_id}` retrieves one complete saved quotation and
 locator. The remote `/mcp` Streamable HTTP endpoint exposes the same service
-through `list_highlights`, `search_highlights` and `get_highlight` tools.
+through `list_highlights`, `search_highlights` and `get_highlight` tools, and
+adds read-only `get_highlights` (several by ID), `list_highlighted_books`,
+`list_library` (the shelf with reading progress) and `get_book` (one book with
+its tidied details). The server calls no model for any of them.
 
 Both surfaces follow the progress/full-mode gate. MCP requires an explicit
 existing Basic or NativeAuth Bearer Authorization header on every request;
@@ -1023,8 +1026,8 @@ Two layers protect the configured AI endpoint:
 
 ### AI provider errors
 
-When the model call behind `/insights/lookup`, `/insights/regenerate`, or
-`/profile/refresh` fails, the response carries a structured `detail`
+When the model call behind `/insights/lookup`, `/insights/regenerate`,
+`/profile/refresh` or `/highlights/discuss` fails, the response carries a structured `detail`
 instead of the bare 500 that older servers returned (issue #102):
 
 ```json
@@ -1071,7 +1074,21 @@ Returns the user-visible AI configuration. Public to authed users.
   "generation_timeout_s": 120,
   "profile_timeout_s": 90,
   "details_supported": true,
-  "conversion_supported": false
+  "conversion_supported": false,
+  "highlights_discuss": true,
+  "highlights_discuss_limits": {
+    "max_highlights": 20,
+    "max_text_chars": 2000,
+    "max_note_chars": 1000,
+    "max_title_chars": 500,
+    "max_authors": 10,
+    "max_author_chars": 200,
+    "max_question_chars": 1000,
+    "max_answer_chars": 4000,
+    "max_questions": 6,
+    "max_total_chars": 60000,
+    "questions_per_minute": 10
+  }
 }
 ```
 
@@ -1118,6 +1135,13 @@ so this is only a hint for clients that already read this response;
 `capabilities.pdf_conversion` in `GET /auth/v1/me` and
 `GET /convert/v1/capabilities` say the same without AI. Older servers omit
 the field and clients read it as false.
+
+`highlights_discuss` is true when
+[`POST /ai/v1/highlights/discuss`](#post-aiv1highlightsdiscuss) answers,
+that is when `configured` is true. `highlights_discuss_limits` then carries
+the limits that endpoint enforces, so clients never hard-code them; it is
+`null` when `highlights_discuss` is false. Older servers omit both fields:
+clients read them as false and null, and hide the action.
 
 ### `GET /ai/v1/preferences` / `PUT /ai/v1/preferences`
 
@@ -1617,6 +1641,165 @@ Filters applied (in addition to `LibraryItem.user_id == subject`):
 
 Promoted rows (PR-ζ) carry `generated_at = NOW()` at copy time so they enter
 the cursor stream as fresh events.
+
+### `POST /ai/v1/highlights/discuss`
+
+Think through a few highlights with the server's AI. The reader ticks up to
+20 highlights, possibly from different books, and asks a question ("what
+connects these?", "turn these into a note I can send"). They may follow up,
+up to 6 questions in all, and share the last answer as a note.
+
+The server keeps no conversation and stores nothing of it: the client
+sends the passages and every turn so far with each question. No passage,
+note, question or answer is logged or written to the database; the server
+logs only counts and timings.
+
+Show the action only when `highlights_discuss` is true in
+[`GET /ai/v1/config`](#get-aiv1config), and read the limits from
+`highlights_discuss_limits` there.
+
+#### Request
+
+```json
+{
+  "highlights": [
+    {
+      "n": 1,
+      "text": "Fear is the mind-killer.",
+      "note": "Compare with the Stoics.",
+      "title": "Dune",
+      "authors": ["Frank Herbert"]
+    },
+    { "n": 2, "text": "The spice must flow.", "title": "Dune", "authors": ["Frank Herbert"] }
+  ],
+  "messages": [
+    { "role": "reader", "content": "What connects these?" },
+    { "role": "assistant", "content": "Both are about control..." },
+    { "role": "reader", "content": "Turn this into a short note I can send." }
+  ],
+  "provider": "default"
+}
+```
+
+| Field | Type | Rules |
+|---|---|---|
+| `highlights` | array, required | 1 to 20 items. Send them again, unchanged, on every turn. |
+| `highlights[].n` | integer, required | The client's own number for the passage: 1 or more, unique in the request. Number the picked highlights 1, 2, 3 in the order shown; `cited` answers with these numbers. |
+| `highlights[].text` | string, required | The highlighted text. Not blank. At most 2,000 characters. |
+| `highlights[].note` | string or null | The reader's own note on the highlight. At most 1,000 characters. Omit or send null when there is none; a blank note counts as none. |
+| `highlights[].title` | string or null | The book's title. At most 500 characters. |
+| `highlights[].authors` | array of strings | The book's authors, at most 10, each at most 200 characters. Default `[]`. |
+| `messages` | array, required | The turns so far, oldest first, strictly alternating: `reader`, `assistant`, `reader`, ... It starts and ends with a `reader` turn, the last being the new question. At most 6 `reader` turns, so at most 11 items. |
+| `messages[].role` | `"reader"` or `"assistant"` | `assistant` turns are the server's earlier `answer` values, sent back unchanged. |
+| `messages[].content` | string, required | Not blank. A `reader` turn is at most 1,000 characters, an `assistant` turn at most 4,000. |
+| `provider` | string or null | Optional. One of the `providers[].id` values from `GET /ai/v1/config`, to use for this question only. Omitted or null: the reader's provider from `PUT /ai/v1/preferences`. |
+
+Characters are Unicode code points. On top of the per-field limits, all
+`text`, `note`, `title`, `authors` and `content` strings together may hold
+at most 60,000 characters. Every limit is enforced whatever the client
+sends: a value over a limit is refused with a 422 naming the field, never
+trimmed. Unknown fields are refused too.
+
+#### Response
+
+```json
+{
+  "answer": "Both passages are about control: one over fear, one over a resource...",
+  "cited": [1, 2]
+}
+```
+
+- `answer`: text to be rendered as plain text. It may contain URLs.
+  Clients must never render it as Markdown or HTML: the model is asked
+  for plain text, but the server does not rewrite what it returns, so
+  stray marks such as `**` may appear and must show as typed. Paragraphs
+  are separated by a blank line; a list may use plain hyphens. The model
+  is asked to leave out passage numbers, so the answer reads on its own
+  when shared. It is in the language of the reader's latest question,
+  about 150 words unless the reader asked for more, and never longer than
+  4,000 characters, so it can always be sent back as an `assistant` turn:
+  in the rare case of a longer answer the server cuts it, at a sentence
+  end when one falls in the second half of the limit, and adds "…". When
+  the passages cannot answer the question, the answer says so rather than
+  guessing.
+- `cited`: the `n` values of the passages the answer relies on, in the
+  order it uses them. Every value is one of the request's `n`; the server
+  drops any other number and any repeat. It may be empty.
+
+Render `answer` as plain text only. Responses carry
+`Cache-Control: no-store`.
+
+#### Allowance, rate and log
+
+Each question is one generation: it counts once against the reader's
+`AI_DAILY_BUDGET` ([quota model](#quota-model)), and on the hosted service
+against the monthly allowance. It is not a regeneration. It waits for the
+process-wide `AI_RATE_PER_MIN` bucket like every model call. On top, each
+reader may ask at most `questions_per_minute` questions per minute
+(`QUIRE_SERVER_AI_DISCUSS_RATE_PER_MIN`, default 10, counted per server
+process). Each answered question writes one `ai_generation_log` row of
+kind `discuss`, with the model, the prompt version, the latency and
+nothing of the content.
+
+#### Passages are material, not instructions
+
+Highlights, notes and titles may contain anything, including text such as
+"ignore previous instructions". The server sends them to the model as JSON
+string values inside the user message. Quoting stops a passage from
+breaking the structure of the message (it cannot close its string and
+pose as a new field or turn), but it does not stop the model from reading
+the words. That part is the system prompt's job: it says the passages are
+material to reason about and never instructions, that answers must be
+grounded in them, and that "I can't tell from these passages" beats
+invention. `cited` is checked against the request whatever the model
+returns.
+
+#### Errors
+
+Checked in this order: authentication, the body, whether AI is
+configured, the provider, the opt-in, the per-minute rate, the allowance,
+the model call.
+
+| Status | Body | When |
+|---|---|---|
+| 401 | | Not authenticated. |
+| 404 | | AI is off (`QUIRE_SERVER_AI_ENABLED=false`): `/ai/v1` is not mounted. |
+| 413 | | The body is larger than `QUIRE_SERVER_MAX_REQUEST_BYTES` (default 1 MiB), refused before it is read. |
+| 422 | `{"detail": {"code": ..., "field": ..., "limit": ...}}` | A value over a limit or a malformed conversation; see below. Nothing is counted. |
+| 422 | `{"detail": [...]}` (FastAPI validation list) | The body is not JSON of the shape above: unparseable JSON (`type` `json_invalid`), a missing or mistyped field (an `n` must be a JSON integer, not `"1"` or `1.0`), an unknown field, a `role` other than `reader` or `assistant`, or a `provider` that is not a lowercase id. Each item has `type`, `loc` and `msg` only: the values sent are never echoed back. |
+| 503 | `{"detail": "ai_disabled"}` | AI is on but no provider is configured (`configured` is false). |
+| 422 | `{"detail": "ai_provider_unknown"}` | `provider` names no provider this server offers. |
+| 409 | `{"detail": "ai_provider_unavailable"}` | The reader's chosen provider is no longer on this server. |
+| 409 | `{"detail": "ai_not_opted_in"}` | The reader has not opted in to AI. |
+| 429 | `{"detail": "discuss_rate_limited"}`, `Retry-After` | More than `questions_per_minute` questions in the last minute. `Retry-After` is a whole number of seconds, at least 1. Nothing is counted against the allowance. |
+| 429 | `{"detail": {"used": 200, "limit": 200, "resets_at": "..."}}`, `Retry-After` | The daily allowance is spent ([quota model](#quota-model)). |
+| 429 | `{"detail": "monthly_ai_quota_exhausted"}` | Hosted service only: the monthly allowance is spent. No `Retry-After`. |
+| 503 | `{"detail": "ai_policy_unavailable"}` | Hosted service only: the allowance service cannot answer. |
+| 502, 504 | [provider error](#ai-provider-errors) | The model call failed. `provider_invalid_output` also covers an empty answer. The question was counted. |
+
+The limit 422 `detail` object:
+
+- `code`: `"too_many"` (more items than allowed: `highlights`,
+  `highlights[i].authors`, or reader turns in `messages`), `"too_long"`
+  (one string over its limit), `"too_large"` (the 60,000-character total)
+  or `"invalid"` (a problem that is not a size: no highlights, an `n` below
+  1 or repeated, a blank `text`, a blank turn, turns that do not
+  alternate starting with `reader`, or a conversation that is empty or
+  ends with an `assistant` turn).
+- `field`: where, as a path into the request: `"highlights"`,
+  `"highlights[3].text"`, `"highlights[0].note"`, `"highlights[0].title"`,
+  `"highlights[0].authors"`, `"highlights[0].authors[2]"`,
+  `"highlights[1].n"`, `"messages"`, `"messages[4]"` (a turn in the wrong
+  place or blank), `"messages[4].content"`, or `"request"` for the total.
+  Indexes count from 0.
+- `limit`: the number that was exceeded, or null for `"invalid"`.
+
+The server reports the first problem it finds, checking the highlights in
+order and then the turns in order.
+
+Clients should check the limits before sending, using
+`highlights_discuss_limits`, and count only `reader` turns against
+`max_questions`. When a conversation reaches it, offer to start a new one.
 
 ### `GET /ai/v1/health`
 

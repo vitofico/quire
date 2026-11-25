@@ -24,10 +24,12 @@ checkout and a running production DB.
 
 ## Branches (forward-only from 0004)
 
-The current AI head is `ai_013`, adding `book_cover_art` (painted artwork
-for generated covers, one row per details record, deleted with it) and
-admitting the `cover_art` kind in `ai_generation_log`. It follows `ai_012`,
-which added `book_details` (the shared table of tidied book records),
+The current AI head is `ai_014`, admitting the `discuss` kind in
+`ai_generation_log` (one row per question about a reader's highlights,
+counts and timings only). It follows `ai_013`, adding `book_cover_art`
+(painted artwork for generated covers, one row per details record, deleted
+with it) and admitting the `cover_art` kind. Before it, `ai_012`
+added `book_details` (the shared table of tidied book records),
 `book_details_reader` (each reader's pointer to the record they were last
 given for a book) and the `details` kind, without rewriting any deployed
 revision.
@@ -53,7 +55,7 @@ From the split point onward, every new migration belongs to exactly one branch:
 | `convert`  | `"convert"`  | shared | `convert_001` (PDF conversions started from the apps); always upgraded. |
 | `core`     | `"core"`     | shared | Reserved; no migrations yet.                                                                     |
 | `progress` | `"progress"` | sync   | `progress_001` → `progress_002` → `progress_003` → `progress_004` (private highlights) → `progress_005` (comments). Spliced from `0004`. |
-| `ai`       | `"ai"`       | AI     | `ai_001` through `ai_013`; the latest adds `book_cover_art`. |
+| `ai`       | `"ai"`       | AI     | `ai_001` through `ai_014`; the latest admits the `discuss` log kind. |
 
 ### Adding the FIRST migration on a branch (splice)
 

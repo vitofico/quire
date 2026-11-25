@@ -29,6 +29,9 @@ from quire_server.api.ai_schemas import (
     BookInsightResponse,
     Citation,
     ConfigResponse,
+    DiscussBody,
+    DiscussLimits,
+    DiscussResponse,
     DocumentIdentity,
     InsightGetBody,
     InsightInvalidateBody,
@@ -47,8 +50,10 @@ from quire_server.api.ai_schemas import (
     ReaderProfileResponse,
     RetrievalSourceHealth,
 )
+from quire_server.api.no_store import NoStoreRoute
 from quire_server.config import get_settings
 from quire_server.core.ai.client import ProviderError, ProviderTimeout
+from quire_server.core.ai.discuss import DiscussInvalid, check_limits, discuss
 from quire_server.core.ai.health_state import AiHealthState
 from quire_server.core.ai.provider_errors import describe
 from quire_server.core.ai.service import (
@@ -73,12 +78,18 @@ async def _provider_id(session: AsyncSession, principal: AiPrincipal) -> str:
 
 
 async def _orchestrator(
-    request: Request, session: AsyncSession, principal: AiPrincipal
+    request: Request,
+    session: AsyncSession,
+    principal: AiPrincipal,
+    provider_id: str | None = None,
 ) -> InsightOrchestrator | None:
+    """The reader's chosen provider, or ``provider_id`` when a request names one."""
     default = getattr(request.app.state, "ai_orchestrator", None)
     if default is None:
         return None
-    selected = await _provider_id(session, principal)
+    if provider_id is not None and provider_id not in {p.id for p in _provider_views()}:
+        raise HTTPException(422, detail="ai_provider_unknown")
+    selected = provider_id or await _provider_id(session, principal)
     orch = (
         default
         if selected == "default"
@@ -318,6 +329,7 @@ async def get_config(
     selected_id = await _provider_id(session, principal)
     providers = _provider_views()
     selected = next((p for p in providers if p.id == selected_id), None)
+    configured = bool(settings.ai_enabled and settings.ai_base_url and settings.ai_model)
     # PR-η / Lock #24: expose the runtime-resolved PROMPT_VERSION so the
     # Android client can key its local-cache PK on the same value the
     # server uses. The helper applies Lock #19 sentinel semantics (legacy
@@ -328,7 +340,7 @@ async def get_config(
     return ConfigResponse(
         providers=providers,
         provider_id=selected_id,
-        configured=bool(settings.ai_enabled and settings.ai_base_url and settings.ai_model),
+        configured=configured,
         base_url_host=selected.base_url_host if selected else None,
         model_id=selected.model_id if selected else None,
         sources_enabled=_enabled_sources(request.app) if settings.ai_enabled else [],
@@ -346,6 +358,12 @@ async def get_config(
         ),
         details_supported=bool(settings.ai_enabled and settings.details_enabled),
         conversion_supported=request.app.state.hosting_capabilities["pdf_conversion"],
+        highlights_discuss=configured,
+        highlights_discuss_limits=(
+            DiscussLimits(questions_per_minute=settings.ai_discuss_rate_per_min)
+            if configured
+            else None
+        ),
     )
 
 
@@ -735,6 +753,54 @@ async def sync_insights(
         server_time=datetime.now(UTC).isoformat(),
         next_cursor=next_cursor,
     )
+
+
+async def discuss_highlights(
+    request: Request,
+    body: DiscussBody,
+    principal: Annotated[AiPrincipal, Depends(get_ai_principal)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> DiscussResponse:
+    """Answer the reader's latest question about the highlights they picked.
+
+    Stateless: the client resends the passages and the turns so far, and
+    nothing of them is stored or logged. One question is one generation.
+    """
+    try:
+        check_limits(body)
+    except DiscussInvalid as exc:
+        raise HTTPException(422, detail=exc.detail()) from None
+    orch = await _orchestrator(request, session, principal, body.provider)
+    if orch is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="ai_disabled")
+    await _require_opt_in(session, principal.subject)
+    # Counts every question that could reach the model, before the allowance.
+    wait = request.app.state.discuss_limit.retry_after(
+        principal.subject, get_settings().ai_discuss_rate_per_min
+    )
+    if wait is not None:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="discuss_rate_limited",
+            headers={"Retry-After": str(wait)},
+        )
+    try:
+        return await discuss(
+            orch, session, body, user_id=principal.subject, tenant_id=principal.tenant_id
+        )
+    except QuotaExceeded as exc:
+        raise _quota_http_exception(exc) from exc
+
+
+# NoStoreRoute: the answer is private and never cached, and a 422 does not
+# quote back the passages or questions the client sent.
+router.add_api_route(
+    "/highlights/discuss",
+    discuss_highlights,
+    methods=["POST"],
+    response_model=DiscussResponse,
+    route_class_override=NoStoreRoute,
+)
 
 
 @router.get("/profile", response_model=ReaderProfileResponse)
