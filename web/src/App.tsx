@@ -39,7 +39,6 @@ import { translator, languages } from './language'
 import { catalogInsightIdentity, promotePreview } from './discovery/api'
 import { missingProvider, useAiState } from './discovery/aiState'
 import { bookIdentity, fillDetails } from './details'
-import { defaultLimits } from './discuss'
 import { TidyDetails } from './TidyDetails'
 import { ConversionList, useConversions } from './Conversions'
 import { isPdf } from './convert'
@@ -358,10 +357,8 @@ function Workspace({
     aiReady && ai.config.details_supported && active.capabilities?.book_details !== false
       ? active.request
       : undefined
-  const discuss =
-    aiReady && ai.config.highlights_discuss && active.request
-      ? { request: active.request, limits: ai.config.highlights_discuss_limits ?? defaultLimits }
-      : undefined
+  const discussLimits = aiReady && ai.config.highlights_discuss ? ai.config.highlights_discuss_limits : undefined
+  const discuss = discussLimits && active.request ? { request: active.request, limits: discussLimits } : undefined
   const detailsFor =
     route.view === 'book' ? (book ? [book] : []) : route.view === 'library' ? snapshot.books : []
   useEffect(() => {

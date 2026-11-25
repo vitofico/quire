@@ -160,10 +160,6 @@ export function requestMessage(error: unknown): RequestMessage {
       return { message: "The AI provider is unavailable. Check the provider in Settings and try again later." };
     }
     if (status === 404) return { message: "This feature is unavailable on the connected server." };
-    // A limit the highlights conversation went over: `{code, field, limit}`.
-    const code = (detail as { code?: string } | null)?.code;
-    if (status === 422 && code === "too_large") return { message: "These passages and questions are too long together. Select fewer passages or start again." };
-    if (status === 422 && code) return { message: "The server could not use these passages or this question." };
     if (status === 422) return { message: "The server could not use this edition or these preferences." };
   }
   return { message: "The request could not be completed. Check your connection." };

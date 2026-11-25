@@ -1,21 +1,6 @@
 import type { Highlight, ShelfBook } from './data'
 import type { DiscussLimits } from './discovery/api'
 
-/** The server's limits, for a server that says the feature is on but sends none. */
-export const defaultLimits: DiscussLimits = {
-  max_highlights: 20,
-  max_text_chars: 2000,
-  max_note_chars: 1000,
-  max_title_chars: 500,
-  max_authors: 10,
-  max_author_chars: 200,
-  max_question_chars: 1000,
-  max_answer_chars: 4000,
-  max_questions: 6,
-  max_total_chars: 60000,
-  questions_per_minute: 10,
-}
-
 /** A selected highlight as the conversation shows and sends it, numbered from 1. */
 export type Passage = { n: number; text: string; note: string | null; title: string; authors: string[] }
 export type Exchange = { question: string; answer: string; cited: number[] }
@@ -27,8 +12,13 @@ const clip = (value: string, max: number) => (length(value) > max ? Array.from(v
 export function passagesOf(highlights: Highlight[], books: ShelfBook[]): Passage[] {
   return highlights.map((h, index) => {
     const book = books.find((b) => b.key === h.document.content_hash)
-    const authors = book?.authors?.length ? book.authors : [h.book_author ?? book?.author].filter((a): a is string => !!a)
-    return { n: index + 1, text: h.text, note: h.comment?.trim() || null, title: h.book_title || book?.title || '', authors }
+    // The highlight's own title and author when it has them, else the shelf's.
+    const shelfAuthors = book?.authors?.length ? book.authors : book?.author?.trim() ? [book.author] : []
+    return {
+      n: index + 1, text: h.text, note: h.comment?.trim() || null,
+      title: h.book_title?.trim() || book?.title?.trim() || '',
+      authors: h.book_author?.trim() ? [h.book_author.trim()] : shelfAuthors,
+    }
   })
 }
 

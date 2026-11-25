@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { type DiscoveryRequest, type DiscussLimits, discoveryJson, jsonBody, translateRequestMessage } from './discovery/api'
+import {
+  type DiscoveryRequest, type DiscussLimits, DiscoveryHttpError, discoveryJson, jsonBody, translateRequestMessage,
+} from './discovery/api'
 import { useAiOperation } from './discovery/aiOperation'
 import { interpolate } from './discovery/translation'
 import { type Exchange, type Passage, discussBody, shareNote } from './discuss'
@@ -13,6 +15,16 @@ type Props = {
 }
 
 const starters = ['What connects these?', 'Where do they disagree?', 'Summarise as a note']
+const tooLong = 'These passages and questions are too long together. Select fewer passages or start again.'
+type Answer = { answer: string; cited: number[] }
+
+/** A 422 from this endpoint: a limit it went over (`{code, field, limit}`) or a body it could not read. */
+function refusal(cause: unknown) {
+  if (!(cause instanceof DiscoveryHttpError) || cause.status !== 422 || cause.detail === 'ai_provider_unknown') return
+  return (cause.detail as { code?: string } | null)?.code === 'too_large'
+    ? tooLong
+    : 'The server could not use these passages or this question.'
+}
 
 /** A short conversation about the selected passages. Nothing is kept: closing discards it. */
 export function Discussion({ request, limits, passages, t, close }: Props) {
@@ -24,39 +36,71 @@ export function Discussion({ request, limits, passages, t, close }: Props) {
   const [status, setStatus] = useState('')
   const [clipped, setClipped] = useState(false)
   const heading = useRef<HTMLHeadingElement>(null)
-  const panel = useRef<HTMLElement>(null)
+  const panel = useRef<HTMLDialogElement>(null)
   const box = useRef<HTMLTextAreaElement>(null)
+  const restarted = useRef(false)
   const left = limits.max_questions - exchanges.length
   const latest = exchanges.at(-1)
   const hasNotes = passages.some((p) => p.note)
+  const notesSent = includeNotes && hasNotes
 
-  useEffect(() => heading.current?.focus(), [])
   useEffect(() => {
-    // Escape closes from anywhere, even once focus has left a control that went away.
+    // Beside the list on a wide screen; a modal full page on a phone, so nothing behind it is reachable.
+    const dialog = panel.current!
+    const phone = window.matchMedia('(max-width: 760px)')
+    const place = () => {
+      if (dialog.open) dialog.close()
+      if (phone.matches) dialog.showModal()
+      else dialog.show()
+      heading.current?.focus()
+    }
+    place()
+    phone.addEventListener('change', place)
+    return () => phone.removeEventListener('change', place)
+  }, [])
+  useEffect(() => {
+    // Escape closes from anywhere, unless something else already used it.
     const escape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !document.querySelector('dialog[open]')) close()
+      if (e.key !== 'Escape' || e.isComposing || e.defaultPrevented || document.querySelector('dialog.ask[open]')) return
+      e.preventDefault()
+      close()
     }
     document.addEventListener('keydown', escape)
     return () => document.removeEventListener('keydown', escape)
   }, [close])
   useEffect(() => {
-    // A starter question goes away with the first answer: keep focus in the panel.
-    if (exchanges.length && !panel.current?.contains(document.activeElement)) (box.current ?? heading.current)?.focus()
-  }, [exchanges.length])
+    // Start again, or a control that went away (a starter question, a disabled Ask), leaves focus nowhere.
+    const lost = !document.activeElement || document.activeElement === document.body
+    if (restarted.current || (!busy && lost)) (box.current ?? heading.current)?.focus()
+    restarted.current = false
+  }, [busy, exchanges.length])
 
   function ask(text: string) {
-    if (!text.trim() || busy || left <= 0) return
+    const asked = text.trim()
+    if (!asked || busy || left <= 0) return
     setProblem('')
     setStatus('')
     if (!navigator.onLine) return setProblem('You are offline. Connect to ask about these passages.')
-    const { body, clipped, tooLarge } = discussBody(passages, exchanges, text, includeNotes, limits)
+    const { body, clipped, tooLarge } = discussBody(passages, exchanges, asked, includeNotes, limits)
     setClipped(clipped)
-    if (tooLarge) return setProblem('These passages and questions are too long together. Select fewer passages or start again.')
+    if (tooLarge) return setProblem(tooLong)
+    // Cleared while waiting, so a next question typed meanwhile survives; back in the box on failure.
+    setQuestion('')
+    const restore = () => setQuestion((typed) => typed || asked)
     void run(
-      (signal) => discoveryJson<{ answer: string; cited: number[] }>(request, '/ai/v1/highlights/discuss', jsonBody('POST', body, signal)),
-      ({ answer, cited }) => {
-        setExchanges((list) => [...list, { question: text.trim(), answer, cited }])
-        setQuestion('')
+      async (signal): Promise<Answer | { refused: string }> => {
+        try {
+          return await discoveryJson<Answer>(request, '/ai/v1/highlights/discuss', jsonBody('POST', body, signal))
+        } catch (cause) {
+          restore()
+          const refused = refusal(cause)
+          if (refused) return { refused }
+          throw cause
+        }
+      },
+      (value) => {
+        if ('refused' in value) return setProblem(value.refused)
+        setExchanges((list) => [...list, { question: asked, answer: value.answer, cited: value.cited }])
       },
     )
   }
@@ -86,8 +130,25 @@ export function Discussion({ request, limits, passages, t, close }: Props) {
     }
   }
 
+  function restart() {
+    restarted.current = true
+    setExchanges([])
+    setStatus('')
+    setProblem('')
+    setClipped(false)
+  }
+
   return (
-    <section className="discuss panel" aria-labelledby="discuss-title" ref={panel}>
+    <dialog
+      className="discuss panel"
+      aria-labelledby="discuss-title"
+      ref={panel}
+      // Escape is handled above; the browser closing the dialog on its own would leave it hidden but open here.
+      onCancel={(e) => e.preventDefault()}
+      onClose={(e) => {
+        if (!e.currentTarget.open) close()
+      }}
+    >
       <div className="discuss-head">
         <h2 id="discuss-title" ref={heading} tabIndex={-1}>{t('Think it through')}</h2>
         <button type="button" className="ghost" onClick={close}>{t('Close')}</button>
@@ -109,14 +170,20 @@ export function Discussion({ request, limits, passages, t, close }: Props) {
       {clipped && <p className="hint">{t('Some long passages were shortened to fit the server’s limit.')}</p>}
       {hasNotes && (
         <label className="check">
-          <input type="checkbox" checked={includeNotes} onChange={(e) => setIncludeNotes(e.target.checked)} />
+          {/* Fixed for the conversation, so every turn was asked with the same material. */}
+          <input
+            type="checkbox"
+            checked={includeNotes}
+            disabled={busy || exchanges.length > 0}
+            onChange={(e) => setIncludeNotes(e.target.checked)}
+          />
           {t('Include my notes')}
         </label>
       )}
       <p className="hint">
-        {t(includeNotes && hasNotes
-          ? 'Sent to your server’s AI provider: the selected passages, your notes on them, and the books’ titles.'
-          : 'Sent to your server’s AI provider: the selected passages and the books’ titles.')}
+        {t(notesSent
+          ? 'Sent to your server’s AI provider: the selected passages, your notes on them, and the books’ titles and authors.'
+          : 'Sent to your server’s AI provider: the selected passages and the books’ titles and authors.')}
       </p>
       <div className="discuss-log" role="log" aria-live="polite" aria-label={t('Conversation')}>
         {exchanges.map((e, index) => (
@@ -142,12 +209,8 @@ export function Discussion({ request, limits, passages, t, close }: Props) {
           <button type="button" onClick={() => void send('copy')}>{t('Copy')}</button>
         </div>
       )}
-      {busy && (
-        <p role="status">
-          {t('Thinking…')} <button type="button" className="ghost" onClick={cancel}>{t('Cancel')}</button>
-        </p>
-      )}
-      {status && <p role="status">{t(status)}</p>}
+      <p role="status" className="discuss-status">{busy ? t('Thinking…') : status && t(status)}</p>
+      {busy && <button type="button" className="ghost" onClick={cancel}>{t('Cancel')}</button>}
       {(problem || error) && <p role="alert">{problem ? t(problem) : translateRequestMessage(t, error!)}</p>}
       {left > 0 ? (
         <form
@@ -169,16 +232,16 @@ export function Discussion({ request, limits, passages, t, close }: Props) {
             <textarea ref={box} value={question} maxLength={limits.max_question_chars} rows={2} onChange={(e) => setQuestion(e.target.value)} />
           </label>
           <div className="actions">
-            <button className="primary">{t('Ask')}</button>
+            <button className="primary" disabled={busy || !question.trim()}>{t('Ask')}</button>
             {latest && <span className="hint">{interpolate(t, 'Questions left: {count}', { count: left })}</span>}
           </div>
         </form>
       ) : (
         <p>
           {t('This conversation reached its question limit.')}{' '}
-          <button type="button" onClick={() => setExchanges([])}>{t('Start again')}</button>
+          <button type="button" onClick={restart}>{t('Start again')}</button>
         </p>
       )}
-    </section>
+    </dialog>
   )
 }

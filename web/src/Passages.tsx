@@ -17,6 +17,9 @@ type Props = {
 }
 
 /** One group per book, in the order each book first appears in the list. */
+const selectable = (h: Highlight) => !!h.text.trim()
+const excerpt = (text: string) => (text.length > 60 ? text.slice(0, 60).trimEnd() + '…' : text)
+
 function byBook(list: Highlight[]) {
   const groups = new Map<string, Highlight[]>()
   for (const h of list) {
@@ -35,13 +38,23 @@ export function Passages({ passages, books, t, open, report, discuss }: Props) {
   const opener = useRef<HTMLButtonElement>(null)
   const wasDiscussing = useRef(false)
   const stop = useCallback(() => setDiscussing(undefined), [])
+  const available = !!discuss
+  useEffect(() => {
+    // AI settings gone (an error, the opt-in withdrawn): leave selection and close the panel.
+    if (available) return
+    setSelecting(false)
+    setSelected(new Set())
+    setDiscussing(undefined)
+  }, [available])
   useEffect(() => {
     // Focus goes back to the button that opened the conversation.
     if (wasDiscussing.current && !discussing) opener.current?.focus()
     wasDiscussing.current = !!discussing
   }, [discussing])
+  // Only highlights that still exist and have text count: one deleted elsewhere drops out.
+  const chosen = passages.filter((h) => selected.has(h.id) && selectable(h))
   const max = discuss?.limits.max_highlights ?? 0
-  const full = selected.size >= max
+  const full = chosen.length >= max
   const filtered = passages.filter((h) =>
     [h.text, h.comment, h.book_title, h.book_author]
       .join(' ')
@@ -84,18 +97,19 @@ export function Passages({ passages, books, t, open, report, discuss }: Props) {
           <p>{t('Select text while reading and choose Save highlight. Your passages and notes collect here.')}</p>
         </section>
       )}
-      {checking && (
-        <div className="tools select-bar">
-          <span role="status">
-            {interpolate(t, '{count} selected', { count: selected.size })}
-            {full && <><br />{interpolate(t, 'You can select up to {max} passages.', { max })}</>}
-          </span>
+      {/* The live region stays in place; only its text changes. */}
+      <div className={checking ? 'tools select-bar' : undefined}>
+        <span role="status">
+          {checking && interpolate(t, 'Selected: {count}', { count: chosen.length })}
+          {checking && full && <><br />{interpolate(t, 'You can select up to {max} passages.', { max })}</>}
+        </span>
+        {checking && (<>
           <button
             ref={opener}
             className="primary"
-            disabled={!selected.size}
+            disabled={!chosen.length}
             // Numbered in the order shown, across books.
-            onClick={() => setDiscussing(byBook(passages).flat().filter((h) => selected.has(h.id)))}
+            onClick={() => chosen.length && setDiscussing(byBook(chosen).flat())}
           >
             {t('Think it through')}
           </button>
@@ -108,8 +122,8 @@ export function Passages({ passages, books, t, open, report, discuss }: Props) {
           >
             {t('Cancel')}
           </button>
-        </div>
-      )}
+        </>)}
+      </div>
       {groups.map((group) => {
         const first = group[0]
         const book = books.find((b) => b.key === first.document.content_hash)
@@ -122,19 +136,19 @@ export function Passages({ passages, books, t, open, report, discuss }: Props) {
             </h2>
             {group.map((h) => (
               <article className="quote" key={h.id}>
-                {checking && (
+                {checking && selectable(h) && (
                   <label className="check">
                     <input
                       type="checkbox"
                       checked={selected.has(h.id)}
                       disabled={full && !selected.has(h.id)}
-                      aria-describedby={`passage-${h.id}`}
+                      aria-label={interpolate(t, 'Select: {passage}', { passage: excerpt(h.text) })}
                       onChange={() => toggle(h.id)}
                     />
                     {t('Select')}
                   </label>
                 )}
-                <blockquote id={`passage-${h.id}`}>{h.text}</blockquote>
+                <blockquote>{h.text}</blockquote>
                 {h.comment && <p>{h.comment}</p>}
                 <div className="actions">
                   <button
@@ -166,7 +180,7 @@ export function Passages({ passages, books, t, open, report, discuss }: Props) {
     </div>
   )
   return (
-    <div className={discussing ? 'discussing' : undefined}>
+    <div className={discuss && discussing ? 'discussing' : undefined}>
       {list}
       {discuss && discussing && (
         <Discussion

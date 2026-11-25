@@ -1136,8 +1136,30 @@ dialog.ask .actions {
 .discuss {
   position: sticky;
   top: 1rem;
+  inset-inline: auto;
+  width: auto;
+  max-width: none;
   max-height: calc(100vh - 2rem);
+  margin: 0;
+  border: 0;
+  color: inherit;
   overflow-y: auto;
+}
+.discuss:modal {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  border-radius: 0;
+  box-shadow: none;
+  padding-bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+}
+.discuss::backdrop {
+  background: var(--paper);
+}
+.discuss-status {
+  margin: 0;
 }
 .discuss-head {
   display: flex;
@@ -1397,15 +1419,6 @@ dialog.ask .actions {
   }
   .discussing {
     display: block;
-  }
-  .discuss {
-    position: fixed;
-    inset: 0;
-    z-index: 6;
-    max-height: none;
-    margin: 0;
-    border-radius: 0;
-    padding-bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
   }
   .discuss-ask .chips {
     flex-wrap: wrap;
