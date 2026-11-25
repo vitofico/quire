@@ -1,5 +1,5 @@
 import {
-  type DetailsAnswer, type DetailsFields, type BookDetails, type ShelfBook, bookDocument,
+  type CoverChoice, type DetailsAnswer, type DetailsFields, type BookDetails, type ShelfBook, type TidiedField, bookDocument,
 } from './data'
 import {
   type DiscoveryRequest, type InsightIdentity, DiscoveryHttpError, catalogInsightIdentity, discoveryJson,
@@ -35,7 +35,8 @@ function ownFields(book: ShelfBook): DetailsFields {
   }
 }
 
-export function detailsBody(book: ShelfBook) {
+/** The body of a lookup or a tidy; `cover_choice` goes only when it is not the default, which every server takes. */
+export function detailsBody(book: ShelfBook, choice = book.details?.cover_choice) {
   // A downloaded book's fields come from its file; one only on the shelf, from its catalog entry.
   const source = !book.hasDownload && book.opds_href ? 'catalog' : 'file'
   return {
@@ -43,6 +44,7 @@ export function detailsBody(book: ShelfBook) {
     book: ownFields(book),
     source,
     cover: book.cover instanceof Blob ? source : null,
+    ...(choice && choice !== 'keep' ? { cover_choice: choice } : {}),
   }
 }
 
@@ -57,7 +59,8 @@ export function wantsLookup(book: ShelfBook, now: number): boolean {
   // Tried once: an answer has no retry_at, a failure waits until its retry_at.
   const retryAt = book.details ? (book.details.retry_at ?? Infinity) : 0
   if (retryAt > now) return false
-  return !(book.cover instanceof Blob) || !(book.authors?.length || book.author) ||
+  // A cover the reader chose is checked again even when the book lacks nothing.
+  return !!book.details?.cover_choice || !(book.cover instanceof Blob) || !(book.authors?.length || book.author) ||
     !book.description || looksLikeFileName(book.title)
 }
 
@@ -95,8 +98,10 @@ type Turn = { tidies: number; tidying: number }
 const turns = new WeakMap<DetailsStore, Map<string, Turn>>()
 const day = 86_400_000
 const waitOf = (error: unknown) => error instanceof DiscoveryHttpError && error.retryAfter ? error.retryAfter * 1000 : day
+/** A painted cover was asked for and this server no longer paints. */
+const noPainting = (error: unknown) => error instanceof DiscoveryHttpError && error.detail === 'cover_art_unavailable'
 /** One that refused: 409, as when the reader is no longer opted in to AI. */
-const refused = (error: unknown) => error instanceof DiscoveryHttpError && error.status === 409
+const refused = (error: unknown) => error instanceof DiscoveryHttpError && error.status === 409 && !noPainting(error)
 /** An answer whose tidy was due but did not happen: asked again after a day. */
 const unfinished = (answer: DetailsAnswer) => answer.tidy === 'quota_exceeded' || answer.tidy === 'failed'
 /** Only the found cover is missing: a lookup then fetches the image, not the answer. */
@@ -108,31 +113,35 @@ const hour = 3_600_000
 /** How many times a book is asked again while its cover is being painted. */
 export const paintingChecks = 4
 
-/**
- * Asks the server for a book's details and keeps the answer and its cover in
- * this browser. `/tidy` always spends a generation; `/lookup` only when the
- * book calls for one. A tidy wins over a lookup of the same book: a lookup
- * that ends while a tidy runs, or after one started, is dropped, and so is a
- * tidy overtaken by a later one. Answers `undefined` when dropped.
- */
-export async function fetchDetails(
-  store: DetailsStore, request: DiscoveryRequest, book: ShelfBook,
-  action: 'lookup' | 'tidy', signal?: AbortSignal,
-): Promise<BookDetails | undefined> {
+function turnOf(store: DetailsStore, key: string): Turn {
   const books = turns.get(store) ?? new Map<string, Turn>()
   turns.set(store, books)
-  const turn = books.get(book.key) ?? { tidies: 0, tidying: 0 }
-  books.set(book.key, turn)
-  if (action === 'tidy') {
-    turn.tidies++
-    turn.tidying++
-  }
+  const turn = books.get(key) ?? { tidies: 0, tidying: 0 }
+  books.set(key, turn)
+  return turn
+}
+
+/** What a reader chose, kept across later answers for the same book. */
+const choices = (record?: BookDetails) =>
+  record ? { original: record.original, accepted: record.accepted, cover_choice: record.cover_choice } : {}
+
+/**
+ * Looks a book up and keeps the answer and its cover in this browser.
+ * `/lookup` spends a generation only when the book calls for one. A tidy the
+ * reader asked for wins: a lookup that ends while a tidy or its preview is
+ * open, or after one started, is dropped. Answers `undefined` when dropped.
+ */
+export async function fetchDetails(
+  store: DetailsStore, request: DiscoveryRequest, book: ShelfBook, signal?: AbortSignal,
+): Promise<BookDetails | undefined> {
+  const turn = turnOf(store, book.key)
   const mine = turn.tidies
-  const stale = () => turn.tidies !== mine || (action === 'lookup' && turn.tidying > 0)
+  const stale = () => turn.tidies !== mine || turn.tidying > 0
   const previous = book.details
+  const body = detailsBody(book)
   try {
-    const answer = action === 'lookup' && coverOnly(book) ? previous!.answer! : await discoveryJson<DetailsAnswer>(
-      request, `/details/v1/${action}`, jsonBody('POST', detailsBody(book), signal),
+    const answer = coverOnly(book) ? previous!.answer! : await discoveryJson<DetailsAnswer>(
+      request, '/details/v1/lookup', jsonBody('POST', body, signal),
     )
     const attempted_at = Date.now()
     let retry_at = unfinished(answer) ? attempted_at + day : undefined
@@ -152,23 +161,117 @@ export async function fetchDetails(
       }
     }
     if (stale()) return undefined
-    // Asking for a tidy means wanting to see it, even after choosing the original.
-    const details = { attempted_at, retry_at, answer, cover_url, painting_checks, original: action === 'tidy' ? false : previous?.original }
+    const basis = coverOnly(book) ? previous?.basis : body.book
+    const details = { ...choices(previous), attempted_at, retry_at, answer, cover_url, painting_checks, basis }
     await store.setDetails(book.key, details, cover)
     return details
   } catch (error) {
-    // A lookup that failed waits before it is tried again; a tidy only reports.
-    if (action === 'lookup' && !stale() && !refused(error)) {
-      const attempted_at = Date.now()
-      await store.setDetails(book.key, { ...previous, attempted_at, retry_at: attempted_at + waitOf(error) })
-    }
+    if (stale()) throw error
+    const attempted_at = Date.now()
+    // The server stopped painting: keep the drawn cover already shown and ask for no more paintings.
+    if (noPainting(error)) await store.setDetails(book.key, { ...previous, attempted_at, retry_at: undefined, cover_choice: 'draw' })
+    // A lookup that failed waits before it is tried again.
+    else if (!refused(error)) await store.setDetails(book.key, { ...previous, attempted_at, retry_at: attempted_at + waitOf(error) })
     throw error
-  } finally {
-    if (action === 'tidy') {
-      turn.tidying--
-      const queue = queues.get(store)
-      if (queue) pump(store, queue)
-    }
+  }
+}
+
+/** A proposed cover: the answer that names it and, when it is new to this browser, its image. */
+export type CoverPreview = {
+  answer: DetailsAnswer
+  image?: Blob
+  /** The image is the one this browser already keeps for the book. */
+  kept?: boolean
+}
+
+/** A tidy waiting for the reader to accept or reject what it proposes. */
+export type Proposal = {
+  answer: DetailsAnswer
+  /** The fields the tidy was asked for. */
+  basis: DetailsFields
+  /** The cover a choice gives, from the record the tidy stored, so it costs no generation. */
+  cover(choice: CoverChoice, signal?: AbortSignal): Promise<CoverPreview>
+  /**
+   * Keeps the accepted improvements and the chosen cover, `null` for the
+   * cover shown now; a painted cover is asked for only here. Answers
+   * `undefined` when a later tidy of the same book overtook this one.
+   */
+  apply(accepted: TidiedField[], choice: CoverChoice, cover: CoverPreview | null): Promise<BookDetails | undefined>
+  /** Ends the preview without keeping anything. */
+  close(): void
+}
+
+/**
+ * Asks for a tidy, `/tidy`, which spends a generation, and holds its answer
+ * for the reader to preview. While it is open the shelf's lookups of the
+ * book are dropped and the shelf pass waits; `apply` or `close` ends it.
+ */
+export async function proposeDetails(
+  store: DetailsStore, request: DiscoveryRequest, book: ShelfBook, signal?: AbortSignal,
+): Promise<Proposal> {
+  const turn = turnOf(store, book.key)
+  turn.tidies++
+  turn.tidying++
+  const mine = turn.tidies
+  let open = true
+  const close = () => {
+    if (!open) return
+    open = false
+    turn.tidying--
+    const queue = queues.get(store)
+    if (queue) pump(store, queue)
+  }
+  const previous = book.details
+  const preview = async (answer: DetailsAnswer, signal?: AbortSignal): Promise<CoverPreview> => {
+    const url = answer.cover.url
+    if (!url) return { answer }
+    if (url === previous?.cover_url) return { answer, kept: true }
+    return { answer, image: await coverOf(request, answer, signal) }
+  }
+  const lookup = (choice: CoverChoice, signal?: AbortSignal) =>
+    discoveryJson<DetailsAnswer>(request, '/details/v1/lookup', jsonBody('POST', detailsBody(book, choice), signal))
+  let answer: DetailsAnswer, basis: DetailsFields
+  try {
+    const body = detailsBody(book, 'keep')
+    basis = body.book
+    answer = await discoveryJson<DetailsAnswer>(request, '/details/v1/tidy', jsonBody('POST', body, signal))
+  } catch (error) {
+    close()
+    throw error
+  }
+  const kept = answer
+  return {
+    answer, basis, close,
+    // The tidy itself answered for `keep`; a painting is shown as the drawn cover it will be painted on.
+    cover: async (choice, signal) => preview(choice === 'keep' ? kept : await lookup(choice === 'paint' ? 'draw' : choice, signal), signal),
+    async apply(accepted, choice, cover) {
+      try {
+        if (!open || turn.tidies !== mine) return undefined
+        let chosen = cover ?? (previous?.answer ? { answer: previous.answer, kept: !!previous.cover_url } : { answer: { ...kept, cover: { source: null, generated: false } } })
+        if (choice === 'paint') {
+          const painted = await lookup('paint')
+          chosen = painted.cover.url === chosen.answer.cover.url ? { ...chosen, answer: painted } : await preview(painted)
+        }
+        if (turn.tidies !== mine) return undefined
+        const attempted_at = Date.now()
+        const url = chosen.answer.cover.url ?? undefined
+        const cover_url = url && (chosen.image || chosen.kept) ? url : undefined
+        const origins = { ...kept.origins, cover: chosen.answer.origins.cover }
+        if (!origins.cover) delete origins.cover
+        const merged = { ...kept, cover: chosen.answer.cover, origins }
+        const painting_checks = merged.cover.painting ? 1 : undefined
+        // A cover not yet downloaded, or still being painted, is asked for again later.
+        const retry_at = painting_checks || (url && !cover_url) ? attempted_at + hour : undefined
+        const details: BookDetails = {
+          attempted_at, retry_at, answer: merged, cover_url, painting_checks, basis, accepted, original: false,
+          cover_choice: choice === 'keep' ? undefined : choice,
+        }
+        await store.setDetails(book.key, details, chosen.image)
+        return details
+      } finally {
+        close()
+      }
+    },
   }
 }
 
@@ -220,7 +323,7 @@ function pump(store: DetailsStore, queue: Queue) {
       queue.today = { date, count: queue.today.count + 1 }
       store.setPreference(countKey, queue.today).catch(() => undefined)
     }
-    void fetchDetails(store, queue.request, book, 'lookup')
+    void fetchDetails(store, queue.request, book)
       .then((details) => {
         // The allowance is spent: try the shelf again tomorrow.
         if (details?.answer?.tidy === 'quota_exceeded') pause(store, queue, Date.now() + day)
@@ -281,18 +384,36 @@ export function fillDetails(store: DetailsStore, request: DiscoveryRequest, book
   }
 }
 
-/** The found or drawn cover to show, when the book has none of its own and the reader did not choose the original. */
+/**
+ * The found or drawn cover to show: when the book has none of its own, or
+ * the reader chose another, and did not choose the original.
+ */
 export function foundCover(book: ShelfBook): string | undefined {
   const record = book.details
   const url = record?.cover_url
+  const chosen = !!record?.cover_choice && record.cover_choice !== 'keep'
   // `cover_url` names the image kept, which may be an earlier one while a newer one is not yet downloaded.
-  return !(book.cover instanceof Blob) && url && !record.original && record.answer ? url : undefined
+  return (chosen || !(book.cover instanceof Blob)) && url && !record.original && record.answer ? url : undefined
+}
+
+const groups: Partial<Record<keyof DetailsFields, TidiedField>> = {
+  title: 'title', authors: 'authors', series_name: 'series', series_index: 'series', description: 'description',
+}
+const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
+
+/** Whether the answer's value of `field` is shown: the reader did not reject it and the book has not changed it since. */
+function shown(book: ShelfBook, field: keyof DetailsFields): boolean {
+  const record = book.details
+  if (!record?.answer || record.original) return false
+  const group = groups[field]
+  if (group && record.accepted && !record.accepted.includes(group)) return false
+  return !record.basis || same(record.basis[field], ownFields(book)[field])
 }
 
 /** What to say about a value that is not the book's own; `null` when it is. */
 export function originLabel(book: ShelfBook, field: keyof DetailsFields | 'cover', t: (key: string) => string): string | null {
   const record = book.details
-  const source = record?.original ? undefined : record?.answer?.origins[field]
+  const source = field !== 'cover' && !shown(book, field) ? undefined : record?.original ? undefined : record?.answer?.origins[field]
   // A value this client does not know is still not the book's own: label it as AI-made.
   return !source || source === 'file' || source === 'catalog' ? null
     : source === 'openlibrary' ? t('From Open Library')
@@ -305,16 +426,17 @@ export function withDetails(book: ShelfBook): ShelfBook {
   const answer = record?.answer
   if (!answer || record.original) return book
   const found = answer.book
+  const pick = <K extends keyof DetailsFields>(field: K, own: ShelfBook[K & keyof ShelfBook]) => shown(book, field) ? found[field] : own
   return {
     ...book,
-    title: found.title,
-    authors: found.authors,
-    series_name: found.series_name,
-    series_index: found.series_index,
-    description: found.description,
-    subjects: found.subjects,
-    language: found.language,
-    isbn: found.isbn,
-    publisher: found.publisher,
+    title: pick('title', book.title),
+    authors: pick('authors', book.authors),
+    series_name: pick('series_name', book.series_name),
+    series_index: pick('series_index', book.series_index),
+    description: pick('description', book.description),
+    subjects: pick('subjects', book.subjects),
+    language: pick('language', book.language),
+    isbn: pick('isbn', book.isbn),
+    publisher: pick('publisher', book.publisher),
   }
 }
