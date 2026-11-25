@@ -110,7 +110,12 @@ _DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 
 
 class Untrusted(ValueError):
-    """Something the worker wrote that the protocol does not allow."""
+    """Something the worker wrote that the protocol does not allow. ``check``
+    is a fixed label naming the check that failed, safe to log."""
+
+    def __init__(self, check: str) -> None:
+        super().__init__(check)
+        self.check = check
 
 
 def now() -> datetime:
@@ -154,9 +159,9 @@ def _age_s(path: Path) -> float:
     return math.inf if age < -CLOCK_SKEW_S else max(age, 0.0)
 
 
-def _need(condition: bool) -> None:
+def _need(condition: bool, check: str) -> None:
     if not condition:
-        raise Untrusted
+        raise Untrusted(check)
 
 
 def _open_file(name: str | Path, limit: int, dir_fd: int | None = None) -> tuple[int, int]:
@@ -165,7 +170,7 @@ def _open_file(name: str | Path, limit: int, dir_fd: int | None = None) -> tuple
     fd = os.open(name, _READ, dir_fd=dir_fd)
     try:
         info = os.fstat(fd)
-        _need(stat.S_ISREG(info.st_mode) and info.st_size <= limit)
+        _need(stat.S_ISREG(info.st_mode) and info.st_size <= limit, "file")
     except BaseException:
         os.close(fd)
         raise
@@ -176,7 +181,7 @@ def _read_file(name: str | Path, limit: int, dir_fd: int | None = None) -> bytes
     fd, _ = _open_file(name, limit, dir_fd)
     with os.fdopen(fd, "rb") as fh:
         data = fh.read(limit + 1)
-    _need(len(data) <= limit)
+    _need(len(data) <= limit, "file_size")
     return data
 
 
@@ -305,7 +310,12 @@ class Folder:
         try:
             return self._accept(job, published, limit)
         except Exception as exc:  # noqa: BLE001 - whatever the worker wrote, the job fails
-            logger.info("event=convert.result_refused job=%s error=%s", job.id, type(exc).__name__)
+            logger.info(
+                "event=convert.result_refused job=%s error=%s check=%s",
+                job.id,
+                type(exc).__name__,
+                exc.check if isinstance(exc, Untrusted) else "-",
+            )
             return _failed("invalid_result")
 
     def _accept(self, job: ConvertJob, published: Path, limit: int) -> dict[str, Any]:
@@ -316,7 +326,7 @@ class Folder:
             if report["outcome"] == "failed":
                 return update | _failed(report["code"], report["detail"], report["retryable"])
             epub = report["epub"]
-            _need(epub["bytes"] <= limit)
+            _need(epub["bytes"] <= limit, "epub_limit")
             self._take_epub(job, folder, epub, limit)
         finally:
             os.close(folder)
@@ -337,16 +347,16 @@ class Folder:
         copy = self.store / f".{job.id.hex}.{uuid4().hex}"
         try:
             with os.fdopen(source, "rb") as src:
-                _need(size == epub["bytes"])
+                _need(size == epub["bytes"], "epub_size")
                 target = os.open(copy, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC, 0o600)
                 digest, copied = hashlib.sha256(), 0
                 with os.fdopen(target, "wb") as dst:
                     while chunk := src.read(1 << 20):
                         copied += len(chunk)
-                        _need(copied <= epub["bytes"])
+                        _need(copied <= epub["bytes"], "epub_size")
                         digest.update(chunk)
                         dst.write(chunk)
-            _need(copied == epub["bytes"] and digest.hexdigest() == epub["sha256"])
+            _need(copied == epub["bytes"] and digest.hexdigest() == epub["sha256"], "epub_digest")
             _check_epub(copy, UNPACKED_RATIO * limit)
             os.replace(copy, self.result(job.id))
         except BaseException:
@@ -394,90 +404,102 @@ def _check_epub(path: Path, unpacked_limit: int) -> None:
     with the EPUB media type, no name that escapes the book, bounded entries."""
     with zipfile.ZipFile(path) as book:
         entries = book.infolist()
-        _need(0 < len(entries) <= MAX_EPUB_ENTRIES)
+        _need(0 < len(entries) <= MAX_EPUB_ENTRIES, "zip_entries")
         first = entries[0]
-        _need(first.filename == "mimetype" and first.file_size == len(EPUB_MEDIA_TYPE))
-        _need(book.read(first) == EPUB_MEDIA_TYPE)
+        _need(
+            first.filename == "mimetype" and first.file_size == len(EPUB_MEDIA_TYPE), "zip_mimetype"
+        )
+        _need(book.read(first) == EPUB_MEDIA_TYPE, "zip_mimetype")
         total = 0
         for entry in entries:
             parts = entry.filename.replace("\\", "/").split("/")
-            _need(parts[0] != "" and ".." not in parts and ":" not in parts[0])
+            _need(parts[0] != "" and ".." not in parts and ":" not in parts[0], "zip_name")
             total += entry.file_size
-        _need(total <= unpacked_limit)
+        _need(total <= unpacked_limit, "zip_unpacked")
 
 
-def _int(value: Any, low: int = 0, high: int = 10**9) -> int:
-    _need(type(value) is int and low <= value <= high)
+def _int(value: Any, check: str, low: int = 0, high: int = 10**9) -> int:
+    _need(type(value) is int and low <= value <= high, check)
     return value
 
 
-def _str(value: Any, limit: int = 500, *, optional: bool = True) -> str | None:
+def _str(value: Any, check: str, limit: int = 500, *, optional: bool = True) -> str | None:
     if value is None and optional:
         return None
-    _need(isinstance(value, str))
+    _need(isinstance(value, str), check)
     return value[:limit]
 
 
-def _choice(value: Any, choices: tuple[str, ...]) -> str:
-    _need(value in choices)
+def _choice(value: Any, check: str, choices: tuple[str, ...]) -> str:
+    _need(value in choices, check)
     return value
 
 
-def _list(value: Any) -> list:
+def _list(value: Any, check: str) -> list:
     if value is None:
         return []
-    _need(isinstance(value, list))
+    _need(isinstance(value, list), check)
     return value
 
 
 def _report(raw: Any, job: ConvertJob) -> dict[str, Any]:
     """The worker's ``result.json``, every field checked for its type."""
-    _need(isinstance(raw, dict))
-    _need(_int(raw.get("format")) == FORMAT)
-    _need(raw.get("job") == job.id.hex and _int(raw.get("attempt")) == job.attempt)
-    outcome = _choice(raw.get("outcome"), ("ready", "review", "failed"))
+    _need(isinstance(raw, dict), "report")
+    _need(_int(raw.get("format"), "format") == FORMAT, "format")
+    _need(raw.get("job") == job.id.hex, "job")
+    _need(_int(raw.get("attempt"), "attempt") == job.attempt, "attempt")
+    outcome = _choice(raw.get("outcome"), "outcome", ("ready", "review", "failed"))
     report: dict[str, Any] = {
         "outcome": outcome,
-        "engine": _str(raw.get("engine"), 200) or None,
-        "detail": _str(raw.get("detail")),
+        "engine": _str(raw.get("engine"), "engine", 200) or None,
+        "detail": _str(raw.get("detail"), "detail"),
     }
     if outcome == "failed":
-        code = _str(raw.get("code"), 40, optional=False)
+        code = _str(raw.get("code"), "code", 40, optional=False)
         retryable = raw.get("retryable", False)
-        _need(isinstance(retryable, bool))
+        _need(isinstance(retryable, bool), "retryable")
         return report | {
             "code": code if code in FAILURE_CODES else "worker_error",
             # Only the converter knows whether a stage failure may pass next time.
             "retryable": retryable and code == "conversion_failed",
         }
     epub = raw.get("epub")
-    _need(isinstance(epub, dict))
+    _need(isinstance(epub, dict), "epub")
     sha256 = epub.get("sha256")
-    _need(isinstance(sha256, str) and _SHA256.fullmatch(sha256) is not None)
+    _need(isinstance(sha256, str) and _SHA256.fullmatch(sha256) is not None, "epub_sha256")
     counts = raw.get("issue_counts") or {}
-    _need(isinstance(counts, dict) and all(key in SEVERITIES for key in counts))
-    pages = _list(raw.get("affected_pages"))
-    issues = _list(raw.get("issues"))
-    for entry in (*pages, *issues):
-        _need(isinstance(entry, dict))
+    _need(isinstance(counts, dict) and all(key in SEVERITIES for key in counts), "issue_counts")
+    pages = _list(raw.get("affected_pages"), "affected_pages")
+    issues = _list(raw.get("issues"), "issues")
+    for entry in pages:
+        _need(isinstance(entry, dict), "affected_pages")
+    for entry in issues:
+        _need(isinstance(entry, dict), "issues")
     return report | {
         "epub": {
             "sha256": sha256,
-            "bytes": _int(epub.get("bytes"), 1, 2**62),
-            "rendition_id": _str(epub.get("rendition_id")),
+            "bytes": _int(epub.get("bytes"), "epub_bytes", 1, 2**62),
+            "rendition_id": _str(epub.get("rendition_id"), "rendition_id"),
         },
-        "issue_counts": {key: _int(value, 0, 10**6) for key, value in counts.items()},
+        "issue_counts": {
+            key: _int(value, "issue_counts", 0, 10**6) for key, value in counts.items()
+        },
         "affected_pages": [
-            {"page": _int(p.get("page"), 1, 10**6), "label": _str(p.get("label"), 40)}
+            {
+                "page": _int(p.get("page"), "affected_page", 1, 10**6),
+                "label": _str(p.get("label"), "affected_page_label", 40),
+            }
             for p in pages
         ][:MAX_PAGES_LISTED],
         "issues": [
             {
-                "code": _str(i.get("code"), 80, optional=False),
-                "severity": _choice(i.get("severity"), SEVERITIES),
-                "page": None if i.get("page") is None else _int(i.get("page"), 1, 10**6),
-                "page_label": _str(i.get("page_label"), 40),
-                "message": _str(i.get("message")),
+                "code": _str(i.get("code"), "issue_code", 80, optional=False),
+                "severity": _choice(i.get("severity"), "issue_severity", SEVERITIES),
+                "page": None
+                if i.get("page") is None
+                else _int(i.get("page"), "issue_page", 1, 10**6),
+                "page_label": _str(i.get("page_label"), "issue_page_label", 40),
+                "message": _str(i.get("message"), "issue_message"),
             }
             for i in issues
         ][:MAX_ISSUES],

@@ -142,7 +142,10 @@ test('a PDF becomes a book: confirmed, uploaded, converted, imported once, and k
   await expect(page.getByRole('button', { name: /Field Notes/ })).toBeVisible()
   await expect(page.getByRole('status').filter({ hasText: 'Field notes.pdf: Added to your library.' })).toBeAttached()
   expect(server.calls.filter(call => call === 'POST /convert/v1/jobs')).toHaveLength(1)
-  expect(server.calls.slice(-2)).toEqual(['GET /convert/v1/jobs/job-1/epub', 'POST /convert/v1/jobs/job-1/acknowledge'])
+  // The book shows as added before the acknowledge is sent, so wait for it.
+  await expect
+    .poll(() => server.calls.slice(-2))
+    .toEqual(['GET /convert/v1/jobs/job-1/epub', 'POST /convert/v1/jobs/job-1/acknowledge'])
   expect(new Set(server.keys).size).toBe(1)
 
   await page.reload()
