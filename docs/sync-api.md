@@ -1879,8 +1879,8 @@ one's are served, each with its own picture, so an address a client
 already holds keeps working.
 
 Response headers: `Content-Type: image/png` (or `image/jpeg`), `ETag`,
-`Cache-Control: private, max-age=31536000, immutable`, and
-`X-Quire-Cover: generated`, which marks the image as drawn by the server
+`Cache-Control: private, max-age=31536000, immutable` for an address with
+`?v=` (`private, no-cache` without one), and `X-Quire-Cover: generated`, which marks the image as drawn by the server
 rather than a real cover.
 
 | Status | When |
@@ -1916,7 +1916,11 @@ unavailable provider a later lookup may try again a day later, otherwise
 after 30 days. The server paints at most `QUIRE_SERVER_COVER_ART_DAILY_BUDGET`
 covers a day in all. None of this is charged to the reader's allowance.
 
-A client that keeps the first cover it was given and does not look the book
-up again keeps showing the drawn cover. To pick up the artwork, a client
-that sees `painting: true` looks the book up again later (an hour is
-plenty) and fetches the new `url` when it changed.
+`painting: true` means "ask again later": look the book up again (an hour
+is plenty), which is free because the record is stored, and fetch the new
+`url` when it changed. A client that keeps the first cover it was given and
+never looks the book up again keeps showing the drawn cover.
+
+The artwork comes only as base64 image data in the provider's answer; the
+server never fetches an image address, so a provider that answers with
+one paints nothing.

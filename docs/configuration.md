@@ -673,7 +673,10 @@ It is off by default and needs both
 [`QUIRE_SERVER_AI_ENABLED`](#quire_server_ai_enabled) and
 [`QUIRE_SERVER_DETAILS_ENABLED`](#quire_server_details_enabled). The image
 provider is set separately from the chat provider: any service with an
-OpenAI-compatible `POST {base}/images/generations` endpoint. The server
+OpenAI-compatible `POST {base}/images/generations` endpoint that answers
+with base64 image data (`b64_json`), as the GPT image models do. An answer
+that gives an image address instead is recorded as a failed painting: the
+server never fetches an address a provider points it at. The server
 paints in the background, one cover at a time, only for books a signed-in
 reader who opted in to AI looked up, and once per book; the title and
 author are still set by the server, never by the model. How clients see
@@ -686,7 +689,9 @@ Nothing about the reader is sent: no account, name or address. Tell your
 readers if your privacy notice lists where book data goes.
 
 Cost: at most [`QUIRE_SERVER_COVER_ART_DAILY_BUDGET`](#quire_server_cover_art_daily_budget)
-paintings a day (UTC) across the whole server, failures included. They
+paintings a day (UTC) across the whole server, counting failures and
+paintings still in progress. The budget is shared, not per reader, so one
+reader opening many books without covers can use up the day's budget. They
 are logged in `ai_generation_log` with kind `cover_art` and are not
 charged to any reader's allowance. Artwork is stored in the database (one
 JPEG of at most about 400 KB per book) for as long as the book's details

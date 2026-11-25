@@ -139,6 +139,9 @@ async def _with_art(
     artist: cover_art.CoverArtist | None = getattr(request.app.state, "cover_artist", None)
     if artist is None or answer.cover.source != "generated":
         return answer
+    row = await session.get(BookDetails, answer.key)
+    if row is None:
+        return answer
     art = (
         await session.execute(
             select(
@@ -150,21 +153,15 @@ async def _with_art(
         )
     ).one_or_none()
     if art is not None and art.status == "painted":
-        row = await session.get(BookDetails, answer.key)
-        if row is not None:
-            etag = details.cover_etag(row, art.digest)
-            answer.cover.url = f"/details/v1/covers/{answer.key}?v={etag}"
-            answer.cover.painted = True
+        etag = details.cover_etag(row, art.digest)
+        answer.cover.url = f"/details/v1/covers/{answer.key}?v={etag}"
+        answer.cover.painted = True
         return answer
     if art is None or cover_art.due(art.status, art.error_class, art.attempted_at):
-        book = answer.book
+        # Painted from the shared record, never from this reader's own
+        # fields: every reader of the record sees the same artwork.
         answer.cover.painting = artist.schedule(
-            answer.key,
-            title=book.title,
-            subjects=list(book.subjects or []),
-            description=book.description,
-            subject=principal.subject,
-            tenant_id=principal.tenant_id,
+            answer.key, row.record, subject=principal.subject, tenant_id=principal.tenant_id
         )
     else:
         answer.cover.painting = art.status == "pending"
@@ -225,8 +222,9 @@ async def get_cover(
     etag = f'"{current}"'
     headers = {
         "ETag": etag,
-        # The address carries the ETag (`?v=`), so a changed cover has a new one.
-        "Cache-Control": "private, max-age=31536000, immutable",
+        # A versioned address (`?v=`) names one picture forever; a bare one
+        # follows the record, so it must be checked again each time.
+        "Cache-Control": "private, max-age=31536000, immutable" if v else "private, no-cache",
         "X-Quire-Cover": "generated",
     }
     if request.headers.get("If-None-Match") == etag:

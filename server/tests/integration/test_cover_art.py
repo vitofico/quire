@@ -33,7 +33,9 @@ def png(colour=(30, 90, 160)) -> bytes:
     return out.getvalue()
 
 
-async def paint_with(app, answer=None, *, gate: asyncio.Event | None = None) -> list[dict]:
+async def paint_with(
+    app, answer=None, *, gate: asyncio.Event | None = None, timeout_s: float = 120.0
+) -> list[dict]:
     """Point the app's artist at a stub provider; returns the requests made."""
     calls: list[dict] = []
 
@@ -51,6 +53,7 @@ async def paint_with(app, answer=None, *, gate: asyncio.Event | None = None) -> 
         base_url="https://art.example.test/v1",
         api_key="test-key",
         model="art-model",
+        timeout_s=timeout_s,
         transport=httpx.MockTransport(handler),
     )
     return calls
@@ -99,6 +102,9 @@ async def test_artwork_is_painted_off_the_request_and_then_offered(client_factor
     # An address a client already held keeps its picture.
     assert still_drawn.status_code == 200 and still_drawn.headers["content-type"] == "image/png"
     assert latest.headers["content-type"] == "image/jpeg"
+    # Only a versioned address may be kept forever.
+    assert "immutable" in painted.headers["cache-control"]
+    assert latest.headers["cache-control"] == "private, no-cache"
 
     status, image = (await session.execute(select(BookCoverArt.status, BookCoverArt.image))).one()
     assert status == "painted" and len(image) <= 400_000
@@ -192,3 +198,66 @@ async def test_enabled_without_a_provider_paints_nothing(client_factory, app, se
     assert app.state.cover_artist is None
     assert answer["cover"]["painting"] is False
     assert any("Cover artwork is enabled without" in w for w in app.state.config_warnings)
+
+
+async def test_artwork_is_painted_from_the_shared_record_not_a_readers_own_fields(
+    client_factory, app, session
+):
+    """The second device reaches the record through the reader's pointer
+    with a description of its own; the artwork every reader of the record
+    sees must not be painted from it."""
+    web = {
+        **body(title="Dune", authors=["Frank Herbert"], description="Their own private blurb."),
+        "source": "catalog",
+    }
+    async with client_factory(**ART_ENV) as client:
+        install(app, tidy_answer())
+        calls = await paint_with(app)
+        await opt_in(client, "alice")
+        artist, app.state.cover_artist = app.state.cover_artist, None
+        # The record is made from the phone's fields, which have no description.
+        phone = await lookup(client)
+        app.state.cover_artist = artist
+        r = await client.post("/details/v1/lookup", headers=creds("alice"), json=web)
+        other_device = r.json()
+        await artist.drain()
+
+    assert other_device["key"] == phone["key"] and other_device["cover"]["painting"] is True
+    # This reader still sees their own description...
+    assert other_device["book"]["description"] == "Their own private blurb."
+    (call,) = calls
+    # ...but the shared artwork is painted from the record, which has none.
+    assert "Their own private blurb" not in call["prompt"] and "About:" not in call["prompt"]
+    assert "Title: Dune" in call["prompt"]
+
+
+async def test_a_painting_that_runs_too_long_is_a_timeout(client_factory, app, session):
+    async with client_factory(**ART_ENV) as client:
+        install(app, tidy_answer())
+        await paint_with(app, gate=asyncio.Event(), timeout_s=0.05)
+        await opt_in(client, "alice")
+        await lookup(client)
+        await app.state.cover_artist.drain()
+
+    status, error = (
+        await session.execute(select(BookCoverArt.status, BookCoverArt.error_class))
+    ).one()
+    assert (status, error) == ("failed", "timeout")
+
+
+async def test_a_painting_in_flight_or_lost_counts_against_the_budget(client_factory, app, session):
+    async with client_factory(**ART_ENV, cover_art_daily_budget=1) as client:
+        install(app, tidy_answer())
+        calls = await paint_with(app)
+        await opt_in(client, "alice")
+        artist, app.state.cover_artist = app.state.cover_artist, None
+        await lookup(client)
+        app.state.cover_artist = artist
+        # A server that crashed mid-painting left this row today.
+        row = (await session.execute(select(BookDetails))).scalars().one()
+        session.add(BookCoverArt(key=row.key, status="pending", model_id="art-model"))
+        await session.commit()
+        await lookup(client, title="another_book_(retail)")
+        await artist.drain()
+
+    assert calls == []

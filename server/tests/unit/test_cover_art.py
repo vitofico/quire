@@ -20,6 +20,7 @@ from quire_server.core.cover_art import (
     art_prompt,
     due,
     normalise_art,
+    record_prompt,
 )
 from quire_server.core.covers import _BAND_TOP, _contrast, draw_painted_cover, painted_cover_jpeg
 
@@ -79,6 +80,21 @@ def test_the_provider_image_is_stored_as_a_small_portrait_jpeg():
         assert (image.format, image.size) == ("JPEG", (600, 900))
 
 
+def test_a_camera_orientation_tag_is_applied():
+    # Stored landscape, left half red and right half blue, tagged "rotate 90":
+    # upright it is a portrait with one colour above the other.
+    stored = Image.new("RGB", (1536, 1024), (255, 0, 0))
+    stored.paste((0, 0, 255), (768, 0, 1536, 1024))
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    out = io.BytesIO()
+    stored.save(out, format="JPEG", exif=exif)
+    with Image.open(io.BytesIO(normalise_art(out.getvalue()))) as art:
+        top, bottom = art.getpixel((300, 50)), art.getpixel((300, 850))
+    # Ignoring the tag would crop the middle of the landscape: red top and bottom.
+    assert {max(range(3), key=lambda c: px[c]) for px in (top, bottom)} == {0, 2}
+
+
 def test_noise_that_compresses_badly_still_fits_the_cap():
     noise = Image.effect_noise((1024, 1536), 120).convert("RGB")
     out = io.BytesIO()
@@ -121,6 +137,22 @@ def test_book_text_is_capped_cleaned_and_fenced():
     subjects = next(line for line in inner.splitlines() if line.startswith("Subjects: "))
     assert subjects.count(",") <= 7
     assert "no text" in prompt.lower() and "likeness" in prompt and "painterly" in prompt
+
+
+def test_the_prompt_comes_from_the_record_then_its_open_library_book():
+    found = {
+        "book": {
+            "title": "Dune",
+            "subjects": ["Desert", "Ecology", 3],
+            "description": "Spice and sand.",
+        }
+    }
+    own = record_prompt({"title": "Dune", "description": "A tidied blurb.", "found": found})
+    assert "About: A tidied blurb." in own and "Subjects: Desert, Ecology" in own
+    fallback = record_prompt({"title": None, "description": None, "found": found})
+    assert "Title: Dune" in fallback and "About: Spice and sand." in fallback
+    bare = record_prompt({"title": "Dune", "found": {"book": None}})
+    assert "Subjects:" not in bare and "About:" not in bare
 
 
 def test_untrusted_text_is_cut_at_a_word():
@@ -166,61 +198,26 @@ async def test_the_request_names_only_the_model_prompt_count_and_size():
     }
 
 
-async def test_an_image_address_is_fetched_without_the_key():
-    seen: list[httpx.Request] = []
+async def test_an_image_address_is_never_fetched():
+    seen: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(request)
-        if request.url.path.endswith("/images/generations"):
-            return httpx.Response(
-                200, json={"data": [{"url": "https://files.example.test/art.png"}]}
-            )
-        return httpx.Response(200, content=picture())
-
-    p = provider(handler)
-    assert await p.paint("p") == picture()
-    await p.aclose()
-    assert "Authorization" not in seen[1].headers
-
-
-@pytest.mark.parametrize(
-    "address",
-    [
-        "http://files.example.test/art.png",
-        "https://user:pw@files.example.test/art.png",
-        "file:///etc/passwd",
-        "not a url",
-    ],
-)
-async def test_only_plain_https_addresses_are_fetched(address):
-    fetched: list[str] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path.endswith("/images/generations"):
-            return httpx.Response(200, json={"data": [{"url": address}]})
-        fetched.append(str(request.url))
-        return httpx.Response(200, content=picture())
+        seen.append(str(request.url))
+        return httpx.Response(200, json={"data": [{"url": "https://169.254.169.254/latest"}]})
 
     p = provider(handler)
     with pytest.raises(ArtError) as e:
         await p.paint("p")
     await p.aclose()
-    assert e.value.code == "unsafe_url" and fetched == []
+    assert e.value.code == "no_b64_json"
+    assert seen == ["https://art.example.test/v1/images/generations"]
 
 
-async def test_a_redirect_from_an_image_address_is_not_followed():
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path.endswith("/images/generations"):
-            return httpx.Response(200, json={"data": [{"url": "https://files.example.test/a"}]})
-        if request.url.path == "/a":
-            return httpx.Response(302, headers={"Location": "https://169.254.169.254/"})
-        raise AssertionError("followed a redirect")
-
-    p = provider(handler)
-    with pytest.raises(ArtError) as e:
-        await p.paint("p")
+async def test_proxy_variables_are_ignored(monkeypatch):
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.example.test:3128")
+    p = ImageProvider(base_url="https://art.example.test/v1", api_key=None, model="m")
+    assert p._api.trust_env is False
     await p.aclose()
-    assert e.value.code == "unavailable"
 
 
 @pytest.mark.parametrize(
@@ -237,7 +234,8 @@ async def test_a_redirect_from_an_image_address_is_not_followed():
         (503, {}, "unavailable"),
         (200, {"data": []}, "no_image"),
         (200, {"data": [{"b64_json": "!!not base64!!"}]}, "bad_image"),
-        (200, {"data": [{"revised_prompt": "x"}]}, "no_image"),
+        (200, {"data": [{"revised_prompt": "x"}]}, "no_b64_json"),
+        (200, {"oops": True}, "no_image"),
     ],
 )
 async def test_provider_answers_map_to_a_stored_reason(status, payload, code):
