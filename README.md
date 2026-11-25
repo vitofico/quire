@@ -124,6 +124,11 @@ Sign in under **Settings → Account** to sync your shelf, progress and highligh
   including [calibre-web] and [Kavita]. Give Quire the full catalog feed URL for
   a generic OPDS connection. This mode keeps reading state on the device;
   server sync, the library mirror and AI features stay off.
+- **From a free catalog:** under **Open catalogs**, add a free, legal
+  catalog of public-domain books in one tap, with those in your language
+  first. Quire offers them in Settings → Catalogs, on an empty Catalog tab and
+  in Quire Web. The device, or on the web your Quire server, then contacts that
+  catalog's site.
 - **Across devices:** add a compatible **Quire Server** to sync reading state
   and your per-user library mirror. The calibre-web integration keeps
   calibre-web as the source of books and Quire Server as the source of reading
