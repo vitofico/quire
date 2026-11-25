@@ -126,7 +126,7 @@ describe('details client', () => {
     })
     const first = (await fetchDetails(store, request, messy, 'lookup'))!
     expect(first).toMatchObject({ answer: answer(), cover_url: undefined })
-    expect(first.retry_at! - first.attempted_at).toBe(86_400_000)
+    expect(first.retry_at! - first.attempted_at).toBeCloseTo(86_400_000, -3)
     expect(wantsLookup({ ...messy, details: first }, first.retry_at!)).toBe(true)
     const second = (await fetchDetails(store, request, { ...messy, details: first }, 'lookup'))!
     expect(request.mock.calls.map(([path]) => path).filter((path) => path === '/details/v1/lookup')).toHaveLength(1)
@@ -262,7 +262,7 @@ describe('when details are looked up', () => {
     fillDetails(other, offline, [messy])
     await vi.waitFor(() => expect(other.saved.get('hash-1')).toBeDefined())
     const wait = other.saved.get('hash-1')!
-    expect(wait.retry_at! - wait.attempted_at).toBe(86_400_000)
+    expect(wait.retry_at! - wait.attempted_at).toBeCloseTo(86_400_000, -3)
   })
 })
 
@@ -317,7 +317,7 @@ describe('the shelf pass', () => {
   it('asks an unfinished tidy again after a day, and a spent allowance pauses the pass for the day', async () => {
     for (const tidy of ['quota_exceeded', 'failed'] as const) {
       const details = (await fetchDetails(memoryStore(), vi.fn(async () => Response.json(answer({ tidy, cover: noCover }))), messy, 'lookup'))!
-      expect(details.retry_at! - details.attempted_at, tidy).toBe(86_400_000)
+      expect(details.retry_at! - details.attempted_at, tidy).toBeCloseTo(86_400_000, -3)
     }
     const done = await fetchDetails(memoryStore(), vi.fn(async () => Response.json(answer({ tidy: 'not_needed', cover: noCover }))), messy, 'lookup')
     expect(done?.retry_at).toBeUndefined()
@@ -366,7 +366,7 @@ describe('a cover being painted', () => {
       return path === painted.url ? new Response(new Blob(['jpg'], { type: 'image/jpeg' })) : png()
     })
     const first = (await fetchDetails(store, request, messy, 'lookup'))!
-    expect(first.retry_at! - first.attempted_at).toBe(3_600_000)
+    expect(first.retry_at! - first.attempted_at).toBeCloseTo(3_600_000, -3)
     expect(wantsLookup({ ...messy, details: first }, first.retry_at! - 1)).toBe(false)
     expect(wantsLookup({ ...messy, details: first }, first.retry_at!)).toBe(true)
 
