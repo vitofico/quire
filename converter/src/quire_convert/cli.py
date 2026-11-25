@@ -65,6 +65,11 @@ def build_parser() -> _Parser:
     evaluate.add_argument("--freeze", action="store_true", help="freeze gates and holdout hash")
     evaluate.add_argument("--record-machine", action="store_true", help="write machine.json")
 
+    worker = sub.add_parser("worker", help="convert the jobs Quire Server queues in a folder")
+    worker.add_argument("--jobs", type=Path, required=True, help="folder shared with the server")
+    worker.add_argument("--once", action="store_true", help="convert at most one job, then exit")
+    worker.add_argument("--poll-seconds", type=float, default=2.0, help="idle wait between scans")
+
     from .deliver.command import add_arguments as add_deliver_arguments
 
     add_deliver_arguments(sub.add_parser("deliver", help="save a converted EPUB to Calibre-Web"))
@@ -75,7 +80,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     logging.basicConfig(
-        level=logging.INFO if args.verbose else logging.WARNING,
+        level=logging.INFO if args.verbose or args.command == "worker" else logging.WARNING,
         format="%(levelname)s %(name)s: %(message)s",
     )
     try:
@@ -83,6 +88,10 @@ def main(argv: list[str] | None = None) -> int:
             return _inspect(args)
         if args.command == "convert":
             return _convert(args)
+        if args.command == "worker":
+            from .worker import main as worker
+
+            return worker(args.jobs, once=args.once, poll_s=args.poll_seconds)
         if args.command == "deliver":
             from .deliver.command import run as deliver
 
