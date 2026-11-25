@@ -1,12 +1,13 @@
 """The in-process limits of /details/v1: per-reader rate and the cover cache."""
 
 from quire_server.api import details as api
+from quire_server.core import rate_limit
 
 
 def test_the_rate_limit_forgets_idle_readers(monkeypatch):
     now = [1000.0]
-    monkeypatch.setattr(api.time, "monotonic", lambda: now[0])
-    limit = api.RateLimit(max_readers=3)
+    monkeypatch.setattr(rate_limit.time, "monotonic", lambda: now[0])
+    limit = rate_limit.RateLimit(max_readers=3)
     for reader in ("a", "b", "c"):
         assert limit.retry_after(reader, 1) is None
     assert limit.retry_after("a", 1) is not None  # one a minute

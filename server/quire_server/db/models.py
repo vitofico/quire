@@ -337,9 +337,11 @@ class AIGenerationLog(Base):
       'details': one tidy of a book's details (ai_012); book_insight_id NULL.
       'cover_art': one painting of a cover's artwork (ai_013); book_insight_id
                   NULL. Never charged to the reader.
+      'discuss': one question about the reader's highlights (ai_014);
+                  book_insight_id NULL. Nothing of the question is stored.
 
     Cross-field invariant enforced by ``ck_ai_generation_log_kind_fk``:
-    profile, details and cover_art rows MUST have book_insight_id NULL; insight/promote
+    profile, details, cover_art and discuss rows MUST have book_insight_id NULL; insight/promote
     rows MUST have it non-null. ``_log_generation()`` raises ValueError BEFORE the DB
     round-trip if a caller violates this.
 
@@ -356,11 +358,12 @@ class AIGenerationLog(Base):
             name="ck_ai_generation_log_status",
         ),
         CheckConstraint(
-            "kind IN ('insight', 'profile', 'promote', 'details', 'cover_art')",
+            "kind IN ('insight', 'profile', 'promote', 'details', 'cover_art', 'discuss')",
             name="ck_ai_generation_log_kind",
         ),
         CheckConstraint(
-            "(kind IN ('profile', 'details', 'cover_art') AND book_insight_id IS NULL) "
+            "(kind IN ('profile', 'details', 'cover_art', 'discuss') "
+            "AND book_insight_id IS NULL) "
             "OR (kind IN ('insight', 'promote') AND book_insight_id IS NOT NULL)",
             name="ck_ai_generation_log_kind_fk",
         ),

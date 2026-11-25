@@ -133,7 +133,7 @@ async def test_status_reports_what_the_server_runs_with(admin_client, alice):
     assert isinstance(body["warnings"], list)
     assert body["migrations"]["missing"] == []
     assert body["migrations"]["applied"] == [
-        "ai_013",
+        "ai_014",
         "auth_005",
         "catalogs_001",
         "convert_001",

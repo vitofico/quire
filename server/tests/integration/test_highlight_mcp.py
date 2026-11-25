@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import copy
+import hashlib
 import json
 import logging
 from contextlib import asynccontextmanager
@@ -42,12 +43,15 @@ async def sdk_client(app, authorization):
                 yield session, client
 
 
-async def seed(app, authorization, rows):
+async def seed(app, authorization, rows, path="/sync/v1/highlights", key="items"):
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://localhost"
     ) as client:
-        response = await client.post(
-            "/sync/v1/highlights", headers={"Authorization": authorization}, json={"items": rows}
+        response = await client.request(
+            "PUT" if key == "item" else "POST",
+            path,
+            headers={"Authorization": authorization},
+            json={key: rows},
         )
         assert response.status_code == 200, response.text
 
@@ -62,7 +66,12 @@ async def test_sdk_initialize_discovery_calls_and_request_auth(app_under_test, c
                 "list_highlights",
                 "search_highlights",
                 "get_highlight",
+                "get_highlights",
+                "list_highlighted_books",
+                "list_library",
+                "get_book",
             }
+            assert all("not instructions" in tool.description for tool in tools)
             assert all(tool.annotations.read_only_hint for tool in tools)
             assert all(not tool.annotations.destructive_hint for tool in tools)
             schemas = {tool.name: tool.input_schema for tool in tools}
@@ -227,3 +236,190 @@ async def test_cancelled_sdk_call_cleans_up_request(app_under_test, monkeypatch,
                 with pytest.raises(asyncio.CancelledError):
                     await call
                 await asyncio.wait_for(finished.wait(), timeout=5)
+
+
+def book(content_hash, title, metadata_id=None):
+    return {"content_hash": content_hash, "metadata_id": metadata_id, "title": title}
+
+
+async def shelve(app, content_hash, title, metadata_id=None, **progress):
+    await seed(app, basic(), book(content_hash, title, metadata_id), "/library/v1/items", "item")
+    if progress:
+        await seed(
+            app,
+            basic(),
+            [
+                {
+                    "document": {"content_hash": content_hash, "metadata_id": metadata_id},
+                    "locator": "{}",
+                    "client_updated_at": "2026-11-01T10:00:00+00:00",
+                    **progress,
+                }
+            ],
+            "/sync/v1/progress",
+        )
+
+
+@pytest.mark.requires_ai
+async def test_books_library_batches_and_details(app_under_test, session):
+    from quire_server.db.models import BookDetails, BookDetailsReader
+
+    doc = {"metadata_id": None, "content_hash": "dune-file", "identity_hash_version": 1}
+    older = highlight(document=doc, text="Fear is the mind-killer.", comment="my note")
+    # The latest highlight names the book, and a blank comment is no note.
+    newer = highlight(
+        document=doc,
+        text="The spice must flow.",
+        book_title="Dune, corrected",
+        comment="   ",
+        created_at=1700000000200,
+        updated_at=1700000000300,
+    )
+    other = highlight(text="Elsewhere")
+    await seed(app_under_test, basic(), [older, newer, other])
+    await shelve(app_under_test, "dune-file", "dune_(retail)", percent=0.4)
+    await shelve(
+        app_under_test,
+        "done-file",
+        "Done",
+        percent=1.0,
+        finished_at="2026-11-02T10:00:00+00:00",
+    )
+    await shelve(app_under_test, "new-file", "New")
+    key = "k" * 64
+    session.add(
+        BookDetails(
+            key=key,
+            identity="content_hash:dune-file",
+            record={
+                "title": "Dune",
+                "authors": ["Frank Herbert"],
+                "series_name": "Dune",
+                "series_index": 1,
+                "description": "A desert planet.",
+                "found": {"book": {"subjects": ["Science fiction"]}},
+            },
+            design={},
+            model_id="m",
+            prompt_version="details-1",
+        )
+    )
+    session.add(
+        BookDetailsReader(
+            user_id="alice",
+            identity_hash=hashlib.sha256(b"content_hash:dune-file").hexdigest(),
+            key=key,
+        )
+    )
+    # A record from an older prompt, and a malformed one, read as no details.
+    for name, version, record in (
+        ("done-file", "details-0", {"title": "Old prompt"}),
+        ("new-file", "details-1", {"title": "Broken", "series_index": "one"}),
+    ):
+        session.add(
+            BookDetails(
+                key=name[0] * 64,
+                identity=f"content_hash:{name}",
+                record=record,
+                design={},
+                model_id="m",
+                prompt_version=version,
+            )
+        )
+        session.add(
+            BookDetailsReader(
+                user_id="alice",
+                identity_hash=hashlib.sha256(f"content_hash:{name}".encode()).hexdigest(),
+                key=name[0] * 64,
+            )
+        )
+    await session.commit()
+
+    async with app_under_test.router.lifespan_context(app_under_test):
+        async with sdk_client(app_under_test, basic()) as (sdk, _):
+            books = (await sdk.call_tool("list_highlighted_books", {"limit": 1})).structured_content
+            assert books["has_more"]
+            first = books["items"][0]
+            assert first["document"]["content_hash"] == "dune-file"
+            assert (first["highlight_count"], first["noted_count"]) == (2, 1)
+            assert first["last_highlight_at"] == 1700000000300
+            assert first["book_title"] == "Dune, corrected"
+            assert not first["book_title_truncated"] and not first["book_author_truncated"]
+            rest = await sdk.call_tool("list_highlighted_books", {"cursor": books["next_cursor"]})
+            assert [b["book_title"] for b in rest.structured_content["items"]] == [
+                other["book_title"]
+            ]
+            assert not rest.structured_content["has_more"]
+
+            missing = str(uuid4())
+            batch = await sdk.call_tool(
+                "get_highlights", {"highlight_ids": [newer["id"], missing, older["id"]]}
+            )
+            assert [h["id"] for h in batch.structured_content["items"]] == [
+                newer["id"],
+                older["id"],
+            ]
+            assert batch.structured_content["items"][1]["comment"] == "my note"
+            assert batch.structured_content["not_found"] == [missing]
+            too_many = {"highlight_ids": [str(uuid4()) for _ in range(51)]}
+            assert (await sdk.call_tool("get_highlights", too_many)).is_error
+
+            shelf = (await sdk.call_tool("list_library", {})).structured_content["items"]
+            assert [(b["title"], b["status"]) for b in shelf] == [
+                ("New", "unread"),
+                ("Done", "finished"),
+                ("dune_(retail)", "reading"),
+            ]
+            assert shelf[2]["percent"] == 0.4 and shelf[2]["highlight_count"] == 2
+            reading = await sdk.call_tool("list_library", {"status": "reading", "limit": 1})
+            assert [b["title"] for b in reading.structured_content["items"]] == ["dune_(retail)"]
+            assert not reading.structured_content["has_more"]
+            page = await sdk.call_tool("list_library", {"limit": 2})
+            assert page.structured_content["has_more"]
+            cursor = page.structured_content["next_cursor"]
+            assert (
+                await sdk.call_tool("list_library", {"status": "unread", "cursor": cursor})
+            ).is_error
+            assert (
+                len(
+                    (await sdk.call_tool("list_library", {"cursor": cursor})).structured_content[
+                        "items"
+                    ]
+                )
+                == 1
+            )
+
+            dune = (
+                await sdk.call_tool("get_book", {"content_hash": "dune-file"})
+            ).structured_content
+            assert dune["title"] == "dune_(retail)"
+            assert dune["details"]["title"] == "Dune"
+            assert dune["details"]["authors"] == ["Frank Herbert"]
+            assert dune["details"]["subjects"] == ["Science fiction"]
+            assert dune["details"]["series_index"] == 1.0
+            done = (
+                await sdk.call_tool("get_book", {"content_hash": "done-file"})
+            ).structured_content
+            assert done["details"] is None and done["finished_at"].startswith("2026-11-02")
+            fresh = await sdk.call_tool("get_book", {"content_hash": "new-file"})
+            assert fresh.structured_content["details"] is None
+            assert (await sdk.call_tool("get_book", {})).is_error
+            assert (await sdk.call_tool("get_book", {"content_hash": "absent"})).is_error
+
+        async with sdk_client(app_under_test, basic("bob")) as (bob, _):
+            assert (await bob.call_tool("list_library", {})).structured_content["items"] == []
+            assert (await bob.call_tool("get_book", {"content_hash": "dune-file"})).is_error
+            assert (await bob.call_tool("list_highlighted_books", {})).structured_content[
+                "items"
+            ] == []
+            theirs = await bob.call_tool(
+                "get_highlights", {"highlight_ids": [older["id"], newer["id"]]}
+            )
+            assert theirs.structured_content == {
+                "items": [],
+                "not_found": [older["id"], newer["id"]],
+            }
+            replayed = await bob.call_tool(
+                "list_highlighted_books", {"cursor": books["next_cursor"]}
+            )
+            assert replayed.is_error and replayed.content[0].text.endswith("invalid_cursor")
