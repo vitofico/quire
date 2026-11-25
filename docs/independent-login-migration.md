@@ -90,7 +90,7 @@ Arrange this with the reader. Verify control of both the historical Calibre acco
 Signs: the reader's Calibre-Web sign-in to Quire stops with `native_login_required` although they never created a Quire account, or the app offers to sign in to an email they do not know. There is no supported undo command yet. The manual recovery below closes the unknown account and gives the reader their Calibre-Web sign-in back. It cannot undo what the other person changed or downloaded while they held the account; only a backup from before the migration has that.
 
 1. Have the reader change their Calibre-Web password first, then wait a minute: Quire remembers a good Calibre-Web login for `QUIRE_SERVER_AUTH_CACHE_POSITIVE_TTL_S` (60 seconds by default). Without this, the other person can migrate the reader again straight away. Take a backup with `scripts/pg_backup.py`.
-2. Open the database (`docker compose exec postgres psql -U opds_sync opds_sync`) and find the account, replacing `alice` with the reader's Calibre-Web username in lower case:
+2. Open the database (`docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'`) and find the account, replacing `alice` with the reader's Calibre-Web username in lower case:
 
    ```sql
    SELECT b.native_user_id, b.self_migrated_at, u.email

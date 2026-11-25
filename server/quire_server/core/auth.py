@@ -1,6 +1,7 @@
 import base64
-import hashlib
+import hmac
 import logging
+import secrets
 import time
 from collections import OrderedDict
 from collections.abc import Callable
@@ -46,6 +47,8 @@ class CalibreAuthValidator:
         self._cache: OrderedDict[bytes, _CacheEntry] = OrderedDict()
         self._clock = clock
         self._guest_refused = False
+        # Cache keys are keyed per process, so they are useless outside it.
+        self._cache_secret = secrets.token_bytes(32)
 
     async def validate(self, auth_header: str) -> str:
         """Returns the user_id (lowercased CWA username) or raises HTTPException(401/503)."""
@@ -69,7 +72,7 @@ class CalibreAuthValidator:
                     "a reader. Give each reader their own Calibre-Web account."
                 )
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "calibre_web_guest_login")
-        key = hashlib.sha256(b64.encode("ascii")).digest()
+        key = hmac.digest(self._cache_secret, b64.encode("ascii"), "sha256")
         now = self._clock()
 
         cached = self._cache.get(key)
