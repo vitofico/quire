@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { discoveryJson, insightBundle, jsonBody, type InsightMetadata } from "./api";
 import { ReaderProfilePanel } from "./AiSettings";
 import { CameraScan, supportsCameraScanning } from "./CameraScan";
+import { Icon } from "../icons";
 import { InsightPanel, type AiPanelProps } from "./Insights";
 import { localLibraryStats, lookupIsbn, normalizeIsbn, readingStatus, seriesContinuation, type DiscoveryBook } from "./books";
 
@@ -66,7 +67,7 @@ function LibraryStats({ books, onOpenBook, request, t = english }: DiscoveryPane
   return (
     <section className="discovery-panel panel">
       <h3>{t("Library stats")}</h3>
-      <p>{t(synced ? "Connected library" : "Library on this device")}</p>
+      <p className="muted">{t(synced ? "Connected library" : "Library on this device")}</p>
       <dl className="discovery-stats">
         <div><dt>{t("Books")}</dt><dd>{stats.total_books}</dd></div>
         <div><dt>{t("Finished")}</dt><dd>{stats.finished_count}</dd></div>
@@ -166,16 +167,16 @@ function IsbnLookup({ books, onOpenBook, request, aiAvailable, syncAvailable = t
   return (
     <section className="discovery-panel panel">
       <h3>{t("Look up an ISBN")}</h3>
-      <p>{t("Lookup sends the ISBN to Open Library.")}</p>
+      <p className="muted">{t("Lookup sends the ISBN to Open Library.")}</p>
       {syncAvailable && request && <p>{t("Your connected library checks ownership and reading affinity.")}</p>}
-      {supportsCameraScanning() && !scanning && (
-        <button type="button" onClick={() => setScanning(true)}>{t("Scan barcode")}</button>
-      )}
       {scanning && <CameraScan t={t} onScan={scanned} onClose={() => setScanning(false)} />}
-      <form onSubmit={(event) => { event.preventDefault(); void lookup(input); }}>
-        <label>{t("ISBN")}<input value={input} onChange={(event) => setInput(event.target.value)} autoComplete="off" /></label>
+      <form className="isbn-form" onSubmit={(event) => { event.preventDefault(); void lookup(input); }}>
+        <label>{t("ISBN")}<input value={input} inputMode="numeric" onChange={(event) => setInput(event.target.value)} autoComplete="off" /></label>
         <div className="discovery-actions">
-          <button disabled={busy || !input.trim()}>{t("Look up on Open Library")}</button>
+          <button className="primary" disabled={busy || !input.trim()}>{t("Look up on Open Library")}</button>
+          {supportsCameraScanning() && !scanning && (
+            <button type="button" onClick={() => setScanning(true)}><Icon name="scan" />{t("Scan barcode")}</button>
+          )}
           {busy && <button type="button" onClick={() => operation.current?.abort()}>{t("Cancel lookup")}</button>}
         </div>
       </form>

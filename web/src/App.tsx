@@ -28,6 +28,12 @@ import { useReplica } from './useReplica'
 import noticesUrl from './legal/notices.txt?url'
 import { translator, languages } from './language'
 import { catalogInsightIdentity, promotePreview } from './discovery/api'
+import { allowsBasic, allowsNative } from './account/useAccount'
+import { Welcome } from './Welcome'
+import { Icon, type IconName } from './icons'
+import { Mark } from './Mark'
+import { Menu } from './Menu'
+import { ask } from './ask'
 const Reader = lazy(() => import('./reader/Reader'))
 const Catalog = lazy(() => import('./books/Catalog'))
 const Discovery = lazy(() =>
@@ -40,6 +46,14 @@ const Insights = lazy(() =>
   import('./discovery').then((m) => ({ default: m.InsightPanel })),
 )
 const sections = ['Library', 'Catalog', 'Highlights', 'Discover', 'Settings']
+const sectionIcons: Record<string, IconName> = {
+  Library: 'library',
+  Catalog: 'catalog',
+  Highlights: 'highlights',
+  Discover: 'discover',
+  Settings: 'settings',
+}
+const themes = ['System', 'Paper', 'Sage', 'Ink', 'Midnight']
 const href = (section: string, id?: string) =>
   '#/' + section.toLowerCase() + (id ? '/' + encodeURIComponent(id) : '')
 const go = (section: string, id?: string) => {
@@ -114,21 +128,7 @@ class ErrorBoundary extends Component<
     )
   }
 }
-export default function App() {
-  const account = useAccount()
-  return (
-    <ErrorBoundary>
-      <Workspace key={account.active.namespace} account={account} />
-    </ErrorBoundary>
-  )
-}
-function Workspace({ account }: { account: AccountState }) {
-  const { active, bootstrap } = account
-  const [route, setRoute] = useState(getRoute),
-    [notice, setNotice] = useState(''),
-    [working, setWorking] = useState(false)
-  const previousRoute = useRef(route)
-  const main = useRef<HTMLElement>(null)
+function usePreferences() {
   const [lang, setLang] = useOption(
     'language',
     navigator.language.split('-')[0] in languages
@@ -137,7 +137,74 @@ function Workspace({ account }: { account: AccountState }) {
   )
   const [theme, setTheme] = useOption('theme', 'System'),
     [art, setArt] = useOption('art', 'on')
-  const t = translator(lang)
+  useEffect(() => {
+    document.documentElement.lang = lang
+  }, [lang])
+  useEffect(() => {
+    const media = matchMedia('(prefers-color-scheme: dark)')
+    const update = () => {
+      const root = document.documentElement
+      root.dataset.theme =
+        theme === 'System' ? (media.matches ? 'ink' : 'paper') : theme.toLowerCase()
+      // Browser chrome follows the page, not the system scheme.
+      document
+        .querySelector('meta[name=theme-color]')
+        ?.setAttribute('content', getComputedStyle(root).getPropertyValue('--paper').trim())
+    }
+    update()
+    media.addEventListener('change', update)
+    return () => media.removeEventListener('change', update)
+  }, [theme])
+  return { lang, setLang, theme, setTheme, art, setArt, t: translator(lang) }
+}
+type Preferences = ReturnType<typeof usePreferences>
+export default function App() {
+  const account = useAccount()
+  const prefs = usePreferences()
+  const [guest, setGuest] = useOption('guest', '')
+  const { active, bootstrap, status } = account
+  const signInOffered = allowsBasic(bootstrap) || allowsNative(bootstrap)
+  const guestAllowed = bootstrap?.guestReading !== false
+  // Wait for the server's answer so a signed-in reader never sees the front door flash by.
+  if (status === 'loading' && active.mode !== 'connected')
+    return <div className="splash" aria-busy="true" />
+  if (signInOffered && active.mode !== 'connected' && !(guestAllowed && guest === 'yes'))
+    return (
+      <ErrorBoundary>
+        <Welcome
+          account={account}
+          t={prefs.t}
+          readAsGuest={guestAllowed ? () => setGuest('yes') : undefined}
+        />
+      </ErrorBoundary>
+    )
+  return (
+    <ErrorBoundary>
+      <Workspace
+        key={active.namespace}
+        account={account}
+        prefs={prefs}
+        signIn={signInOffered ? () => setGuest('') : undefined}
+      />
+    </ErrorBoundary>
+  )
+}
+function Workspace({
+  account,
+  prefs,
+  signIn,
+}: {
+  account: AccountState
+  prefs: Preferences
+  signIn?: () => void
+}) {
+  const { active, bootstrap } = account
+  const [route, setRoute] = useState(getRoute),
+    [notice, setNotice] = useState(''),
+    [working, setWorking] = useState(false)
+  const previousRoute = useRef(route)
+  const main = useRef<HTMLElement>(null)
+  const { lang, setLang, theme, setTheme, art, setArt, t } = prefs
   const report = useCallback((s: string) => setNotice(s), [])
   const syncEnabled =
     active.mode === 'connected' &&
@@ -202,9 +269,6 @@ function Workspace({ account }: { account: AccountState }) {
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
-  useEffect(() => {
-    document.documentElement.lang = lang
-  }, [lang])
   const section =
     route.view === 'book' || route.view === 'read'
       ? 'Library'
@@ -226,19 +290,6 @@ function Workspace({ account }: { account: AccountState }) {
     )
       main.current?.focus()
   }, [route])
-  useEffect(() => {
-    const media = matchMedia('(prefers-color-scheme: dark)')
-    const update = () =>
-      (document.documentElement.dataset.theme =
-        theme === 'System'
-          ? media.matches
-            ? 'ink'
-            : 'paper'
-          : theme.toLowerCase())
-    update()
-    media.addEventListener('change', update)
-    return () => media.removeEventListener('change', update)
-  }, [theme])
   useEffect(() => {
     let live = true
     if (replica)
@@ -334,9 +385,10 @@ function Workspace({ account }: { account: AccountState }) {
       if (
         !(e instanceof EditionConflict) ||
         match ||
-        !confirm(
+        !(await ask(
           t('Another edition has this identifier. Keep this copy only in this browser?'),
-        )
+          { confirm: t('Keep in this browser'), cancel: t('Cancel') },
+        ))
       )
         throw e
       await replica.putBook(record, blob, { localOnly: true })
@@ -404,10 +456,50 @@ function Workspace({ account }: { account: AccountState }) {
     if (!replica) throw new Error('Storage is unavailable.')
     await replica.putHighlight(h)
   }
+  const connected = active.mode === 'connected'
+  const accountChip = connected ? (
+    <a className="account-chip" href="#/settings/account">
+      <Icon name="cloud" />
+      <span>
+        <strong>
+          {active.identity?.id} · {active.identity?.backend === 'native' ? 'Quire' : 'Calibre-Web'}
+        </strong>
+        <small>
+          {active.offline
+            ? t('Offline')
+            : !syncEnabled
+              ? t('Signed in')
+              : busy
+                ? t('Syncing…')
+                : snapshot.pending
+                  ? t(snapshot.pending === 1 ? '{count} pending change.' : '{count} pending changes.').replace(
+                      '{count}',
+                      String(snapshot.pending),
+                    )
+                  : t('Up to date')}
+        </small>
+      </span>
+    </a>
+  ) : (
+    <div className="account-chip">
+      <Icon name="device" />
+      <span>
+        <strong>{t('On this device only')}</strong>
+        {signIn ? (
+          <button type="button" className="link" onClick={signIn}>
+            {t('Sign in to sync')}
+          </button>
+        ) : (
+          <small>{t('Books stay in this browser.')}</small>
+        )}
+      </span>
+    </div>
+  )
   const nav = (
     <header className="rail">
-      <a className="wordmark" href="#/library">
-        Quire
+      <a className="brand" href="#/library">
+        <Mark />
+        <span>Quire</span>
       </a>
       <nav aria-label="Quire">
         {sections.map((name) => (
@@ -416,11 +508,19 @@ function Workspace({ account }: { account: AccountState }) {
             href={href(name)}
             aria-current={section === name ? 'page' : undefined}
           >
-            {t(name)}
+            <Icon name={sectionIcons[name]} />
+            <span>{t(name)}</span>
           </a>
         ))}
       </nav>
+      {accountChip}
     </header>
+  )
+  const back = (
+    <a className="back" href="#/library">
+      <Icon name="back" />
+      {t('Back to library')}
+    </a>
   )
   let content: ReactNode
   if (
@@ -512,23 +612,28 @@ function Workspace({ account }: { account: AccountState }) {
               </p>
             )
           }
+          back={back}
           actions={
             <div className="actions">
               {book.hasDownload ? (
-                <button className="primary" onClick={() => read(book.key)}>
+                <button className="primary large" onClick={() => read(book.key)}>
                   {t('Read')}
                 </button>
               ) : (
                 <>
                   {book.opds_href && catalogUrl && (
                     <button
+                      className="primary large"
                       disabled={working}
                       onClick={() => void run(() => download(book))}
                     >
                       {t('Download from catalog')}
                     </button>
                   )}
-                  <button onClick={() => choose(book.key)}>
+                  <button
+                    className={book.opds_href && catalogUrl ? undefined : 'primary large'}
+                    onClick={() => choose(book.key)}
+                  >
                     {t('Open your copy')}
                   </button>
                 </>
@@ -538,27 +643,18 @@ function Workspace({ account }: { account: AccountState }) {
                   {t('Resume reading')}
                 </button>
               ) : (
-                <>
-                  <button
-                    onClick={() => void run(() => saveStatus(book, 'finished'))}
-                  >
-                    {t('Mark finished')}
-                  </button>
-                  <button
-                    onClick={() =>
-                      void run(() => saveStatus(book, 'abandoned'))
-                    }
-                  >
+                <button
+                  onClick={() => void run(() => saveStatus(book, 'finished'))}
+                >
+                  {t('Mark finished')}
+                </button>
+              )}
+              <Menu label={t('More actions')}>
+                {!current?.finished_at && !current?.abandoned_at && (
+                  <button onClick={() => void run(() => saveStatus(book, 'abandoned'))}>
                     {t('Mark abandoned')}
                   </button>
-                </>
-              )}
-            </div>
-          }
-          storage={
-            <details>
-              <summary>{t('Storage')}</summary>
-              <div className="actions">
+                )}
                 {book.hasDownload && (
                   <button
                     onClick={() =>
@@ -571,18 +667,28 @@ function Workspace({ account }: { account: AccountState }) {
                   </button>
                 )}
                 <button
-                  onClick={() => {
-                    if (confirm(t('Remove from library') + '?'))
-                      void run(async () => {
-                        await replica?.removeBook(book.key)
-                        go('library')
-                      })
-                  }}
+                  className="danger"
+                  onClick={() =>
+                    void run(async () => {
+                      if (
+                        !(await ask(
+                          t('Remove “{title}” and its reading data from this library?').replace(
+                            '{title}',
+                            book.title,
+                          ),
+                          { confirm: t('Remove from library'), cancel: t('Cancel'), destructive: true },
+                        ))
+                      )
+                        return
+                      await replica?.removeBook(book.key)
+                      go('library')
+                    })
+                  }
                 >
                   {t('Remove from library')}
                 </button>
-              </div>
-            </details>
+              </Menu>
+            </div>
           }
         />
 
@@ -610,7 +716,7 @@ function Workspace({ account }: { account: AccountState }) {
   } else if (route.view === 'book' || route.view === 'read') {
     content = (
       <section>
-        <a href="#/library">{t('Back to library')}</a>
+        {back}
         <p>
           {replica && !book
             ? t('This book is unavailable in this library.')
@@ -692,14 +798,27 @@ function Workspace({ account }: { account: AccountState }) {
     ) : (
       <>
         <h1>{t('Catalog')}</h1>
-        <p>{t('Enter the address of an OPDS catalog, such as Calibre-Web’s /opds.')}</p>
-        {source}
+        <section className="panel narrow">
+          <h2>{t('Connect a catalog')}</h2>
+          <p className="hint">
+            {t('Enter the address of an OPDS catalog, such as Calibre-Web’s /opds.')}
+          </p>
+          {source}
+        </section>
       </>
     )
   } else if (route.view === 'discover') {
     content = (
       <>
         <h1>{t('Discover')}</h1>
+        {!connected && bootstrap?.aiAvailable && signIn && (
+          <p className="notice">
+            {t('Sign in to get reading insights and check books against your library.')}{' '}
+            <button type="button" className="link" onClick={signIn}>
+              {t('Sign in')}
+            </button>
+          </p>
+        )}
         <Discovery
           t={t}
           syncAvailable={syncEnabled}
@@ -727,31 +846,44 @@ function Workspace({ account }: { account: AccountState }) {
       </>
     )
   } else if (route.view === 'settings') {
+    const tabs = ['Appearance', 'Account', 'Storage', ...(aiAvailable ? ['Insights'] : []), 'About']
+    const tab = tabs.find((name) => name.toLowerCase() === route.id) ?? 'Appearance'
     content = (
-      <>
+      <div className="narrow">
         <h1>{t('Settings')}</h1>
-        <div className="settings-grid">
+        <nav className="tabs" aria-label={t('Settings sections')}>
+          {tabs.map((name) => (
+            <a
+              key={name}
+              href={href('Settings', name.toLowerCase())}
+              aria-current={tab === name ? 'page' : undefined}
+            >
+              {t(name)}
+            </a>
+          ))}
+        </nav>
+        {tab === 'Appearance' && (
           <section className="panel">
-            <h2>{t('Appearance')}</h2>
-            <label>
-              {t('Appearance')}
-              <select value={theme} onChange={(e) => setTheme(e.target.value)}>
-                {['System', 'Paper', 'Sage', 'Ink', 'Midnight'].map((s) => (
-                  <option key={s} value={s}>
-                    {t(s)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={art === 'on'}
-                onChange={(e) => setArt(e.target.checked ? 'on' : 'off')}
-              />{' '}
-              {t('Artwork')}
-            </label>
-            <label>
+            <fieldset className="swatches">
+              <legend>{t('Theme')}</legend>
+              {themes.map((name) => (
+                <label key={name} className="swatch" data-swatch={name.toLowerCase()}>
+                  <input
+                    type="radio"
+                    name="theme"
+                    value={name}
+                    checked={theme === name}
+                    onChange={() => setTheme(name)}
+                  />
+                  <span className="swatch-preview" aria-hidden="true">
+                    <i />
+                    <i />
+                  </span>
+                  {t(name)}
+                </label>
+              ))}
+            </fieldset>
+            <label className="field">
               {t('Language')}
               <select
                 aria-label={t('Language')}
@@ -765,11 +897,17 @@ function Workspace({ account }: { account: AccountState }) {
                 ))}
               </select>
             </label>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={art === 'on'}
+                onChange={(e) => setArt(e.target.checked ? 'on' : 'off')}
+              />
+              {t('Artwork')}
+            </label>
           </section>
-          <OfflineSettings
-            t={t}
-            downloads={snapshot.books.filter((book) => book.hasDownload).length}
-          />
+        )}
+        {tab === 'Account' && (
           <div className="panel">
             <AccountSettings
               account={account}
@@ -792,27 +930,31 @@ function Workspace({ account }: { account: AccountState }) {
               <GuestImport destination={replica} t={t} />
             )}
           </div>
-          {aiAvailable && (
-            <AiSettings
-              t={t}
-              request={active.request}
-              aiAvailable={aiAvailable}
-            />
-          )}
-          <details>
-            <summary>{t('What’s new')}</summary>
+        )}
+        {tab === 'Storage' && (
+          <OfflineSettings
+            t={t}
+            downloads={snapshot.books.filter((book) => book.hasDownload).length}
+          />
+        )}
+        {tab === 'Insights' && aiAvailable && (
+          <AiSettings t={t} request={active.request} aiAvailable={aiAvailable} />
+        )}
+        {tab === 'About' && (
+          <section className="panel">
+            <h2>{t('What’s new')}</h2>
             <p>
               {t(
                 'Read EPUBs, keep passages and continue from another device with Quire Web.',
               )}
             </p>
-          </details>
-          <p className="actions">
-            <a href={noticesUrl}>{t('Open-source licenses')}</a>
-            <a href="https://github.com/vitofico/quire">{t('Source code')}</a>
-          </p>
-        </div>
-      </>
+            <p className="actions">
+              <a href={noticesUrl}>{t('Open-source licenses')}</a>
+              <a href="https://github.com/vitofico/quire">{t('Source code')}</a>
+            </p>
+          </section>
+        )}
+      </div>
     )
   } else
     content = (
@@ -828,6 +970,8 @@ function Workspace({ account }: { account: AccountState }) {
         )}
         <Shelf
           ready={!!replica && account.status !== 'loading'}
+          local={!connected}
+          art={art === 'on'}
           t={t}
           data={snapshot}
           choose={() => choose()}
@@ -839,7 +983,7 @@ function Workspace({ account }: { account: AccountState }) {
   return (
     <div
       className={
-        (route.view === 'read' ? '' : 'shell ') + (art === 'on' ? 'artwork' : '')
+        route.view === 'read' ? '' : 'shell'
       }
     >
       <a

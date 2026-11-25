@@ -6,7 +6,7 @@ type Props = {
   progress?: Progress
   t: (key: string) => string
   actions: ReactNode
-  storage: ReactNode
+  back: ReactNode
   conflict?: ReactNode
 }
 function languageName(code?: string | null) {
@@ -34,7 +34,7 @@ export function BookDetails({
   progress,
   t,
   actions,
-  storage,
+  back,
   conflict,
 }: Props) {
   const facts = [
@@ -59,7 +59,7 @@ export function BookDetails({
   ].filter((row) => row[1])
   return (
     <>
-      <a href="#/library">{t('Back to library')}</a>
+      {back}
       <article className="book-detail">
         <div className="book-intro">
           <div className="detail-cover">
@@ -67,7 +67,15 @@ export function BookDetails({
           </div>
           <div>
             <h1>{book.title}</h1>
-            {authors(book) && <p>{authors(book)}</p>}
+            {authors(book) && <p className="byline">{authors(book)}</p>}
+            {progress && progress.percent > 0 && !progress.finished_at && (
+              <p className="muted">
+                {t('{percent} read').replace(
+                  '{percent}',
+                  new Intl.NumberFormat(document.documentElement.lang, { style: 'percent' }).format(progress.percent),
+                )}
+              </p>
+            )}
             {actions}
           </div>
         </div>
@@ -81,10 +89,15 @@ export function BookDetails({
             ))}
           </dl>
         )}
-        {book.description && <p>{book.description}</p>}
-        {!!book.subjects?.length && <p>{book.subjects.join(' · ')}</p>}
+        {book.description && <p className="description">{book.description}</p>}
+        {!!book.subjects?.length && (
+          <ul className="subjects">
+            {book.subjects.map((subject) => (
+              <li key={subject}>{subject}</li>
+            ))}
+          </ul>
+        )}
         {conflict}
-        {storage}
       </article>
     </>
   )

@@ -37,13 +37,43 @@
 
 .discovery-stats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(6rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  margin: 0;
+}
+
+.discovery-stats > div {
+  display: flex;
+  flex-direction: column-reverse;
+  padding: 0.85rem 1rem;
+  border-radius: var(--radius-control);
+  background: var(--surface);
+}
+
+.discovery-stats dt {
+  color: var(--muted);
+  font-size: 0.875rem;
 }
 
 .discovery-stats dd {
-  margin: 0.25rem 0 0;
-  font-size: 1.4rem;
-  font-variant-numeric: tabular-nums;
+  margin: 0;
+  font-family: var(--display);
+  font-size: 2rem;
+  font-weight: 600;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.discovery-panel details summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.isbn-form {
+  justify-items: stretch !important;
+}
+
+.isbn-form input {
+  max-width: 18rem;
 }
 
 .discovery-cover {

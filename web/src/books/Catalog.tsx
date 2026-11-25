@@ -214,13 +214,13 @@ export function Catalog({
     {showCredentials && signInCatalog && <form className="catalog-credentials" onSubmit={connect}>
       <label>{t('Catalog username')} <input name="catalogUsername" autoComplete="username" required autoFocus /></label>
       <label>{t('Catalog password')} <input name="catalogPassword" type="password" autoComplete="current-password" required /></label>
-      <button type="submit" disabled={authenticating}>{t(authenticating ? 'Signing in…' : 'Catalog sign-in')}</button>
+      <button type="submit" className="primary" disabled={authenticating}>{t(authenticating ? 'Signing in…' : 'Catalog sign-in')}</button>
     </form>}
     {error && !needsSignIn && <p role="alert">{t(error)}</p>}
     {loading && <p role="status">{t('Loading catalog…')}</p>}
     {!loading && error && !needsSignIn && !feed && client &&
       <button type="button" onClick={() => void load(client, { href: url }, [])}>{t('Retry')}</button>}
-    {searchLink && <form className="catalog-actions" onSubmit={search}>
+    {searchLink && <form className="catalog-actions catalog-search" onSubmit={search}>
       <input type="search" aria-label={t('Search catalog')} placeholder={t('Search catalog')} value={query}
         onChange={event => setQuery(event.target.value)} />
       <button type="submit" disabled={loading || downloading || !query.trim()}>{t('Search')}</button>

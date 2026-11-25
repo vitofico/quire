@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { type ReplicaSnapshot, type ShelfBook, type Progress } from './data'
+import { Icon } from './icons'
 export const authors = (book: ShelfBook) =>
   book.authors?.join(', ') || book.author || ''
 export function findProgress(book: ShelfBook, rows: Progress[]) {
@@ -46,13 +47,16 @@ function Meter({ percent }: { percent: number }) {
 }
 type Props = {
   ready: boolean
+  /** Books live only in this browser. */
+  local?: boolean
+  art?: boolean
   data: ReplicaSnapshot
   t: (s: string) => string
   choose: () => void
   details: (id: string) => void
   read: (id: string) => void
 }
-export function Shelf({ ready, data, t, choose, details, read }: Props) {
+export function Shelf({ ready, local, art, data, t, choose, details, read }: Props) {
   const [search, setSearch] = useState(''),
     [filter, setFilter] = useState('All books'),
     [sort, setSort] = useState('Recently read'),
@@ -100,10 +104,23 @@ export function Shelf({ ready, data, t, choose, details, read }: Props) {
   return (
     <>
       <div className="heading">
-        <h1>{t('Your library')}</h1>
-        <button className="primary" disabled={!ready} onClick={choose}>
-          {t('Import EPUB')}
-        </button>
+        <div>
+          <h1>{t('Your library')}</h1>
+          {rows.length > 0 && (
+            <p className="muted">
+              {t(rows.length === 1 ? '{count} book' : '{count} books').replace(
+                '{count}',
+                String(rows.length),
+              )}
+            </p>
+          )}
+        </div>
+        {rows.length > 0 && (
+          <button className="primary" disabled={!ready} onClick={choose}>
+            <Icon name="upload" />
+            {t('Import EPUB')}
+          </button>
+        )}
       </div>
       {conflicts.length > 0 && (
         <section className="notice" aria-label={t('Resolve edition conflicts')}>
@@ -141,40 +158,34 @@ export function Shelf({ ready, data, t, choose, details, read }: Props) {
       {!ready ? (
         <p aria-live="polite">{t('Opening library…')}</p>
       ) : !rows.length ? (
-        <section className="empty">
+        <section className={'empty' + (art ? ' artwork' : '')}>
+          <span className="empty-icon">
+            <Icon name="library" />
+          </span>
           <h2>{t('Add your first book')}</h2>
           <p>{t('Drop an EPUB here or choose a file.')}</p>
-          <button onClick={choose}>{t('Choose a file')}</button>
+          <button className="primary" onClick={choose}>
+            <Icon name="upload" />
+            {t('Import EPUB')}
+          </button>
+          {local && <p className="hint">{t('Books you add stay in this browser.')}</p>}
         </section>
       ) : (
         <>
-          <div className="tools">
-            <input
-              type="search"
-              aria-label={t('Search books')}
-              placeholder={t('Search books')}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+          <div className="tools shelf-tools">
+            <label className="search">
+              <Icon name="search" />
+              <input
+                type="search"
+                aria-label={t('Search books')}
+                placeholder={t('Search books')}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </label>
             <select
-              aria-label={t('All books')}
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-            >
-              {[
-                'All books',
-                'Downloaded',
-                'In progress',
-                'Finished',
-                'Abandoned',
-              ].map((s) => (
-                <option key={s} value={s}>
-                  {t(s)}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label={t('Recently read')}
+              className="quiet"
+              aria-label={t('Sort by')}
               value={sort}
               onChange={(e) => setSort(e.target.value)}
             >
@@ -184,9 +195,31 @@ export function Shelf({ ready, data, t, choose, details, read }: Props) {
                 </option>
               ))}
             </select>
-            <button onClick={() => setCompact(!compact)}>
-              {t(compact ? 'Cover view' : 'Compact list')}
-            </button>
+            <div className="segmented" role="group" aria-label={t('View')}>
+              <button
+                aria-pressed={!compact}
+                aria-label={t('Cover view')}
+                title={t('Cover view')}
+                onClick={() => setCompact(false)}
+              >
+                <Icon name="grid" />
+              </button>
+              <button
+                aria-pressed={compact}
+                aria-label={t('Compact list')}
+                title={t('Compact list')}
+                onClick={() => setCompact(true)}
+              >
+                <Icon name="list" />
+              </button>
+            </div>
+          </div>
+          <div className="chips" role="group" aria-label={t('Show')}>
+            {['All books', 'In progress', 'Finished', 'Downloaded', 'Abandoned'].map((s) => (
+              <button key={s} className="chip" aria-pressed={filter === s} onClick={() => setFilter(s)}>
+                {t(s)}
+              </button>
+            ))}
           </div>
           <div className={'library-grid' + (compact ? ' compact' : '')}>
             {matches.map(({ book, p }) => (
@@ -208,7 +241,7 @@ export function Shelf({ ready, data, t, choose, details, read }: Props) {
               </button>
             ))}
           </div>
-          {!matches.length && <p>{t('No matching books')}</p>}
+          {!matches.length && <p className="muted">{t('No matching books')}</p>}
         </>
       )}
     </>

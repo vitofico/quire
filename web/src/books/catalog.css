@@ -49,15 +49,28 @@
   aspect-ratio: 2 / 3;
   width: min(100%, 10rem);
   object-fit: cover;
-  border-radius: .25rem;
+  border-radius: 6px;
+  box-shadow: var(--shadow-cover);
 }
 
 .catalog-cover-fallback {
   display: grid;
   place-items: center;
-  border: 1px solid currentColor;
-  font-family: Georgia, serif;
+  background: var(--surface);
+  color: var(--muted);
+  font-family: var(--display);
   font-size: 2rem;
+}
+
+.catalog-book {
+  padding: .5rem;
+  border: 0;
+  background: none;
+  border-radius: var(--radius-card);
+}
+
+.catalog-book:hover:not(:disabled) {
+  background: var(--surface);
 }
 
 .catalog > button,
@@ -89,19 +102,24 @@
 }
 
 .catalog-credentials {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  gap: .65rem;
-  padding: 1rem;
-  border: 1px solid var(--line);
-  border-radius: .7rem;
+  display: grid;
+  gap: .85rem;
+  justify-self: center;
+  width: min(100%, 26rem);
+  padding: 1.5rem;
+  border-radius: var(--radius-card);
   background: var(--card);
+  box-shadow: var(--shadow-card);
 }
 
 .catalog-credentials label {
   display: grid;
   gap: .35rem;
+  font-weight: 600;
+}
+
+.catalog-credentials button {
+  justify-self: start;
 }
 
 .catalog-source {
