@@ -286,8 +286,11 @@ function Workspace({
       ?.querySelector('[aria-pressed="true"]')
       ?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [activeSaved?.id, viewingCatalog])
+  // After adding an open catalog, focus moves to the catalog it opened.
+  const [focusCatalog, setFocusCatalog] = useState('')
   const chooseCatalog = (id: string) => {
     setChosenCatalog(id)
+    setFocusCatalog('')
     replica?.setPreference('savedCatalog', id).catch(() => undefined)
   }
   /** The catalog to download `b` from again: the saved one it came from, or the server's own. */
@@ -950,7 +953,7 @@ function Workspace({
     const savedHint =
       savedListed &&
       (!saved.length ? (
-        <p className="hint">{t('Catalogs you add in the Quire app on Android appear here.')}</p>
+        <p className="hint">{t('Catalogs you add here or in the Quire app on Android are kept in your Quire account and appear on all your devices.')}</p>
       ) : !savedBrowsable ? (
         <p className="hint">
           {t('Your saved catalogs open in the Quire app on Android. This server does not open them in the browser.')}
@@ -963,15 +966,19 @@ function Workspace({
         request={active.request}
         t={t}
         onAdded={(c) => {
-          setSaved((list) => [...list, c])
+          setSaved((list) => (list.some((item) => item.id === c.id) ? list : [...list, c]))
           chooseCatalog(c.id)
+          setNotice(t('{name} added.').replace('{name}', c.name))
+          setFocusCatalog(c.id)
         }}
       />
     )
-    const otherSource = !active.catalogUrl && (
+    // While a catalog is open, the other ways to add one wait behind a summary.
+    const otherSource = (!active.catalogUrl || open) && (
       <details className="catalog-source">
         <summary>{t('Use a different catalog')}</summary>
-        {source}
+        {!active.catalogUrl && source}
+        {open}
       </details>
     )
     content = activeSaved ? (
@@ -985,6 +992,7 @@ function Workspace({
         ) : (
           <Catalog
             key={'saved:' + activeSaved.id + ':' + activeSaved.updated_at}
+            focusHeading={focusCatalog === activeSaved.id}
             url={savedCatalogHome(activeSaved)}
             request={savedRequest}
             apiRequest={active.request}
@@ -999,7 +1007,6 @@ function Workspace({
           </Catalog>
         )}
         {otherSource}
-        {open}
       </>
     ) : catalogUrl ? (
       <>
@@ -1022,7 +1029,6 @@ function Workspace({
         </Catalog>
         {otherSource}
         {savedHint}
-        {open}
       </>
     ) : (
       <>

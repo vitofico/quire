@@ -3,13 +3,21 @@ import { accountLabels } from './account/labels'
 
 const labels: Record<string, [string, string, string, string]> = {
   'Open catalogs': ['Catálogos abiertos', 'Cataloghi aperti', 'Catalogues ouverts', 'Offene Kataloge'],
-  'Free, legal books to start with. Adding one lets your Quire server contact that catalog’s site for you.': [
-    'Libros gratuitos y legales para empezar. Al añadir uno, tu servidor Quire se conecta con el sitio de ese catálogo por ti.',
-    'Libri gratuiti e legali per iniziare. Aggiungendone uno, il tuo server Quire si collega al sito di quel catalogo al posto tuo.',
-    'Des livres gratuits et légaux pour commencer. En ajouter un permet à votre serveur Quire de contacter le site de ce catalogue pour vous.',
-    'Kostenlose, legale Bücher für den Anfang. Wenn du einen hinzufügst, verbindet sich dein Quire-Server für dich mit der Website des Katalogs.',
+  'Free, legal books to start with. Adding one lets your Quire server contact that catalog’s site for you, and it shows on your phones too.': [
+    'Libros gratuitos y legales para empezar. Al añadir uno, tu servidor Quire se conecta con el sitio de ese catálogo por ti, y también aparece en tus teléfonos.',
+    'Libri gratuiti e legali per iniziare. Aggiungendone uno, il tuo server Quire si collega al sito di quel catalogo al posto tuo, e compare anche sui tuoi telefoni.',
+    'Des livres gratuits et légaux pour commencer. En ajouter un permet à votre serveur Quire de contacter le site de ce catalogue pour vous, et il apparaît aussi sur vos téléphones.',
+    'Kostenlose, legale Bücher für den Anfang. Wenn du einen hinzufügst, verbindet sich dein Quire-Server für dich mit der Website des Katalogs, und er erscheint auch auf deinen Handys.',
   ],
   'Public domain': ['Dominio público', 'Pubblico dominio', 'Domaine public', 'Gemeinfrei'],
+  'Public domain in the US': ['Dominio público en EE. UU.', 'Pubblico dominio negli USA', 'Domaine public aux États-Unis', 'Gemeinfrei in den USA'],
+  '{name} added.': ['{name} añadido.', '{name} aggiunto.', '{name} ajouté.', '{name} hinzugefügt.'],
+  'This catalog answered, but Quire found no books or sections in it.': [
+    'Este catálogo ha respondido, pero Quire no ha encontrado libros ni secciones.',
+    'Questo catalogo ha risposto, ma Quire non vi ha trovato libri né sezioni.',
+    'Ce catalogue a répondu, mais Quire n’y a trouvé ni livres ni rubriques.',
+    'Dieser Katalog hat geantwortet, aber Quire hat darin keine Bücher oder Bereiche gefunden.',
+  ],
   'Open licence': ['Licencia abierta', 'Licenza aperta', 'Licence libre', 'Offene Lizenz'],
   'Added': ['Añadido', 'Aggiunto', 'Ajouté', 'Hinzugefügt'],
   'Add': ['Añadir', 'Aggiungi', 'Ajouter', 'Hinzufügen'],
@@ -562,7 +570,7 @@ const labels: Record<string, [string, string, string, string]> = {
   '{percent} read': ["{percent} leído", "{percent} letto", "{percent} lu", "{percent} gelesen"],
   Catalogs: ["Catálogos", "Cataloghi", "Catalogues", "Kataloge"],
   'This server': ["Este servidor", "Questo server", "Ce serveur", "Dieser Server"],
-  'Catalogs you add in the Quire app on Android appear here.': ["Los catálogos que añadas en la app Quire para Android aparecen aquí.", "I cataloghi che aggiungi nell’app Quire per Android compaiono qui.", "Les catalogues que vous ajoutez dans l’app Quire pour Android apparaissent ici.", "Kataloge, die du in der Quire-App für Android hinzufügst, erscheinen hier."],
+  'Catalogs you add here or in the Quire app on Android are kept in your Quire account and appear on all your devices.': ["Los catálogos que añadas aquí o en la app Quire para Android se guardan en tu cuenta de Quire y aparecen en todos tus dispositivos.", "I cataloghi che aggiungi qui o nell’app Quire per Android restano nel tuo account Quire e compaiono su tutti i tuoi dispositivi.", "Les catalogues que vous ajoutez ici ou dans l’app Quire pour Android sont conservés dans votre compte Quire et apparaissent sur tous vos appareils.", "Kataloge, die du hier oder in der Quire-App für Android hinzufügst, bleiben in deinem Quire-Konto und erscheinen auf all deinen Geräten."],
   'Your saved catalogs open in the Quire app on Android. This server does not open them in the browser.': ["Tus catálogos guardados se abren en la app Quire para Android. Este servidor no los abre en el navegador.", "I tuoi cataloghi salvati si aprono nell’app Quire per Android. Questo server non li apre nel browser.", "Vos catalogues enregistrés s’ouvrent dans l’app Quire pour Android. Ce serveur ne les ouvre pas dans le navigateur.", "Deine gespeicherten Kataloge öffnen sich in der Quire-App für Android. Dieser Server öffnet sie nicht im Browser."],
   'This catalog’s login no longer works. Update it in the Quire app on Android.': ["El inicio de sesión de este catálogo ya no funciona. Actualízalo en la app Quire para Android.", "L’accesso a questo catalogo non funziona più. Aggiornalo nell’app Quire per Android.", "L’identifiant de ce catalogue ne fonctionne plus. Mettez-le à jour dans l’app Quire pour Android.", "Die Anmeldung für diesen Katalog funktioniert nicht mehr. Aktualisiere sie in der Quire-App für Android."],
   'Enter this catalog’s login again in the Quire app on Android.': ["Vuelve a introducir el inicio de sesión de este catálogo en la app Quire para Android.", "Inserisci di nuovo l’accesso a questo catalogo nell’app Quire per Android.", "Saisissez à nouveau l’identifiant de ce catalogue dans l’app Quire pour Android.", "Gib die Anmeldung für diesen Katalog in der Quire-App für Android erneut ein."],
