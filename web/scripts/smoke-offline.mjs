@@ -26,6 +26,8 @@ try {
   assert(cacheEntries.some((path) => path.startsWith("/quire/assets/")));
   assert(cacheEntries.every((path) => path.startsWith("/quire/") && !path.startsWith("/quire/v1/")));
 
+  // The default server offers sign-in, so a new visitor starts on the welcome page.
+  await page.getByRole("button", { name: "Read on this device without an account" }).click();
   await page.locator('input[type="file"]').setInputFiles(fixture);
   await page.getByRole("button", { name: "Read", exact: true }).click();
   await expect(page.frameLocator("iframe").getByRole("heading", { name: "Selection laboratory" })).toBeVisible();
