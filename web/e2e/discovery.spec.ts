@@ -47,7 +47,7 @@ test('French discovery in AI-only mode needs opt-in and sends only ISBN metadata
   }))
   await page.route('https://covers.openlibrary.org/**', route => route.fulfill({ status: 404 }))
 
-  await page.goto('/quire/#/settings')
+  await page.goto('/quire/#/settings/insights')
   const optIn = page.getByRole('checkbox', { name: 'Activer les analyses par IA', exact: true })
   await expect(optIn).toBeVisible()
   await page.getByRole('link', { name: 'Découvrir', exact: true }).click()
@@ -61,6 +61,7 @@ test('French discovery in AI-only mode needs opt-in and sends only ISBN metadata
   expect(generationBodies).toEqual([])
 
   await page.getByRole('link', { name: 'Réglages', exact: true }).click()
+  await page.getByRole('link', { name: 'Analyses', exact: true }).click()
   await optIn.check()
   const preferences = (response: import('@playwright/test').Response, method: string) =>
     new URL(response.url()).pathname === '/ai/v1/preferences' && response.request().method() === method

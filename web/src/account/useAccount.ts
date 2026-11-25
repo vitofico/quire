@@ -13,6 +13,7 @@ export type Bootstrap = {
   oidc: boolean
   migration?: boolean
   catalogUrl: string | null
+  guestReading?: boolean
   accountManagement: string | null
   nativeWebUrl?: string | null
 }
@@ -35,7 +36,7 @@ const migrationErrors: Record<string, string> = {
   already_migrated: nativeLoginRequired,
   email_unavailable: 'This email already has a Quire account.',
   invalid_email: 'Enter a valid email address.',
-  invalid_password: 'Use a new password of at least 12 characters.',
+  invalid_password: 'Use a new password of at least 12 characters.', // pragma: allowlist secret
 }
 
 type Identity = { id: string, backend: 'native' | 'calibreweb' }

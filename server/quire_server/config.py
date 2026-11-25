@@ -76,6 +76,8 @@ class Settings(BaseSettings):
     web_at_root: bool = False
     web_native_auth_enabled: bool = False
     web_catalog_url: str | None = None
+    # Let signed-out visitors read their own files in the browser, without an account.
+    web_guest_reading: bool = True
 
     @field_validator("web_catalog_url")
     @classmethod

@@ -45,6 +45,7 @@ def test_public_web_delivery(tmp_path):
 def test_reader_at_the_root_of_a_dedicated_host(tmp_path):
     (tmp_path / "index.html").write_text("shell")
     (tmp_path / "sw.js").write_text("worker")
+    (tmp_path / "favicon.ico").write_bytes(b"icon")
     (tmp_path / "manifest.webmanifest").write_text(
         '{"id": "/quire/", "start_url": "/quire/", "scope": "/quire/", "name": "Quire"}'
     )
@@ -66,10 +67,14 @@ def test_reader_at_the_root_of_a_dedicated_host(tmp_path):
         "name": "Quire",
     }
     assert client.get("/missing", headers=nav).status_code == 404
+    assert client.get("/favicon.ico").content == b"icon"
 
     shared = FastAPI()
     install_web(shared, tmp_path)
     assert TestClient(shared).get("/", headers=nav).status_code == 404
+    # On a shared host the root icon belongs to the other application.
+    assert TestClient(shared).get("/favicon.ico").status_code == 404
+    assert TestClient(shared).get("/quire/favicon.ico").content == b"icon"
     assert "service-worker-allowed" not in TestClient(shared).get("/quire/sw.js").headers
 
 

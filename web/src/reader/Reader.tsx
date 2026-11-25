@@ -7,6 +7,8 @@ import { chapterStyles, palettes, sanitizePreferences, type PauseBookmark, type 
 import { findMatches, matchRange, searchableText } from './search'
 import { loadReaderFonts } from './fonts'
 import { readerStrings } from './strings'
+import { Icon, type IconName } from '../icons'
+import { ask } from '../ask'
 import './reader.css'
 
 const colours = ['YELLOW', 'PINK', 'GREEN'] as const
@@ -718,21 +720,23 @@ export default function Reader({
   const colourControl = <label>{t('Colour')} <select value={colour} onChange={event => setColour(event.target.value as ReaderColour)}>
     {colours.map(item => <option key={item} value={item}>{option(item)}</option>)}
   </select></label>
+  const tools: [Panel, IconName, string][] = [
+    ['contents', 'contents', 'Contents'], ['find', 'search', 'Find'], ['passages', 'passages', 'Passages'],
+    ['type', 'type', 'Appearance'], ['pause', 'pause', 'Pause & return'],
+  ]
   const panelName = panel === 'contents' ? 'Contents' : panel === 'find' ? 'Find' : panel === 'type' ? 'Appearance'
     : panel === 'pause' ? 'Pause & return' : 'Passages'
 
   return <section className="qr-reader" ref={reader} tabIndex={-1} onKeyDown={keyAction}
     style={{'--qr-page': palettes[preferences.palette].background} as CSSProperties} aria-label={t('Reader')}>
     <header className="qr-bar">
-      <button type="button" onClick={onBack}>{t('Close book')}</button>
+      <button type="button" className="qr-tool" aria-label={t('Close book')} title={t('Close book')} onClick={onBack}><Icon name="back" /></button>
       <h1>{title}</h1>
       <div className="qr-tools">
-        <button type="button" aria-pressed={panel === 'contents'} onClick={event => toggle('contents', event.currentTarget)}>{t('Contents')}</button>
-        <button type="button" aria-pressed={panel === 'find'} onClick={event => toggle('find', event.currentTarget)}>{t('Find')}</button>
-        <button type="button" aria-pressed={panel === 'passages'} onClick={event => toggle('passages', event.currentTarget)}>{t('Passages')}</button>
-        <button type="button" aria-pressed={panel === 'type'} onClick={event => toggle('type', event.currentTarget)}>{t('Appearance')}</button>
-        <button type="button" aria-pressed={panel === 'pause'} onClick={event => toggle('pause', event.currentTarget)}>{t('Pause & return')}</button>
-        {document.fullscreenEnabled && <button type="button" onClick={() => void fullscreen()}>{t('Fullscreen')}</button>}
+        {tools.map(([name, icon, label]) => <button key={name} type="button" className="qr-tool" aria-label={t(label)} title={t(label)}
+          aria-pressed={panel === name} onClick={event => toggle(name, event.currentTarget)}><Icon name={icon} /><span>{t(label)}</span></button>)}
+        {document.fullscreenEnabled && <button type="button" className="qr-tool" aria-label={t('Fullscreen')} title={t('Fullscreen')}
+          onClick={() => void fullscreen()}><Icon name="expand" /></button>}
       </div>
     </header>
     {notice && <p className="qr-notice" role="status">{notice} <button type="button" aria-label={t('Dismiss')} onClick={() => setNotice('')}>×</button></p>}
@@ -803,8 +807,8 @@ export default function Reader({
                 setComment(item.comment ?? '')
                 setColour(colours.find(value => value === item.colour) ?? 'YELLOW')
               }}>{t('Edit')}</button>}
-              {onDeleteHighlight && <button type="button" disabled={busy} onClick={() => {
-                if (window.confirm(t('Delete this passage?'))) void updatePassage(item, true)
+              {onDeleteHighlight && <button type="button" className="danger" disabled={busy} onClick={async () => {
+                if (await ask(t('Delete this passage?'), {confirm: t('Delete'), cancel: t('Cancel'), destructive: true})) void updatePassage(item, true)
               }}>{t('Delete')}</button>}
             </div>}
           </article>)}
@@ -814,7 +818,7 @@ export default function Reader({
     {selected && editing === null && <div className="qr-selection qr-fields" aria-label={t('Selected text')}>
       <div className="qr-actions">
         {colourControl}
-        <button type="button" disabled={busy} onClick={() => void addHighlight()}>{t('Save highlight')}</button>
+        <button type="button" className="primary" disabled={busy} onClick={() => void addHighlight()}>{t('Save highlight')}</button>
         <button type="button" onClick={() => void copyQuote(selected.quote)}>{t('Copy quote')}</button>
         <button type="button" aria-label={t('Dismiss')} onClick={() => {
           active?.doc.getSelection()?.removeAllRanges()
@@ -826,11 +830,11 @@ export default function Reader({
     </div>}
     <footer className="qr-bar qr-footer">
       {history.current.length > 0 && <button type="button" onClick={backFromLink}>{t('Back to previous position')}</button>}
-      <button type="button" onClick={() => page(-1)}>{t('Previous')}</button>
+      <button type="button" className="qr-tool" aria-label={t('Previous')} title={t('Previous')} onClick={() => page(-1)}><Icon name="back" /></button>
       <input type="range" aria-label={t('Book position')} min="0" max="100" step="1" value={Math.round(progress * 100)} onChange={seek}
         title={`${Math.round(progress * 100)}%`} />
       <span>{Math.round(progress * 100)}%</span>
-      <button type="button" onClick={() => page(1)}>{t('Next')}</button>
+      <button type="button" className="qr-tool" aria-label={t('Next')} title={t('Next')} onClick={() => page(1)}><Icon name="next" /></button>
     </footer>
   </section>
 }

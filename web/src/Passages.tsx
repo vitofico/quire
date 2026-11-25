@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { type Highlight, type ShelfBook } from './data'
+import { Icon } from './icons'
 
 type Props = {
   passages: Highlight[]
@@ -19,15 +20,28 @@ export function Passages({ passages, books, t, open, report }: Props) {
   return (
     <>
       <h1>{t('Highlights')}</h1>
-      <div className="tools">
-        <input
-          type="search"
-          aria-label={t('Search passages or comments')}
-          placeholder={t('Search passages or comments')}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-      </div>
+      {passages.length > 0 ? (
+        <div className="tools">
+          <label className="search">
+            <Icon name="search" />
+            <input
+              type="search"
+              aria-label={t('Search passages or comments')}
+              placeholder={t('Search passages or comments')}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </label>
+        </div>
+      ) : (
+        <section className="empty">
+          <span className="empty-icon">
+            <Icon name="highlights" />
+          </span>
+          <h2>{t('No saved passages')}</h2>
+          <p>{t('Select text while reading and choose Save highlight. Your passages and notes collect here.')}</p>
+        </section>
+      )}
       {filtered.map((h) => {
         const book = books.find((b) => b.key === h.document.content_hash)
         const quote =
@@ -43,6 +57,7 @@ export function Passages({ passages, books, t, open, report }: Props) {
             {h.comment && <p>{h.comment}</p>}
             <div className="actions">
               <button
+                className="ghost"
                 onClick={async () => {
                   try {
                     await navigator.clipboard.writeText(quote)
@@ -54,7 +69,7 @@ export function Passages({ passages, books, t, open, report }: Props) {
                 {t('Copy as quote')}
               </button>
               {book && (
-                <button onClick={() => open(book, h)}>
+                <button className="ghost" onClick={() => open(book, h)}>
                   {t(book.hasDownload ? 'Open passage' : 'Open your copy')}
                 </button>
               )}
@@ -62,10 +77,8 @@ export function Passages({ passages, books, t, open, report }: Props) {
           </article>
         )
       })}
-      {!filtered.length && (
-        <p className="muted">
-          {t(passages.length ? 'No matching passages' : 'No saved passages')}
-        </p>
+      {passages.length > 0 && !filtered.length && (
+        <p className="muted">{t('No matching passages')}</p>
       )}
     </>
   )

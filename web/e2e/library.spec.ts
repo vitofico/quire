@@ -38,7 +38,7 @@ test('import from disk, read, change language, remove the download, and reopen a
     .getByRole('button', { name: /Reader Pause Fixture/ })
     .first()
     .click()
-  await page.getByText('Storage', { exact: true }).click()
+  await page.getByRole('button', { name: 'More actions' }).click()
   await page.getByRole('button', { name: 'Remove download' }).click()
   await expect(
     page.getByRole('button', { name: 'Open your copy' }),
