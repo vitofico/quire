@@ -5,7 +5,7 @@
   background: var(--qr-panel);
   color: var(--qr-ink);
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   height: 100dvh;
   min-height: 28rem;
   overflow: hidden;
@@ -19,7 +19,7 @@
 }
 .qr-bar { padding: .65rem .8rem; border-bottom: 1px solid var(--qr-border); grid-row: 1; }
 .qr-bar h1 { flex: 1 1 10rem; font-size: 1.15rem; margin: 0 .5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.qr-body { display: flex; min-height: 0; position: relative; grid-row: 4; }
+.qr-body { display: flex; min-height: 0; position: relative; grid-area: 2 / 1; }
 .qr-frame { display: block; flex: 1; min-width: 0; width: 100%; height: 100%; border: none; background: var(--qr-page); }
 .qr-reader button { font: inherit; }
 .qr-reader button[aria-pressed="true"], .qr-reader button[aria-current] { font-weight: 700; border-color: currentColor; }
@@ -40,15 +40,20 @@
 .qr-fields, .qr-fields label, .qr-panel form label { display: grid; gap: .45rem; }
 .qr-fields input, .qr-fields textarea, .qr-fields select, .qr-panel input { min-width: 0; }
 .qr-fields textarea { min-height: 5rem; }
-.qr-notice { margin: 0; padding: .35rem .8rem; }
-.qr-notice[role] { grid-row: 2; }
-.qr-notice:not([role]) { grid-row: 3; overflow-wrap: anywhere; }
+.qr-notice { margin: 0; padding: .35rem .8rem; overflow-wrap: anywhere; }
 .qr-passages article { padding-block: .8rem; border-top: 1px solid var(--qr-border); }
 .qr-reader blockquote { margin: .25rem 0 .5rem; border-inline-start: 2px solid currentColor; padding-inline-start: .65rem; overflow-wrap: anywhere; }
-.qr-selection { grid-row: 5; padding: .65rem .8rem; border-top: 1px solid var(--qr-border); }
+/* Notices and the selection bar are drawn over the page, never beside it: a page that changed
+   size would reflow its columns and move the text being read or selected to another page. They
+   sit on the side away from the selection. */
+.qr-overlay { grid-area: 2 / 1; align-self: end; z-index: 2; min-width: 0; background: var(--qr-panel); border-top: 1px solid var(--qr-border); }
+.qr-overlay.qr-above { align-self: start; border-top: 0; border-bottom: 1px solid var(--qr-border); }
+.qr-selection { padding: .65rem .8rem; }
 .qr-selection .qr-actions label { display: flex; align-items: center; }
 .qr-selection > label { grid-template-columns: auto minmax(0, 1fr); align-items: center; }
-.qr-footer { grid-row: 6; border-top: 1px solid var(--qr-border); border-bottom: 0; }
+.qr-footer { grid-row: 3; border-top: 1px solid var(--qr-border); border-bottom: 0; flex-wrap: nowrap; }
+/* One line at the height of the page buttons, so the footer never grows and shrinks the page. */
+.qr-reader .qr-return { flex: 0 1 auto; min-width: 0; min-height: 2.5rem; padding-block: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qr-footer input { flex: 1; min-width: 3rem; }
 @media (max-width: 670px) {
   .qr-panel { position: absolute; inset: auto 0 0; max-height: 100%; width: 100%; z-index: 1; border: 1px solid var(--qr-border); border-radius: .75rem .75rem 0 0; box-shadow: 0 -.4rem 1.2rem #0003; }

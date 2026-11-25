@@ -456,12 +456,13 @@ def convert_one(src: Path, out: Path, max_pages: int) -> dict[str, Any]:
             "rendition_id": rendition_identifier(report.input_sha256, report.settings),
         },
         "issue_counts": report.issue_counts,
-        "affected_pages": report.affected_pages,
+        # The pipeline counts pages from 0; the server and its readers from 1.
+        "affected_pages": [p | {"page": p["page"] + 1} for p in report.affected_pages],
         "issues": [
             {
                 "code": i.code,
                 "severity": i.severity.value,
-                "page": i.page,
+                "page": None if i.page is None else i.page + 1,
                 "page_label": i.page_label,
                 "message": i.message,
             }
