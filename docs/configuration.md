@@ -710,6 +710,86 @@ network.
 
 When to change it: only for a catalog you reach over a network you trust.
 
+### `QUIRE_SERVER_CATALOG_PROXY_ENABLED`
+
+- Type: `true` or `false`
+- Default: `true`
+- Example: `QUIRE_SERVER_CATALOG_PROXY_ENABLED=false`
+
+A browser cannot read most third-party catalogs, so Quire Web opens a saved
+catalog through the server: the server fetches each page, cover and book with
+the saved login and passes the answer on
+([`/fetch`](sync-api.md#get-catalogsv1catalogsidfetch)). Every book a reader
+downloads that way passes through the server's bandwidth. `false` turns that
+off on its own: phones keep syncing their catalogs, and Quire Web shows only
+the server's own catalog. The catalog key must be present either way.
+
+With it on, any signed-in account can make the server fetch from any public
+host it saves as a catalog, with the server's own address as the sender. On a
+public service where anyone can sign up, weigh keeping it off.
+
+When to change it: on a server that should not carry readers' downloads from
+other sites, or one open to accounts you do not know.
+
+### `QUIRE_SERVER_CATALOG_PROXY_ALLOW_PRIVATE`
+
+- Type: `true` or `false`
+- Default: `false`
+- Example: `QUIRE_SERVER_CATALOG_PROXY_ALLOW_PRIVATE=true`
+
+By default the server fetches a saved catalog only from a globally routable
+address, so a reader cannot use it to reach machines inside the server's own
+network. `true` also allows exactly these ranges, for a catalog on your home
+network or a Tailscale address:
+
+- RFC 1918 private IPv4: `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`
+- CGNAT: `100.64.0.0/10`
+- IPv6 unique local: `fc00::/7`
+
+Everything else that is not globally routable stays refused whatever this
+says: loopback (`127.0.0.0/8`, `::1`), link-local (`169.254.0.0/16`,
+`fe80::/10`, which holds the cloud metadata services), IPv6 site-local
+(`fec0::/10`), IPv4-compatible and IPv4-mapped IPv6 (`::/96`,
+`::ffff:0:0/96`), documentation and benchmark ranges, multicast, unspecified
+and broadcast addresses, and the metadata services that sit inside an allowed
+range (`100.100.100.200`, `fd00:ec2::254`). So a catalog in another container
+on the same Docker network works with `true`, while one on the host's own
+loopback (`localhost`) does not: publish it on a private address instead. A
+catalog on plain `http` also needs
+[`QUIRE_SERVER_CATALOG_ALLOW_HTTP`](#quire_server_catalog_allow_http).
+
+When to change it: on a self-hosted server whose readers save catalogs on the
+local network. Leave it `false` on a server open to people you do not know.
+
+### `QUIRE_SERVER_CATALOG_PROXY_RATE_PER_MIN`
+
+- Type: whole number, 1 or more
+- Default: `120`
+- Example: `QUIRE_SERVER_CATALOG_PROXY_RATE_PER_MIN=60`
+
+How many saved-catalog fetches one account may make per minute, counted per
+server process. A catalog page costs one fetch plus one per cover on it.
+Past the limit the server answers `429` with `Retry-After` until the minute
+is over.
+
+When to change it: lower it on a shared server to bound what one account can
+make the server fetch.
+
+### `QUIRE_SERVER_CATALOG_PROXY_MAX_CONCURRENT`
+
+- Type: whole number, 1 or more
+- Default: `8`
+- Example: `QUIRE_SERVER_CATALOG_PROXY_MAX_CONCURRENT=4`
+
+How many saved-catalog fetches the server runs at once, all accounts
+together, counted per server process. One account may run 4 at a time. Past
+either limit the server answers `429` (`too_many_fetches`) at once instead of
+queueing. A fetch holds no database connection while it waits for the
+catalog, so this bounds open connections to other sites, not the database.
+
+When to change it: lower it on a small server, raise it on one with many
+readers browsing saved catalogs at once.
+
 ## Status page
 
 `/quire-admin` shows in one browser page what the checks in

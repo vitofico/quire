@@ -348,8 +348,12 @@ def create_app() -> FastAPI:
         app.include_router(browser_router, prefix="/auth/v1")
         app.include_router(lifecycle_router)
         from quire_server.api.catalogs import router as catalogs_router
+        from quire_server.core.catalog_proxy import FetchSlots, LoginBackoff, RateWindow
 
         app.include_router(catalogs_router, prefix="/catalogs/v1")
+        app.state.catalog_proxy_limit = RateWindow(settings.catalog_proxy_rate_per_min)
+        app.state.catalog_proxy_slots = FetchSlots(4, settings.catalog_proxy_max_concurrent)
+        app.state.catalog_proxy_backoff = LoginBackoff()
         if settings.auth_backend == "transition" and settings.self_migration_enabled:
             from quire_server.api.calibre_migration import router as migration_router
 
@@ -386,9 +390,20 @@ def create_app() -> FastAPI:
                 "/auth/v1/migrate/claim",
             }
             legacy_ai = request.url.path.startswith("/ai/") and settings.ai_auth_mode == "token"
+            # A saved-catalog fetch writes nothing and can wait long on another
+            # site, so it must not hold a fence slot (and its connection) all
+            # that time. The auth backend still refuses a closed account or a
+            # revoked or expired session, and the route reads its row and lets
+            # the connection go before it contacts the catalog.
+            catalog_fetch = (
+                request.method == "GET"
+                and request.url.path.startswith("/catalogs/v1/catalogs/")
+                and request.url.path.endswith("/fetch")
+            )
             if (
                 issuance
                 or legacy_ai
+                or catalog_fetch
                 or request.url.path in {"/", "/quire"}
                 or (
                     request.url.path.startswith("/quire/")

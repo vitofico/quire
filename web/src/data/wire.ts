@@ -41,6 +41,8 @@ export function libraryEntry(write: LibraryWrite, timestamp: string) {
     language: book.language,
     subjects: book.subjects,
     opds_href: book.opds_href,
+    // Omitted, the server keeps the catalog another device recorded.
+    ...(book.catalog_id !== undefined && { catalog_id: book.catalog_id }),
   }
 }
 

@@ -43,6 +43,7 @@ async def test_bootstrap_and_verified_calibre_session(monkeypatch):
             "catalogUrl": "/opds",
             "guestReading": True,
             "catalogSync": False,
+            "catalogProxy": False,
             "accountManagement": None,
         }
         assert (await client.get("/quire/v1/session")).status_code == 401

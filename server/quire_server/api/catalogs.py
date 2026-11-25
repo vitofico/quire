@@ -9,25 +9,32 @@ Native Quire accounts only: a Calibre Basic login has no account to keep the
 list on. Every route is a 404 while catalog sync is off (no key), and rows are
 keyed by the account's storage user id, so another account's catalog looks
 exactly like a missing one. Logs name a catalog by id only.
+
+``/fetch`` lets Quire Web browse a saved catalog: the server makes the request
+with the saved login and relays the answer (rules in ``core.catalog_proxy``).
 """
 
 from __future__ import annotations
 
+import asyncio
+import base64
 import hashlib
 import ipaddress
 import json
 import logging
 import re
-from collections.abc import Mapping
+import tempfile
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import UTC, datetime
 from typing import Annotated, Literal
-from urllib.parse import urlsplit
+from urllib.parse import quote, unquote, urlsplit
 from uuid import UUID
 
+import httpx
 import idna
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import delete, func, select, text
@@ -35,6 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from quire_server.config import Settings, get_settings
+from quire_server.core import catalog_proxy
 from quire_server.core.auth import current_auth_user
 from quire_server.core.auth_backend import AuthUser
 from quire_server.core.catalog_secrets import CatalogSecretError, CatalogSecrets
@@ -184,9 +192,9 @@ def _checked_host(hostname: str, bracketed: bool) -> str:
     raise HTTPException(422, "invalid_url")
 
 
-def _stored_host(stored: dict) -> str | None:
+def _origin(url: str, allow_http: bool = True) -> str | None:
     try:
-        return _checked_url(stored["url"], allow_http=True)[1]
+        return _checked_url(url, allow_http)[1]
     except HTTPException:
         return None
 
@@ -245,8 +253,13 @@ async def list_catalogs(
 
 @router.get("/catalogs/{catalog_id}/secret")
 async def get_secret(
-    catalog_id: UUID, secrets: Secrets, account: Account, session: Session
+    catalog_id: UUID, request: Request, secrets: Secrets, account: Account, session: Session
 ) -> dict:
+    # For apps that sign in with a token. A browser session never gets the
+    # login: any script on Quire's origin could use that session, and the
+    # page browses saved catalogs through ``/fetch`` without it.
+    if not request.headers.get("authorization"):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "token_required")
     row = await session.get(AccountCatalog, (account, catalog_id))
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
@@ -282,7 +295,7 @@ async def put_catalog(
         # It never follows the address to another scheme, host or port.
         if stored is None:
             raise HTTPException(status.HTTP_409_CONFLICT, "needs_login")
-        if _stored_host(stored) == host:
+        if _origin(stored["url"]) == host:
             password = stored.get("password")
     if (username is None) != (password is None):
         raise HTTPException(422, "login_incomplete")
@@ -350,3 +363,303 @@ async def put_order(
             row.position, row.updated_at = position, now
     await session.commit()
     return await _list(secrets, session, account, None)
+
+
+# What the browser may ask the catalog for, and what of the answer it sees.
+# Nothing else crosses: not the browser's cookies or Authorization, not the
+# catalog's Set-Cookie or Content-Disposition (the server writes its own).
+_FORWARDED_REQUEST = (
+    "accept",
+    "accept-language",
+    "range",
+    "if-range",
+    "if-none-match",
+    "if-modified-since",
+)
+_FORWARDED_RESPONSE = ("etag", "last-modified", "accept-ranges", "content-range")
+# Feeds and covers are read whole (and capped at FEED_LIMIT) before the
+# browser gets them; anything else is a download, capped at DOWNLOAD_LIMIT.
+_FEED_TYPES = frozenset(
+    {
+        "application/atom+xml",
+        "application/xml",
+        "text/xml",
+        "application/opensearchdescription+xml",
+        "image/avif",
+        "image/webp",
+        "image/png",
+        "image/jpeg",
+        "image/gif",
+    }
+)
+_DOWNLOAD_TYPES = frozenset(
+    {"application/epub+zip", "application/pdf", "application/zip", "application/octet-stream"}
+)
+FEED_LIMIT = 5 * 1024 * 1024
+DOWNLOAD_LIMIT = 200 * 1024 * 1024
+# A feed or cover must arrive whole within this; a download instead ends when
+# the catalog goes quiet (``catalog_proxy.TIMEOUT.read``).
+FEED_DEADLINE_S = 60.0
+# A download the catalog sends without a length is gathered here first (in
+# memory up to this size, then on disk).
+_SPOOL_MEMORY = 1024 * 1024
+# The body is another site's content served from Quire's origin: it must never
+# run as a page here, whatever it claims to be.
+_UNTRUSTED_BODY = {
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": "sandbox; default-src 'none'",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "Referrer-Policy": "no-referrer",
+}
+_FILENAME_UTF8 = re.compile(r"filename\*\s*=\s*utf-8''([^;]+)", re.IGNORECASE)
+_FILENAME = re.compile(r'filename\s*=\s*(?:"([^"]*)"|([^;]+))', re.IGNORECASE)
+_UNSAFE_NAME = re.compile(r'[\x00-\x1f\x7f/\\"]')
+
+
+def _proxy_enabled(settings: Annotated[Settings, Depends(get_settings)]) -> None:
+    if not settings.catalog_proxy_enabled:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not Found")
+
+
+def _parsed_origin(url: str) -> str | None:
+    """``url``'s origin as httpx, which makes the request, reads it."""
+    try:
+        parsed = httpx.URL(url)
+        host = parsed.raw_host.decode("ascii")
+    except (httpx.InvalidURL, UnicodeError):
+        return None
+    try:
+        host = f"[{ipaddress.IPv6Address(host)}]"
+    except ValueError:
+        pass
+    default = {"http": 80, "https": 443}.get(parsed.scheme)
+    port = f":{parsed.port}" if parsed.port not in (None, default) else ""
+    return f"{parsed.scheme}://{host}{port}"
+
+
+def _header(value: str | None) -> str | None:
+    """``value`` if it can cross as a header (printable ASCII), else nothing."""
+    return value if value and value.isascii() and value.isprintable() else None
+
+
+def _disposition(upstream: str) -> str:
+    """Always an attachment; keeps only a cleaned-up file name from the catalog."""
+    if match := _FILENAME_UTF8.search(upstream):
+        name = unquote(match.group(1).strip(), errors="replace")
+    elif match := _FILENAME.search(upstream):
+        name = match.group(1) if match.group(1) is not None else match.group(2).strip()
+    else:
+        name = ""
+    name = _UNSAFE_NAME.sub("", name).strip()[:150]
+    return f"attachment; filename*=UTF-8''{quote(name, safe='')}" if name else "attachment"
+
+
+class _Relayed(StreamingResponse):
+    """A streamed download that releases its upstream and fetch slot however it ends."""
+
+    def __init__(self, done: Callable[[], Awaitable[None]], *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._done = done
+
+    async def __call__(self, scope, receive, send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            await self._done()
+
+
+@router.get("/catalogs/{catalog_id}/fetch", dependencies=[Depends(_proxy_enabled)])
+async def fetch(
+    catalog_id: UUID,
+    request: Request,
+    secrets: Secrets,
+    account: Account,
+    session: Session,
+    settings: Annotated[Settings, Depends(get_settings)],
+    url: Annotated[str | None, Query(max_length=4096)] = None,
+) -> Response:
+    """GET ``url`` (default: the saved address) from the catalog, with its login."""
+    # A browser session must name its account, as Quire Web always does: a
+    # page on another site can make the browser send the cookie, not this.
+    if not request.headers.get("authorization") and "x-quire-account" not in request.headers:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "account_header_required")
+    state = request.app.state
+    retry = state.catalog_proxy_limit.retry_after(account)
+    if retry is not None:
+        raise HTTPException(429, "rate_limited", headers={"Retry-After": str(retry)})
+    row = await session.get(AccountCatalog, (account, catalog_id))
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
+    sealed, revision = row.secret, row.updated_at
+    # Nothing below needs the database: the connection goes back to the pool
+    # before the catalog, which may be slow, is contacted.
+    await session.close()
+    secret = open_secret(secrets, account, catalog_id, sealed)
+    if secret is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "needs_login")
+    # Keyed by account too: a catalog id is chosen by the device that saved it.
+    if state.catalog_proxy_backoff.paused((account, catalog_id), revision):
+        logger.info("event=catalogs.fetch_paused id=%s", catalog_id)
+        raise HTTPException(502, "catalog_login_rejected")
+    origin = _origin(secret["url"])
+
+    def same_origin(candidate: str) -> bool:
+        # Both parsers must agree, so a URL read one way when checked and
+        # another when sent cannot slip through.
+        checked = _origin(candidate, settings.catalog_allow_http)
+        return checked is not None and checked == origin == _parsed_origin(candidate)
+
+    target = _checked_url(secret["url"] if url is None else url, settings.catalog_allow_http)[0]
+    if not same_origin(target):
+        raise HTTPException(422, "other_origin")
+    target = str(httpx.URL(target).copy_with(fragment=None))
+    authorization = None
+    if secret.get("username"):
+        login = f"{secret['username']}:{secret['password']}".encode()
+        authorization = "Basic " + base64.b64encode(login).decode("ascii")
+    headers = {}
+    for name in _FORWARDED_REQUEST:
+        if value := _header(request.headers.get(name)):
+            headers[name] = value
+
+    slots = state.catalog_proxy_slots
+    if not slots.take(account):
+        raise HTTPException(429, "too_many_fetches", headers={"Retry-After": "1"})
+    try:
+        upstream = await catalog_proxy.open_upstream(
+            target,
+            same_origin=same_origin,
+            headers=headers,
+            authorization=authorization,
+            allow_private=settings.catalog_proxy_allow_private,
+        )
+    except BaseException as exc:
+        slots.give(account)
+        if isinstance(exc, catalog_proxy.UpstreamError):
+            logger.info("event=catalogs.fetch_refused id=%s reason=%s", catalog_id, exc.reason)
+            raise HTTPException(exc.status, exc.detail) from None
+        raise
+    state.catalog_proxy_backoff.answered(
+        (account, catalog_id), revision, login_rejected=upstream.response.status_code in (401, 403)
+    )
+
+    async def done() -> None:
+        try:
+            await upstream.aclose()
+        finally:
+            slots.give(account)
+
+    return await _relay(catalog_id, upstream, done)
+
+
+async def _relay(
+    catalog_id: UUID, upstream: catalog_proxy.Upstream, done: Callable[[], Awaitable[None]]
+) -> Response:
+    """The browser's copy of the catalog's answer; calls ``done`` when the upstream is spent."""
+    streaming = False
+    try:
+        answer = upstream.response
+        if answer.status_code in (401, 403):
+            logger.info("event=catalogs.fetch_login_rejected id=%s", catalog_id)
+            raise HTTPException(502, "catalog_login_rejected")
+        if answer.status_code not in (200, 206, 304):
+            logger.info(
+                "event=catalogs.fetch_status id=%s status=%s", catalog_id, answer.status_code
+            )
+            return JSONResponse(
+                {"detail": "catalog_error", "status": answer.status_code}, status_code=502
+            )
+        headers = dict(_UNTRUSTED_BODY)
+        if location := _header(upstream.url):
+            headers["Content-Location"] = location
+        for name in _FORWARDED_RESPONSE:
+            if value := _header(answer.headers.get(name)):
+                headers[name] = value
+        if answer.status_code == 304:
+            return Response(status_code=304, headers=headers)
+        # Asked for none, and refused if sent anyway: the caps count bytes as
+        # they cross, and a small compressed body could unpack to a huge one.
+        if answer.headers.get("content-encoding", "identity").strip().lower() not in (
+            "",
+            "identity",
+        ):
+            logger.info("event=catalogs.fetch_refused id=%s reason=content_encoding", catalog_id)
+            raise HTTPException(502, "catalog_compressed")
+        declared = _header(answer.headers.get("content-type")) or ""
+        media = declared.split(";")[0].strip().lower()
+        feed = media in _FEED_TYPES
+        limit = FEED_LIMIT if feed else DOWNLOAD_LIMIT
+        length = answer.headers.get("content-length", "")
+        # A length counts only for a body framed by it, not a chunked one.
+        framed = length.isdigit() and "transfer-encoding" not in answer.headers
+        if framed and int(length) > limit:
+            raise HTTPException(502, "catalog_too_large")
+        if feed:
+            body = bytearray()
+            try:
+                async with asyncio.timeout(FEED_DEADLINE_S):
+                    async for chunk in answer.aiter_raw():
+                        body += chunk
+                        if len(body) > limit:
+                            raise HTTPException(502, "catalog_too_large")
+            except TimeoutError:
+                logger.info("event=catalogs.fetch_refused id=%s reason=feed_deadline", catalog_id)
+                raise HTTPException(502, "catalog_unreachable") from None
+            return Response(bytes(body), answer.status_code, headers, media_type=declared)
+
+        # Never a page: an unknown type becomes bytes to save.
+        headers["Content-Disposition"] = _disposition(answer.headers.get("content-disposition", ""))
+        release = done
+        if framed:
+            # Streamed as it arrives. A catalog that stops short of its length
+            # leaves the browser a broken transfer, never a shorter book.
+            headers["Content-Length"] = length
+            body = answer.aiter_raw()
+        else:
+            # Without a length, a body cut off on the way (by the cap or the
+            # catalog) would pass for a whole, shorter book. So it is gathered
+            # first and sent with its length, or not at all.
+            spool = await _gathered(answer, limit, catalog_id)
+            headers["Content-Length"] = str(spool.tell())
+            spool.seek(0)
+            body = _replayed(spool)
+
+            async def release() -> None:
+                spool.close()
+                await done()
+
+        streaming = True
+        return _Relayed(
+            release,
+            body,
+            answer.status_code,
+            headers,
+            media_type=media if media in _DOWNLOAD_TYPES else "application/octet-stream",
+        )
+    except httpx.HTTPError:
+        logger.info("event=catalogs.fetch_refused id=%s reason=catalog_unreachable", catalog_id)
+        raise HTTPException(502, "catalog_unreachable") from None
+    finally:
+        if not streaming:
+            await done()
+
+
+async def _gathered(
+    answer: httpx.Response, limit: int, catalog_id: UUID
+) -> tempfile.SpooledTemporaryFile:
+    spool = tempfile.SpooledTemporaryFile(_SPOOL_MEMORY)
+    try:
+        async for chunk in answer.aiter_raw():
+            if spool.tell() + len(chunk) > limit:
+                logger.info("event=catalogs.fetch_refused id=%s reason=too_large", catalog_id)
+                raise HTTPException(502, "catalog_too_large")
+            await asyncio.to_thread(spool.write, chunk)
+    except BaseException:
+        spool.close()
+        raise
+    return spool
+
+
+async def _replayed(spool: tempfile.SpooledTemporaryFile):
+    while chunk := await asyncio.to_thread(spool.read, 65536):
+        yield chunk

@@ -57,6 +57,10 @@ def install_web_account(app: FastAPI, settings: Settings, identity: IdentitySett
             "guestReading": settings.web_guest_reading,
             # Saved catalogs need a Quire session on this host and a catalog key.
             "catalogSync": native and request.app.state.catalog_secrets is not None,
+            # ...and the server fetching them for the browser, which it cannot do itself.
+            "catalogProxy": native
+            and request.app.state.catalog_secrets is not None
+            and settings.catalog_proxy_enabled,
             "accountManagement": (
                 identity.public_url + "/cloud/account" if native and identity.oidc_issuer else None
             ),
