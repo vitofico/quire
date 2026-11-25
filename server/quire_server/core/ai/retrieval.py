@@ -141,7 +141,7 @@ _VOLUME_SUBTITLE = re.compile(
 _TRAILING_VOLUME = re.compile(
     rf"\s(?:\bvol(?:ume)?\.?{_VOLUME_NUMBER}|{_VOLUME_HASH})\s*$", re.IGNORECASE
 )
-_TRAILING_BRACKET = re.compile(r"\s*[(\[{][^()\[\]{}]*[)\]}]\s*$")
+_TRAILING_BRACKET = re.compile(r"[(\[{][^()\[\]{}]*[)\]}]\s*$")
 _SUBTITLE_SEP = re.compile(r":\s|\s[-\u2013\u2014]\s")
 _ROMAN = {"i": 1, "v": 5, "x": 10}
 _STOPWORDS = frozenset("a an and at by for from in of on or the to with".split())
@@ -149,7 +149,7 @@ _STOPWORDS = frozenset("a an and at by for from in of on or the to with".split()
 
 def _tidy_title(s: str) -> str:
     s = re.sub(r"\s+", " ", s)
-    s = re.sub(r"\s+([,;:])", r"\1", s)
+    s = re.sub(r" ([,;:])", r"\1", s)
     s = re.sub(r"([,;:])(?:\s*[,;:])+", r"\1", s)
     return s.strip(" ,;:/-\u2013\u2014")
 
@@ -185,7 +185,7 @@ def _strip_markers(title: str) -> tuple[str, float | None]:
         s = _MARKER_SEGMENT.sub(drop, s)
         s = _VOLUME_SUBTITLE.sub(drop, s)
         s = _TRAILING_VOLUME.sub(drop, s)
-        s = _TRAILING_BRACKET.sub("", s)
+        s = _TRAILING_BRACKET.sub("", s).rstrip()
         if s == before:
             return _tidy_title(s), (volumes[0] if volumes else None)
 

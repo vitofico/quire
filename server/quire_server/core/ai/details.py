@@ -118,10 +118,10 @@ _NUMBER = re.compile(r"\d+(?:[-\s]\d+)*")
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 _EBOOK_EXTENSION = re.compile(r"\.(?:epub|pdf|mobi|azw3?|fb2|cbz|cbr|djvu|txt|docx?)$", re.I)
 _RELEASE_TAG = re.compile(
-    r"[(\[{]\s*(?:retail|epub|mobi|pdf|azw3?|v\d+(?:\.\d+)*|z-?lib[^)\]}]*|scan\w*|ocr|ebook)\s*[)\]}]",
+    r"[(\[{]\s?(?:retail|epub|mobi|pdf|azw3?|v\d+(?:\.\d+)*|z-?lib[^)\]}]*|scan\w*|ocr|ebook)\s?[)\]}]",
     re.IGNORECASE,
 )
-_GLUED_WORDS = re.compile(r"^[^\s]*[A-Za-z][._-][A-Za-z][^\s]*$")
+_GLUED_WORDS = re.compile(r"[A-Za-z][._-][A-Za-z]")
 
 TidyStatus = Literal["done", "not_needed", "quota_exceeded", "failed"]
 
@@ -172,7 +172,7 @@ def looks_like_file_name(title: str, authors: list[str]) -> bool:
     """
     if "_" in title or _EBOOK_EXTENSION.search(title) or _RELEASE_TAG.search(title):
         return True
-    if _GLUED_WORDS.match(title) and len(title) > 8:
+    if len(title) > 8 and not any(c.isspace() for c in title) and _GLUED_WORDS.search(title):
         return True
     # Scripts without case, such as Chinese or Arabic, are neither.
     cased = [c for c in title if c.isupper() or c.islower()]
