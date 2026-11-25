@@ -66,6 +66,9 @@ async function connect(page: Page, { discuss = true, bookDetails = true } = {}) 
   })
   await page.goto('/quire/#/highlights')
   await expect(page.getByRole('heading', { name: 'Highlights', level: 1 })).toBeVisible()
+  // The app creates its storage as it starts: opening it first would leave a database without stores.
+  await expect.poll(() => page.evaluate(async () => (await indexedDB.databases())
+    .some(db => db.name === `quire-web:${JSON.stringify([location.origin, 'connected', 'native', 'reader'])}`))).toBe(true)
   // Three passages from two books, straight into this account's browser storage.
   await page.evaluate(async ({ dune, swan }) => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
