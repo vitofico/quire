@@ -32,6 +32,7 @@
     <string name="catalogs_failed_credentials_in_url">Saisis le nom d’utilisateur et le mot de passe dans leurs propres champs, pas dans l’adresse.</string>
     <string name="catalogs_failed_login_incomplete">Saisis un nom d’utilisateur et un mot de passe, ou aucun des deux.</string>
     <string name="catalogs_failed_order">La liste a changé sur un autre appareil. Réessaie.</string>
+    <string name="catalogs_failed_removed">Un autre appareil a retiré ce catalogue de ton compte Quire, il disparaît donc aussi ici.</string>
     <string name="catalogs_failed_sign_in">Reconnecte-toi à Quire pour modifier les catalogues enregistrés dans ton compte.</string>
     <string name="catalogs_failed_offline">Impossible de joindre ton serveur Quire. Vérifie ta connexion et réessaie.</string>
     <string name="catalogs_failed_rejected">Ton serveur Quire n’a pas accepté cette modification.</string>

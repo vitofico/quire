@@ -40,7 +40,10 @@ data class CatalogForm(
     val error: UiText? = null,
     /** The Quire account is full: the form offers keeping this catalog on this device only. */
     val offerDeviceOnly: Boolean = false,
-)
+) {
+    override fun toString(): String =
+        "CatalogForm(id=$id, isNew=$isNew, address=***, username=$username, password=***, name=$name, busy=$busy)"
+}
 
 /**
  * The catalog list in Settings and the sign-in question about uploading it. Every change goes
@@ -108,8 +111,9 @@ class CatalogsViewModel(
 
     /**
      * Test the connection when the address or login changed, then save. [deviceOnly] null keeps the
-     * catalog where it is (a new one goes to the Quire account when there is one); true keeps it on
-     * this device only; false is "Save to account".
+     * catalog where it is (a new one goes to the Quire account when there is one, and one waiting
+     * for the sign-in question keeps waiting); true keeps it on this device only; false is "Save to
+     * account".
      */
     fun saveForm(deviceOnly: Boolean? = null) {
         val form = _form.value?.takeUnless { it.busy } ?: return
@@ -147,7 +151,8 @@ class CatalogsViewModel(
                 catalog = catalog,
                 deviceOnly = deviceOnly ?: (existing?.deviceOnly == true),
             )
-            when (val saved = repository.save(entry)) {
+            val toAccount = deviceOnly == false || (deviceOnly == null && existing == null)
+            when (val saved = repository.save(entry, toAccount)) {
                 CatalogResult.Done -> _form.value = null
                 is CatalogResult.Failed -> _form.value = form.copy(
                     error = catalogFailureMessage(saved.reason),

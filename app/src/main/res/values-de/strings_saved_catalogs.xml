@@ -32,6 +32,7 @@
     <string name="catalogs_failed_credentials_in_url">Trage Benutzername und Passwort in ihre eigenen Felder ein, nicht in die Adresse.</string>
     <string name="catalogs_failed_login_incomplete">Gib Benutzername und Passwort ein oder keins von beiden.</string>
     <string name="catalogs_failed_order">Die Liste wurde auf einem anderen Gerät geändert. Versuche es erneut.</string>
+    <string name="catalogs_failed_removed">Ein anderes Gerät hat diesen Katalog aus deinem Quire-Konto entfernt, daher ist er auch hier weg.</string>
     <string name="catalogs_failed_sign_in">Melde dich erneut bei Quire an, um die Kataloge in deinem Konto zu ändern.</string>
     <string name="catalogs_failed_offline">Dein Quire-Server ist nicht erreichbar. Prüfe deine Verbindung und versuche es erneut.</string>
     <string name="catalogs_failed_rejected">Dein Quire-Server hat diese Änderung nicht angenommen.</string>

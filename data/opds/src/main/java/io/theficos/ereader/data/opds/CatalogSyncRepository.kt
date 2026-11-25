@@ -51,6 +51,9 @@ enum class CatalogFailure {
 
     /** Another device changed the list meanwhile; it has been fetched again. */
     ORDER_CHANGED,
+
+    /** Another device removed this catalog from the account; it is gone from this device too. */
+    REMOVED_ELSEWHERE,
     NOT_SUPPORTED,
 
     /** The Quire session ended. Nothing was changed; the list keeps working until the reader signs in. */
@@ -105,21 +108,43 @@ class CatalogSyncRepository(
     suspend fun pull(): CatalogResult = mutex.withLock { pullLocked() }
 
     /**
-     * Add [entry], or replace the catalog with its id. On a synced account a catalog not kept on
-     * this device only is saved to the account first; nothing changes locally when that fails.
+     * Add [candidate], or replace the catalog with its id. A new catalog whose address the list
+     * already has updates that one instead, which keeps its place on the account or the device.
+     *
+     * Only a catalog already on the account, or one the reader chose to put there ([toAccount]),
+     * reaches the server, and then nothing changes locally when the server says no. Any other edit
+     * stays on this device: a catalog waiting for the sign-in question keeps waiting, so a login
+     * nobody agreed to upload never leaves the device. An account catalog that another device
+     * removed meanwhile is refused and dropped here too, instead of being saved back.
      */
-    suspend fun save(candidate: SavedCatalog): CatalogResult = mutex.withLock {
-        val entry = runCatching { candidate.validated() }.getOrNull() ?: return@withLock failed(CatalogFailure.REJECTED)
-        val existing = store.catalogs.value.find { it.id == entry.id }
-        val catalog = entry.catalog
-        if (entry.pinned || existing?.pinned == true || catalog == null) return@withLock failed(CatalogFailure.REJECTED)
+    suspend fun save(candidate: SavedCatalog, toAccount: Boolean = false): CatalogResult = mutex.withLock {
+        val valid = runCatching { candidate.validated() }.getOrNull() ?: return@withLock failed(CatalogFailure.REJECTED)
+        val catalog = valid.catalog
+        if (valid.pinned || catalog == null) return@withLock failed(CatalogFailure.REJECTED)
+        val current = store.catalogs.value
+        val twin = if (current.any { it.id == valid.id }) null
+        else current.find { !it.pinned && it.catalog?.baseUrl == catalog.baseUrl }
+        val entry = if (twin == null) valid else valid.copy(id = twin.id, deviceOnly = twin.deviceOnly)
+        val existing = current.find { it.id == entry.id }
+        if (existing?.pinned == true) return@withLock failed(CatalogFailure.REJECTED)
         // Moving a catalog off the account is not something the reader can ask for.
         if (existing?.onAccount == true && entry.deviceOnly) return@withLock failed(CatalogFailure.REJECTED)
-        val owner = syncedOwner()
-        if (owner == null || entry.deviceOnly) {
-            if (existing?.onAccount == true) return@withLock failed(unsynced())
+        val onAccount = existing?.onAccount == true
+        if (!onAccount && (!toAccount || twin != null || entry.deviceOnly)) {
             store.saveCatalog(entry.copy(remoteUpdatedAt = null, needsLogin = false, listedHost = null))
             return@withLock CatalogResult.Done
+        }
+        val owner = syncedOwner()
+        if (owner == null) {
+            if (existing != null) return@withLock failed(unsynced())
+            // Not synced right now: a new catalog waits for the sign-in question.
+            store.saveCatalog(entry.copy(remoteUpdatedAt = null, needsLogin = false, listedHost = null))
+            return@withLock CatalogResult.Done
+        }
+        if (onAccount) {
+            // Usually a 304. Saving a catalog another device removed would put it back.
+            (pullLocked() as? CatalogResult.Failed)?.let { return@withLock it }
+            if (store.catalogs.value.none { it.id == entry.id }) return@withLock failed(CatalogFailure.REMOVED_ELSEWHERE)
         }
         remote {
             val saved = client.put(entry.id, catalog.toPut(entry.name))
@@ -150,13 +175,16 @@ class CatalogSyncRepository(
      * device; when another device changed the list meanwhile it is fetched again and nothing moves.
      */
     suspend fun reorder(ids: List<String>): CatalogResult = mutex.withLock {
-        val onAccount = store.catalogs.value.filter { it.onAccount }.map { it.id }.toSet()
+        val wereOnAccount = store.catalogs.value.filter { it.onAccount }.map { it.id }.toSet()
         val owner = syncedOwner()
-        if (onAccount.isEmpty() || owner == null) {
-            if (onAccount.isNotEmpty()) return@withLock failed(unsynced())
+        if (wereOnAccount.isEmpty() || owner == null) {
+            if (wereOnAccount.isNotEmpty()) return@withLock failed(unsynced())
             store.reorderCatalogs(ids)
             return@withLock CatalogResult.Done
         }
+        (pullLocked() as? CatalogResult.Failed)?.let { return@withLock it }
+        val onAccount = store.catalogs.value.filter { it.onAccount }.map { it.id }.toSet()
+        if (ids.any { it in wereOnAccount && it !in onAccount }) return@withLock failed(CatalogFailure.REMOVED_ELSEWHERE)
         val result = remote {
             // The answer is the whole list, which may carry another device's edits too.
             apply(owner, client.order(ids.filter { it in onAccount }))
@@ -169,7 +197,8 @@ class CatalogSyncRepository(
     /**
      * The reader's answer to the sign-in question: upload the catalogs in [accepted] and keep the
      * others on this device only. A catalog whose address the account already has is merged into
-     * the account's copy. One the account can't take (the limit, or an address the server refuses)
+     * the account's copy, unless its own login differs: then it stays on this device only, so that
+     * login is not thrown away. One the account can't take (the limit, or an address the server refuses)
      * stays on this device only. Offline, the declined ones are still marked and the accepted ones
      * wait for the next try.
      */
@@ -183,6 +212,13 @@ class CatalogSyncRepository(
             val catalog = pending.catalog ?: continue
             val twin = store.catalogs.value.find { it.onAccount && it.catalog?.baseUrl == catalog.baseUrl }
             if (twin != null) {
+                val accountCopy = twin.catalog
+                if (catalog.username != null &&
+                    (catalog.username != accountCopy?.username || catalog.password != accountCopy?.password)
+                ) {
+                    store.saveCatalog(pending.copy(deviceOnly = true))
+                    continue
+                }
                 onCatalogMerged(pending.id, twin.id)
                 val wasActive = store.activeCatalog.value?.id == pending.id
                 store.removeCatalog(pending.id)

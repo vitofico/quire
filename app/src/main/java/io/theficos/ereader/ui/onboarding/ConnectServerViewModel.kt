@@ -125,7 +125,7 @@ class ConnectServerViewModel(
                 is CatalogCheck.Result.Failed -> UiState.VerificationFailed(result.message)
                 is CatalogCheck.Result.Found -> {
                     val entry = SavedCatalog(SavedCatalog.newId(), SavedCatalog.defaultName(result.catalog.baseUrl), result.catalog)
-                    when (val saved = catalogs.save(entry)) {
+                    when (val saved = catalogs.save(entry, toAccount = true)) {
                         CatalogResult.Done -> UiState.Completed
                         is CatalogResult.Failed -> UiState.VerificationFailed(catalogFailureMessage(saved.reason))
                     }

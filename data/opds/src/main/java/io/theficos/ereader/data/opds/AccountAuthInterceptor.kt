@@ -140,8 +140,11 @@ private fun HttpUrl.pathUnder(base: String): List<String>? {
 private fun List<String>.isQuireApi(): Boolean =
     size >= 2 && first() in quireApiNamespaces && this[1] == "v1"
 
+// An empty segment before the end (`//library/v1`) reaches the same route once the server
+// merges the slashes, while the route checks here would not see it.
 private fun HttpUrl.hasAmbiguousPath(): Boolean =
-    pathSegments.any { '/' in it || '\\' in it || '%' in it || it == "." || it == ".." }
+    pathSegments.dropLast(1).any { it.isEmpty() } ||
+        pathSegments.any { '/' in it || '\\' in it || '%' in it || it == "." || it == ".." }
 
 private val quireApiNamespaces = setOf("ai", "auth", "catalogs", "library", "sync")
 private val quireWebRoutes = setOf("quire", "cloud")

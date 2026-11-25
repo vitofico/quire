@@ -484,12 +484,10 @@ class AppContainer internal constructor(context: Context, private val db: EReade
             }
         }
         libraryUploaderScope.launch {
-            try {
-                releaseLegacyCatalogOwner()
-            } catch (e: android.database.SQLException) {
-                // The owner stays recorded, so the next app start tries again.
-                android.util.Log.w("AppContainer", "Couldn't move the old catalog's highlights to the device", e)
-            }
+            // Any failure, not only the database's: the catalog sync below must still start. The
+            // owner stays recorded, so the next app start tries again.
+            runCatching { releaseLegacyCatalogOwner() }
+                .onFailure { android.util.Log.w("AppContainer", "Couldn't move the old catalog's highlights to the device", it) }
             credentialStore.accountFlow.collect { account ->
                 if (account is AccountCredentials.Bearer) {
                     try {

@@ -48,7 +48,7 @@ class CalibreCredentialStore(context: Context) {
         val initial = loadAccount()
         _accountFlow = MutableStateFlow(initial)
         _flow = MutableStateFlow(initial.asLegacyBasicOrNull())
-        publishCatalogs(initial, loadCatalogState())
+        publishCatalogs(initial, loadCatalogState(initial))
         // A stored Bearer session whose expiry has already passed on cold
         // launch starts in the re-auth state, so the UI can route the user
         // straight to sign-in instead of letting the first request 401.
@@ -573,7 +573,7 @@ class CalibreCredentialStore(context: Context) {
         LEGACY_CATALOG_KEYS.forEach { editor.remove(it) }
         if (catalogOnly) ACCOUNT_KEYS.forEach { editor.remove(it) }
         if (legacy != null && legacy.baseUrl.isNotBlank()) {
-            val saved = readCatalogList()
+            val saved = readCatalogList().first
             val existing = saved.find { it.catalog?.baseUrl == legacy.baseUrl }
             val entry = existing?.copy(catalog = legacy)
                 ?: SavedCatalog(SavedCatalog.newId(), defaultName(legacy.baseUrl), legacy)
@@ -602,22 +602,38 @@ class CalibreCredentialStore(context: Context) {
         }
     }
 
-    private fun loadCatalogState() = CatalogState(
-        saved = readCatalogList(),
-        activeId = prefs.getString(KEY_ACTIVE_CATALOG, null),
-        revision = prefs.getString(KEY_CATALOG_REVISION, null),
-    )
+    private fun loadCatalogState(account: AccountCredentials?): CatalogState {
+        val (saved, damaged) = readCatalogList()
+        val activeId = prefs.getString(KEY_ACTIVE_CATALOG, null)
+        if (!damaged) return CatalogState(saved, activeId, prefs.getString(KEY_CATALOG_REVISION, null))
+        // Without the revision the next pull fetches the account's whole list instead of a 304,
+        // so the catalogs that could not be read come back.
+        val known = listOfNotNull(account.pinnedCatalog()) + saved
+        return CatalogState(saved, activeId?.takeIf { id -> known.any { it.id == id } }, revision = null)
+    }
 
-    private fun readCatalogList(): List<SavedCatalog> {
-        val raw = prefs.getString(KEY_CATALOG_LIST, null) ?: return emptyList()
-        return try {
-            val array = JSONArray(raw)
-            (0 until array.length()).map { catalogFromJson(array.getJSONObject(it)) }
+    /** The stored list, and whether any of it could not be read. Unreadable entries are skipped. */
+    private fun readCatalogList(): Pair<List<SavedCatalog>, Boolean> {
+        val raw = prefs.getString(KEY_CATALOG_LIST, null) ?: return emptyList<SavedCatalog>() to false
+        // Never log the value: it holds catalog addresses and passwords.
+        val array = try {
+            JSONArray(raw)
         } catch (e: JSONException) {
-            // Never log the value: it holds catalog addresses and passwords.
             Log.w(TAG, "Stored catalog list can't be read; starting with an empty list")
-            emptyList()
+            return emptyList<SavedCatalog>() to true
         }
+        val entries = (0 until array.length()).mapNotNull { index ->
+            try {
+                catalogFromJson(array.getJSONObject(index)).validated()
+            } catch (e: JSONException) {
+                null
+            } catch (e: IllegalArgumentException) {
+                null
+            }
+        }
+        val skipped = array.length() - entries.size
+        if (skipped > 0) Log.w(TAG, "Skipped $skipped stored catalogs that can't be read")
+        return entries to (skipped > 0)
     }
 
     private fun AccountCredentials?.asLegacyBasicOrNull(): CalibreCredentials? =

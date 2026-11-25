@@ -566,11 +566,37 @@ class CalibreCredentialStoreTest {
 
     @Test fun `an unreadable catalog list starts empty instead of crashing`() {
         freshStore()
-        rawPrefs().edit().putString("catalog_list", "{not json").commit()
+        rawPrefs().edit().putString("catalog_list", "{not json").putString("catalog_revision", "rev").commit()
         val store = CalibreCredentialStore(context)
         assertThat(store.catalogs.value).isEmpty()
+        // The next pull fetches the account's whole list instead of a 304 for what was lost.
+        assertThat(store.catalogRevision.value).isNull()
         store.saveCatalog(entry("https://feed.example/opds"))
         assertThat(CalibreCredentialStore(context).catalogs.value).hasSize(1)
+    }
+
+    @Test fun `an unreadable catalog entry is skipped and the rest stay`() {
+        val store = freshStore()
+        val good = entry("https://good.example/opds", "alice", "hunter2", name = "Good")
+        store.saveCatalog(good)
+        val broken = SavedCatalog.newId()
+        val stored = org.json.JSONArray(rawPrefs().getString("catalog_list", null))
+            .put(org.json.JSONObject().put("id", broken).put("url", "https://broken.example/opds"))
+        rawPrefs().edit()
+            .putString("catalog_list", stored.toString())
+            .putString("catalog_active", broken)
+            .putString("catalog_revision", "rev")
+            .commit()
+
+        val reread = CalibreCredentialStore(context)
+        assertThat(reread.catalogs.value).containsExactly(good)
+        assertThat(reread.activeCatalog.value).isEqualTo(good)
+        assertThat(reread.catalogRevision.value).isNull()
+
+        // An intact list keeps its revision.
+        reread.saveCatalog(good.copy(name = "Still good"))
+        rawPrefs().edit().putString("catalog_revision", "rev").commit()
+        assertThat(CalibreCredentialStore(context).catalogRevision.value).isEqualTo("rev")
     }
 
     // ---------- migration from the single catalog ----------

@@ -193,7 +193,7 @@ class CatalogSyncRepositoryTest {
         val entry = SavedCatalog(SavedCatalog.newId(), " Kavita ", AccountCredentials.OpdsOnly("https://kavita.example/api/opds/KEY", "alice", "hunter2"))
         server.enqueue(saved(entry.id, "Kavita", "t9"))
 
-        assertThat(repo.save(entry)).isEqualTo(CatalogResult.Done)
+        assertThat(repo.save(entry, toAccount = true)).isEqualTo(CatalogResult.Done)
 
         val put = request()
         assertThat(put.method).isEqualTo("PUT")
@@ -226,12 +226,12 @@ class CatalogSyncRepositoryTest {
         )
         for ((response, reason) in cases) {
             server.enqueue(response)
-            assertThat(repo.save(device("http://plain.example/opds"))).isEqualTo(CatalogResult.Failed(reason))
+            assertThat(repo.save(device("http://plain.example/opds"), toAccount = true)).isEqualTo(CatalogResult.Failed(reason))
         }
         assertThat(store.catalogs.value.map { it.id }).containsExactly(a)
         // A login half filled in never reaches the server.
         val half = SavedCatalog(SavedCatalog.newId(), "x", AccountCredentials.OpdsOnly("https://x.example", "alice", null))
-        assertThat(repo.save(half)).isEqualTo(CatalogResult.Failed(CatalogFailure.REJECTED))
+        assertThat(repo.save(half, toAccount = true)).isEqualTo(CatalogResult.Failed(CatalogFailure.REJECTED))
         assertThat(server.requestCount).isEqualTo(2 + cases.size)
     }
 
@@ -242,14 +242,16 @@ class CatalogSyncRepositoryTest {
         assertThat(repo.save(mine.copy(name = "Home"))).isEqualTo(CatalogResult.Done)
         assertThat(server.requestCount).isEqualTo(2)
 
-        // Reordering sends the account's catalogs only.
+        // Reordering sends the account's catalogs only, after checking the list is current.
+        server.enqueue(MockResponse().setResponseCode(304))
         server.enqueue(list("2", listed(a, "Books", "t1", kind = "calibre")))
         assertThat(repo.reorder(listOf(mine.id, a))).isEqualTo(CatalogResult.Done)
+        request()
         assertThat(JSONObject(request().body.readUtf8()).getJSONArray("ids").toString()).isEqualTo("""["$a"]""")
         assertThat(store.catalogs.value.map { it.id }).containsExactly(mine.id, a).inOrder()
 
         assertThat(repo.remove(mine.id)).isEqualTo(CatalogResult.Done)
-        assertThat(server.requestCount).isEqualTo(3)
+        assertThat(server.requestCount).isEqualTo(4)
         assertThat(repo.pendingUploads.first()).isEmpty()
         // An account catalog can't be moved off the account.
         assertThat(repo.save(store.catalogs.value.single().copy(deviceOnly = true)))
@@ -276,9 +278,11 @@ class CatalogSyncRepositoryTest {
         store.saveCatalog(mine)
 
         // The server bumps the row that moved, so only B's secret is read again.
+        server.enqueue(MockResponse().setResponseCode(304))
         server.enqueue(list("2", listed(b, "B", "t2"), listed(a, "A", "t1", position = 1)))
         server.enqueue(secret("https://b.example/opds"))
         assertThat(repo.reorder(listOf(mine.id, b, a))).isEqualTo(CatalogResult.Done)
+        assertThat(request().getHeader("If-None-Match")).isEqualTo("\"1\"")
         val order = request()
         assertThat(order.path).isEqualTo("/catalogs/v1/order")
         assertThat(JSONObject(order.body.readUtf8()).getJSONArray("ids").toString()).isEqualTo("""["$b","$a"]""")
@@ -286,10 +290,12 @@ class CatalogSyncRepositoryTest {
         assertThat(store.catalogs.value.map { it.id }).containsExactly(mine.id, b, a).inOrder()
         assertThat(store.catalogRevision.value).isEqualTo("2")
 
+        server.enqueue(MockResponse().setResponseCode(304))
         server.enqueue(detail(409, "order_mismatch"))
         server.enqueue(MockResponse().setResponseCode(304))
         assertThat(repo.reorder(listOf(a, b, mine.id))).isEqualTo(CatalogResult.Failed(CatalogFailure.ORDER_CHANGED))
         request()
+        assertThat(request().path).isEqualTo("/catalogs/v1/order")
         assertThat(request().getHeader("If-None-Match")).isEqualTo("\"2\"")
         assertThat(store.catalogs.value.map { it.id }).containsExactly(mine.id, b, a).inOrder()
     }
@@ -345,10 +351,94 @@ class CatalogSyncRepositoryTest {
         assertThat(byId.getValue(declined.id).deviceOnly).isTrue()
     }
 
+    @Test fun `an edit of a catalog waiting for the sign-in question stays on this device`() = runTest {
+        // For example kept at sign-out by an earlier reader of this device.
+        val kept = SavedCatalog(SavedCatalog.newId(), "Kept", AccountCredentials.OpdsOnly("https://home.example/opds", "alice", "secret"))
+        store.saveCatalog(kept)
+        synced()
+
+        assertThat(repo.save(kept.copy(name = "Renamed"))).isEqualTo(CatalogResult.Done)
+        assertThat(server.requestCount).isEqualTo(2)
+        assertThat(store.catalogs.value.single { it.id == kept.id }.awaitingUpload).isTrue()
+        assertThat(repo.pendingUploads.first().map { it.id }).containsExactly(kept.id)
+
+        // Only the reader's own choice takes it to the account.
+        server.enqueue(saved(kept.id, "Renamed", "t9"))
+        assertThat(repo.save(kept.copy(name = "Renamed"), toAccount = true)).isEqualTo(CatalogResult.Done)
+        assertThat(request().method).isEqualTo("PUT")
+        assertThat(store.catalogs.value.single { it.id == kept.id }.onAccount).isTrue()
+    }
+
+    @Test fun `an account catalog is edited after checking the list, and one removed elsewhere is not saved back`() = runTest {
+        synced()
+        val books = store.catalogs.value.single()
+        server.enqueue(MockResponse().setResponseCode(304))
+        server.enqueue(saved(a, "Renamed", "t2"))
+        assertThat(repo.save(books.copy(name = "Renamed"))).isEqualTo(CatalogResult.Done)
+        assertThat(request().getHeader("If-None-Match")).isEqualTo("\"1\"")
+        assertThat(request().method).isEqualTo("PUT")
+
+        // Another device removed it meanwhile.
+        server.enqueue(list("2"))
+        assertThat(repo.save(books.copy(name = "Again"))).isEqualTo(CatalogResult.Failed(CatalogFailure.REMOVED_ELSEWHERE))
+        assertThat(request().method).isEqualTo("GET")
+        assertThat(server.requestCount).isEqualTo(5)
+        assertThat(store.catalogs.value).isEmpty()
+    }
+
+    @Test fun `reordering after another device removed a catalog moves nothing`() = runTest {
+        server.enqueue(list("1", listed(a, "A", "t1"), listed(b, "B", "t1", position = 1)))
+        server.enqueue(secret("https://a.example/opds"))
+        server.enqueue(secret("https://b.example/opds"))
+        repo.pull()
+        repeat(3) { request() }
+
+        server.enqueue(list("2", listed(b, "B", "t1")))
+        assertThat(repo.reorder(listOf(b, a))).isEqualTo(CatalogResult.Failed(CatalogFailure.REMOVED_ELSEWHERE))
+        request()
+        assertThat(server.requestCount).isEqualTo(4)
+        assertThat(store.catalogs.value.map { it.id }).containsExactly(b)
+    }
+
+    @Test fun `adding an address the list already has updates that catalog`() = runTest {
+        synced()
+        val again = SavedCatalog(SavedCatalog.newId(), "Again", AccountCredentials.OpdsOnly("https://books.example/opds", "reader", "new"))
+        server.enqueue(MockResponse().setResponseCode(304))
+        server.enqueue(saved(a, "Again", "t2"))
+        assertThat(repo.save(again, toAccount = true)).isEqualTo(CatalogResult.Done)
+        request()
+        assertThat(request().path).isEqualTo("/catalogs/v1/catalogs/$a")
+        assertThat(store.catalogs.value.map { it.id }).containsExactly(a)
+        assertThat(store.catalogs.value.single().catalog?.password).isEqualTo("new")
+
+        // On this device it stays where it was too.
+        val mine = device("https://home.example/opds", deviceOnly = true)
+        store.saveCatalog(mine)
+        assertThat(repo.save(device("https://home.example/opds", "Home"), toAccount = true)).isEqualTo(CatalogResult.Done)
+        assertThat(store.catalogs.value.map { it.id }).containsExactly(a, mine.id).inOrder()
+        assertThat(store.catalogs.value.last().name).isEqualTo("Home")
+        assertThat(store.catalogs.value.last().deviceOnly).isTrue()
+        assertThat(server.requestCount).isEqualTo(4)
+    }
+
+    @Test fun `a device catalog with its own login for an account address stays on this device`() = runTest {
+        val mine = SavedCatalog(SavedCatalog.newId(), "Mine", AccountCredentials.OpdsOnly("https://books.example/opds", "other", "own-password"))
+        store.saveCatalog(mine)
+        synced()
+        server.enqueue(MockResponse().setResponseCode(304))
+
+        assertThat(repo.uploadPending(setOf(mine.id))).isEqualTo(CatalogResult.Done)
+        assertThat(merged).isEmpty()
+        val kept = store.catalogs.value.single { it.id == mine.id }
+        assertThat(kept.deviceOnly).isTrue()
+        assertThat(kept.catalog?.password).isEqualTo("own-password")
+        assertThat(server.requestCount).isEqualTo(3)
+    }
+
     @Test fun `a legacy Calibre-Web sign-in never talks to the catalog API`() = runTest {
         store.saveBasicAccount(server.url("/").toString(), "reader", "pw")
         assertThat(repo.pull()).isEqualTo(CatalogResult.Done)
-        assertThat(repo.save(device("https://home.example/opds"))).isEqualTo(CatalogResult.Done)
+        assertThat(repo.save(device("https://home.example/opds"), toAccount = true)).isEqualTo(CatalogResult.Done)
         assertThat(repo.status.first()).isEqualTo(CatalogSyncStatus.DEVICE_ONLY)
         assertThat(server.requestCount).isEqualTo(0)
     }

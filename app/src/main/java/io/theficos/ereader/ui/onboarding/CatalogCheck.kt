@@ -146,6 +146,7 @@ fun catalogFailureMessage(reason: CatalogFailure): UiText = uiText(
         CatalogFailure.CREDENTIALS_IN_URL -> R.string.catalogs_failed_credentials_in_url
         CatalogFailure.LOGIN_INCOMPLETE -> R.string.catalogs_failed_login_incomplete
         CatalogFailure.ORDER_CHANGED -> R.string.catalogs_failed_order
+        CatalogFailure.REMOVED_ELSEWHERE -> R.string.catalogs_failed_removed
         CatalogFailure.NOT_SUPPORTED -> R.string.catalogs_status_not_supported
         CatalogFailure.SIGN_IN_REQUIRED -> R.string.catalogs_failed_sign_in
         CatalogFailure.OFFLINE -> R.string.catalogs_failed_offline

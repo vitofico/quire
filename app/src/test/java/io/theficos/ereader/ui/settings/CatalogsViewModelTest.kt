@@ -200,6 +200,44 @@ class CatalogsViewModelTest {
         assertThat(requests.poll(250, TimeUnit.MILLISECONDS)).isNull()
     }
 
+    @Test fun `renaming a catalog nobody was asked about yet never uploads its login`() = runTest {
+        // For example kept by an earlier reader at sign-out, on a device another reader now signs in on.
+        val kept = SavedCatalog(SavedCatalog.newId(), "Kept", AccountCredentials.OpdsOnly(server.url("/feed").toString(), "alice", "secret"))
+        store.saveCatalog(kept)
+        signedIn()
+        val vm = newViewModel()
+        repository.pull()
+        request()
+        vm.edit(kept.id)
+        vm.onFormChange(vm.form.value!!.copy(name = "Renamed"))
+        vm.saveForm()
+        advanceUntilIdle()
+        // Without a guard the save would go to the account on the IO dispatcher: wait for it either way.
+        vm.form.first { it?.busy != true }
+
+        assertThat(vm.form.value).isNull()
+        assertThat(requests.poll(250, TimeUnit.MILLISECONDS)).isNull()
+        val renamed = store.catalogs.value.single()
+        assertThat(renamed.name).isEqualTo("Renamed")
+        assertThat(renamed.awaitingUpload).isTrue()
+
+        // Only "Save to account" takes it there.
+        routes["PUT /catalogs/v1/catalogs/${kept.id}"] =
+            json("""{"id":"${kept.id}","name":"Renamed","kind":"opds","host":"x","position":0,"updated_at":"t1"}""")
+        vm.edit(kept.id)
+        vm.saveForm(deviceOnly = false)
+        vm.form.first { it?.busy != true }
+        assertThat(vm.form.value).isNull()
+        assertThat(request().method).isEqualTo("PUT")
+        assertThat(store.catalogs.value.single().onAccount).isTrue()
+    }
+
+    @Test fun `the form's string form never shows the address or password`() {
+        val form = CatalogForm(SavedCatalog.newId(), isNew = true, address = "https://books.example/opds/KEY", username = "alice", password = "hunter2")
+        assertThat(form.toString()).doesNotContain("KEY")
+        assertThat(form.toString()).doesNotContain("hunter2")
+    }
+
     @Test fun `removing and reordering catalogs on this device`() = runTest {
         val a = device("https://a.example/opds")
         val b = device("https://b.example/opds")

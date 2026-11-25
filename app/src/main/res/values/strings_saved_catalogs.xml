@@ -32,6 +32,7 @@
     <string name="catalogs_failed_credentials_in_url">Put the username and password in their own fields, not in the address.</string>
     <string name="catalogs_failed_login_incomplete">Enter both a username and a password, or neither.</string>
     <string name="catalogs_failed_order">The list changed on another device. Try again.</string>
+    <string name="catalogs_failed_removed">Another device removed this catalog from your Quire account, so it is gone here too.</string>
     <string name="catalogs_failed_sign_in">Sign in to Quire again to change catalogs saved to your account.</string>
     <string name="catalogs_failed_offline">Couldn’t reach your Quire server. Check your connection and try again.</string>
     <string name="catalogs_failed_rejected">Your Quire server didn’t accept this change.</string>

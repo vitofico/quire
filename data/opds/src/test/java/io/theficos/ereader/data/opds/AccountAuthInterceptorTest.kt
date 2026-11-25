@@ -596,6 +596,12 @@ class AccountAuthInterceptorTest {
             val sent = server.awaitRequest().getHeader("Authorization")
             if (route == "/opds/1") assertThat(sent).isEqualTo(basic("reader", "secret")) else assertThat(sent).isNull()
         }
+        // An empty segment the server may merge away still reaches a Quire route.
+        for (path in listOf("//library/v1/items", "/opds//1")) {
+            server.enqueue(MockResponse())
+            get(client, server.url("/").newBuilder().encodedPath(path).build())
+            assertThat(server.awaitRequest().getHeader("Authorization")).isNull()
+        }
     }
 
     @Test fun `the Quire client never sends a catalog login and reaches the catalogs API`() {
