@@ -136,7 +136,8 @@ export default function Reader({
   const [panel, setPanel] = useState<Panel | null>(null)
   const [notice, setNotice] = useState('')
   const [external, setExternal] = useState<string | null>(null)
-  const [selected, setSelected] = useState<{ range: Range; quote: string } | null>(null)
+  // `low`: the selection sits in the lower half of the page, so its bar is drawn over the top.
+  const [selected, setSelected] = useState<{ range: Range; quote: string; low: boolean } | null>(null)
   const [comment, setComment] = useState('')
   const [colour, setColour] = useState<ReaderColour>('YELLOW')
   const [editing, setEditing] = useState<string | null>(null)
@@ -499,7 +500,9 @@ export default function Reader({
       const selection = doc.getSelection()
       const quote = selection?.toString() ?? ''
       if (selection && !selection.isCollapsed && selection.rangeCount === 1 && quote.trim()) {
-        setSelected({ range: selection.getRangeAt(0).cloneRange(), quote })
+        const range = selection.getRangeAt(0).cloneRange()
+        const low = range.getBoundingClientRect().top > doc.documentElement.clientHeight / 2
+        setSelected({ range, quote, low })
         setComment('')
       } else {
         // Keep the captured range when the toolbar takes focus away from the iframe.
@@ -839,7 +842,7 @@ export default function Reader({
         </div>}
       </aside>}
     </div>
-    {selected && editing === null && <div className="qr-selection qr-fields" aria-label={t('Selected text')}>
+    {selected && editing === null && <div className={`qr-selection qr-fields${selected.low ? ' qr-above' : ''}`} aria-label={t('Selected text')}>
       <div className="qr-actions">
         {colourControl}
         <button type="button" className="primary" disabled={busy} onClick={() => void addHighlight()}>{t('Save highlight')}</button>
