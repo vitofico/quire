@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stats_title">Lesestatistik</string>
+    <string name="stats_empty_title">Die Statistik beginnt jetzt</string>
+    <string name="stats_empty_body">Quire zählt dein Lesen ab dieser Version und nur auf diesem Gerät, frühere Zeiten gibt es also nicht. Lies ein paar Minuten in einem Buch und schau dann wieder vorbei.</string>
+    <string name="stats_recording_off">Die Aufzeichnung ist aus. Schalte sie unter %1$s → %2$s ein, damit dein Lesen gezählt wird.</string>
+    <string name="stats_today">Heute</string>
+    <string name="stats_this_week">Diese Woche</string>
+    <string name="stats_this_month">Dieser Monat</string>
+    <string name="stats_all_time">Insgesamt</string>
+    <string name="stats_current_streak">Aktuelle Serie</string>
+    <string name="stats_longest_streak">Längste Serie</string>
+    <string name="stats_books_finished">Gelesene Bücher</string>
+    <string name="stats_streak_note">Ein Tag zählt zur Serie, wenn du mindestens 5 Minuten liest.</string>
+    <plurals name="stats_days">
+        <item quantity="one">%d Tag</item>
+        <item quantity="other">%d Tage</item>
+    </plurals>
+    <string name="stats_reading_time">Lesezeit</string>
+    <string name="stats_range_week">Woche</string>
+    <string name="stats_range_month">Monat</string>
+    <string name="stats_range_year">Jahr</string>
+    <string name="stats_week_description">Lesezeit pro Tag in der letzten Woche: %1$s insgesamt, am meisten am %2$s mit %3$s.</string>
+    <string name="stats_month_description">Lesezeit pro Tag in den letzten 30 Tagen: %1$s insgesamt, am meisten am %2$s mit %3$s.</string>
+    <string name="stats_year_description">Lesezeit pro Monat im letzten Jahr: %1$s insgesamt, am meisten im %2$s mit %3$s.</string>
+    <string name="stats_no_reading_in_period">In diesem Zeitraum wurde nicht gelesen.</string>
+    <string name="stats_when_you_read">Wann du liest</string>
+    <string name="stats_by_hour">Nach Tageszeit</string>
+    <string name="stats_by_weekday">Nach Wochentag</string>
+    <string name="stats_hour_description">Lesezeit nach Tageszeit. Am meisten zwischen %1$s und %2$s, mit %3$s.</string>
+    <string name="stats_weekday_description">Lesezeit nach Wochentag. Am meisten am %1$s, mit %2$s.</string>
+    <string name="stats_speed">Tempo</string>
+    <plurals name="stats_words_per_minute">
+        <item quantity="one">%d Wort pro Minute</item>
+        <item quantity="other">%d Wörter pro Minute</item>
+    </plurals>
+    <string name="stats_average_speed">Durchschnitt: %1$s</string>
+    <string name="stats_speed_unknown">Noch zu wenig gelesen, um dein Tempo zu bestimmen.</string>
+    <string name="stats_speed_note">Die Wörter jedes Buchs werden einmal auf diesem Gerät gezählt. Im Chinesischen und Japanischen zählt jedes Zeichen als Wort.</string>
+    <string name="stats_speed_trend">Durchschnittstempo pro Woche</string>
+    <string name="stats_speed_week">Woche vom %1$s: %2$s</string>
+    <string name="stats_speed_week_unknown">Woche vom %1$s: zu wenig gelesen</string>
+    <string name="stats_books">Bücher</string>
+    <plurals name="stats_sessions">
+        <item quantity="one">%d Lesesitzung</item>
+        <item quantity="other">%d Lesesitzungen</item>
+    </plurals>
+    <string name="stats_time_left">Noch etwa %1$s in deinem Tempo</string>
+    <string name="stats_clear">Statistik löschen</string>
+    <string name="stats_clear_title">Lesestatistik löschen?</string>
+    <string name="stats_clear_body">Damit werden alle auf diesem Gerät gespeicherten Lesesitzungen entfernt. Das lässt sich nicht rückgängig machen.</string>
+    <string name="stats_clear_confirm">Löschen</string>
+    <string name="settings_record_stats">Lesestatistik aufzeichnen</string>
+    <string name="settings_record_stats_description">Zählt, wie lange, wann und wie schnell du liest, nur auf diesem Gerät. Zu finden in der Bibliothek unter %1$s → %2$s.</string>
+    <string name="settings_stats_off_title">Gespeicherte Statistik löschen?</string>
+    <string name="settings_stats_off_body">Die Aufzeichnung ist beendet. Möchtest du die bereits gespeicherte Statistik behalten oder löschen?</string>
+    <string name="settings_stats_keep">Behalten</string>
+</resources>

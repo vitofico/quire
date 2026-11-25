@@ -16,6 +16,10 @@ import io.theficos.ereader.reader.ProgressTracker
 import io.theficos.ereader.reader.ReaderPreferences
 import io.theficos.ereader.reader.ReaderPreferencesStore
 import io.theficos.ereader.reader.ReadiumFactory
+import io.theficos.ereader.reader.countWords
+import io.theficos.ereader.ui.stats.ReadingStatsSink
+import io.theficos.ereader.ui.stats.StatsBook
+import io.theficos.ereader.ui.stats.statsKey
 import io.theficos.ereader.reader.locatorAtPercent
 import io.theficos.ereader.reader.parsePageStartAnchor
 import io.theficos.ereader.reader.resizeAnchor
@@ -64,7 +68,29 @@ class ReaderViewModel(
     private val openPublication: suspend (Document) -> Publication = { doc ->
         readium.open(EpubAsset(doc.id, File(doc.localPath), doc.title))
     },
+    private val stats: ReadingStatsSink? = null,
+    private val countWords: suspend (Publication) -> Long? = { it.countWords() },
 ) : ViewModel() {
+
+    // Reading statistics. Nothing the reader composes reads from here, and nothing is written
+    // until a session ends, so recording adds no work to a page turn and no recomposition.
+    private var statsBook: StatsBook? = null
+    private var inForeground = false
+    private val session = ReadingSessionRecorder(now = nowMs, emit = { recorded ->
+        statsBook?.let { book -> stats?.record(book, recorded) }
+    })
+
+    /** The reader is on screen and the app in front (lifecycle start). */
+    fun onReaderStarted() {
+        inForeground = true
+        if (statsBook != null) session.begin()
+    }
+
+    /** The app went to the background, the screen turned off, or the reader is leaving. */
+    fun onReaderStopped() {
+        inForeground = false
+        session.end()
+    }
 
     internal val highlighting = ReaderHighlights(highlightRepository, viewModelScope)
     private val _highlightsVisible = MutableStateFlow(false)
@@ -134,6 +160,7 @@ class ReaderViewModel(
         _highlightJumpError.value = null
         highlightProgressBlocked = true
         clearPendingResize()
+        session.onJump()
         highlightJumpJob = viewModelScope.launch {
             try {
                 val success = driver.jump(target) {
@@ -157,6 +184,7 @@ class ReaderViewModel(
                         // A safe unchanged transaction does not mean that resize has settled.
                         if (pendingRotationAnchor == null) {
                             invalidateDomAnchor()
+                            session.onJump()
                             driver.currentLocator?.let(::publishLocator)
                         }
                         _highlightPositionUncertain.value = false
@@ -418,6 +446,7 @@ class ReaderViewModel(
         // Readium owns swipes and continuous scrolling. A genuine movement
         // gesture escapes the reflow pin even within the same long paragraph.
         reflowProgressAnchor = null
+        session.onGesture()
     }
 
     fun pageForward() {
@@ -442,6 +471,7 @@ class ReaderViewModel(
         explicitNavigationJob = viewModelScope.launch {
             rollback?.join()
             if (highlightProgressBlocked || highlightNavigator?.let { it.isAlive && !it.safeToPublish } == true) return@launch
+            session.onJump()
             if (publishPreview) {
                 _currentLocator.value = target
                 _locatorUpdates.tryEmit(target)
@@ -485,6 +515,16 @@ class ReaderViewModel(
             _currentLocator.value = initialLocator
             _state.value = ReaderUiState.Open(doc, publication, initialLocator, savedProgress)
             highlighting.attach(doc)
+            initialLocator?.locations?.totalProgression?.let(session::onPosition)
+            if (stats != null) {
+                statsBook = StatsBook(doc.statsKey, doc.title, doc.author)
+                if (inForeground) session.begin()
+                val key = statsBook!!.key
+                viewModelScope.launch(Dispatchers.Default) {
+                    runCatching { stats.ensureWordCount(key) { countWords(publication) } }
+                        .onFailure { if (it is CancellationException) throw it }
+                }
+            }
             tracker.attach(
                 documentId = doc.id,
                 locatorUpdates = locatorUpdates,
@@ -497,6 +537,7 @@ class ReaderViewModel(
                 val computed = runCatching {
                     withContext(Dispatchers.Default) { publication.positions() }
                 }.getOrDefault(emptyList<Locator>())
+                session.maxStep = ReadingSessionRecorder.maxStepFor(computed.size)
                 _positions.value = computed
             }
         }
@@ -505,6 +546,7 @@ class ReaderViewModel(
     fun publishLocator(locator: Locator) {
         if (suppressLocatorPublishing || highlightProgressBlocked) return
         _currentLocator.value = locator
+        locator.locations.totalProgression?.let(session::onPosition)
         val anchor = reflowProgressAnchor
         if (anchor != null && locator.href == anchor.href && nowMs() < anchorPinnedUntil) {
             val nav = navigator
@@ -771,6 +813,7 @@ class ReaderViewModel(
         preferenceCaptureJob?.cancel()
         explicitNavigationJob?.cancel()
         highlightJumpJob?.cancel()
+        session.end()
         tracker.detach()
         super.onCleared()
     }

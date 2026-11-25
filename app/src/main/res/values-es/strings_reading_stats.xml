@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stats_title">Estadísticas de lectura</string>
+    <string name="stats_empty_title">Las estadísticas empiezan ahora</string>
+    <string name="stats_empty_body">Quire cuenta tu lectura a partir de esta versión y solo en este dispositivo, así que no hay historial anterior. Lee un libro unos minutos y vuelve.</string>
+    <string name="stats_recording_off">El registro está desactivado. Actívalo en %1$s → %2$s para contar tu lectura.</string>
+    <string name="stats_today">Hoy</string>
+    <string name="stats_this_week">Esta semana</string>
+    <string name="stats_this_month">Este mes</string>
+    <string name="stats_all_time">En total</string>
+    <string name="stats_current_streak">Racha actual</string>
+    <string name="stats_longest_streak">Racha más larga</string>
+    <string name="stats_books_finished">Libros terminados</string>
+    <string name="stats_streak_note">Un día cuenta para la racha con al menos 5 minutos de lectura.</string>
+    <plurals name="stats_days">
+        <item quantity="one">%d día</item>
+        <item quantity="many">%d días</item>
+        <item quantity="other">%d días</item>
+    </plurals>
+    <string name="stats_reading_time">Tiempo de lectura</string>
+    <string name="stats_range_week">Semana</string>
+    <string name="stats_range_month">Mes</string>
+    <string name="stats_range_year">Año</string>
+    <string name="stats_week_description">Tiempo de lectura por día en la última semana: %1$s en total, más el %2$s con %3$s.</string>
+    <string name="stats_month_description">Tiempo de lectura por día en los últimos 30 días: %1$s en total, más el %2$s con %3$s.</string>
+    <string name="stats_year_description">Tiempo de lectura por mes en el último año: %1$s en total, más en %2$s con %3$s.</string>
+    <string name="stats_no_reading_in_period">Sin lectura en este período.</string>
+    <string name="stats_when_you_read">Cuándo lees</string>
+    <string name="stats_by_hour">Por hora del día</string>
+    <string name="stats_by_weekday">Por día de la semana</string>
+    <string name="stats_hour_description">Tiempo de lectura por hora del día. Más entre las %1$s y las %2$s, con %3$s.</string>
+    <string name="stats_weekday_description">Tiempo de lectura por día de la semana. Más el %1$s, con %2$s.</string>
+    <string name="stats_speed">Velocidad</string>
+    <plurals name="stats_words_per_minute">
+        <item quantity="one">%d palabra por minuto</item>
+        <item quantity="many">%d palabras por minuto</item>
+        <item quantity="other">%d palabras por minuto</item>
+    </plurals>
+    <string name="stats_average_speed">Media: %1$s</string>
+    <string name="stats_speed_unknown">Todavía no has leído lo suficiente para conocer tu velocidad.</string>
+    <string name="stats_speed_note">Las palabras de cada libro se cuentan una vez, en este dispositivo. En chino y japonés cada carácter cuenta como una palabra.</string>
+    <string name="stats_speed_trend">Velocidad media por semana</string>
+    <string name="stats_speed_week">Semana del %1$s: %2$s</string>
+    <string name="stats_speed_week_unknown">Semana del %1$s: lectura insuficiente</string>
+    <string name="stats_books">Libros</string>
+    <plurals name="stats_sessions">
+        <item quantity="one">%d sesión</item>
+        <item quantity="many">%d sesiones</item>
+        <item quantity="other">%d sesiones</item>
+    </plurals>
+    <string name="stats_time_left">Quedan unos %1$s a tu ritmo</string>
+    <string name="stats_clear">Borrar estadísticas</string>
+    <string name="stats_clear_title">¿Borrar las estadísticas de lectura?</string>
+    <string name="stats_clear_body">Esto elimina todas las sesiones de lectura guardadas en este dispositivo. No se puede deshacer.</string>
+    <string name="stats_clear_confirm">Borrar</string>
+    <string name="settings_record_stats">Registrar estadísticas de lectura</string>
+    <string name="settings_record_stats_description">Cuenta cuánto, cuándo y a qué velocidad lees, solo en este dispositivo. Las encontrarás en la biblioteca, en %1$s → %2$s.</string>
+    <string name="settings_stats_off_title">¿Borrar las estadísticas guardadas?</string>
+    <string name="settings_stats_off_body">El registro se ha detenido. ¿Quieres conservar las estadísticas ya guardadas o borrarlas?</string>
+    <string name="settings_stats_keep">Conservar</string>
+</resources>

@@ -17,8 +17,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         MemoryBookmark::class,
         BookDetailsEntity::class,
         ConversionJobEntity::class,
+        ReadingSessionEntity::class,
+        BookWordCountEntity::class,
     ],
-    version = 16,
+    version = 17,
     exportSchema = true,
 )
 abstract class EReaderDatabase : RoomDatabase() {
@@ -31,6 +33,7 @@ abstract class EReaderDatabase : RoomDatabase() {
     abstract fun highlightSyncDao(): HighlightSyncDao
     abstract fun bookDetailsDao(): BookDetailsDao
     abstract fun conversionJobDao(): ConversionJobDao
+    abstract fun readingSessionDao(): ReadingSessionDao
 
     companion object {
         internal val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -306,6 +309,33 @@ abstract class EReaderDatabase : RoomDatabase() {
             }
         }
 
+        /** Reading statistics, kept on the device only; nothing existing changes. */
+        internal val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS reading_sessions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        bookKey TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        author TEXT,
+                        startedAt INTEGER NOT NULL,
+                        endedAt INTEGER NOT NULL,
+                        utcOffsetSeconds INTEGER NOT NULL,
+                        activeSeconds INTEGER NOT NULL,
+                        startProgression REAL NOT NULL,
+                        endProgression REAL NOT NULL,
+                        progressionRead REAL NOT NULL,
+                        wordsRead INTEGER
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_reading_sessions_bookKey ON reading_sessions (bookKey)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_reading_sessions_startedAt ON reading_sessions (startedAt)")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS book_word_counts (bookKey TEXT NOT NULL, words INTEGER NOT NULL, PRIMARY KEY(bookKey))"
+                )
+            }
+        }
+
         fun build(context: Context): EReaderDatabase =
             Room.databaseBuilder(context, EReaderDatabase::class.java, "ereader.db")
                 .addMigrations(
@@ -324,6 +354,7 @@ abstract class EReaderDatabase : RoomDatabase() {
                     MIGRATION_13_14,
                     MIGRATION_14_15,
                     MIGRATION_15_16,
+                    MIGRATION_16_17,
                 )
                 .build()
     }

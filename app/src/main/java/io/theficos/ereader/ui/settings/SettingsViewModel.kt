@@ -23,6 +23,7 @@ import io.theficos.ereader.reader.ReaderPreferencesStore
 import io.theficos.ereader.reader.ReaderTheme
 import io.theficos.ereader.ui.UiText
 import io.theficos.ereader.ui.library.LibraryPreferencesStore
+import io.theficos.ereader.ui.stats.ReadingStatsRepository
 import io.theficos.ereader.ui.onboarding.ConnectServerViewModel
 import io.theficos.ereader.ui.onboarding.PairingCode
 import io.theficos.ereader.ui.onboarding.requestPairingCode
@@ -98,8 +99,18 @@ class SettingsViewModel(
     private val libraryPreferencesStore: LibraryPreferencesStore,
     /** True while found book details are stored, so their switch shows even with AI off. */
     hasStoredDetails: Flow<Boolean> = flowOf(false),
+    private val readingStats: ReadingStatsRepository? = null,
 ) : ViewModel() {
     val account = store.accountFlow
+
+    /** "Record reading statistics"; null where statistics are not available. */
+    val recordReadingStats: StateFlow<Boolean>? = readingStats?.recording
+
+    fun setRecordReadingStats(on: Boolean) = readingStats?.setRecording(on)
+
+    fun clearReadingStats() {
+        viewModelScope.launch { readingStats?.clear() }
+    }
 
     /** "Tidy up book details": the server may find and tidy details and covers for library books. */
     val tidyDetails: StateFlow<Boolean> = libraryPreferencesStore.flow

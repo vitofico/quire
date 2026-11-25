@@ -65,6 +65,7 @@ import io.theficos.ereader.ui.onboarding.ConnectServerViewModel
 import io.theficos.ereader.ui.onboarding.WelcomePreferencesStore
 import io.theficos.ereader.ui.reader.memoryAccountKey
 import io.theficos.ereader.ui.settings.WhatsNewPreferencesStore
+import io.theficos.ereader.ui.stats.ReadingStatsRepository
 import io.theficos.ereader.ui.scan.ScanResultRegistry
 import io.theficos.ereader.ui.theme.AppThemePreferencesStore
 import io.theficos.quire.R
@@ -247,6 +248,13 @@ class AppContainer internal constructor(context: Context, private val db: EReade
     val libraryUploaderScope: CoroutineScope =
         CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    /** Reading sessions and their statistics, kept on this device only. */
+    val readingStats: ReadingStatsRepository = ReadingStatsRepository(
+        dao = db.readingSessionDao(),
+        prefs = appContext.getSharedPreferences("reading_stats", Context.MODE_PRIVATE),
+        scope = libraryUploaderScope,
+    )
+
     val libraryUploader: LibraryUploader = LibraryUploader(
         client = libraryClient,
         dao = db.documentDao(),
@@ -393,6 +401,7 @@ class AppContainer internal constructor(context: Context, private val db: EReade
         ai = aiRepository,
         details = bookDetailsRepository,
         openOpfBytes = ::readOpfBytes,
+        readingStats = readingStats,
     )
 
     val insightAuditViewModelFactory: InsightAuditViewModelFactory =
@@ -630,6 +639,7 @@ class BookDetailViewModelFactory(
     private val ai: AiRepository,
     private val details: BookDetailsRepository,
     private val openOpfBytes: suspend (Document) -> ByteArray?,
+    private val readingStats: ReadingStatsRepository,
 ) {
     fun create(documentId: Long) = BookDetailViewModel(
         documentId = documentId,
@@ -638,6 +648,7 @@ class BookDetailViewModelFactory(
         ai = ai,
         details = details,
         openOpfBytes = openOpfBytes,
+        readingStats = readingStats,
     )
 }
 
