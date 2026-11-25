@@ -2,6 +2,31 @@ import { discoveryLabels } from './discovery/labels'
 import { accountLabels } from './account/labels'
 
 const labels: Record<string, [string, string, string, string]> = {
+  'Open catalogs': ['Catálogos abiertos', 'Cataloghi aperti', 'Catalogues ouverts', 'Offene Kataloge'],
+  'Free, legal books to start with. Adding one lets your Quire server contact that catalog’s site for you.': [
+    'Libros gratuitos y legales para empezar. Al añadir uno, tu servidor Quire se conecta con el sitio de ese catálogo por ti.',
+    'Libri gratuiti e legali per iniziare. Aggiungendone uno, il tuo server Quire si collega al sito di quel catalogo al posto tuo.',
+    'Des livres gratuits et légaux pour commencer. En ajouter un permet à votre serveur Quire de contacter le site de ce catalogue pour vous.',
+    'Kostenlose, legale Bücher für den Anfang. Wenn du einen hinzufügst, verbindet sich dein Quire-Server für dich mit der Website des Katalogs.',
+  ],
+  'Public domain': ['Dominio público', 'Pubblico dominio', 'Domaine public', 'Gemeinfrei'],
+  'Open licence': ['Licencia abierta', 'Licenza aperta', 'Licence libre', 'Offene Lizenz'],
+  'Added': ['Añadido', 'Aggiunto', 'Ajouté', 'Hinzugefügt'],
+  'Add': ['Añadir', 'Aggiungi', 'Ajouter', 'Hinzufügen'],
+  'Add {name}': ['Añadir {name}', 'Aggiungi {name}', 'Ajouter {name}', '{name} hinzufügen'],
+  'Adding…': ['Añadiendo…', 'Aggiunta…', 'Ajout…', 'Wird hinzugefügt…'],
+  'Your Quire account already holds as many catalogs as it can.': [
+    'Tu cuenta de Quire ya tiene todos los catálogos que admite.',
+    'Il tuo account Quire contiene già tutti i cataloghi consentiti.',
+    'Votre compte Quire contient déjà autant de catalogues que possible.',
+    'Dein Quire-Konto enthält bereits so viele Kataloge wie möglich.',
+  ],
+  'Quire could not add this catalog. Try again later.': [
+    'Quire no ha podido añadir este catálogo. Inténtalo más tarde.',
+    'Quire non è riuscito ad aggiungere questo catalogo. Riprova più tardi.',
+    'Quire n’a pas pu ajouter ce catalogue. Réessayez plus tard.',
+    'Quire konnte diesen Katalog nicht hinzufügen. Versuche es später erneut.',
+  ],
   'No local downloads': [
     'Sin descargas locales',
     'Nessun libro scaricato',

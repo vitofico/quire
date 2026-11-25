@@ -28,6 +28,7 @@ import {
   savedCatalogRequest,
   type SavedCatalog,
 } from './books/saved'
+import { OpenCatalogs } from './books/OpenCatalogsPanel'
 import { OfflineSettings } from './OfflineSettings'
 import { BookDetails } from './BookDetails'
 import { Passages } from './Passages'
@@ -955,6 +956,18 @@ function Workspace({
           {t('Your saved catalogs open in the Quire app on Android. This server does not open them in the browser.')}
         </p>
       ) : null)
+    const open = savedBrowsable && active.request && (
+      <OpenCatalogs
+        language={lang}
+        saved={saved}
+        request={active.request}
+        t={t}
+        onAdded={(c) => {
+          setSaved((list) => [...list, c])
+          chooseCatalog(c.id)
+        }}
+      />
+    )
     const otherSource = !active.catalogUrl && (
       <details className="catalog-source">
         <summary>{t('Use a different catalog')}</summary>
@@ -986,6 +999,7 @@ function Workspace({
           </Catalog>
         )}
         {otherSource}
+        {open}
       </>
     ) : catalogUrl ? (
       <>
@@ -1008,6 +1022,7 @@ function Workspace({
         </Catalog>
         {otherSource}
         {savedHint}
+        {open}
       </>
     ) : (
       <>
@@ -1020,6 +1035,7 @@ function Workspace({
           {source}
         </section>
         {savedHint}
+        {open}
       </>
     )
   } else if (route.view === 'discover') {
