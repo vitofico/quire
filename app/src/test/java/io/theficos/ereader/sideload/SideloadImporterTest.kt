@@ -172,6 +172,15 @@ class SideloadImporterTest {
         assertThat(rows).hasSize(1)
     }
 
+    @Test fun `a PDF converted again is the same book, though its bytes differ`() = runTest {
+        // The server's EPUB carries a dc:identifier derived from the PDF, whatever else changed.
+        val first = importer.import(Uri.fromFile(makeValidEpub("conv1", "urn:uuid:5a0d-pdf", "Field notes")), "Field notes")
+        val again = importer.import(Uri.fromFile(makeValidEpub("conv2", "urn:uuid:5a0d-pdf", "Field notes, v2")), "Field notes")
+
+        assertThat(again).isEqualTo(SideloadResult.AlreadyImported((first as SideloadResult.Imported).documentId, "Field notes"))
+        assertThat(documentRepository.observeLibrary().first()).hasSize(1)
+    }
+
     @Test fun `invalid epub (no container) is rejected and leaves no file or row`() = runTest {
         val bogus = tmp.newFile("bogus.epub").apply {
             ZipOutputStream(outputStream()).use { zip ->

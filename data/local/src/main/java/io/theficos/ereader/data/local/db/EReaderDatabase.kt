@@ -16,8 +16,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         HighlightEntity::class,
         MemoryBookmark::class,
         BookDetailsEntity::class,
+        ConversionJobEntity::class,
     ],
-    version = 15,
+    version = 16,
     exportSchema = true,
 )
 abstract class EReaderDatabase : RoomDatabase() {
@@ -29,6 +30,7 @@ abstract class EReaderDatabase : RoomDatabase() {
     abstract fun highlightDao(): HighlightDao
     abstract fun highlightSyncDao(): HighlightSyncDao
     abstract fun bookDetailsDao(): BookDetailsDao
+    abstract fun conversionJobDao(): ConversionJobDao
 
     companion object {
         internal val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -275,6 +277,35 @@ abstract class EReaderDatabase : RoomDatabase() {
             }
         }
 
+        /** PDF conversions the reader started, so they survive the app closing; nothing existing changes. */
+        internal val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS conversion_jobs (
+                        id TEXT NOT NULL,
+                        owner TEXT NOT NULL,
+                        idempotencyKey TEXT NOT NULL,
+                        fileName TEXT NOT NULL,
+                        sha256 TEXT NOT NULL,
+                        bytes INTEGER NOT NULL,
+                        sourcePath TEXT,
+                        jobId TEXT,
+                        stage TEXT NOT NULL,
+                        problem TEXT,
+                        jobJson TEXT,
+                        retryAt INTEGER,
+                        failures INTEGER NOT NULL,
+                        documentId INTEGER,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL,
+                        allowMetered INTEGER NOT NULL,
+                        PRIMARY KEY(id)
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_conversion_jobs_owner ON conversion_jobs (owner)")
+            }
+        }
+
         fun build(context: Context): EReaderDatabase =
             Room.databaseBuilder(context, EReaderDatabase::class.java, "ereader.db")
                 .addMigrations(
@@ -292,6 +323,7 @@ abstract class EReaderDatabase : RoomDatabase() {
                     MIGRATION_12_13,
                     MIGRATION_13_14,
                     MIGRATION_14_15,
+                    MIGRATION_15_16,
                 )
                 .build()
     }

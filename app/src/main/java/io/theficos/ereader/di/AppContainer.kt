@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.Uri
 import io.theficos.ereader.auth.AccountCredentials
 import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.core.identity.extractIdentity
@@ -17,6 +18,11 @@ import io.theficos.ereader.data.ai.CatalogInsightStash
 import io.theficos.ereader.data.ai.InsightSyncRepository
 import io.theficos.ereader.data.library.LibraryClient
 import io.theficos.ereader.data.library.LibraryUploader
+import io.theficos.ereader.data.library.convert.ConversionDependencies
+import io.theficos.ereader.data.library.convert.ConversionRepository
+import io.theficos.ereader.data.library.convert.ConversionScheduler
+import io.theficos.ereader.data.library.convert.ConvertClient
+import io.theficos.ereader.data.library.convert.ImportOutcome
 import io.theficos.ereader.data.library.sync.CredentialsProvider
 import io.theficos.ereader.data.library.sync.LibraryMirrorPushDependencies
 import io.theficos.ereader.data.library.sync.LibraryMirrorPushScheduler
@@ -40,7 +46,9 @@ import io.theficos.ereader.domain.restore.RestoreInProgressUseCase
 import io.theficos.ereader.domain.restore.RestoreSummary
 import io.theficos.ereader.reader.ReaderPreferencesStore
 import io.theficos.ereader.reader.ReadiumFactory
+import io.theficos.ereader.sideload.SideloadFailure
 import io.theficos.ereader.sideload.SideloadImporter
+import io.theficos.ereader.sideload.SideloadResult
 import io.theficos.ereader.ui.bookdetail.AppInsightAuditSource
 import io.theficos.ereader.ui.bookdetail.BookDetailViewModel
 import io.theficos.ereader.ui.bookdetail.InsightAuditViewModel
@@ -59,6 +67,7 @@ import io.theficos.ereader.ui.reader.memoryAccountKey
 import io.theficos.ereader.ui.settings.WhatsNewPreferencesStore
 import io.theficos.ereader.ui.scan.ScanResultRegistry
 import io.theficos.ereader.ui.theme.AppThemePreferencesStore
+import io.theficos.quire.R
 import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
@@ -97,7 +106,10 @@ internal fun AccountCredentials.quireServerUrlOrNull(): String? = when (this) {
 }
 
 /** Who stored book details belong to: this account on this server, or null with no Quire server. */
-private fun AccountCredentials.detailsOwner(): String? = quireServerUrlOrNull()?.let { "$it $subject" }
+private fun AccountCredentials.detailsOwner(): String? = quireServerUrlOrNull()?.let { accountOwner(it, subject) }
+
+/** An account on a Quire server, as book details and PDF conversions record their owner. */
+internal fun accountOwner(serverUrl: String, subject: String): String = "$serverUrl $subject"
 
 /** True while the device's default network is not metered, such as Wi-Fi. */
 private fun unmeteredNetwork(context: Context): Flow<Boolean> = callbackFlow {
@@ -269,6 +281,34 @@ class AppContainer internal constructor(context: Context, private val db: EReade
             // is safe to call alongside the periodic worker.
             runCatching { LibraryMirrorPushScheduler.enqueueAfterLibraryChange(appContext) }
         },
+    )
+
+    /**
+     * PDF to EPUB on the account's Quire server. The converted EPUB goes through [sideloadImporter]
+     * like any shared file, which also spots a book already in the library.
+     */
+    val conversionRepository: ConversionRepository = ConversionRepository(
+        client = ConvertClient(
+            baseUrlProvider = { credentialStore.getAccount()?.quireServerUrlOrNull() },
+            http = opdsHttp.quireHttp,
+        ),
+        dao = db.conversionJobDao(),
+        documents = db.documentDao(),
+        owner = { credentialStore.getAccount()?.detailsOwner() },
+        ownerFlow = credentialStore.accountFlow.map { it?.detailsOwner() },
+        // Out of backups: a copy of a PDF only matters to the conversion on this device.
+        sourceDir = File(appContext.noBackupFilesDir, "conversions"),
+        downloadDir = File(appContext.cacheDir, "conversions"),
+        importEpub = { epub, title ->
+            when (val result = sideloadImporter.import(Uri.fromFile(epub), title)) {
+                is SideloadResult.Imported -> ImportOutcome.Saved(result.documentId)
+                is SideloadResult.AlreadyImported -> ImportOutcome.Saved(result.documentId)
+                is SideloadResult.Failed ->
+                    if (result.reason == SideloadFailure.InvalidEpub) ImportOutcome.Invalid else ImportOutcome.Failed
+            }
+        },
+        wake = { ConversionScheduler.now(appContext) },
+        metered = { appContext.getSystemService(ConnectivityManager::class.java).isActiveNetworkMetered },
     )
 
     val aiRepository: AiRepository = AiRepository(
@@ -521,6 +561,21 @@ class AppContainer internal constructor(context: Context, private val db: EReade
             // Only a server that syncs catalogs is new enough to take `catalog_id` in a batch.
             sendCatalogIds = { credentialStore.catalogRevision.value != null },
         )
+        ConversionDependencies.holder = ConversionDependencies.Holder(conversionRepository) {
+            appContext.getString(R.string.convert_notification)
+        }
+        // Signing out forgets the account's PDF conversions; another account's wait for it a few days.
+        libraryUploaderScope.launch {
+            var signedIn: String? = null
+            credentialStore.accountFlow.map { it?.detailsOwner() }.distinctUntilChanged().collect { owner ->
+                val left = signedIn
+                signedIn = owner
+                if (owner == null && left != null) {
+                    runCatching { conversionRepository.forgetOwner(left) }
+                        .onFailure { android.util.Log.w("AppContainer", "Couldn't forget PDF conversions", it) }
+                }
+            }
+        }
         // Once per launch, follow the server if it has moved to another address.
         libraryUploaderScope.launch {
             try {
@@ -528,6 +583,7 @@ class AppContainer internal constructor(context: Context, private val db: EReade
                     credentialStore,
                     ConnectServerViewModel.defaultOnboardingClient(),
                     memoryBookmarkDao::moveAccount,
+                    conversionRepository::moveOwner,
                 ).follow()
             } catch (e: android.database.SQLException) {
                 android.util.Log.w("AppContainer", "Couldn't follow the server address", e)
