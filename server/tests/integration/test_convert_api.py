@@ -6,11 +6,14 @@ folder exactly as ``quire-convert worker`` does (``converter/.../worker.py``).
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import io
 import json
 import logging
 import os
 import time
+import zipfile
 from datetime import timedelta
 from uuid import UUID
 
@@ -21,7 +24,17 @@ from quire_server.core import convert
 
 PASSWORD = "synthetic-password"  # pragma: allowlist secret
 PDF = b"%PDF-1.7\n" + b"synthetic page content\n" * 200 + b"%%EOF\n"
-EPUB = b"PK\x03\x04 synthetic epub bytes"
+
+
+def make_epub(text: bytes = b"<html/>") -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as book:
+        book.writestr(zipfile.ZipInfo("mimetype"), b"application/epub+zip")
+        book.writestr("OEBPS/text.xhtml", text)
+    return buf.getvalue()
+
+
+EPUB = make_epub()
 JOBS = "/convert/v1/jobs"
 
 
@@ -101,7 +114,7 @@ def publish(folder: convert.Folder, job_id: str, attempt: int = 1, **result) -> 
         "detail": "converted",
         "retryable": False,
         "epub": {"sha256": sha(EPUB), "bytes": len(EPUB), "rendition_id": "urn:uuid:1234"},
-        "issue_counts": {"warning": 1},
+        "issue_counts": {"critical": 0, "major": 0, "minor": 1, "info": 0},
         "affected_pages": [],
         "issues": [],
         "seconds": 1.0,
@@ -191,11 +204,7 @@ async def test_round_trip(service, app, folder, session, caplog):
         spec = json.loads((entry / "job.json").read_text())
         assert spec == {
             "format": 1,
-            "job": UUID(job_id).hex,
-            "attempt": 1,
-            "mode": "local",
             "sha256": sha(PDF),
-            "bytes": len(PDF),
             "max_pages": 1000,
             "time_limit_s": 1200,
         }
@@ -217,7 +226,7 @@ async def test_round_trip(service, app, folder, session, caplog):
             "sha256": sha(EPUB),
             "bytes": len(EPUB),
             "rendition_id": "urn:uuid:1234",
-            "issue_counts": {"warning": 1},
+            "issue_counts": {"critical": 0, "major": 0, "minor": 1, "info": 0},
         }
         assert done["review"] is None and done["failure"] is None
         # The source and the worker's folders are cleared once the result is in.
@@ -374,7 +383,7 @@ async def test_a_stale_attempt_cannot_publish_over_its_retry(service, app, folde
         assert (folder.queue / name(job_id, 2) / "source.pdf").read_bytes() == PDF
 
         # The first worker wakes up and publishes: ignored.
-        publish(folder, job_id, 1, epub_bytes=b"stale")
+        publish(folder, job_id, 1, epub_bytes=make_epub(b"stale"))
         await sweep(app)
         assert (await job(client, auth, job_id))["state"] == "queued"
         assert list(folder.done.iterdir()) == []
@@ -385,7 +394,7 @@ async def test_a_stale_attempt_cannot_publish_over_its_retry(service, app, folde
         await sweep(app)
         lost = await job(client, auth, job_id)
         assert lost["state"] == "failed"
-        assert lost["failure"] == {"code": "worker_lost", "retryable": False, "detail": None}
+        assert lost["failure"] == {"code": "worker_lost", "retryable": True, "detail": None}
         assert list(folder.queue.iterdir()) == []
 
 
@@ -395,7 +404,7 @@ async def test_results_the_server_will_not_trust(service, app, folder, session):
         auth = await bearer(app)
         bad_epub = await queued(client, auth, key="key-00000001")
         claim(folder, bad_epub)
-        publish(folder, bad_epub, epub_bytes=b"not what the worker reported")
+        publish(folder, bad_epub, epub_bytes=make_epub(b"not what the worker reported"))
         wrong_job = await queued(client, auth, PDF + b"\n", key="key-00000002")
         claim(folder, wrong_job)
         publish(folder, wrong_job, job="0" * 32)
@@ -425,7 +434,7 @@ async def test_review_reports_its_pages(service, app, folder, session):
         claim(folder, job_id)
         issue = {
             "code": "ocr.low_confidence",
-            "severity": "error",
+            "severity": "major",
             "page": 3,
             "page_label": "iii",
             "message": "low OCR confidence",
@@ -511,17 +520,8 @@ async def test_account_purge_and_export_include_jobs(service, app, folder, sessi
         assert [row["id"] for row in exported.json()["convert_jobs"]] == [job_id]
 
 
-def test_folder_layout(folder):
+def test_a_stale_heartbeat_means_no_worker(folder):
     folder.prepare()
-    modes = {p.name: p.stat().st_mode & 0o777 for p in folder.root.iterdir()}
-    assert modes == {
-        "incoming": 0o700,
-        "store": 0o700,
-        "queue": 0o755,
-        "running": 0o777,
-        "done": 0o777,
-        "workers": 0o777,
-    }
     assert folder.engine() is None
     heartbeat(folder)
     stale = time.time() - convert.WORKER_FRESH_S - 1
@@ -540,3 +540,78 @@ async def test_an_unusable_folder_leaves_conversion_off(client_factory, app, tmp
         auth = await bearer(app)
         assert (await client.get("/convert/v1/capabilities", headers=auth)).status_code == 404
     assert any("PDF conversion is off" in w for w in app.state.config_warnings)
+
+
+async def test_one_bad_result_does_not_stop_the_sweep(service, app, folder, session):
+    async with service(convert_max_active_per_owner=5) as client:
+        heartbeat(folder)
+        auth = await bearer(app)
+        fifo = await queued(client, auth, key="key-00000001")
+        deep = await queued(client, auth, PDF + b"\n", key="key-00000002")
+        good = await queued(client, auth, PDF + b"\n\n", key="key-00000003")
+        for job_id in (fifo, deep, good):
+            claim(folder, job_id)
+            publish(folder, job_id)
+        (folder.done / name(fifo) / "result.json").unlink()
+        os.mkfifo(folder.done / name(fifo) / "result.json")
+        (folder.done / name(deep) / "result.json").write_text("[" * 100_000 + "]" * 100_000)
+        # A FIFO heartbeat neither blocks a create nor hides the real one.
+        os.mkfifo(folder.workers / "evil.json")
+        more = await asyncio.wait_for(create(client, auth, key="key-00000004"), 10)
+        assert more.status_code == 201, more.text
+        await asyncio.wait_for(sweep(app), 10)
+        for job_id in (fifo, deep):
+            failed = await job(client, auth, job_id)
+            assert failed["failure"] == {
+                "code": "invalid_result",
+                "retryable": True,
+                "detail": None,
+            }
+        assert (await job(client, auth, good))["state"] == "ready"
+        assert list(folder.done.iterdir()) == []
+        assert sorted(p.name for p in folder.store.iterdir()) == [f"{UUID(good).hex}.epub"]
+
+
+async def test_one_upload_per_job_at_a_time(service, app, folder, session):
+    async with service() as client:
+        heartbeat(folder)
+        auth = await bearer(app)
+        job_id = (await create(client, auth)).json()["id"]
+        started, release = asyncio.Event(), asyncio.Event()
+
+        async def slow():
+            yield PDF[:100]
+            started.set()
+            await release.wait()
+            yield PDF[100:]
+
+        first = asyncio.create_task(upload(client, auth, job_id, slow()))
+        await asyncio.wait_for(started.wait(), 5)
+        second = await upload(client, auth, job_id)
+        assert second.status_code == 409
+        assert second.json() == {"detail": "upload_in_progress"}
+        release.set()
+        assert (await first).status_code == 202
+        assert list(folder.incoming.iterdir()) == []
+
+
+async def test_a_quiet_upload_is_dropped(service, app, folder, session, monkeypatch):
+    from quire_server.api import convert as convert_api
+
+    monkeypatch.setattr(convert_api, "BODY_IDLE_S", 0.2)
+    async with service() as client:
+        heartbeat(folder)
+        auth = await bearer(app)
+        job_id = (await create(client, auth)).json()["id"]
+
+        async def stalls():
+            yield PDF[:100]
+            await asyncio.sleep(2)
+            yield PDF[100:]
+
+        quiet = await upload(client, auth, job_id, stalls())
+        assert quiet.status_code == 408
+        assert quiet.json() == {"detail": "upload_timed_out"}
+        assert (await job(client, auth, job_id))["state"] == "created"
+        assert list(folder.incoming.iterdir()) == []
+        assert (await upload(client, auth, job_id)).status_code == 202

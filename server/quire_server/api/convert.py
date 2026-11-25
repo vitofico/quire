@@ -16,6 +16,7 @@ import asyncio
 import hashlib
 import logging
 import os
+import time
 from datetime import timedelta
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
@@ -26,7 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from quire_server.api.catalogs import _CatalogRoute as NoStoreRoute
+from quire_server.api.no_store import NoStoreRoute
 from quire_server.config import Settings, get_settings
 from quire_server.core import convert
 from quire_server.core.auth import current_user_id
@@ -39,6 +40,9 @@ MEDIA_TYPE = "application/pdf"
 # A PDF starts with its header within the first KiB and ends with %%EOF.
 SIGNATURE_WINDOW = 1024
 WRITE_BATCH = 1 << 20
+# A body that sends nothing for this long is dropped (408).
+BODY_IDLE_S = 60.0
+FLUSH_S = 15.0
 
 router = APIRouter(tags=["convert"], route_class=NoStoreRoute)
 
@@ -138,6 +142,8 @@ async def create_job(
 ) -> dict:
     if body.bytes > settings.convert_max_bytes:
         raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "source_too_large")
+    # Read before taking the lock: the heartbeat is the worker's file.
+    engine = await asyncio.to_thread(folder.engine)
     async with session.begin():
         await convert.lock(session)
         existing = await session.scalar(
@@ -174,7 +180,6 @@ async def create_job(
             wait = recent[len(recent) - settings.convert_daily_limit] - window
             retry = str(max(int(wait.total_seconds()) + 1, 1))
             raise HTTPException(429, "daily_limit_reached", headers={"Retry-After": retry})
-        engine = await asyncio.to_thread(folder.engine)
         if engine is None:
             raise HTTPException(503, "converter_unavailable", headers={"Retry-After": "60"})
         job = ConvertJob(
@@ -202,23 +207,29 @@ async def upload_source(
 ) -> dict:
     """The PDF itself, as the raw request body. The request-size middleware holds
     this route to ``convert_max_bytes`` instead of the global limit, with or
-    without a Content-Length."""
+    without a Content-Length. One upload per job at a time."""
     media_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
     if media_type != MEDIA_TYPE:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "unsupported_media_type")
-    job = await _job(session, owner, job_id)
-    if job.state != "created":
-        raise HTTPException(status.HTTP_409_CONFLICT, "not_accepting_source")
-    expected = job.source_bytes
-    declared = request.headers.get("content-length")
-    if declared is not None and declared.strip() != str(expected):
-        raise HTTPException(422, "size_mismatch")
+    async with session.begin():
+        await convert.lock(session)
+        job = await _job(session, owner, job_id)
+        if job.state != "created":
+            raise HTTPException(status.HTTP_409_CONFLICT, "not_accepting_source")
+        expected, sha256 = job.source_bytes, job.source_sha256
+        declared = request.headers.get("content-length")
+        if declared is not None and declared.strip() != str(expected):
+            raise HTTPException(422, "size_mismatch")
+        part = await asyncio.to_thread(folder.begin_upload, job.id)
+        if part is None:
+            raise HTTPException(status.HTTP_409_CONFLICT, "upload_in_progress")
     # Nothing below needs the database until the upload is complete.
     await session.close()
 
-    part = folder.incoming / f"{job_id.hex}.{uuid4().hex}.part"
     try:
-        problem = await _receive(request, part, expected, job.source_sha256)
+        problem = await _receive(request, part, expected, sha256)
+        if problem == "upload_timed_out":
+            raise HTTPException(status.HTTP_408_REQUEST_TIMEOUT, problem)
         if problem is not None:
             logger.info("event=convert.upload_refused job=%s reason=%s", job_id, problem)
             raise HTTPException(422, problem)
@@ -227,7 +238,11 @@ async def upload_source(
             job = await _job(session, owner, job_id)
             if job.state != "created":
                 raise HTTPException(status.HTTP_409_CONFLICT, "not_accepting_source")
-            os.replace(part, folder.source(job.id))
+            try:
+                os.replace(part, folder.source(job.id))
+            except FileNotFoundError:
+                # This upload went quiet for so long that a newer one took over.
+                raise HTTPException(status.HTTP_409_CONFLICT, "upload_in_progress") from None
             job.state = "queued"
             job.updated_at = convert.now()
             await asyncio.to_thread(folder.enqueue, job, settings)
@@ -239,16 +254,25 @@ async def upload_source(
 
 async def _receive(request: Request, part, expected: int, sha256: str) -> str | None:
     """Stream the body to ``part``; the refusal code, or None when it is the PDF
-    the job was created for."""
+    the job was created for. Writes at least every ``FLUSH_S`` while bytes
+    arrive, so the part file shows the upload is alive (``Folder.begin_upload``)."""
     digest = hashlib.sha256()
     received = 0
     head = b""
     tail = b""
     pending: list[bytes] = []
     buffered = 0
-    fh = await asyncio.to_thread(open, part, "xb")
+    flushed = time.monotonic()
+    body = aiter(request.stream())
+    fh = await asyncio.to_thread(open, part, "wb")
     try:
-        async for chunk in request.stream():
+        while True:
+            try:
+                chunk = await asyncio.wait_for(anext(body), BODY_IDLE_S)
+            except StopAsyncIteration:
+                break
+            except TimeoutError:
+                return "upload_timed_out"
             if not chunk:
                 continue
             received += len(chunk)
@@ -260,11 +284,12 @@ async def _receive(request: Request, part, expected: int, sha256: str) -> str | 
             if len(head) < SIGNATURE_WINDOW:
                 head = (head + chunk)[:SIGNATURE_WINDOW]
             tail = (tail + chunk)[-SIGNATURE_WINDOW:]
-            if buffered >= WRITE_BATCH:
-                await asyncio.to_thread(fh.write, b"".join(pending))
+            if buffered >= WRITE_BATCH or time.monotonic() - flushed >= FLUSH_S:
+                await asyncio.to_thread(_write, fh, pending)
                 pending.clear()
                 buffered = 0
-        await asyncio.to_thread(fh.write, b"".join(pending))
+                flushed = time.monotonic()
+        await asyncio.to_thread(_write, fh, pending)
     finally:
         await asyncio.to_thread(fh.close)
     if received != expected:
@@ -274,6 +299,11 @@ async def _receive(request: Request, part, expected: int, sha256: str) -> str | 
     if b"%PDF-" not in head or b"%%EOF" not in tail:
         return "not_a_pdf"
     return None
+
+
+def _write(fh, chunks: list[bytes]) -> None:
+    fh.write(b"".join(chunks))
+    fh.flush()
 
 
 @router.get("/jobs")

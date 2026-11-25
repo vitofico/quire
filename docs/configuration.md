@@ -973,17 +973,38 @@ It is off by default.
 
 **How the two containers work together.** The server and the worker share
 one folder and nothing else. The worker has no network, no database and no
-login of any account: it picks up queued PDFs from the folder, converts one
-at a time and leaves the EPUB and a short report there. The server keeps
-every job's state in the database, checks each EPUB's checksum before
-offering it, and clears the folder: the PDF goes as soon as the job
-finishes, the EPUB when the reader acknowledges it or 24 hours after the job
-was created. A job nobody uploads a PDF for expires after an hour.
+login of any account: it picks up a queued PDF from the folder, converts it,
+leaves the EPUB and a short report there, and exits; the container restarts
+it for the next job. The server keeps every job's state in the database and
+clears the folder: the PDF goes as soon as the job finishes, the EPUB when
+the reader acknowledges it or 24 hours after the job was created. A job
+nobody uploads a PDF for expires after an hour.
+
+**What the server checks, and what it does not.** The server treats
+everything the worker writes as untrusted, because a crafted PDF could take
+over Calibre inside the worker. It reads only regular files of a bounded
+size (never a link, a FIFO or a folder), checks the report field by field,
+copies the EPUB into a file of its own while hashing it, and keeps it only if
+the size and SHA-256 match the report and the zip looks like a plain EPUB:
+`mimetype` first with the EPUB media type, no entry name that leaves the
+book, at most 10,000 entries, and an unpacked size of at most 5 times the
+EPUB size ceiling (which is twice `QUIRE_SERVER_CONVERT_MAX_BYTES`). It does
+not check the book's content: an EPUB that passes is still a file from an
+untrusted PDF, and the apps open it like any sideloaded book.
+
+The worker exits after each job so that nothing a PDF starts outlives its
+job; on Linux it also adopts and kills every process the conversion leaves.
+What remains: while one job runs, a conversion that took over the worker can
+read the other PDFs queued at that moment and write results for them (which
+the server then checks as above). Running a container or a user id per job
+would close that; Quire does not do it yet, so keep the caps per account and
+the daily limit low on a server with untrusted accounts.
 
 **Turning it on with Docker Compose.** Both compose files already mount the
 `quire_convert` volume on the server and define the worker under the
-`convert` profile. Add `QUIRE_SERVER_CONVERT_ENABLED=true` to `.env`, then
-start with the profile:
+`convert` profile, with `restart: always` (the worker stops after every
+job). Add `QUIRE_SERVER_CONVERT_ENABLED=true` to `.env`, then start with the
+profile:
 
 ```sh
 docker compose --profile convert up -d
@@ -992,34 +1013,47 @@ docker compose --profile convert up -d
 The app shows the option once the worker has checked in (within a few
 seconds). The server logs one line at start that begins
 `PDF conversion is off` when the folder cannot be used, and `/health` repeats
-it.
+it. The compose default pulls `ghcr.io/vitofico/quire-convert:latest`, which
+works only while that package is public on GitHub; a fork publishes its own
+and sets `QUIRE_CONVERT_IMAGE`.
 
 **The worker container** (`ghcr.io/vitofico/quire-convert`, built from
 `converter/Dockerfile`, amd64 only) runs as user 1000 with a read-only root
 filesystem. It needs the shared folder mounted at `/jobs` (writable) and a
 writable `/tmp` (a 512 MB tmpfs is enough). It needs no network at all:
-`network_mode: none` in compose. It converts one book at a time; give it
+`network_mode: none` in compose. It converts one book and exits; give it
 2 CPUs and 3 GB of memory (the compose files do), more for very long books.
 For more throughput, run more worker containers on the same folder: each
-job is claimed by exactly one of them.
+job is claimed by exactly one of them. Docker waits a little longer before
+each restart when containers stop within ten seconds of starting, so a run
+of quick failures (encrypted PDFs, say) is picked up seconds to a minute
+apart.
 
-**Folder ownership.** The server creates the layout on start. The three
-subfolders the worker writes to (`running`, `done`, `workers`) are open to
-every user, so the worker can run as any user id; the uploads and finished
-books (`incoming`, `store`) are readable by the server's user only. The
-server image runs as root, so it can always clear what the worker leaves.
-If you run the server as another user, give it and the worker the same
-group (the worker makes its files group-writable). Mount the folder into
-these two containers only.
+**Folder ownership and size.** The server creates the layout on start. The
+three subfolders the worker writes to (`running`, `done`, `workers`) are
+open to every user and sticky, so the worker can run as any user id and
+nobody removes another's entries; the uploads and finished books
+(`incoming`, `store`) are readable by the server's user only. The server
+image runs as root, so it can always clear what the worker leaves. If you
+run the server as another user, give it and the worker the same group (the
+worker makes its files group-writable). Mount the folder into these two
+containers only, and prefer a volume with a size limit, so a worker that
+fills `done/` cannot fill the server's disk.
 
-**On Kubernetes or another proxy.** Mount one `ReadWriteOnce` volume into
-both containers in the same pod (or a `ReadWriteMany` volume when they run
-apart), and let the reverse proxy pass request bodies up to
-`QUIRE_SERVER_CONVERT_MAX_BYTES` on `PUT /convert/v1/jobs/*/source` (nginx:
-`client_max_body_size`; Caddy has no limit by default), with a read timeout
-long enough for a slow phone upload. The worker's memory and CPU limits go
-on its container; it needs no Service, ingress, Secret or network policy
-beyond denying all traffic.
+**On Kubernetes or another proxy.** Run the worker as a second container in
+the server's pod: the pod's `restartPolicy: Always` restarts it after every
+job the same way compose does, though Kubernetes waits longer between
+restarts (from ten seconds up to five minutes) when they come quickly, so
+`available` may read `false` for a while after a run of quick jobs. Do not
+set `shareProcessNamespace` on that pod: the worker's processes must end
+with its container. Mount one `ReadWriteOnce` volume into both containers
+(or a `ReadWriteMany` volume when they run apart), and let the reverse proxy
+pass request bodies up to `QUIRE_SERVER_CONVERT_MAX_BYTES` on
+`PUT /convert/v1/jobs/*/source` (nginx: `client_max_body_size`; Caddy has no
+limit by default). The server drops an upload that sends nothing for 60
+seconds; the proxy's read timeout should be at least that. The worker's
+memory and CPU limits go on its container; it needs no Service, ingress,
+Secret or network policy beyond denying all traffic.
 
 ### `QUIRE_SERVER_CONVERT_ENABLED`
 
@@ -1030,7 +1064,9 @@ beyond denying all traffic.
 Mounts `/convert/v1` and starts the server's clean-up pass. Off, every
 conversion route is a 404 and the apps do not show the option. The table
 `convert_jobs` exists either way, because account export and deletion read
-it.
+it. With conversion off nothing clears the job folder: deleting an account
+removes its job rows, but files from before (at most a day's worth) stay
+until conversion is on again or the folder is deleted.
 
 When to change it: to offer PDF conversion, together with running the
 worker.
@@ -1056,7 +1092,8 @@ When to change it: only to mount the shared volume elsewhere.
 The largest PDF the server accepts. The upload route alone is held to this
 instead of `QUIRE_SERVER_MAX_REQUEST_BYTES`, with or without a
 `Content-Length` header. A reverse proxy in front must allow bodies this
-large on that route.
+large on that route. The EPUB a worker returns may be at most twice this
+size; a larger one fails the job with `invalid_result`.
 
 When to change it: for readers with larger scans, or to save disk space.
 

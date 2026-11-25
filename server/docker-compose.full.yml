@@ -132,7 +132,9 @@ services:
   quire-convert:
     image: ${QUIRE_CONVERT_IMAGE:-ghcr.io/vitofico/quire-convert:latest}
     profiles: ["convert"]
-    restart: unless-stopped
+    # The worker exits after every job, so each conversion starts in a fresh
+    # container: nothing a PDF leaves running outlives its job.
+    restart: always
     depends_on:
       - quire-server
     network_mode: none

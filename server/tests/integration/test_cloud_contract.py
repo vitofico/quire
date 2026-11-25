@@ -232,6 +232,40 @@ async def test_hosted_policy_fences_sync_and_library_writes(
     assert len(highlight_rows.all()) == len(library_rows.all()) == int(sync_writes)
 
 
+@pytest.mark.parametrize("sync_writes", [True, False], ids=["allowed", "denied"])
+async def test_hosted_policy_fences_new_conversions(
+    client_factory, app, hosted_policy_env, session, tmp_path, sync_writes
+):
+    async with client_factory(
+        auth_backend="native",
+        ai_enabled=False,
+        skip_auth_overrides=True,
+        convert_enabled="true",
+        convert_dir=str(tmp_path / "convert"),
+    ) as client:
+        email = "convert-policy@example.test"
+        account = await _register_native(app, email)
+        async with _serve_test_policy(
+            app.state.hosted_policy,
+            account,
+            hosted_policy_env,
+            monthly_jobs=1,
+            sync_writes=sync_writes,
+        ):
+            headers = await _native_login(client, email)
+            body = {"idempotency_key": "key-00000001", "sha256": "0" * 64, "bytes": 10}
+            created = await client.post("/convert/v1/jobs", headers=headers, json=body)
+            listed = await client.get("/convert/v1/jobs", headers=headers)
+
+    if sync_writes:
+        # Through the fence; no worker is running in this test.
+        assert created.json() == {"detail": "converter_unavailable"}
+    else:
+        assert created.status_code == 403
+        assert created.json() == {"detail": "hosting_subscription_required"}
+    assert listed.status_code == 200
+
+
 async def test_monthly_policy_refuses_second_lookup_without_new_insight_or_usage(
     client_factory, app, hosted_policy_env, session, monkeypatch
 ):

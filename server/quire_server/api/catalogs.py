@@ -33,14 +33,12 @@ from uuid import UUID
 import httpx
 import idna
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
-from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
-from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from quire_server.api.no_store import NoStoreRoute
 from quire_server.config import Settings, get_settings
 from quire_server.core import catalog_proxy
 from quire_server.core.auth import current_auth_user
@@ -53,34 +51,6 @@ logger = logging.getLogger(__name__)
 
 MAX_CATALOGS = 20
 _HOST_NAME = re.compile(r"[a-z0-9.-]+")
-
-
-class _CatalogRoute(APIRoute):
-    """Answer every request ``no-store``, and keep submitted values out of 422s.
-
-    FastAPI's default 422 quotes each rejected ``input``, which here could be
-    a catalog address or password.
-    """
-
-    def get_route_handler(self):
-        handler = super().get_route_handler()
-
-        async def route(request: Request) -> Response:
-            try:
-                response = await handler(request)
-            except RequestValidationError as exc:
-                errors = [
-                    {key: error[key] for key in ("type", "loc", "msg")} for error in exc.errors()
-                ]
-                response = JSONResponse({"detail": errors}, status_code=422)
-            except StarletteHTTPException as exc:
-                response = JSONResponse(
-                    {"detail": exc.detail}, status_code=exc.status_code, headers=exc.headers
-                )
-            response.headers["Cache-Control"] = "no-store"
-            return response
-
-        return route
 
 
 def _catalog_secrets(request: Request) -> CatalogSecrets:
@@ -98,7 +68,7 @@ async def _account(user: Annotated[AuthUser, Depends(current_auth_user)]) -> str
 
 
 router = APIRouter(
-    tags=["catalogs"], route_class=_CatalogRoute, dependencies=[Depends(_catalog_secrets)]
+    tags=["catalogs"], route_class=NoStoreRoute, dependencies=[Depends(_catalog_secrets)]
 )
 
 Secrets = Annotated[CatalogSecrets, Depends(_catalog_secrets)]

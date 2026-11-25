@@ -486,6 +486,7 @@ def create_app() -> FastAPI:
                         and (
                             request.url.path.startswith("/sync/")
                             or request.url.path.startswith("/library/")
+                            or request.url.path == "/convert/v1/jobs"
                         )
                         and not await hosted_policy.allow_sync(user.user_id)
                     ):

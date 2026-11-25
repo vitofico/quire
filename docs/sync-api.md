@@ -1972,6 +1972,14 @@ Rules for every route:
   `{"detail": [{"type", "loc", "msg"}]}`; rule errors as `{"detail": "<code>"}`.
 - The server logs a job by id, state, codes and sizes, never a file name or
   any text from the book.
+- Two kinds of `404`: `{"detail": "Not Found"}` means conversion is off on
+  this server (or the path is wrong); `{"detail": "job_not_found"}` means
+  this account has no such job (never created, another account's, or purged
+  48 hours after creation).
+- Text the worker supplies (`failure.detail`, `review.reason`, an issue's
+  `code`, `message` and `page_label`, a page's `label`, `engine_revision`)
+  comes out of converting an untrusted PDF. Show it as plain text, never as
+  HTML or markup.
 
 ### The flow
 
@@ -1979,8 +1987,9 @@ Rules for every route:
    in state `created`.
 2. `PUT /convert/v1/jobs/{id}/source` with the PDF as the body: `202`, state
    `queued`.
-3. Poll `GET /convert/v1/jobs/{id}` (every few seconds; a conversion takes
-   seconds to minutes) through `running` until a finished state.
+3. Poll `GET /convert/v1/jobs/{id}`, at most every 5 seconds (the server
+   moves jobs along about that often; a conversion takes seconds to
+   minutes), through `running` until a finished state.
 4. `ready` or `review`: `GET /convert/v1/jobs/{id}/epub`, then
    `POST /convert/v1/jobs/{id}/acknowledge`. `failed`: show the reason, then
    acknowledge.
@@ -1999,8 +2008,22 @@ Rules for every route:
 
 The PDF is deleted as soon as the job reaches any state after `running`. A
 finished job keeps its EPUB until it is acknowledged, or for at most 24 hours
-from creation. Jobs stay listed for another day after that (so the daily
-limit can count them) and then disappear.
+from creation (not from when it finished: `expires_at` says when). Jobs stay
+listed for another day after that (so the daily limit can count them) and
+then disappear.
+
+**After an app restart.** Save the idempotency key before the `POST` and the
+job id from its answer before starting the `PUT`. To pick up again, `POST`
+the same key with the same values: the answer is the job in its current
+state, whatever it is. If it is still `created`, upload again. A retried
+`PUT` that answers `409 not_accepting_source` means the first upload arrived
+and only its answer was lost: `GET` the job. `409 upload_in_progress` means
+an earlier upload of the job is still arriving (or went quiet less than two
+minutes ago): wait, then `GET` the job.
+
+**When no worker runs.** A queued job waits for a worker and expires 24 hours
+after creation if none comes. Offer conversion only while `available` is
+`true` in the capabilities, and show a queued job as waiting.
 
 ### Job object
 
@@ -2021,13 +2044,13 @@ Every job route answers with this shape:
     "sha256": "<64 hex>",
     "bytes": 912345,
     "rendition_id": "urn:uuid:5a0d...",
-    "issue_counts": {"warning": 2, "error": 1}
+    "issue_counts": {"critical": 0, "major": 1, "minor": 2, "info": 0}
   },
   "review": {
     "reason": "1 page needs review",
     "affected_pages": [{"page": 12, "label": "x"}],
     "issues": [
-      {"code": "...", "severity": "error", "page": 12, "page_label": "x", "message": "..."}
+      {"code": "...", "severity": "major", "page": 12, "page_label": "x", "message": "..."}
     ]
   },
   "failure": null
@@ -2041,14 +2064,20 @@ Every job route answers with this shape:
   packaged deterministically, so converting the same PDF again gives the
   same identifier (and, with the same `engine_revision`, the same bytes). A
   client that keys books by that identifier sees the same book, not a copy.
+- `result.issue_counts` counts the converter's findings by severity, with the
+  keys `critical`, `major`, `minor` and `info`.
 - `review` is set only in `review`: the physical pages (`page`, 1-based) and
   printed labels (`label`, may be `null`) that kept the book from `ready`,
-  and up to 100 of the issues that did.
+  and up to 100 of the issues that did, each with a `severity` of
+  `critical` or `major`. A `review` book is usable: import it like a `ready`
+  one and tell the reader which pages to check.
 - `failure` is set only in `failed`:
   `{"code": "<code>", "retryable": false, "detail": "<short reason or null>"}`.
   `retryable: true` means the same PDF may convert on another try (start a
   new job with a new idempotency key); `false` means it will fail the same
-  way.
+  way. `worker_error`, `worker_lost` and `invalid_result` are faults on the
+  server's side and always retryable; `conversion_failed` is when the
+  converter says so; the other codes never are.
 - `engine_revision` is the worker's tools when the job was created, replaced
   by the ones that actually converted it.
 - `attempt` counts the server's tries: a worker that disappears mid-run gets
@@ -2067,7 +2096,7 @@ Every job route answers with this shape:
 | `timed_out` | The conversion ran past `time_limit_s`. |
 | `worker_error` | The worker stopped unexpectedly or could not read its job. |
 | `worker_lost` | No worker finished the job, twice. |
-| `invalid_result` | The worker's result did not check out (for example the EPUB's checksum); nothing was kept. |
+| `invalid_result` | The worker's result did not check out (a forged or malformed report, a file that is not a regular file, an EPUB whose size, checksum or structure is wrong), or the server could not reconcile the job; nothing was kept. |
 
 ### `GET /convert/v1/capabilities`
 
@@ -2100,7 +2129,9 @@ can check `max_bytes` before uploading; `max_pages` is checked by the worker
 - `idempotency_key`: 8 to 128 characters from `A-Z a-z 0-9 _ -`, chosen by
   the client, new for every PDF the reader picks. Sending the same key with
   the same `sha256`, `bytes` and `mode` again returns the existing job
-  (`200`) in whatever state it is; with different values it is `409`.
+  (`200`) in whatever state it is, finished, cancelled and expired included;
+  with different values it is `409`. Once the job's row is purged (48 hours
+  after creation) the key is free and starts a new job.
 - `sha256`: lowercase hex SHA-256 of the exact bytes the upload will send.
 - `bytes`: their count.
 - `mode`: optional, `"local"` (the only value).
@@ -2109,6 +2140,7 @@ can check `max_bytes` before uploading; `max_pages` is checked by the worker
 |---|---|
 | 201 | A new job, state `created`. |
 | 200 | The same key with the same values: the existing job. |
+| 403 | `{"detail": "hosting_subscription_required"}`: on a hosted server, the account's plan does not include writes (the same rule as sync writes). |
 | 409 | `{"detail": "idempotency_conflict"}`: the key was used for another PDF. |
 | 413 | `{"detail": "source_too_large"}`: `bytes` is over `max_bytes`. |
 | 422 | Schema errors (bad key, checksum or mode). |
@@ -2123,11 +2155,15 @@ accepts bodies up to `max_bytes`; every other route keeps the global request
 limit. The server stores the body, then checks that its size and SHA-256 are
 the ones the job was created with and that it looks like a PDF (`%PDF-`
 within the first KiB, `%%EOF` within the last). Only then is it queued.
+One upload per job runs at a time, and an upload that sends nothing for 60
+seconds is dropped.
 
 | Status | When |
 |---|---|
 | 202 | Stored and queued: the job, state `queued`. |
+| 408 | `{"detail": "upload_timed_out"}`: no bytes for 60 seconds. The job stays `created`; upload again. |
 | 409 | `{"detail": "not_accepting_source"}`: the job is past `created` (the source already arrived, or it was cancelled or expired). |
+| 409 | `{"detail": "upload_in_progress"}`: another upload of this job is under way, or went quiet less than two minutes ago. |
 | 413 | `{"detail": "request body exceeds <max_bytes> bytes"}`: the body went over `max_bytes`, with or without `Content-Length`. |
 | 415 | `{"detail": "unsupported_media_type"}`: not `application/pdf`. |
 | 422 | `{"detail": "size_mismatch"}` (more or fewer bytes than `bytes`, or a `Content-Length` that says so), `{"detail": "checksum_mismatch"}`, `{"detail": "not_a_pdf"}`. The job stays `created`, so the client can upload again. |
@@ -2144,7 +2180,14 @@ The EPUB, `Content-Type: application/epub+zip`, with `Content-Length`,
 `Content-Disposition: attachment; filename="<id>.epub"`. Repeat downloads
 return identical bytes until the job is acknowledged or expires, so an
 interrupted download can simply start over. A download already under way
-finishes even if the job is acknowledged meanwhile.
+finishes even if the job is acknowledged meanwhile. There are no `Range`
+requests (every download sends the whole file), and the `ETag` is for
+comparing only: `If-None-Match` never yields `304`.
+
+The EPUB comes from converting an untrusted PDF. The server checks that it
+is the file the worker reported and a plain EPUB container (`mimetype`
+first, no entry name that leaves the book, bounded size), not what is
+inside: open it the way the app opens any sideloaded book.
 
 | Status | When |
 |---|---|
@@ -2171,4 +2214,6 @@ with the job, also when it is already `acknowledged`, `cancelled` or
 
 `GET /auth/v1/account/export` includes `convert_jobs`, one entry per job with
 its checksums, sizes, states and summary (no PDF or EPUB). Purging an account
-deletes its jobs; the server clears their files on its next pass.
+deletes its jobs. While conversion is on, the server clears their files on
+its next pass; while it is off, they stay until it is on again or the
+folder is deleted (see `QUIRE_SERVER_CONVERT_ENABLED`).
