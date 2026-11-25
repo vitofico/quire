@@ -1,6 +1,7 @@
 import { resolveEpubHref, type Epub } from '../books/epub'
 import { declarations, fixedPageSize, mountFixedPage, stylesheetRules } from './publicationStyles'
 import { searchableText } from './search'
+import { showElement } from './anchors'
 
 // WebKit disables parent-owned DOM listeners when the frame's scripting flag
 // is sandboxed. Allow the listeners while the initial CSP denies every script
@@ -155,13 +156,12 @@ export function mountChapter(doc: Document, epub: Epub, href: string, loadAssets
   }
 }
 
-export function jumpFragment(doc: Document, fragment?: string) {
-  if (!fragment) return false
-  const id = safeFragment(fragment)
-  const target = id && (doc.getElementById(id) ?? Array.from(doc.getElementsByTagName('a')).find(el => el.name === id))
-  if (!target) return false
-  target.scrollIntoView({block: 'start'})
-  return true
+/** Shows the page holding a fragment target and returns that target. */
+export function jumpFragment(doc: Document, fragment?: string): Element | undefined {
+  const id = fragment && safeFragment(fragment)
+  const target = id ? doc.getElementById(id) ?? Array.from(doc.getElementsByTagName('a')).find(el => el.name === id) : undefined
+  if (target) showElement(doc, target)
+  return target
 }
 
 export function chapterSearchText(epub: Epub, href: string): string {

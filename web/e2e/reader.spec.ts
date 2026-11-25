@@ -199,15 +199,20 @@ test('preserves a private pause through chapter changes, reader resize and reloa
 
   const chapter = page.frameLocator('.qr-frame')
   const marker = chapter.locator('#nested')
-  const isNearTop = () => marker.evaluate(element => Math.abs(element.getBoundingClientRect().top) <= 85)
+  // Pages turn sideways, so the passage starts somewhere on the page the reader shows.
+  const isOnPage = () => marker.evaluate(element => {
+    const rect = element.getClientRects()[0]
+    return rect.left >= 0 && rect.right <= element.ownerDocument.documentElement.clientWidth
+      && rect.top >= 0 && rect.bottom <= element.ownerDocument.documentElement.clientHeight
+  })
   await page.getByRole('button', {name: 'Contents', exact: true}).click()
   await page.getByRole('button', {name: 'Nested section', exact: true}).click()
-  await expect.poll(isNearTop).toBe(true)
+  await expect.poll(isOnPage).toBe(true)
 
   await page.getByRole('button', {name: 'Appearance', exact: true}).click()
   await page.getByLabel('Text size').fill('30')
   await page.getByRole('button', {name: 'Close panel'}).click()
-  await expect.poll(isNearTop).toBe(true)
+  await expect.poll(isOnPage).toBe(true)
 
   await page.getByRole('button', {name: 'Pause & return'}).click()
   await page.getByLabel('Private note').fill('This stays on this device.')
@@ -222,7 +227,7 @@ test('preserves a private pause through chapter changes, reader resize and reloa
   await page.getByRole('button', {name: 'Pause & return'}).click()
   await expect(page.getByLabel('Private note')).toHaveValue('This stays on this device.')
   await page.getByRole('button', {name: 'Return to saved passage'}).click()
-  await expect.poll(isNearTop).toBe(true)
+  await expect.poll(isOnPage).toBe(true)
 })
 
 test('verifies an APK-recorded repeated passage and refuses the changed edition', async ({ page }) => {

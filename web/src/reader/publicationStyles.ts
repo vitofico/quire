@@ -98,7 +98,12 @@ export function mountFixedPage(doc: Document, size: {width: number; height: numb
     body.setProperty('margin', 'auto', 'important')
     body.setProperty('position', 'relative', 'important')
   }
+  // A fixed page is drawn whole, so it is not split into reading columns.
+  doc.documentElement.setAttribute('data-quire-fixed', '')
   fit()
   doc.defaultView?.addEventListener('resize', fit)
-  return () => doc.defaultView?.removeEventListener('resize', fit)
+  return () => {
+    doc.documentElement.removeAttribute('data-quire-fixed')
+    doc.defaultView?.removeEventListener('resize', fit)
+  }
 }
