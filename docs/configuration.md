@@ -1120,6 +1120,15 @@ The full-stack Compose defaults to `/opds`. Leave unset in the minimal stack
 to let readers configure their own catalogue. Credentials belong in the
 browser's catalogue settings.
 
+#### `QUIRE_SERVER_WEB_GUEST_READING`
+
+Defaults to `true`. When the server offers sign-in, signed-out visitors first
+see a welcome page with the sign-in form. With `true` that page also offers
+"Read on this device without an account": the visitor's books then stay in
+their own browser and nothing is sent to the server. Set to `false` on a
+private instance so the page offers sign-in only. Servers without browser
+sign-in always open the local reader.
+
 ### Build and tooling
 
 #### `QUIRE_SERVER_IMAGE`

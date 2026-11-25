@@ -9,7 +9,17 @@ from starlette.responses import FileResponse, RedirectResponse, Response
 
 WEB_DIST = Path("/app/web-dist")
 PUBLIC_FILES = frozenset(
-    {"index.html", "sw.js", "version.json", "manifest.webmanifest", "icon-192.png", "icon-512.png"}
+    {
+        "index.html",
+        "sw.js",
+        "version.json",
+        "manifest.webmanifest",
+        "icon-192.png",
+        "icon-512.png",
+        "favicon.svg",
+        "favicon.ico",
+        "apple-touch-icon.png",
+    }
 )
 ASSET = re.compile(r"assets/(?:[\w.-]+/)*[\w.-]+")
 HASHED_NAME = re.compile(r"-[\w-]{8,}\.[\w.]+$")
@@ -55,6 +65,12 @@ def install_web(
         @app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
         async def serve_home(request: Request) -> FileResponse:
             return await serve_web("index.html", request)
+
+        if "favicon.ico" in public:
+            # Browsers and feed readers ask the root of a host for its icon.
+            @app.api_route("/favicon.ico", methods=["GET", "HEAD"], include_in_schema=False)
+            async def serve_favicon(request: Request) -> Response:
+                return await serve_web("favicon.ico", request)
 
     @app.api_route("/quire/{path:path}", methods=["GET", "HEAD"], include_in_schema=False)
     async def serve_web(path: str, request: Request) -> Response:
