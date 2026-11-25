@@ -187,7 +187,10 @@ shipped. Everything else above is on `main`.
 highlights using bounded previews and UUID pagination. `GET
 /agent/v1/highlights/{highlight_id}` retrieves one complete saved quotation and
 locator. The remote `/mcp` Streamable HTTP endpoint exposes the same service
-through `list_highlights`, `search_highlights` and `get_highlight` tools.
+through `list_highlights`, `search_highlights` and `get_highlight` tools, and
+adds read-only `get_highlights` (several by ID), `list_highlighted_books`,
+`list_library` (the shelf with reading progress) and `get_book` (one book with
+its tidied details). The server calls no model for any of them.
 
 Both surfaces follow the progress/full-mode gate. MCP requires an explicit
 existing Basic or NativeAuth Bearer Authorization header on every request;

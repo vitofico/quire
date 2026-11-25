@@ -5,6 +5,7 @@ import binascii
 import hashlib
 import hmac
 import json
+from collections.abc import Callable
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -93,23 +94,22 @@ class HighlightPage(BaseModel):
     has_more: bool
 
 
-def _scope(user_id: str, query: HighlightQuery) -> str:
-    # No principal or query text is embedded in the opaque cursor. Page size
-    # may change between requests; account and filters may not.
-    encoded = json.dumps(
-        [user_id, query.q, query.metadata_id, query.content_hash],
-        ensure_ascii=True,
-        separators=(",", ":"),
-    ).encode()
+def scope(*parts: str | None) -> str:
+    """What a cursor is bound to: the account and the filters, hashed.
+    No principal or query text is embedded in the opaque cursor. Page size
+    may change between requests; account and filters may not."""
+    encoded = json.dumps(list(parts), ensure_ascii=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
 
 
-def _encode_cursor(after: UUID, scope: str) -> str:
+def encode_cursor(after: object, scope: str) -> str:
     payload = json.dumps({"v": 1, "after": str(after), "scope": scope}).encode()
     return base64.urlsafe_b64encode(payload).decode().rstrip("=")
 
 
-def _decode_cursor(cursor: str, scope: str) -> UUID:
+def decode_cursor[T](cursor: str, scope: str, parse: Callable[[str], T]) -> T:
+    """The position a cursor names, read by ``parse``; a cursor that is
+    malformed, foreign or for other filters is ``InvalidHighlightCursor``."""
     try:
         raw = base64.b64decode(cursor + "=" * (-len(cursor) % 4), altchars=b"-_", validate=True)
         payload = json.loads(raw)
@@ -123,7 +123,7 @@ def _decode_cursor(cursor: str, scope: str) -> UUID:
             or not hmac.compare_digest(payload["scope"], scope)
         ):
             raise ValueError
-        return UUID(payload["after"])
+        return parse(payload["after"])
     except (ValueError, TypeError, binascii.Error, UnicodeDecodeError, RecursionError):
         raise InvalidHighlightCursor("invalid_cursor") from None
 
@@ -131,8 +131,8 @@ def _decode_cursor(cursor: str, scope: str) -> UUID:
 async def list_highlights(
     session: AsyncSession, user_id: str, query: HighlightQuery
 ) -> HighlightPage:
-    scope = _scope(user_id, query)
-    after = _decode_cursor(query.cursor, scope) if query.cursor else None
+    bound = scope(user_id, query.q, query.metadata_id, query.content_hash)
+    after = decode_cursor(query.cursor, bound, UUID) if query.cursor else None
     # Project previews in PostgreSQL: fetching whole rows first would read up
     # to 100 large locators and full quotes just to discard most of their bytes.
     statement = select(
@@ -183,7 +183,7 @@ async def list_highlights(
     has_more = len(rows) > query.limit
     return HighlightPage(
         items=[_summary(row) for row in page],
-        next_cursor=_encode_cursor(page[-1].id, scope) if has_more else None,
+        next_cursor=encode_cursor(page[-1].id, bound) if has_more else None,
         has_more=has_more,
     )
 
@@ -199,3 +199,118 @@ async def get_highlight(
         )
     )
     return wire(row) if row is not None else None
+
+
+class HighlightBatch(BaseModel):
+    items: list[HighlightItem]
+    not_found: list[UUID]
+
+
+async def get_highlights(
+    session: AsyncSession, user_id: str, highlight_ids: list[UUID]
+) -> HighlightBatch:
+    """Complete active highlights in the order asked, each once; the IDs that
+    are missing, foreign or removed are listed alike in ``not_found``."""
+    wanted = list(dict.fromkeys(highlight_ids))
+    rows = (
+        await session.scalars(
+            select(Highlight).where(
+                Highlight.user_id == user_id,
+                Highlight.id.in_(wanted),
+                Highlight.deleted_at.is_(None),
+            )
+        )
+    ).all()
+    found = {row.id: row for row in rows}
+    return HighlightBatch(
+        items=[wire(found[i]) for i in wanted if i in found],
+        not_found=[i for i in wanted if i not in found],
+    )
+
+
+class HighlightedBook(BaseModel):
+    document: HighlightDocument
+    book_title: str
+    book_author: str | None
+    highlight_count: int
+    noted_count: int
+    first_highlight_at: int
+    last_highlight_at: int
+
+
+class HighlightedBookPage(BaseModel):
+    items: list[HighlightedBook]
+    next_cursor: str | None
+    has_more: bool
+
+
+def _book_position(after: str) -> tuple[int, str]:
+    updated, content_hash = after.split(":", 1)
+    return int(updated), content_hash
+
+
+async def list_highlighted_books(
+    session: AsyncSession, user_id: str, *, limit: int, cursor: str | None
+) -> HighlightedBookPage:
+    """The books with active highlights, one per ``content_hash`` (the key
+    ``list_highlights`` filters on), most recently highlighted first."""
+    bound = scope("books", user_id)
+    after = decode_cursor(cursor, bound, _book_position) if cursor else None
+    books = (
+        select(
+            Highlight.content_hash,
+            func.max(Highlight.metadata_id).label("metadata_id"),
+            func.max(Highlight.identity_hash_version).label("identity_hash_version"),
+            func.left(func.max(Highlight.book_title), 1000).label("book_title"),
+            func.left(func.max(Highlight.book_author), 1000).label("book_author"),
+            func.count().label("highlight_count"),
+            func.count(Highlight.comment).label("noted_count"),
+            func.min(Highlight.created_at).label("first_highlight_at"),
+            func.max(Highlight.updated_at).label("last_highlight_at"),
+        )
+        .where(Highlight.user_id == user_id, Highlight.deleted_at.is_(None))
+        .group_by(Highlight.content_hash)
+        .subquery()
+    )
+    statement = select(books)
+    if after is not None:
+        statement = statement.where(
+            or_(
+                books.c.last_highlight_at < after[0],
+                (books.c.last_highlight_at == after[0]) & (books.c.content_hash > after[1]),
+            )
+        )
+    rows = (
+        await session.execute(
+            statement.order_by(books.c.last_highlight_at.desc(), books.c.content_hash.asc()).limit(
+                limit + 1
+            )
+        )
+    ).all()
+    page = rows[:limit]
+    has_more = len(rows) > limit
+    last = page[-1] if page else None
+    return HighlightedBookPage(
+        items=[
+            HighlightedBook(
+                document=HighlightDocument(
+                    metadata_id=row.metadata_id,
+                    content_hash=row.content_hash,
+                    identity_hash_version=row.identity_hash_version,
+                ),
+                book_title=row.book_title,
+                book_author=row.book_author,
+                highlight_count=row.highlight_count,
+                noted_count=row.noted_count,
+                first_highlight_at=row.first_highlight_at,
+                last_highlight_at=row.last_highlight_at,
+            )
+            for row in page
+        ],
+        next_cursor=(
+            encode_cursor(f"{last.last_highlight_at}:{last.content_hash}", bound)
+            if has_more and last is not None
+            else None
+        ),
+        has_more=has_more,
+    )
