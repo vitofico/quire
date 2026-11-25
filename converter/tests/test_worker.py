@@ -391,11 +391,13 @@ def test_the_child_copies_a_review_epub_with_its_blocking_issues(child, tmp_path
         {
             "code": "figure.lost",
             "severity": "major",
-            "page": 3,
+            "page": 4,
             "page_label": "iii",
             "message": "figure not found",
         }
     ]
+    # Counted from 1 for the server, from 0 in the pipeline.
+    assert result["affected_pages"] == [{"page": 4, "label": "iii"}]
     assert (child.out / "book.epub").read_bytes() == b"the book"
 
 
@@ -436,3 +438,83 @@ def test_end_to_end_the_same_pdf_gives_the_same_book(tmp_path, fixture_pdfs):
     # Quire keys a book on its first identifier and its bytes: both repeat.
     assert results[0]["epub"] == results[1]["epub"]
     assert results[0]["epub"]["rendition_id"].startswith("urn:uuid:")
+
+
+# ---------------------------------------------------------------------- the server's contract
+
+# What the worker publishes for each outcome, read by the server's tests
+# (server/tests/unit/test_convert_folder.py), so the two sides cannot drift.
+# QUIRE_UPDATE_FIXTURES=1 rewrites it from the code.
+WORKER_RESULTS = Path(__file__).parent / "fixtures" / "worker-results.json"
+
+
+def published_by_the_worker(monkeypatch, tmp_path, outcome: Outcome) -> dict:
+    """result.json as the real worker writes it, with only Calibre and pdfinfo replaced."""
+    from quire_convert.report import Report, affected_pages, count_issues
+
+    issues = {
+        Outcome.READY: [Issue("meta.filled", Severity.INFO, "title from the title page")],
+        Outcome.REVIEW: [
+            # The first physical page, the one a scanned cover lands on.
+            Issue("figure.facsimile_page", Severity.MAJOR, "kept as an image", page=0),
+            Issue("figure.lost", Severity.MAJOR, "figure not found", page=4, page_label="iii"),
+            Issue("meta.missing_title", Severity.MAJOR, "no source names the title"),
+            Issue("nav.short", Severity.MINOR, "short chapter", page=6),
+        ],
+        Outcome.UNSUPPORTED: [],
+    }[outcome]
+    tmp_path.mkdir()
+    epub = tmp_path / "attempt.epub"
+    epub.write_bytes(b"the book")
+    result = SimpleNamespace(
+        outcome=outcome,
+        epub_path=epub,
+        report=Report(
+            input_sha256="0" * 64,
+            outcome=outcome,
+            reason={"ready": "all checks passed", "review": "3 issues need review"}.get(
+                outcome.value, "the PDF is a scanned book"
+            ),
+            settings={"variant": "rules"},
+            issues=issues,
+            issue_counts=count_issues(issues),
+            affected_pages=affected_pages(issues, None),
+        ),
+    )
+    monkeypatch.setattr(
+        poppler, "pdfinfo", lambda binary, pdf, timeout: poppler.PdfInfo(9, False, {})
+    )
+    monkeypatch.setattr(
+        "quire_convert.tools.find_tools", lambda: SimpleNamespace(pdfinfo=Path("/bin/pdfinfo"))
+    )
+    monkeypatch.setattr(pipeline, "convert", lambda pdf, job_root: result)
+
+    def runner(claim, withdrawn, tick):
+        argv = [str(claim.source), str(claim.out), str(claim.job["max_pages"])]
+        return None if worker._child_main(argv) == 0 else "worker_error"
+
+    root = make_root(tmp_path)
+    name = queue_job(root)
+    worker.Worker(root, engine="quire-convert 0.1.0; calibre 9.19.0", runner=runner).run(once=True)
+    published = result_of(root, name)
+    return published | {"seconds": 0.0}
+
+
+def test_the_published_results_match_the_servers_fixture(monkeypatch, tmp_path):
+    produced = {}
+    for outcome in (Outcome.READY, Outcome.REVIEW, Outcome.UNSUPPORTED):
+        with monkeypatch.context() as patch:
+            produced[outcome.value] = published_by_the_worker(
+                patch, tmp_path / outcome.value, outcome
+            )
+    produced["failed"] = produced.pop("unsupported")
+    assert produced["review"]["affected_pages"] == [
+        {"page": 1, "label": None},
+        {"page": 5, "label": "iii"},
+    ]
+    if os.environ.get("QUIRE_UPDATE_FIXTURES"):
+        WORKER_RESULTS.write_text(json.dumps(produced, indent=2, sort_keys=True) + "\n")
+    assert json.loads(WORKER_RESULTS.read_text()) == produced, (
+        "the worker's result.json changed: run with QUIRE_UPDATE_FIXTURES=1 and check that "
+        "the server's tests still accept it"
+    )
