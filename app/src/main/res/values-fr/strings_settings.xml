@@ -3,9 +3,7 @@
     <string name="settings_couldn_t_delete_reader_profile">"Impossible de supprimer le profil de lecture : %1$s"</string>
     <string name="settings_quire_server_url_optional">"URL du serveur Quire (facultative)"</string>
     <string name="settings_only_set_this_if_sync_ai_run">"Renseignez cette adresse uniquement si la synchronisation ou l’IA utilisent une adresse différente de celle de vos livres."</string>
-    <string name="settings_connect_to_any_opds_catalog_such_as">"Connectez-vous à un catalogue OPDS, comme Kavita. Remplissez cette section à la place de celle de calibre-web ci-dessus, et non les deux."</string>
     <string name="settings_connected_to_an_opds_catalog_your_place">"Connecté à un catalogue OPDS. Votre position de lecture est enregistrée uniquement sur cet appareil et les fonctions d’IA sont désactivées : les deux nécessitent un serveur Quire."</string>
-    <string name="settings_this_opds_catalog_has_no_quire_server">"Ce catalogue OPDS ne dispose pas d’un serveur Quire avec lequel synchroniser."</string>
     <string name="settings_configure_a_server_above_to_enable_sync">"Configurez un serveur ci-dessus pour activer la synchronisation."</string>
     <string name="settings_re_pull_everything_on_the_next_sync">"Récupérer à nouveau toutes les données à la prochaine synchronisation. Vos livres et votre progression sont conservés."</string>
     <string name="settings_remove_all_downloaded_books">"Supprimer tous les livres téléchargés"</string>
@@ -25,7 +23,6 @@
     <string name="settings_provider_not_yet_checked">"Fournisseur : pas encore vérifié"</string>
     <string name="settings_provider_reachable">"Fournisseur : accessible%1$s%2$s"</string>
     <string name="settings_provider_unreachable">"Fournisseur : inaccessible. %1$s%2$s"</string>
-    <string name="settings_enter_a_full_catalog_url_starting_with">"Saisissez une URL de catalogue complète commençant par http:// ou https://"</string>
     <string name="settings_last_synced_sentence">"Dernière synchronisation : %1$s."</string>
     <string name="settings_last_attempt_failed_sentence">"Dernière tentative échouée : %1$s"</string>
 </resources>

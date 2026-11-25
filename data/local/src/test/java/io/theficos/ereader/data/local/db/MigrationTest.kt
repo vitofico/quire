@@ -41,7 +41,7 @@ class MigrationTest {
             } catch (e: IllegalStateException) {
                 throw AssertionError("The production Room builder must open existing version-two data", e)
             }
-            assertThat(sqlite.version).isEqualTo(13)
+            assertThat(sqlite.version).isEqualTo(14)
             assertThat(db.documentDao().findById(1)?.title).isEqualTo("Book")
             val progress = checkNotNull(db.progressDao().findByDocument(1))
             assertThat(progress.locator).isEqualTo("loc")
@@ -367,7 +367,7 @@ class MigrationTest {
         val db = EReaderDatabase.build(context)
         try {
             val sqlite = db.openHelper.writableDatabase
-            assertThat(sqlite.version).isEqualTo(13)
+            assertThat(sqlite.version).isEqualTo(14)
             sqlite.query("SELECT identityHashVersion FROM book_insights").use { rows ->
                 assertThat(rows.count).isEqualTo(0)
             }
@@ -381,6 +381,31 @@ class MigrationTest {
         } finally {
             db.close()
             context.deleteDatabase(filename)
+        }
+    }
+
+    @Test fun `migrate 13 to 14 adds a catalogId that is null for every existing book`() {
+        helper.createDatabase(DB, 13).use { db ->
+            db.execSQL(
+                "INSERT INTO documents (id, metadataId, contentHash, title, author, downloadUrl, localPath, coverPath, downloadedAt, identityHashVersion) " +
+                    "VALUES (3, 'm3', 'h3', 'Before', NULL, 'u', 'p', NULL, 30, 1)"
+            )
+        }
+
+        helper.runMigrationsAndValidate(DB, 14, true, EReaderDatabase.MIGRATION_13_14).use { db ->
+            db.query("SELECT title, catalogId FROM documents WHERE id=3").use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.getString(0)).isEqualTo("Before")
+                assertThat(c.isNull(1)).isTrue()
+            }
+            db.execSQL(
+                "INSERT INTO documents (id, metadataId, contentHash, title, author, downloadUrl, localPath, coverPath, downloadedAt, identityHashVersion, catalogId) " +
+                    "VALUES (4, 'm4', 'h4', 'After', NULL, 'u', 'p', NULL, 40, 1, 'c0ffee00-0000-4000-8000-000000000001')"
+            )
+            db.query("SELECT catalogId FROM documents WHERE id=4").use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.getString(0)).isEqualTo("c0ffee00-0000-4000-8000-000000000001")
+            }
         }
     }
 

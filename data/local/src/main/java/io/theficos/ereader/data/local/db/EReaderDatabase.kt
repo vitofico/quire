@@ -16,7 +16,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         HighlightEntity::class,
         MemoryBookmark::class,
     ],
-    version = 13,
+    version = 14,
     exportSchema = true,
 )
 abstract class EReaderDatabase : RoomDatabase() {
@@ -249,6 +249,13 @@ abstract class EReaderDatabase : RoomDatabase() {
             }
         }
 
+        /** Which saved catalog each book came from; unknown for every book downloaded before. */
+        internal val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE documents ADD COLUMN catalogId TEXT")
+            }
+        }
+
         fun build(context: Context): EReaderDatabase =
             Room.databaseBuilder(context, EReaderDatabase::class.java, "ereader.db")
                 .addMigrations(
@@ -264,6 +271,7 @@ abstract class EReaderDatabase : RoomDatabase() {
                     MIGRATION_10_11,
                     MIGRATION_11_12,
                     MIGRATION_12_13,
+                    MIGRATION_13_14,
                 )
                 .build()
     }

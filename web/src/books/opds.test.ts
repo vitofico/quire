@@ -122,4 +122,16 @@ describe('OPDS catalogs', () => {
     await expect(client.acquire(base)).rejects.toThrow('did not return an EPUB')
     expect(() => parseOpdsFeed('<!DOCTYPE feed SYSTEM "https://other.example/external">' + source, base)).toThrow('XML')
   })
+
+  it('reports a download cut off mid-body instead of a bare network error', async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([80, 75, 3, 4]))
+        controller.error(new TypeError('network error'))
+      },
+    })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(body)))
+    const client = makeCatalogClient({ url: base })
+    await expect(client.acquire(base)).rejects.toThrow('stopped sending before the end')
+  })
 })

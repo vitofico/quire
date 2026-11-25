@@ -1026,6 +1026,14 @@ dialog.ask .actions {
 }
 
 /* Highlights */
+.quote-group {
+  margin-bottom: 2rem;
+}
+.quote-group h2 small {
+  display: block;
+  font: 0.9rem/1.4 var(--body);
+  color: var(--muted);
+}
 .quote {
   margin: 0 0 1rem;
   padding: 1.1rem 1.25rem;
@@ -1185,9 +1193,16 @@ dialog.ask .actions {
     scrollbar-width: none;
     margin-inline: -1.25rem;
     padding-inline: 1.25rem;
+    scroll-padding-inline: 1.25rem;
   }
   .chip {
     flex: none;
+    /* Block, so a long name ends in an ellipsis instead of clipping at both ends. */
+    display: block;
+    max-width: 16rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .welcome {
     background: var(--paper);

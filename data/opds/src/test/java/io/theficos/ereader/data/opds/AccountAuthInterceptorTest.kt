@@ -3,6 +3,7 @@ package io.theficos.ereader.data.opds
 import io.theficos.ereader.testing.awaitRequest
 import com.google.common.truth.Truth.assertThat
 import io.theficos.ereader.auth.AccountCredentials
+import io.theficos.ereader.auth.CatalogSession
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -30,7 +31,7 @@ class AccountAuthInterceptorTest {
             AccountCredentials.Basic(server.url("/").toString(), "alice", "s3cret")
         }
         val client = OkHttpClient.Builder()
-            .accountAuth(AccountAuthRoute.CATALOG, provider) {}
+            .catalogAuth { session(provider()) }
             .build()
         client.newCall(Request.Builder().url(server.url("/feed")).build()).execute().close()
 
@@ -45,7 +46,7 @@ class AccountAuthInterceptorTest {
             AccountCredentials.Bearer(server.url("/").toString(), "alice@example.com", "tok_abc123")
         }
         val client = OkHttpClient.Builder()
-            .accountAuth(AccountAuthRoute.QUIRE, provider) {}
+            .quireAuth(provider) {}
             .build()
         client.newCall(Request.Builder().url(server.url("/sync/v1/progress")).build()).execute().close()
 
@@ -56,7 +57,7 @@ class AccountAuthInterceptorTest {
     @Test fun `omits header when no account configured`() {
         server.enqueue(MockResponse().setBody("ok"))
         val client = OkHttpClient.Builder()
-            .accountAuth(AccountAuthRoute.CATALOG, { null }) {}
+            .catalogAuth { session(null) }
             .build()
         client.newCall(Request.Builder().url(server.url("/feed")).build()).execute().close()
 
@@ -68,7 +69,7 @@ class AccountAuthInterceptorTest {
         val provider = {
             AccountCredentials.Bearer(server.url("/").toString(), "alice@example.com", "stored_tok")
         }
-        val client = OkHttpClient.Builder().accountAuth(AccountAuthRoute.QUIRE, provider) {}.build()
+        val client = OkHttpClient.Builder().quireAuth(provider) {}.build()
         val failure = runCatching {
             client.newCall(Request.Builder().url(server.url("/outside")).build()).execute().close()
         }.exceptionOrNull()
@@ -86,7 +87,7 @@ class AccountAuthInterceptorTest {
                 AccountCredentials.Bearer(server.url("/").toString(), "alice@example.com", "tok_xyz")
             }
             val client = OkHttpClient.Builder()
-                .accountAuth(AccountAuthRoute.CATALOG, provider) {}
+                .catalogAuth { session(provider()) }
                 .build()
             client.newCall(Request.Builder().url(foreign.url("/cover.jpg")).build()).execute().close()
 
@@ -110,12 +111,12 @@ class AccountAuthInterceptorTest {
                 bearerServer.enqueue(MockResponse().setBody("ok"))
             }
             val basicClient = OkHttpClient.Builder()
-                .accountAuth(AccountAuthRoute.CATALOG, {
-                    AccountCredentials.Basic(basicServer.url("/").toString(), "alice", "s3cret")
-                }) {}
+                .catalogAuth {
+                    session(AccountCredentials.Basic(basicServer.url("/").toString(), "alice", "s3cret"))
+                }
                 .build()
             val bearerClient = OkHttpClient.Builder()
-                .accountAuth(AccountAuthRoute.QUIRE, {
+                .quireAuth({
                     AccountCredentials.Bearer(bearerServer.url("/").toString(), "bob@example.com", "tok_zzz")
                 }) {}
                 .build()
@@ -175,7 +176,7 @@ class AccountAuthInterceptorTest {
                 )
             }
             val client = OkHttpClient.Builder()
-                .accountAuth(AccountAuthRoute.QUIRE, provider) {}
+                .quireAuth(provider) {}
                 .build()
             client.newCall(Request.Builder().url(quire.url("/ai/v1/config")).build())
                 .execute().close()
@@ -201,7 +202,7 @@ class AccountAuthInterceptorTest {
                 )
             }
             val client = OkHttpClient.Builder()
-                .accountAuth(AccountAuthRoute.CATALOG, provider) {}
+                .catalogAuth { session(provider()) }
                 .build()
             client.newCall(Request.Builder().url(server.url("/opds")).build())
                 .execute().close()
@@ -223,7 +224,7 @@ class AccountAuthInterceptorTest {
             AccountCredentials.Bearer(server.url("/").toString(), "alice@example.com", "stale_tok")
         }
         val client = OkHttpClient.Builder()
-            .accountAuth(AccountAuthRoute.QUIRE, provider) { calls.incrementAndGet() }
+            .quireAuth(provider) { calls.incrementAndGet() }
             .build()
         val resp = client.newCall(Request.Builder().url(server.url("/ai/v1/config")).build()).execute()
         // Response is returned unchanged (no retry, no mutation).
@@ -241,7 +242,7 @@ class AccountAuthInterceptorTest {
             AccountCredentials.Bearer(server.url("/").toString(), "alice@example.com", "tok")
         }
         val client = OkHttpClient.Builder()
-            .accountAuth(AccountAuthRoute.QUIRE, provider) { calls.incrementAndGet() }
+            .quireAuth(provider) { calls.incrementAndGet() }
             .build()
         client.newCall(Request.Builder().url(server.url("/sync/v1/progress")).build()).execute().close()
         assertThat(calls.get()).isEqualTo(0)
@@ -254,7 +255,7 @@ class AccountAuthInterceptorTest {
             AccountCredentials.Basic(server.url("/").toString(), "alice", "wrong-pw")
         }
         val client = OkHttpClient.Builder()
-            .accountAuth(AccountAuthRoute.CATALOG, provider) { calls.incrementAndGet() }
+            .catalogAuth { session(provider()) }
             .build()
         client.newCall(Request.Builder().url(server.url("/opds")).build()).execute().close()
         assertThat(calls.get()).isEqualTo(0)
@@ -271,7 +272,7 @@ class AccountAuthInterceptorTest {
                 AccountCredentials.Bearer(server.url("/").toString(), "alice@example.com", "tok")
             }
             val client = OkHttpClient.Builder()
-                .accountAuth(AccountAuthRoute.CATALOG, provider) { calls.incrementAndGet() }
+                .catalogAuth { session(provider()) }
                 .build()
             client.newCall(Request.Builder().url(foreign.url("/cover.jpg")).build()).execute().close()
             assertThat(calls.get()).isEqualTo(0)
@@ -294,7 +295,7 @@ class AccountAuthInterceptorTest {
                 )
             }
             val client = OkHttpClient.Builder()
-                .accountAuth(AccountAuthRoute.CATALOG, provider) {}
+                .catalogAuth { session(provider()) }
                 .build()
             client.newCall(Request.Builder().url(foreign.url("/cover.jpg")).build())
                 .execute().close()
@@ -317,7 +318,7 @@ class AccountAuthInterceptorTest {
         )
         server.enqueue(MockResponse().setResponseCode(200))
         val client = OkHttpClient.Builder()
-            .accountAuth(AccountAuthRoute.CATALOG, { account }) {}
+            .catalogAuth { session(account) }
             .build()
         client.newCall(
             Request.Builder().url(server.url("/api/opds/secret-key")).build()
@@ -335,7 +336,7 @@ class AccountAuthInterceptorTest {
         )
         server.enqueue(MockResponse().setResponseCode(200))
         val client = OkHttpClient.Builder()
-            .accountAuth(AccountAuthRoute.CATALOG, { account }) {}
+            .catalogAuth { session(account) }
             .build()
         client.newCall(
             Request.Builder().url(server.url("/api/opds/secret-key")).build()
@@ -352,7 +353,7 @@ class AccountAuthInterceptorTest {
         )
         server.enqueue(MockResponse().setResponseCode(200))
         val client = OkHttpClient.Builder()
-            .accountAuth(AccountAuthRoute.CATALOG, { account }) {}
+            .catalogAuth { session(account) }
             .build()
         client.newCall(Request.Builder().url(server.url("/cover.jpg")).build())
             .execute().close()
@@ -369,7 +370,7 @@ class AccountAuthInterceptorTest {
         var signalled = false
         server.enqueue(MockResponse().setResponseCode(401))
         val client = OkHttpClient.Builder()
-            .accountAuth(AccountAuthRoute.CATALOG, { account }) { signalled = true }
+            .catalogAuth { session(account) }
             .build()
         client.newCall(
             Request.Builder().url(server.url("/api/opds/secret-key")).build()
@@ -382,14 +383,14 @@ class AccountAuthInterceptorTest {
             baseUrl = server.url("/").toString(),
             email = "alice@example.com",
             token = "native-token",
-            catalog = AccountCredentials.OpdsOnly(server.url("/calibre/opds").toString(), "reader", "secret"),
         )
+        val saved = AccountCredentials.OpdsOnly(server.url("/calibre/opds").toString(), "reader", "secret")
         val reauths = AtomicInteger()
         val catalog = OkHttpClient.Builder()
-            .accountAuth(AccountAuthRoute.CATALOG, { account }) { reauths.incrementAndGet() }
+            .catalogAuth { session(account, saved) }
             .build()
         val quire = OkHttpClient.Builder()
-            .accountAuth(AccountAuthRoute.QUIRE, { account }) { reauths.incrementAndGet() }
+            .quireAuth({ account }) { reauths.incrementAndGet() }
             .build()
 
         server.enqueue(MockResponse().setResponseCode(302).addHeader("Location", "/quire-admin/api"))
@@ -424,7 +425,7 @@ class AccountAuthInterceptorTest {
             token = "native-token",
         )
         val client = OkHttpClient.Builder()
-            .accountAuth(AccountAuthRoute.CATALOG, { account }) { error("Unexpected reauthentication") }
+            .catalogAuth { session(account) }
             .build()
         server.enqueue(MockResponse().setResponseCode(401))
         client.newCall(Request.Builder().url(server.url("/opds")).build()).execute().close()
@@ -437,10 +438,10 @@ class AccountAuthInterceptorTest {
                 baseUrl = quireServer.url("/quire").toString(),
                 email = "alice@example.com",
                 token = "native-token",
-                catalog = AccountCredentials.OpdsOnly(server.url("/calibre/opds").toString(), "reader", "secret", calibre = true),
             )
-            val catalog = OkHttpClient.Builder().accountAuth(AccountAuthRoute.CATALOG, { account }) {}.build()
-            val quire = OkHttpClient.Builder().accountAuth(AccountAuthRoute.QUIRE, { account }) {}.build()
+            val saved = AccountCredentials.OpdsOnly(server.url("/calibre/opds").toString(), "reader", "secret", calibre = true)
+            val catalog = OkHttpClient.Builder().catalogAuth { session(account, saved) }.build()
+            val quire = OkHttpClient.Builder().quireAuth({ account }) {}.build()
 
             server.enqueue(MockResponse().setResponseCode(302).addHeader("Location", quireServer.url("/quire/sync/v1/progress")))
             quireServer.enqueue(MockResponse().setResponseCode(200))
@@ -456,13 +457,13 @@ class AccountAuthInterceptorTest {
     @Test fun `Quire Web root and session routes never receive catalog credentials`() {
         val base = server.url("/").toString()
         val catalog = AccountCredentials.OpdsOnly(server.url("/opds").toString(), "reader", "secret")
-        val accounts = listOf(
-            AccountCredentials.Basic(base, "reader", "secret"),
-            AccountCredentials.Bearer(base, "reader@example.com", "native-token", catalog = catalog),
-            catalog,
+        val sessions = listOf(
+            session(AccountCredentials.Basic(base, "reader", "secret")),
+            session(AccountCredentials.Bearer(base, "reader@example.com", "native-token"), catalog),
+            session(null, catalog),
         )
-        for (account in accounts) {
-            val client = OkHttpClient.Builder().accountAuth(AccountAuthRoute.CATALOG, { account }) {}.build()
+        for (session in sessions) {
+            val client = OkHttpClient.Builder().catalogAuth { session }.build()
             for (route in listOf("/quire", "/quire/v1/session", "/%71uire/v1/session", "/cloud/account")) {
                 server.enqueue(MockResponse().setResponseCode(302).addHeader("Location", route))
                 server.enqueue(MockResponse().setResponseCode(401))
@@ -476,4 +477,168 @@ class AccountAuthInterceptorTest {
             }
         }
     }
+
+    // ---------- saved catalogs: each login only to its own catalog ----------
+
+    private fun basic(user: String, pass: String) =
+        "Basic " + Base64.getEncoder().encodeToString("$user:$pass".toByteArray())
+
+    private fun get(client: OkHttpClient, url: okhttp3.HttpUrl) =
+        client.newCall(Request.Builder().url(url).build()).execute().close()
+
+    @Test fun `each saved catalog gets its own login and only its own`() {
+        MockWebServer().use { other ->
+            other.start()
+            val a = AccountCredentials.OpdsOnly(server.url("/opds").toString(), "alice", "a-pass")
+            val b = AccountCredentials.OpdsOnly(other.url("/feed").toString(), "bob", "b-pass")
+            val client = OkHttpClient.Builder().catalogAuth { CatalogSession(listOf(a, b), a, null) }.build()
+
+            server.enqueue(MockResponse())
+            other.enqueue(MockResponse())
+            get(client, server.url("/opds/new"))
+            get(client, other.url("/feed/books/1"))
+
+            assertThat(server.awaitRequest().getHeader("Authorization")).isEqualTo(basic("alice", "a-pass"))
+            // Not the catalog being browsed, but its own server still gets its own login.
+            assertThat(other.awaitRequest().getHeader("Authorization")).isEqualTo(basic("bob", "b-pass"))
+        }
+    }
+
+    @Test fun `two catalogs on one host keep their logins apart by path`() {
+        val kavita = AccountCredentials.OpdsOnly(server.url("/kavita/api/opds/KEY").toString(), "kav", "k-pass")
+        val calibre = AccountCredentials.OpdsOnly(server.url("/calibre/opds").toString(), "cal", "c-pass", calibre = true)
+        val client = OkHttpClient.Builder()
+            .catalogAuth { CatalogSession(listOf(kavita, calibre), kavita, null) }
+            .build()
+
+        repeat(3) { server.enqueue(MockResponse()) }
+        get(client, server.url("/calibre/opds/download/1"))
+        get(client, server.url("/kavita/api/opds/KEY/series/2"))
+        get(client, server.url("/calibre/cover/1"))
+
+        assertThat(server.awaitRequest().getHeader("Authorization")).isEqualTo(basic("cal", "c-pass"))
+        assertThat(server.awaitRequest().getHeader("Authorization")).isEqualTo(basic("kav", "k-pass"))
+        assertThat(server.awaitRequest().getHeader("Authorization")).isEqualTo(basic("cal", "c-pass"))
+    }
+
+    @Test fun `a path neither catalog owns goes to the one being browsed, never a guess`() {
+        val first = AccountCredentials.OpdsOnly(server.url("/one/opds").toString(), "one", "1-pass")
+        val second = AccountCredentials.OpdsOnly(server.url("/two/opds").toString(), "two", "2-pass")
+
+        repeat(2) { server.enqueue(MockResponse()) }
+        get(OkHttpClient.Builder().catalogAuth { CatalogSession(listOf(first, second), second, null) }.build(),
+            server.url("/shared/cover/1"))
+        get(OkHttpClient.Builder().catalogAuth { CatalogSession(listOf(first, second), null, null) }.build(),
+            server.url("/shared/cover/1"))
+
+        assertThat(server.awaitRequest().getHeader("Authorization")).isEqualTo(basic("two", "2-pass"))
+        assertThat(server.awaitRequest().getHeader("Authorization")).isNull()
+    }
+
+    @Test fun `same host on another port or scheme is another catalog`() {
+        MockWebServer().use { otherPort ->
+            otherPort.start()
+            val plain = AccountCredentials.OpdsOnly(server.url("/opds").toString(), "alice", "a-pass")
+            val https = plain.copy(baseUrl = server.url("/opds").newBuilder().scheme("https").build().toString(),
+                username = "sec", password = "s-pass")
+            val defaultPort = plain.copy(baseUrl = "http://${server.hostName}/opds", username = "def", password = "d-pass")
+            val client = OkHttpClient.Builder()
+                .catalogAuth { CatalogSession(listOf(https, defaultPort, plain), https, null) }
+                .build()
+
+            server.enqueue(MockResponse())
+            otherPort.enqueue(MockResponse())
+            get(client, server.url("/opds"))
+            get(client, otherPort.url("/opds"))
+
+            assertThat(server.awaitRequest().getHeader("Authorization")).isEqualTo(basic("alice", "a-pass"))
+            assertThat(otherPort.awaitRequest().getHeader("Authorization")).isNull()
+        }
+    }
+
+    @Test fun `a redirect into another catalog drops the login`() {
+        MockWebServer().use { other ->
+            other.start()
+            val a = AccountCredentials.OpdsOnly(server.url("/opds").toString(), "alice", "a-pass")
+            val b = AccountCredentials.OpdsOnly(other.url("/feed").toString(), "bob", "b-pass")
+            val client = OkHttpClient.Builder().catalogAuth { CatalogSession(listOf(a, b), a, null) }.build()
+
+            server.enqueue(MockResponse().setResponseCode(302).addHeader("Location", other.url("/feed/1")))
+            other.enqueue(MockResponse())
+            get(client, server.url("/opds/download/1"))
+
+            assertThat(server.awaitRequest().getHeader("Authorization")).isEqualTo(basic("alice", "a-pass"))
+            assertThat(other.awaitRequest().getHeader("Authorization")).isNull()
+        }
+    }
+
+    @Test fun `a redirect between two catalogs on one host drops the login`() {
+        val a = AccountCredentials.OpdsOnly(server.url("/a/opds").toString(), "alice", "a-pass")
+        val b = AccountCredentials.OpdsOnly(server.url("/b/opds").toString(), "bob", "b-pass")
+        val client = OkHttpClient.Builder().catalogAuth { CatalogSession(listOf(a, b), a, null) }.build()
+
+        server.enqueue(MockResponse().setResponseCode(302).addHeader("Location", "/b/opds/1"))
+        server.enqueue(MockResponse())
+        get(client, server.url("/a/opds/1"))
+
+        assertThat(server.awaitRequest().getHeader("Authorization")).isEqualTo(basic("alice", "a-pass"))
+        assertThat(server.awaitRequest().getHeader("Authorization")).isNull()
+    }
+
+    @Test fun `a catalog on the Quire origin never receives the bearer or reaches Quire routes`() {
+        val account = AccountCredentials.Bearer(server.url("/").toString(), "alice@example.com", "native-token")
+        val catalog = AccountCredentials.OpdsOnly(server.url("/opds").toString(), "reader", "secret")
+        val client = OkHttpClient.Builder().catalogAuth { session(account, catalog) }.build()
+
+        for (route in listOf("/opds/1", "/catalogs/v1", "/sync/v1/progress", "/auth/v1/me")) {
+            server.enqueue(MockResponse())
+            get(client, server.url(route))
+            val sent = server.awaitRequest().getHeader("Authorization")
+            if (route == "/opds/1") assertThat(sent).isEqualTo(basic("reader", "secret")) else assertThat(sent).isNull()
+        }
+        // An empty segment the server may merge away still reaches a Quire route.
+        for (path in listOf("//library/v1/items", "/opds//1")) {
+            server.enqueue(MockResponse())
+            get(client, server.url("/").newBuilder().encodedPath(path).build())
+            assertThat(server.awaitRequest().getHeader("Authorization")).isNull()
+        }
+    }
+
+    @Test fun `the Quire client never sends a catalog login and reaches the catalogs API`() {
+        val account = AccountCredentials.Bearer(server.url("/").toString(), "alice@example.com", "native-token")
+        val client = OkHttpClient.Builder().quireAuth({ account }) {}.build()
+
+        server.enqueue(MockResponse())
+        get(client, server.url("/catalogs/v1"))
+        assertThat(server.awaitRequest().getHeader("Authorization")).isEqualTo("Bearer native-token")
+
+        val blocked = runCatching { get(client, server.url("/opds/1")) }.exceptionOrNull()
+        assertThat(blocked).isInstanceOf(IOException::class.java)
+        assertThat(server.requestCount).isEqualTo(1)
+    }
+
+    @Test fun `a caller's own Authorization header never survives the catalog client`() {
+        val catalog = AccountCredentials.OpdsOnly(server.url("/opds").toString())
+        val client = OkHttpClient.Builder().catalogAuth { CatalogSession(listOf(catalog), catalog, null) }.build()
+        server.enqueue(MockResponse())
+        client.newCall(
+            Request.Builder().url(server.url("/opds")).header("Authorization", "Bearer leaked").build(),
+        ).execute().close()
+        assertThat(server.awaitRequest().getHeader("Authorization")).isNull()
+    }
 }
+
+/**
+ * The session the credential store builds: a legacy Calibre-Web sign-in's own catalog first,
+ * then [catalogs], browsing the first.
+ */
+internal fun session(account: AccountCredentials?, vararg catalogs: AccountCredentials.OpdsOnly): CatalogSession {
+    val pinned = (account as? AccountCredentials.Basic)?.let {
+        AccountCredentials.OpdsOnly(it.baseUrl.trimEnd('/') + "/opds", it.username, it.password, calibre = true)
+    }
+    val all = listOfNotNull(pinned) + catalogs
+    return CatalogSession(all, all.firstOrNull(), account)
+}
+
+/** Before saved catalogs a catalog-only device was signed in as its catalog. */
+internal fun session(catalog: AccountCredentials.OpdsOnly): CatalogSession = CatalogSession(listOf(catalog), catalog, null)

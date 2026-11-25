@@ -9,4 +9,6 @@
     <string name="whats_new_reading_pause_description">Pendant la lecture, ouvrez %1$s → %2$s pour enregistrer votre position avec une note facultative.</string>
     <string name="whats_new_highlights_title">Retrouvez vos passages enregistrés</string>
     <string name="whats_new_highlights_description">Dans un livre, ouvrez %1$s → %2$s pour revenir aux passages surlignés.</string>
+    <string name="whats_new_catalogs_title">Tous vos catalogues, sur chaque appareil</string>
+    <string name="whats_new_catalogs_description">Enregistrez plusieurs catalogues dans %1$s → %2$s et passez de l’un à l’autre pendant la navigation. Une fois connecté à Quire, vous retrouvez la liste sur vos autres appareils.</string>
 </resources>

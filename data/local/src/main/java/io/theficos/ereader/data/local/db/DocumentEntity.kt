@@ -48,4 +48,9 @@ data class DocumentEntity(
      */
     @ColumnInfo(defaultValue = "1")
     val identityHashVersion: Int = 1,
+    /**
+     * Id of the saved catalog the book was downloaded from. Null for a sideloaded book, one
+     * downloaded before saved catalogs, or one whose catalog the device no longer knows.
+     */
+    val catalogId: String? = null,
 )

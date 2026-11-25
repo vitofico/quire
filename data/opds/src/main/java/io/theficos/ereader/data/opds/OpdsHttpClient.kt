@@ -11,10 +11,10 @@ class OpdsHttpClient(credentialStore: CalibreCredentialStore) {
         .build()
 
     val okHttp: OkHttpClient = transport.newBuilder()
-        .accountAuth(AccountAuthRoute.CATALOG, credentialStore::getAccount, credentialStore::notifyUnauthorized)
+        .catalogAuth(credentialStore::catalogSession)
         .build()
 
     val quireHttp: OkHttpClient = transport.newBuilder()
-        .accountAuth(AccountAuthRoute.QUIRE, credentialStore::getAccount, credentialStore::notifyUnauthorized)
+        .quireAuth(credentialStore::getAccount, credentialStore::notifyUnauthorized)
         .build()
 }

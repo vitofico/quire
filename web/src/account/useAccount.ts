@@ -14,6 +14,9 @@ export type Bootstrap = {
   migration?: boolean
   catalogUrl: string | null
   guestReading?: boolean
+  /** Catalogs saved to a Quire account, and whether the server opens them for the browser. */
+  catalogSync?: boolean
+  catalogProxy?: boolean
   accountManagement: string | null
   nativeWebUrl?: string | null
 }
@@ -219,7 +222,7 @@ export function useAccount() {
     const request: AccountRequest = async (path, init) => {
       if (!matchesCurrent()) throw new Error('Account locked.')
       const url = new URL(path, location.origin)
-      const privateRoute = /^\/(?:sync|library|ai)\/v1\//.test(url.pathname) ||
+      const privateRoute = /^\/(?:sync|library|ai|catalogs)\/v1\//.test(url.pathname) ||
         user.backend === 'native' && url.pathname === '/auth/v1/account/export' &&
         (init?.method ?? 'GET').toUpperCase() === 'GET'
       if (url.origin !== location.origin || url.username || url.password || !privateRoute) {

@@ -22,6 +22,7 @@ data class RestoreCandidate(
     val opdsHref: String,
     val title: String,
     val authors: List<String>,
+    val catalogId: String? = null,
 ) {
     val identity: DocumentIdentity
         get() = DocumentIdentity(
@@ -59,7 +60,7 @@ class RestoreInProgressUseCase(
         val candidates = inProgress.mapNotNull { p ->
             val item = mirrorByHash[p.document.contentHash] ?: return@mapNotNull null
             val href = item.opdsHref ?: return@mapNotNull null
-            RestoreCandidate(progress = p, opdsHref = href, title = item.title, authors = item.authors)
+            RestoreCandidate(progress = p, opdsHref = href, title = item.title, authors = item.authors, catalogId = item.catalogId)
         }
 
         onProgress(0, candidates.size)

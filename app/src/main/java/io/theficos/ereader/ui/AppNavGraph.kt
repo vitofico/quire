@@ -66,6 +66,8 @@ import io.theficos.ereader.ui.scan.ScanResultViewModel
 import io.theficos.ereader.ui.scan.ScanScreen
 import io.theficos.ereader.ui.scan.ScanViewModel
 import io.theficos.ereader.ui.settings.LicensesScreen
+import io.theficos.ereader.ui.settings.CatalogUploadQuestion
+import io.theficos.ereader.ui.settings.CatalogsViewModel
 import io.theficos.ereader.ui.settings.SettingsScreen
 import io.theficos.ereader.ui.settings.SettingsViewModel
 import io.theficos.ereader.ui.settings.WHATS_NEW_LATEST_ENTRY_ID
@@ -83,14 +85,15 @@ fun AppNavGraph(
     appTheme: AppTheme,
     nav: NavHostController = rememberNavController(),
 ) {
-    // First-launch gating (A-2). Computed once per composition — the
-    // navgraph rebuilds when the configured account or welcome marker
-    // changes (via Compose recomposition driven by AppContainer state), and
-    // anyway we only need to pick a start destination on cold launch.
-    val startDestination = pickStartDestination(
-        hasAccount = container.credentialStore.getAccount() != null,
-        welcomeCompleted = container.welcomePreferencesStore.isCompleted(),
-    )
+    // First-launch gating (A-2), picked once on cold launch. Recomputing it would hand the
+    // NavHost a new graph when signing in after onboarding, which empties the back stack.
+    val startDestination = remember {
+        pickStartDestination(
+            hasAccount = container.credentialStore.getAccount() != null ||
+                container.credentialStore.catalogSession() != null,
+            welcomeCompleted = container.welcomePreferencesStore.isCompleted(),
+        )
+    }
     // Re-auth gating for NativeAuth (Bearer) sessions. The store raises this
     // when the session token expires or a request comes back 401 — there's no
     // refresh token, so the only recovery is signing in again. We probe expiry
@@ -106,26 +109,31 @@ fun AppNavGraph(
     }
     // A device still syncing with its Calibre login asks once per launch whether the
     // reader already has a Quire account (signed in silently) or may create one.
+    var legacyMigration = ConnectServerViewModel.LegacyMigration.UNKNOWN
     if (container.credentialStore.accountFlow.collectAsState().value is AccountCredentials.Basic) {
         val claim: ConnectServerViewModel = viewModel(
             key = "legacy-claim",
-            factory = viewModelFactory {
-                initializer {
-                    ConnectServerViewModel(
-                        credentialStore = container.credentialStore,
-                        legacyHighlightScopeFor = container::legacyHighlightScopeFor,
-                    )
-                }
-            },
+            factory = viewModelFactory { initializer { connectServerViewModel(container) } },
         )
         LaunchedEffect(Unit) { claim.claimLegacyAccount() }
-        val offered by claim.migrationOffered.collectAsState()
-        LaunchedEffect(offered) {
-            if (offered && container.welcomePreferencesStore.takeMigrationPrompt()) {
+        val migration by claim.legacyMigration.collectAsState()
+        legacyMigration = migration
+        LaunchedEffect(migration) {
+            if (migration == ConnectServerViewModel.LegacyMigration.OFFERED &&
+                container.welcomePreferencesStore.takeMigrationPrompt()
+            ) {
                 nav.navigate("quire-sign-in") { launchSingleTop = true }
             }
         }
     }
+    // One list for the whole app: Settings edits it, and the sign-in question can come up anywhere.
+    val catalogsVm: CatalogsViewModel = viewModel(
+        key = "catalogs",
+        factory = viewModelFactory {
+            initializer { CatalogsViewModel(container.credentialStore, container.catalogSyncRepository) }
+        },
+    )
+    CatalogUploadQuestion(catalogsVm)
     NavHost(navController = nav, startDestination = startDestination) {
         composable("welcome") {
             InsetSurface {
@@ -143,14 +151,7 @@ fun AppNavGraph(
         }
         composable("connect-server") {
             val vm: ConnectServerViewModel = viewModel(
-                factory = viewModelFactory {
-                    initializer {
-                        ConnectServerViewModel(
-                            credentialStore = container.credentialStore,
-                            legacyHighlightScopeFor = container::legacyHighlightScopeFor,
-                        )
-                    }
-                },
+                factory = viewModelFactory { initializer { connectServerViewModel(container) } },
             )
             InsetSurface {
                 ConnectServerScreen(
@@ -170,14 +171,7 @@ fun AppNavGraph(
         }
         composable("quire-sign-in") {
             val vm: ConnectServerViewModel = viewModel(
-                factory = viewModelFactory {
-                    initializer {
-                        ConnectServerViewModel(
-                            credentialStore = container.credentialStore,
-                            legacyHighlightScopeFor = container::legacyHighlightScopeFor,
-                        )
-                    }
-                },
+                factory = viewModelFactory { initializer { connectServerViewModel(container) } },
             )
             InsetSurface {
                 QuireSignInScreen(
@@ -234,6 +228,7 @@ fun AppNavGraph(
                             catalogInsightStash = container.catalogInsightStash,
                             insightSyncRepository = container.insightSyncRepository,
                             subjectProvider = container::catalogInsightScope,
+                            pullCatalogs = { container.catalogSyncRepository.pull() },
                         )
                     }
                 },
@@ -280,7 +275,9 @@ fun AppNavGraph(
                         val lastSeen by container.whatsNewPreferencesStore.lastSeenEntryId.collectAsState()
                         SettingsScreen(
                             viewModel = setVm,
+                            catalogsViewModel = catalogsVm,
                             contentPadding = padding,
+                            legacyMigration = legacyMigration,
                             onQuireSignIn = { nav.navigate("quire-sign-in") { launchSingleTop = true } },
                             onNavigateToLicenses = { nav.navigate("licenses") },
                             hasUnreadUpdates = lastSeen != WHATS_NEW_LATEST_ENTRY_ID,
@@ -307,12 +304,12 @@ fun AppNavGraph(
                             bookmarks = container.memoryBookmarkDao,
                             accountChanges = container.credentialStore.accountFlow.map { account ->
                                 account?.let { io.theficos.ereader.ui.reader.memoryAccountKey(it.baseUrl, it.subject) }
-                                    ?: "device-local"
+                                    ?: io.theficos.ereader.di.DEVICE_MEMORY_KEY
                             },
                             accountKey = {
                                 container.credentialStore.getAccount()?.let {
                                     io.theficos.ereader.ui.reader.memoryAccountKey(it.baseUrl, it.subject)
-                                } ?: "device-local"
+                                } ?: io.theficos.ereader.di.DEVICE_MEMORY_KEY
                             },
                             highlightRepository = container.highlightRepository,
                         )
@@ -521,6 +518,12 @@ private fun CatalogDetailUnavailable(onBack: () -> Unit) {
         }
     }
 }
+
+private fun connectServerViewModel(container: AppContainer) = ConnectServerViewModel(
+    credentialStore = container.credentialStore,
+    catalogs = container.catalogSyncRepository,
+    legacyHighlightScopeFor = container::legacyHighlightScopeFor,
+)
 
 /** A book-details view model owned by the current back-stack entry, so it is cleared with it. */
 @Composable

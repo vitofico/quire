@@ -9,4 +9,6 @@
     <string name="whats_new_reading_pause_description">Mientras lees, abre %1$s → %2$s para guardar tu posición con una nota opcional.</string>
     <string name="whats_new_highlights_title">Encuentra tus pasajes guardados</string>
     <string name="whats_new_highlights_description">En un libro, abre %1$s → %2$s para volver a los pasajes que has resaltado.</string>
+    <string name="whats_new_catalogs_title">Todos tus catálogos, en todos tus dispositivos</string>
+    <string name="whats_new_catalogs_description">Guarda varios catálogos en %1$s → %2$s y cambia entre ellos mientras exploras. Con la sesión iniciada en Quire, la lista te acompaña en tus otros dispositivos.</string>
 </resources>

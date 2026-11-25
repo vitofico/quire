@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="catalogs_title">Catálogos</string>
+    <string name="catalogs_status_synced">Guardados en tu cuenta de Quire</string>
+    <string name="catalogs_status_device">Guardados solo en este dispositivo</string>
+    <string name="catalogs_status_not_supported">Este servidor no sincroniza catálogos</string>
+    <string name="catalogs_status_checking">Comprobando tu cuenta de Quire…</string>
+    <string name="catalogs_empty">Aún no hay catálogos. Añade uno para explorar y descargar libros.</string>
+    <string name="catalogs_add">Añadir catálogo</string>
+    <string name="catalogs_edit">Editar catálogo</string>
+    <string name="catalogs_address">Dirección del catálogo</string>
+    <string name="catalogs_address_help">Una dirección de Calibre-Web o de cualquier catálogo OPDS. Puede contener una clave de cuenta, por eso permanece oculta.</string>
+    <string name="catalogs_name">Nombre</string>
+    <string name="catalogs_checking">Probando la conexión…</string>
+    <string name="catalogs_row_needs_login">Requiere inicio de sesión</string>
+    <string name="catalogs_row_device_only">Solo este dispositivo</string>
+    <string name="catalogs_row_sign_in">Inicio de sesión de Calibre-Web</string>
+    <string name="catalogs_move_up">Subir %1$s</string>
+    <string name="catalogs_move_down">Bajar %1$s</string>
+    <string name="catalogs_remove">Quitar</string>
+    <string name="catalogs_remove_title">¿Quitar %1$s?</string>
+    <string name="catalogs_remove_account">También se quitará de tu cuenta de Quire y de tus otros dispositivos. Los libros descargados se conservan.</string>
+    <string name="catalogs_remove_device">Se quitará de este dispositivo. Los libros descargados se conservan.</string>
+    <string name="catalogs_save_to_account">Guardar en la cuenta</string>
+    <string name="catalogs_keep_device_only">Mantener solo en este dispositivo</string>
+    <string name="catalogs_quire_server">Esta dirección es un servidor de Quire, no un catálogo. Inicia sesión en él en Cuenta de Quire.</string>
+    <string name="catalogs_needs_login">Tu servidor de Quire ya no puede leer la dirección y los datos de acceso guardados de este catálogo. Vuelve a introducirlos.</string>
+    <string name="catalogs_failed_limit">Tu cuenta de Quire admite hasta 20 catálogos. Quita uno o mantén este solo en este dispositivo.</string>
+    <string name="catalogs_failed_name">Ponle al catálogo un nombre de 60 caracteres como máximo.</string>
+    <string name="catalogs_failed_url">Esa dirección no parece correcta. Revísala e inténtalo de nuevo.</string>
+    <string name="catalogs_failed_https">Tu servidor de Quire solo acepta catálogos con direcciones https.</string>
+    <string name="catalogs_failed_credentials_in_url">Escribe el usuario y la contraseña en sus propios campos, no en la dirección.</string>
+    <string name="catalogs_failed_login_incomplete">Introduce un usuario y una contraseña, o ninguno de los dos.</string>
+    <string name="catalogs_failed_order">La lista cambió en otro dispositivo. Inténtalo de nuevo.</string>
+    <string name="catalogs_failed_removed">Otro dispositivo quitó este catálogo de tu cuenta de Quire, así que también desaparece aquí.</string>
+    <string name="catalogs_failed_sign_in">Vuelve a iniciar sesión en Quire para cambiar los catálogos guardados en tu cuenta.</string>
+    <string name="catalogs_failed_offline">No se pudo conectar con tu servidor de Quire. Revisa tu conexión e inténtalo de nuevo.</string>
+    <string name="catalogs_failed_rejected">Tu servidor de Quire no aceptó este cambio.</string>
+    <string name="catalogs_upload_title">¿Guardar tus catálogos?</string>
+    <plurals name="catalogs_upload_question">
+        <item quantity="one">¿Guardar %1$d catálogo en tu cuenta de Quire para que tus otros dispositivos lo reciban?</item>
+        <item quantity="many">¿Guardar tus %1$d catálogos en tu cuenta de Quire para que tus otros dispositivos los reciban?</item>
+        <item quantity="other">¿Guardar tus %1$d catálogos en tu cuenta de Quire para que tus otros dispositivos los reciban?</item>
+    </plurals>
+    <string name="catalogs_upload_hint">Los datos de acceso se guardan con ellos. Los catálogos que desmarques se quedan solo en este dispositivo.</string>
+    <string name="catalogs_keep">Mantener catálogos</string>
+    <string name="catalogs_remove_all">Quitar catálogos</string>
+    <string name="quire_account_sign_out_catalogs">Al desconectar Quire, se pausarán la sincronización y las funciones de IA. ¿Quieres mantener tus catálogos en este dispositivo o quitarlos? Los libros descargados se conservan en ambos casos.</string>
+    <string name="quire_account_legacy_retiring_create">El inicio de sesión con Calibre-Web se va a retirar. Crea tu cuenta de Quire para seguir sincronizando.</string>
+    <string name="quire_account_legacy_retiring_admin">El inicio de sesión con Calibre-Web se va a retirar. Pide a tu administrador que active las cuentas de Quire.</string>
+    <string name="quire_account_legacy_sign_in">Inicio de sesión de Calibre-Web</string>
+    <string name="catalog_needs_login">Vuelve a introducir la dirección y los datos de acceso de %1$s en Ajustes → Catálogos.</string>
+</resources>

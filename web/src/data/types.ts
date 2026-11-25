@@ -41,6 +41,8 @@ export interface LocalBook {
   subjects?: string[]
   isbn?: string | null
   opds_href?: string | null
+  /** The saved catalog `opds_href` belongs to; null for the server's own catalog. */
+  catalog_id?: string | null
   sizeBytes?: number
   publisher?: string | null
   description?: string | null

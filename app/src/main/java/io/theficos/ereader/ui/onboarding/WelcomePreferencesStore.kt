@@ -66,7 +66,7 @@ class WelcomePreferencesStore(context: Context) {
  * full composition is hard to exercise from a JVM test, but this boolean
  * combiner is the load-bearing piece.
  *
- * @param hasAccount true iff `CalibreCredentialStore.getAccount() != null`.
+ * @param hasAccount true iff the device has an account or a saved catalog.
  * @param welcomeCompleted true iff [WelcomePreferencesStore.isCompleted].
  */
 fun pickStartDestination(hasAccount: Boolean, welcomeCompleted: Boolean): String =

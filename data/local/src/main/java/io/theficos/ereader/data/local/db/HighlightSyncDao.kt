@@ -45,6 +45,17 @@ abstract class HighlightSyncDao {
         }
     }
 
+    /**
+     * Give [scope]'s rows back to the device, unowned, because that owner no longer exists here:
+     * before saved catalogs a catalog-only device was signed in as its catalog. Like any unowned
+     * row they go to the Quire account the reader next signs in to.
+     */
+    @Transaction
+    open suspend fun releaseOwnership(scope: String) {
+        require(scope.isNotEmpty())
+        transferScope(scope, "")
+    }
+
     private suspend fun transferScope(previousScope: String, scope: String) {
         for (row in ownedBy(previousScope)) {
             val existing = find(scope, row.id)

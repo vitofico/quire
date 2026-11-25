@@ -306,6 +306,16 @@ class Settings(BaseSettings):
     catalog_key_file: str = "/var/lib/quire/catalog.key"
     # Accept plain-http catalog addresses (a catalog on the home network).
     catalog_allow_http: bool = False
+    # Quire Web opens a saved catalog through `/catalogs/v1/catalogs/{id}/fetch`,
+    # the server fetching on the browser's behalf. Off leaves sync for phones.
+    catalog_proxy_enabled: bool = True
+    # Let that fetch reach RFC 1918, CGNAT and IPv6 ULA addresses (a catalog
+    # on the home network). Loopback and link-local stay refused.
+    catalog_proxy_allow_private: bool = False
+    # Fetches per account per minute. A catalog page costs one plus one per cover.
+    catalog_proxy_rate_per_min: int = Field(120, ge=1)
+    # Fetches in flight at once, all accounts together (each account: 4).
+    catalog_proxy_max_concurrent: int = Field(8, ge=1)
 
     @field_validator("mcp_public_url")
     @classmethod
