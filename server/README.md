@@ -37,7 +37,9 @@ holds plus a new email and password, runs the same atomic create-and-bind as the
 operator script, and returns a device session. For `QUIRE_SERVER_LEGACY_CLAIM_DAYS`
 afterwards, `POST /auth/v1/migrate/claim` exchanges that Calibre login for a
 session on the reader's other devices. Both share the login rate limit, and a
-claim is refused for closed accounts and for operator-migrated ones.
+claim is refused for closed accounts and for operator-migrated ones. Behind a
+reverse proxy, set `FORWARDED_ALLOW_IPS` to the proxy's address so that limit
+counts readers rather than the proxy (`docs/configuration.md`).
 
 Authenticated `POST /auth/v1/pairing` creates a random 120-second one-use ticket;
 `POST /auth/v1/pairing/exchange` yields a native device session and server-issued

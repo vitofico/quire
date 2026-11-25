@@ -174,6 +174,19 @@ Anything else, or no answer within
 makes the server answer 503 `upstream auth unavailable` and log either
 `CWA returned <status> on auth probe` or `upstream auth unavailable: <reason>`.
 
+> **Calibre-Web's Guest account cannot sign in to Quire.** With anonymous
+> browsing turned on, Calibre-Web lets anyone in as `Guest` whatever password
+> they type, so a Guest login says nothing about who is reading. The server
+> refuses it with 401 `calibre_web_guest_login` and logs
+> `event=auth.guest_refused` once. Every other Calibre-Web account is still
+> checked against its password, with or without anonymous browsing.
+> If readers used to sign in to Quire as Guest, their sync stops after this
+> upgrade. Give each of them their own Calibre-Web account and have them sign
+> in with it. Their old reading data stays under the shared `guest` name; if
+> only one person used it, you can hand it to them with
+> `scripts/migrate_calibre_account.py guest <their email>` (see the
+> [migration guide](independent-login-migration.md#migrate-an-existing-reader)).
+
 Common mistakes:
 
 - `localhost` inside a container means the container itself, not your
@@ -783,9 +796,8 @@ way.
 ## Advanced
 
 Leave these at their defaults unless you know why you are changing them.
-They cover logging, the database, the calibre-web login check, request size
-limits, login modes built for a future hosted service, and deprecated
-switches.
+They cover logging, the database, the calibre-web login check, the reverse
+proxy, request size limits, login modes, and deprecated switches.
 
 ### Logging
 
@@ -877,6 +889,36 @@ pair; the least recently used is dropped first.
 
 When to change it: practically never on a household server.
 
+### Reverse proxy
+
+#### `FORWARDED_ALLOW_IPS`
+
+- Read by: uvicorn, the web server inside the Quire Server container
+- Type: comma-separated IP addresses or networks, or `*`
+- Default: `127.0.0.1,::1`; `docker-compose.full.yml` sets `*`
+- Example: `FORWARDED_ALLOW_IPS=10.1.0.0/16`
+
+Which direct callers the server believes when they say, in
+`X-Forwarded-For`, who the real client is. Sign-in, self-service migration and
+device claims allow 8 attempts per client address per minute. Behind a proxy
+that the server does not trust, every reader shares the proxy's address, so
+one client can use up those attempts for everyone. Name only your proxy:
+anything on the list can claim to be any address and so dodge the limit.
+
+The full-stack compose sets `*` because quire-server publishes no port there
+and Caddy, which replaces any `X-Forwarded-For` a client sends, is the only
+way in. If you publish quire-server's port in that file, set Caddy's address
+instead. With `docker-compose.yml` behind your own proxy, put the proxy's
+address in `.env`. On Kubernetes, set it on the quire-server container to the
+network your ingress controller's pods use (for example the cluster's pod
+range), keep other workloads from reaching the server's port directly, and
+make sure the controller sees the real client address: behind a cloud load
+balancer that usually means `externalTrafficPolicy: Local` or the PROXY
+protocol.
+
+When to change it: whenever a reverse proxy or ingress sits in front of
+Quire Server.
+
 ### Request limits
 
 #### `QUIRE_SERVER_MAX_REQUEST_BYTES`
@@ -904,22 +946,26 @@ also need `QUIRE_SERVER_MAX_REQUEST_BYTES` raised.
 
 ### Login modes
 
-Quire's login is calibre-web's. The settings below exist for a future hosted
-service and for older deployments, and a self-hosted server leaves them
-alone. `server/README.md` ("AI auth mode") explains the token format and key
-rotation.
+Readers can sign in with their calibre-web login or, in `transition` and
+`native` mode, with a Quire account. `server/.env.example` starts new
+installations in `transition` with self-service migration on. A server whose
+`.env` does not name a mode keeps the `calibreweb` default, so an upgrade
+alone changes nothing. `server/README.md` ("AI auth mode") explains the token
+format and key rotation.
 
 #### `QUIRE_SERVER_AUTH_BACKEND`
 
 - Type: `calibreweb`, `native` or `transition`, in lower case
-- Default: `calibreweb`
-- Example: `QUIRE_SERVER_AUTH_BACKEND=calibreweb`
+- Default: `calibreweb` (`server/.env.example` sets `transition`)
+- Example: `QUIRE_SERVER_AUTH_BACKEND=transition`
 
 `calibreweb` checks logins through Calibre-Web. `native` checks account
 email and password on Quire and issues bearer sessions. A server operator
 can provision accounts using `scripts/create_native_account.py`.
 `transition` offers native sign-in while keeping Calibre Basic available
 for accounts whose reading scope has yet to be bound to a native account.
+`transition` does not start with `QUIRE_SERVER_AI_AUTH_MODE=token` or with
+`QUIRE_POLICY_URL` set.
 See the [migration procedure](../server/README.md#moving-an-existing-calibre-reader-to-native-login).
 
 #### `QUIRE_SERVER_NATIVE_SESSION_TTL_S`
@@ -933,15 +979,17 @@ How long a native login lasts in `native` or `transition` mode.
 #### `QUIRE_SERVER_SELF_MIGRATION_ENABLED`
 
 - Type: `true` or `false`
-- Default: `false`
+- Default: `false` (`server/.env.example` sets `true`)
 - Example: `QUIRE_SERVER_SELF_MIGRATION_ENABLED=true`
 
 Only read in `transition` mode. When `true`, a reader who still syncs with
 their Calibre-Web login can create their own Quire account from the app. The
 app sends that Calibre login once more, the server checks it with Calibre-Web,
 and the reader's existing library, progress and highlights move to the new
-account in one step. No operator command is needed. Leave it `false` if you
-prefer to verify and migrate each reader yourself.
+account in one step. No operator command is needed. Anyone whose Calibre-Web
+login works can create an account this way, and an Android app still on a
+Calibre-Web login opens **Create your Quire account** once by itself. Set it
+`false` if you prefer to verify and migrate each reader yourself.
 
 #### `QUIRE_SERVER_CANONICAL_URL`
 

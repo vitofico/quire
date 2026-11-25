@@ -1,4 +1,5 @@
 import asyncio
+import base64
 from uuid import uuid4
 
 import httpx
@@ -323,3 +324,50 @@ async def test_self_migration_is_absent_unless_the_operator_enables_it(
         alice = {"Authorization": basic_header("alice", "alicepass")}
         for path in ("/auth/v1/migrate", "/auth/v1/migrate/claim"):
             assert (await client.post(path, json={}, headers=alice)).status_code == 404
+
+
+def anonymous_browsing_calibre(cwa_users):
+    """Calibre-Web with anonymous browsing on: Guest passes with any password."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        user, pw = base64.b64decode(request.headers["authorization"][6:]).decode().split(":", 1)
+        if user.lower() == "guest" or cwa_users.get(user) == pw:
+            return httpx.Response(200, text="<feed/>")
+        return httpx.Response(401)
+
+    return httpx.MockTransport(handler)
+
+
+@pytest.mark.parametrize("backend", ["calibreweb", "transition"])
+async def test_calibre_web_guest_is_refused_on_every_path_that_trusts_calibre_web(
+    client_factory, app, cwa_users, basic_header, backend
+):
+    reader = f"reader-{uuid4().hex[:8]}"
+    cwa_users[reader] = "readerpass"
+    async with client_factory(
+        auth_backend=backend,
+        ai_enabled=True,
+        self_migration_enabled=True,
+        admin_users=f"guest,{reader}",
+        skip_auth_overrides=True,
+    ) as client:
+        app.state.auth_validator._client = httpx.AsyncClient(
+            transport=anonymous_browsing_calibre(cwa_users)
+        )
+        guest = {"Authorization": basic_header("Guest", "anything")}
+        known = {"Authorization": basic_header(reader, "readerpass")}
+        paths = [("GET", "/library/v1/items"), ("GET", "/ai/v1/config"), ("GET", "/quire-admin")]
+        if backend == "transition":
+            paths += [("POST", "/auth/v1/migrate"), ("POST", "/auth/v1/migrate/claim")]
+        body = {"email": EMAIL, "password": PASSWORD}
+        for method, path in paths:
+            refused = await client.request(method, path, json=body, headers=guest)
+            assert (refused.status_code, refused.json()["detail"]) == (
+                401,
+                "calibre_web_guest_login",
+            ), path
+        for method, path in paths[:3]:
+            assert (await client.request(method, path, headers=known)).status_code == 200, path
+        if backend == "transition":
+            claim = await client.post("/auth/v1/migrate/claim", json={}, headers=known)
+            assert claim.json() == {"detail": "not_migrated"}

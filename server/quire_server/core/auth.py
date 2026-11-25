@@ -11,6 +11,9 @@ from fastapi import Depends, HTTPException, Request, status
 
 logger = logging.getLogger(__name__)
 
+# Calibre-Web's built-in anonymous-browsing account, matched case-insensitively.
+CALIBRE_WEB_GUEST = "guest"
+
 
 class _CacheEntry:
     __slots__ = ("user_id", "is_valid", "expires_at")
@@ -42,6 +45,7 @@ class CalibreAuthValidator:
         self._max = max_entries
         self._cache: OrderedDict[bytes, _CacheEntry] = OrderedDict()
         self._clock = clock
+        self._guest_refused = False
 
     async def validate(self, auth_header: str) -> str:
         """Returns the user_id (lowercased CWA username) or raises HTTPException(401/503)."""
@@ -53,6 +57,18 @@ class CalibreAuthValidator:
         b64 = auth_header[6:].strip()
         if not b64.isascii():
             raise HTTPException(401, "malformed credentials")
+        user_id = self._extract_username(b64)
+        if user_id == CALIBRE_WEB_GUEST:
+            # With anonymous browsing on, Calibre-Web accepts Guest with any
+            # password, so a Guest login proves nothing about who is asking.
+            if not self._guest_refused:
+                self._guest_refused = True
+                logger.warning(
+                    "event=auth.guest_refused Quire refuses sign-in as Calibre-Web's Guest "
+                    "account: Calibre-Web does not check its password, so it cannot identify "
+                    "a reader. Give each reader their own Calibre-Web account."
+                )
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "calibre_web_guest_login")
         key = hashlib.sha256(b64.encode("ascii")).digest()
         now = self._clock()
 
@@ -78,7 +94,6 @@ class CalibreAuthValidator:
             ) from e
 
         if resp.status_code == 200:
-            user_id = self._extract_username(b64)
             self._put(key, _CacheEntry(user_id, True, now + self._pos_ttl))
             return user_id
         if resp.status_code == 401:
