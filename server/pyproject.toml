@@ -26,6 +26,8 @@ dependencies = [
     "cryptography>=43",
     # Strict IDNA 2008 check of a synced catalog's host (httpx already needs it).
     "idna>=3.7",
+    # Draws the designed covers of books that have none.
+    "pillow>=13.0",
 ]
 
 [project.optional-dependencies]
@@ -45,7 +47,7 @@ dev = [
 include = ["quire_server*"]
 
 [tool.setuptools.package-data]
-quire_server = ["assets/*.webp"]
+quire_server = ["assets/*.webp", "assets/fonts/*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

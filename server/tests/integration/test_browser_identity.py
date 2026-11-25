@@ -285,6 +285,7 @@ PRIVATE_ROWS = {
     "ai_generation_log": "subject",
     "reader_profiles": "subject",
     "account_catalogs": "user_id",
+    "book_details_reader": "user_id",
 }
 
 
@@ -416,6 +417,8 @@ async def test_export_close_purge_isolation_and_shared_cache(
                 "INSERT INTO account_catalogs (user_id, id, name, kind, host, secret, position) "
                 "VALUES (:id, gen_random_uuid(), 'Witness', 'opds', 'https://example.org', "
                 "'k1:witness', 0)",
+                "INSERT INTO book_details_reader (user_id, identity_hash, key) "
+                "VALUES (:id, repeat('a', 64), repeat('b', 64))",
             ):
                 await session.execute(text(statement), {"id": owner})
             await session.execute(
