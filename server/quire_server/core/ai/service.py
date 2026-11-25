@@ -638,7 +638,7 @@ class InsightOrchestrator:
         """
         if kind in ("insight", "promote") and book_insight_id is None:
             raise ValueError(f"kind={kind!r} requires non-null book_insight_id")
-        if kind in ("profile", "details") and book_insight_id is not None:
+        if kind in ("profile", "details", "cover_art") and book_insight_id is not None:
             raise ValueError(f"kind={kind!r} requires book_insight_id IS NULL")
         session.add(
             AIGenerationLog(

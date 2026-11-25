@@ -210,6 +210,20 @@ class Settings(BaseSettings):
     # covers, and lookups plus tidies together.
     details_cover_rate_per_min: int = 30
     details_lookup_rate_per_min: int = 30
+    # Painted cover artwork, off by default: an image model paints the
+    # background of a drawn cover after a lookup, outside the request, and the
+    # server still sets the title and author on it. Its own OpenAI-compatible
+    # images provider (`POST {base}/images/generations`), since a chat router
+    # may not route images. Needs `details_enabled`. `daily_budget` caps the
+    # paintings across the whole server per UTC day.
+    cover_art_enabled: bool = False
+    cover_art_base_url: str | None = None
+    cover_art_api_key: SecretStr | None = None
+    cover_art_model: str | None = None
+    cover_art_size: str = Field(default="1024x1536", pattern=r"^(?:auto|\d{3,4}x\d{3,4})$")
+    cover_art_quality: str | None = Field(default=None, pattern=r"^[a-z]{1,16}$")
+    cover_art_daily_budget: int = Field(default=20, ge=0, le=100_000)
+    cover_art_timeout_s: float = Field(default=120.0, gt=0, le=600)
 
     # ---------------------------------------------------------------------
     # PR-B: AI auth abstraction (seam-only). Sync routes unaffected.
@@ -345,7 +359,16 @@ class Settings(BaseSettings):
             authority = authority.rsplit(":", 1)[0]
         return f"https://{authority}"
 
-    @field_validator("ai_base_url", "ai_api_key", "ai_model", mode="before")
+    @field_validator(
+        "ai_base_url",
+        "ai_api_key",
+        "ai_model",
+        "cover_art_base_url",
+        "cover_art_api_key",
+        "cover_art_model",
+        "cover_art_quality",
+        mode="before",
+    )
     @classmethod
     def _blank_means_unset(cls, value: object) -> object:
         """Treat an empty or whitespace-only string as ``None``.
@@ -477,6 +500,26 @@ def config_warnings(settings: Settings) -> list[str]:
             out.append(
                 "QUIRE_SERVER_AI_SOURCES contains a name Quire does not recognise, so that name "
                 f"is ignored; the known names are {' and '.join(KNOWN_AI_SOURCES)}"
+            )
+    if settings.cover_art_enabled:
+        missing = [
+            name
+            for name, value in (
+                ("QUIRE_SERVER_COVER_ART_BASE_URL", settings.cover_art_base_url),
+                ("QUIRE_SERVER_COVER_ART_MODEL", settings.cover_art_model),
+            )
+            if not value
+        ]
+        if missing:
+            out.append(
+                f"Cover artwork is enabled without {' and '.join(missing)}; covers stay "
+                f"drawn. Set {'it' if len(missing) == 1 else 'them'} or set "
+                "QUIRE_SERVER_COVER_ART_ENABLED=false"
+            )
+        elif not (settings.ai_enabled and settings.details_enabled):
+            out.append(
+                "QUIRE_SERVER_COVER_ART_ENABLED needs QUIRE_SERVER_AI_ENABLED and "
+                "QUIRE_SERVER_DETAILS_ENABLED; covers stay drawn"
             )
     if not settings.progress_enabled and not settings.ai_enabled:
         out.append(

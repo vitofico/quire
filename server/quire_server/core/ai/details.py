@@ -151,14 +151,17 @@ def details_key(identity: str, fields: BookFields) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
-def cover_etag(row: BookDetails) -> str:
-    """Changes whenever anything drawn on the cover does."""
+def cover_etag(row: BookDetails, art_digest: str | None = None) -> str:
+    """Changes whenever anything drawn on the cover does, the painted
+    artwork under it included."""
     drawn = {
         "v": RENDERER_VERSION,
         "design": row.design,
         "title": row.record.get("title"),
         "authors": row.record.get("authors"),
     }
+    if art_digest:
+        drawn["art"] = art_digest
     raw = json.dumps(drawn, sort_keys=True, ensure_ascii=False).encode()
     return hashlib.sha256(raw).hexdigest()[:20]
 

@@ -53,7 +53,7 @@ MASK = "***"
 # Settings whose value is a credential. Shown as MASK when set, null when not.
 # `test_every_secret_looking_setting_is_masked` fails if a setting named like
 # a secret is added without being listed here.
-SECRET_SETTINGS = frozenset({"ai_api_key", "ai_token_secrets", "catalog_keys"})
+SECRET_SETTINGS = frozenset({"ai_api_key", "ai_token_secrets", "catalog_keys", "cover_art_api_key"})
 
 # Settings that hold a URL, masked by `_mask_url` whatever their value looks
 # like. `test_every_url_setting_is_masked` fails if a `*_url` setting is added
@@ -63,6 +63,7 @@ URL_SETTINGS = frozenset(
         "database_url",
         "cwa_base_url",
         "ai_base_url",
+        "cover_art_base_url",
         "mcp_public_url",
         "web_catalog_url",
         "canonical_url",

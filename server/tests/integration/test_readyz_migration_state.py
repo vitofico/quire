@@ -55,9 +55,9 @@ async def restore_after(postgres_url: str, engine):
 async def test_readyz_200_when_at_ai_head(
     managed_app_factory, monkeypatch, postgres_url, alembic_upgrade
 ):
-    """With ai@head (ai_012) + progress@head (progress_003) materialized,
+    """With ai@head (ai_013) + progress@head (progress_003) materialized,
     /readyz reports both heads. (progress_003 added by Phase 0 task F-1;
-    ai_012 by book_details.)
+    ai_013 by book_cover_art.)
     """
     # Some earlier test in the session may have downgraded the DB
     # (test_migrate_script.py exercises rollback). Ensure both branches are
@@ -77,14 +77,14 @@ async def test_readyz_200_when_at_ai_head(
     assert body["ready"] is True
     # Phase 0, task S-1 added the always-materialized `auth` branch:
     # The enabled branch heads are sorted in the readiness response.
-    assert body["heads_applied"] == ["ai_012", "auth_005", "catalogs_001", "progress_007"]
+    assert body["heads_applied"] == ["ai_013", "auth_005", "catalogs_001", "progress_007"]
 
 
 async def test_readyz_503_when_db_below_backbone(
     managed_app_factory, monkeypatch, postgres_url, alembic_upgrade, restore_after
 ):
     """DB stamped below backbone; with both modes enabled, required heads
-    include ai_012 (ai@head since book_details) and auth_005 (auth@head
+    include ai_013 (ai@head since book_cover_art) and auth_005 (auth@head
     after Phase 0 / S-1) — both should be reported missing.
     """
     await _stamp(postgres_url, "0003")
@@ -94,7 +94,7 @@ async def test_readyz_503_when_db_below_backbone(
     assert r.status_code == 503
     body = r.json()
     assert body["ready"] is False
-    assert "ai_012" in body["missing"]
+    assert "ai_013" in body["missing"]
     assert "auth_005" in body["missing"]
 
 

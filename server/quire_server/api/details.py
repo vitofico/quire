@@ -13,16 +13,18 @@ from collections import OrderedDict, deque
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from quire_server.api.ai import _orchestrator, _quota_http_exception, _require_opt_in
 from quire_server.api.ai_auth import AiPrincipal, get_ai_principal
 from quire_server.api.details_schemas import DetailsLookupBody, DetailsResponse
 from quire_server.config import get_settings
+from quire_server.core import cover_art
 from quire_server.core.ai import details
 from quire_server.core.ai.service import QuotaExceeded
-from quire_server.core.covers import cover_png
-from quire_server.db.models import BookDetails
+from quire_server.core.covers import cover_png, painted_cover_jpeg
+from quire_server.db.models import BookCoverArt, BookDetails
 from quire_server.db.session import get_session
 
 router = APIRouter(tags=["details"])
@@ -113,7 +115,7 @@ async def _run(
             "and no alias hint resolved to one",
         )
     try:
-        return await details.lookup(
+        answer = await details.lookup(
             orch,
             session,
             body,
@@ -125,6 +127,45 @@ async def _run(
         )
     except QuotaExceeded as exc:
         raise _quota_http_exception(exc) from exc
+    return await _with_art(request, session, answer, principal)
+
+
+async def _with_art(
+    request: Request, session: AsyncSession, answer: DetailsResponse, principal: AiPrincipal
+) -> DetailsResponse:
+    """A generated cover on its painted artwork when there is some, or with
+    a painting queued when the artwork is on and one is due. Nothing changes
+    with the artwork off."""
+    artist: cover_art.CoverArtist | None = getattr(request.app.state, "cover_artist", None)
+    if artist is None or answer.cover.source != "generated":
+        return answer
+    row = await session.get(BookDetails, answer.key)
+    if row is None:
+        return answer
+    art = (
+        await session.execute(
+            select(
+                BookCoverArt.status,
+                BookCoverArt.digest,
+                BookCoverArt.error_class,
+                BookCoverArt.attempted_at,
+            ).where(BookCoverArt.key == answer.key)
+        )
+    ).one_or_none()
+    if art is not None and art.status == "painted":
+        etag = details.cover_etag(row, art.digest)
+        answer.cover.url = f"/details/v1/covers/{answer.key}?v={etag}"
+        answer.cover.painted = True
+        return answer
+    if art is None or cover_art.due(art.status, art.error_class, art.attempted_at):
+        # Painted from the shared record, never from this reader's own
+        # fields: every reader of the record sees the same artwork.
+        answer.cover.painting = artist.schedule(
+            answer.key, row.record, subject=principal.subject, tenant_id=principal.tenant_id
+        )
+    else:
+        answer.cover.painting = art.status == "pending"
+    return answer
 
 
 @router.post("/lookup", response_model=DetailsResponse)
@@ -157,18 +198,33 @@ async def get_cover(
     session: Annotated[AsyncSession, Depends(get_session)],
     v: str | None = None,
 ) -> Response:
-    """The designed cover of a tidied record, as PNG."""
+    """The designed cover of a tidied record: a PNG, or a JPEG when it is
+    drawn on painted artwork."""
     await _require_opt_in(session, principal.subject)
     row = await session.get(BookDetails, key) if len(key) == 64 else None
-    current = details.cover_etag(row) if row is not None else None
-    # An address for a cover since redrawn names a picture that no longer exists.
-    if current is None or (v is not None and v != current):
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="cover_not_found")
+    drawn = details.cover_etag(row)
+    digest = await session.scalar(
+        select(BookCoverArt.digest).where(BookCoverArt.key == key, BookCoverArt.status == "painted")
+    )
+    painted = details.cover_etag(row, digest) if digest else None
+    # Either address of a cover is served, so a reader holding the drawn one
+    # when the artwork lands still gets a picture; an address for a cover
+    # since redrawn names a picture that no longer exists.
+    if v is None:
+        artist = getattr(request.app.state, "cover_artist", None)
+        current = painted if painted and artist is not None else drawn
+    elif v in (drawn, painted):
+        current = v
+    else:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="cover_not_found")
     etag = f'"{current}"'
     headers = {
         "ETag": etag,
-        # The address carries the ETag (`?v=`), so a changed cover has a new one.
-        "Cache-Control": "private, max-age=31536000, immutable",
+        # A versioned address (`?v=`) names one picture forever; a bare one
+        # follows the record, so it must be checked again each time.
+        "Cache-Control": "private, max-age=31536000, immutable" if v else "private, no-cache",
         "X-Quire-Cover": "generated",
     }
     if request.headers.get("If-None-Match") == etag:
@@ -177,15 +233,28 @@ async def get_cover(
     wait = limiter.retry_after(principal.subject, get_settings().details_cover_rate_per_min)
     if wait is not None:
         raise _rate_limited("cover_rate_limited", wait)
+    is_painted = current == painted
+    title = row.record.get("title") or ""
+    authors = row.record.get("authors") or []
     cache: CoverCache = request.app.state.details_covers
-    png = cache.get(current)
-    if png is None:
+    picture = cache.get(current)
+    if picture is None:
         async with cache.gate:
-            png = cache.get(current) or await asyncio.to_thread(
-                cover_png,
-                row.design,
-                row.record.get("title") or "",
-                row.record.get("authors") or [],
-            )
-        cache.put(current, png)
-    return Response(content=png, media_type="image/png", headers=headers)
+            picture = cache.get(current)
+            if picture is None and is_painted:
+                art = await session.scalar(
+                    select(BookCoverArt.image).where(BookCoverArt.key == key)
+                )
+                if art is None:
+                    raise HTTPException(status.HTTP_404_NOT_FOUND, detail="cover_not_found")
+                picture = await asyncio.to_thread(
+                    painted_cover_jpeg, row.design, title, authors, art
+                )
+            elif picture is None:
+                picture = await asyncio.to_thread(cover_png, row.design, title, authors)
+        cache.put(current, picture)
+    return Response(
+        content=picture,
+        media_type="image/jpeg" if is_painted else "image/png",
+        headers=headers,
+    )
