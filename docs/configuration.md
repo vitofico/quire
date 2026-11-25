@@ -591,6 +591,21 @@ at zero when the container restarts. `0` turns the limit off.
 When to change it: only if readers get 429 answers from
 `/ai/v1/insights/promote`.
 
+#### `QUIRE_SERVER_AI_DISCUSS_RATE_PER_MIN`
+
+- Type: whole number, 1 or more
+- Default: `10`
+- Example: `QUIRE_SERVER_AI_DISCUSS_RATE_PER_MIN=20`
+
+How many questions each reader may ask per minute about highlights they
+picked (`POST /ai/v1/highlights/discuss`). Each question is one model call
+and also counts against `QUIRE_SERVER_AI_DAILY_BUDGET`. The count is kept in
+memory in each server process. Over it, the server answers 429 with a
+`Retry-After` header. The apps read the value from `GET /ai/v1/config`.
+
+When to change it: rarely. A conversation is at most six questions, so the
+default only stops a runaway client.
+
 #### `QUIRE_SERVER_AI_PROFILE_REFRESH_DAILY_LIMIT`
 
 - Type: whole number

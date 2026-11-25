@@ -96,7 +96,7 @@ async def test_remote_origin_and_no_sdk_tracing(monkeypatch):
                 },
             )
             assert response.status_code == 200
-            assert len(response.json()["result"]["tools"]) == 3
+            assert len(response.json()["result"]["tools"]) == 7
             assert "mcp-session-id" not in response.headers
             assert (
                 await client.post("/mcp", headers={"Origin": "https://evil.example"}, json={})
