@@ -1112,6 +1112,128 @@ dialog.ask .actions {
 .quote .actions {
   margin-top: 0.75rem;
 }
+.quote > label.check {
+  margin: 0 0 0.6rem;
+}
+.select-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 0.6rem 0;
+  background: var(--paper);
+}
+.select-bar > [role='status'] {
+  flex: 1 1 14rem;
+}
+
+/* Thinking through selected highlights: a side panel, a full page on a phone. */
+.discussing {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(20rem, 26rem);
+  gap: 1.5rem;
+  align-items: start;
+}
+.discuss {
+  position: sticky;
+  top: 1rem;
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+}
+.discuss-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.discuss-head h2 {
+  margin: 0;
+}
+.discuss h3 {
+  margin: 1.25rem 0 0.5rem;
+  font-size: 1rem;
+}
+.discuss-passages {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.35rem;
+}
+.discuss-passages details {
+  border-radius: var(--radius-control);
+  padding: 0.35rem 0.5rem;
+}
+.discuss-passages summary {
+  display: flex;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+.discuss-line {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.discuss-passages details[open] .discuss-line {
+  display: none;
+}
+.discuss-passages blockquote {
+  font: 1rem/1.5 var(--display);
+  margin: 0.35rem 0 0.5rem;
+  white-space: pre-wrap;
+}
+.discuss-n,
+.discuss-ref {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.discuss-ref {
+  min-height: 1.5rem;
+  margin-inline-end: 0.25rem;
+  border-color: var(--line);
+}
+.flash {
+  animation: flash 1.2s ease-out;
+}
+@keyframes flash {
+  from {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+}
+.discuss-turn {
+  margin: 1rem 0;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+.discuss-question {
+  font-weight: 600;
+}
+.discuss-answer {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.discuss-ask {
+  margin-top: 1rem;
+}
+.discuss-ask .chips {
+  margin: 0 0 0.75rem;
+}
+.discuss-ask label.field > textarea {
+  width: 100%;
+}
+.discuss-ask .actions {
+  margin-top: 0.6rem;
+}
 
 /* Welcome */
 .welcome {
@@ -1272,6 +1394,24 @@ dialog.ask .actions {
   .welcome-main {
     margin-inline: auto;
     padding-inline: 1rem;
+  }
+  .discussing {
+    display: block;
+  }
+  .discuss {
+    position: fixed;
+    inset: 0;
+    z-index: 6;
+    max-height: none;
+    margin: 0;
+    border-radius: 0;
+    padding-bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+  }
+  .discuss-ask .chips {
+    flex-wrap: wrap;
+    overflow-x: visible;
+    margin-inline: 0;
+    padding-inline: 0;
   }
 }
 @media (max-width: 540px) {
