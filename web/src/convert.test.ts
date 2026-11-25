@@ -17,6 +17,7 @@ function fakeServer() {
   /** One-off answers, by "METHOD /path-ending": the next call there gets the first one. */
   const replies = new Map<string, Reply[]>()
   const epub = new Blob(['PK epub'], { type: 'application/epub+zip' })
+  const result = { bytes: epub.size, sha256: createHash('sha256').update('PK epub').digest('hex') }
   let serial = 0
   const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
     new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...headers } })
@@ -52,10 +53,10 @@ function fakeServer() {
     return json(view(job))
   })
   return {
-    jobs, calls, request, epub,
+    jobs, calls, request, epub, result,
     reply(route: string, ...answers: Reply[]) { replies.set(route, [...replies.get(route) ?? [], ...answers]) },
     move(id: string, state: ConvertJob['state'], extra: Partial<ConvertJob> = {}) {
-      Object.assign(jobs.get(id)!, { state, result: ['ready', 'review'].includes(state) ? { bytes: epub.size } : null, ...extra })
+      Object.assign(jobs.get(id)!, { state, result: ['ready', 'review'].includes(state) ? result : null, ...extra })
     },
     paths: (method?: string) => calls.filter((call) => !method || call.method === method).map((call) => `${call.method} ${call.path}`),
   }
@@ -81,7 +82,7 @@ const later = (ms: number) => vi.advanceTimersByTimeAsync(ms)
 let open: Conversions[] = []
 function make(server: ReturnType<typeof fakeServer>, store = memoryStore(), extra: Partial<ConstructorParameters<typeof Conversions>[0]> = {}) {
   const imports: Blob[] = []
-  const importEpub = vi.fn(async (blob: Blob) => { imports.push(blob); return 'book-1' })
+  const importEpub = vi.fn(async (blob: Blob, _keepLocal: boolean) => { imports.push(blob); return 'book-1' })
   const queue = new Conversions({ request: server.request, store, importEpub, ...extra })
   open.push(queue)
   return { queue, store, importEpub, imports }
@@ -312,7 +313,7 @@ describe('resuming after a reload', () => {
     queue.offer([file], 100 << 20)
     await until(() => queue.items.length === 1 && stage(queue) === 'queued')
     expect(queue.items[0].id).toBe('key-0001')
-    expect(server.paths()).toEqual(['POST /convert/v1/jobs', 'POST /convert/v1/jobs', 'PUT /convert/v1/jobs/job-1/source'])
+    expect(server.paths()).toEqual(['POST /convert/v1/jobs', 'GET /convert/v1/jobs/job-1', 'PUT /convert/v1/jobs/job-1/source'])
   })
 
   it('an upload cut off by the reload: needs the file if it did not arrive, carries on if it did', async () => {
@@ -343,7 +344,7 @@ describe('resuming after a reload', () => {
   it('an import interrupted by the reload downloads again; one that finished is only acknowledged', async () => {
     const server = fakeServer()
     for (const [id, key] of [['job-7', 'key-0001'], ['job-8', 'key-0002']]) {
-      server.jobs.set(id, { id, key, sha256: 'x', bytes: 1, state: 'ready', result: { bytes: server.epub.size }, review: null, failure: null })
+      server.jobs.set(id, { id, key, sha256: 'x', bytes: 1, state: 'ready', result: server.result, review: null, failure: null })
     }
     const { queue, importEpub } = make(server, memoryStore([
       saved({ stage: 'importing', job: 'job-7' }),
@@ -439,7 +440,12 @@ describe('failures', () => {
     await queue.start(queue.items[0].id)
     await until(() => queue.items[0].problem === 'upload_timed_out')
     expect(stage(queue)).toBe('uploading')
-    await later(60_000)
+    // Thirty seconds, then a minute.
+    await later(30_000)
+    await until(() => server.paths('PUT').length === 2 && queue.items[0].attempts === 2)
+    await later(59_000)
+    expect(server.paths('PUT')).toHaveLength(2)
+    await later(1_000)
     await until(() => stage(queue) === 'queued')
     expect(server.paths('PUT')).toHaveLength(3)
   })
@@ -520,5 +526,241 @@ describe('failures', () => {
     server.move('job-1', 'running')
     await later(pollInterval * 2)
     await until(() => stage(queue) === 'converting' && !queue.items[0].problem)
+  })
+})
+
+describe('choosing the file again', () => {
+  const saved = (patch: Partial<Conversion>): Conversion =>
+    ({ id: 'key-0001', name: 'Field notes.pdf', bytes: pdf().size, stage: 'reupload', ...patch })
+
+  it('a file that cannot be read asks for it again, not for the network', async () => {
+    const server = fakeServer()
+    const { queue } = make(server)
+    await queue.loaded
+    const file = pdf()
+    vi.spyOn(file, 'slice').mockImplementation(() => ({ arrayBuffer: () => Promise.reject(new DOMException('gone', 'NotReadableError')) }) as unknown as Blob)
+    queue.offer([file], 100 << 20)
+    await queue.start(queue.items[0].id)
+    expect(queue.items[0]).toMatchObject({ stage: 'reupload', problem: 'file_unreadable' })
+    expect(server.calls).toEqual([])
+    // Chosen again, readable this time: the same row carries on.
+    queue.offer([pdf()], 100 << 20)
+    await until(() => stage(queue) === 'queued')
+    expect(queue.items).toHaveLength(1)
+  })
+
+  it('a row with no checksum takes the file chosen again and creates its job', async () => {
+    const server = fakeServer()
+    const store = memoryStore([saved({ stage: 'preparing' })])
+    const { queue } = make(server, store)
+    await queue.loaded
+    expect(stage(queue)).toBe('reupload')
+    const file = pdf()
+    queue.offer([file], 100 << 20)
+    await until(() => stage(queue) === 'queued')
+    expect(queue.items).toHaveLength(1)
+    expect(queue.items[0]).toMatchObject({ id: 'key-0001', sha256: await sha(file) })
+    expect(server.calls[0].body).toMatchObject({ idempotency_key: 'key-0001' })
+  })
+
+  it('a different file under the same name cancels the old job and replaces the row', async () => {
+    const server = fakeServer()
+    server.jobs.set('job-7', { id: 'job-7', key: 'key-0001', sha256: 'old', bytes: 1, state: 'created', result: null, review: null, failure: null })
+    const store = memoryStore([saved({ job: 'job-7', sha256: 'old' })])
+    const { queue } = make(server, store)
+    await queue.loaded
+    queue.offer([pdf()], 100 << 20)
+    await until(() => stage(queue) === 'queued')
+    expect(queue.items).toHaveLength(1)
+    expect(queue.items[0].id).not.toBe('key-0001')
+    expect(server.jobs.get('job-7')!.state).toBe('cancelled')
+    expect(store.saved().map((item) => item.id)).toEqual([queue.items[0].id])
+  })
+
+  it('a file that changed under its checksum frees its job, and the file chosen again goes to the same place', async () => {
+    const server = fakeServer()
+    server.reply('PUT /source', { status: 422, detail: 'size_mismatch' })
+    const { queue, store } = make(server)
+    await queue.loaded
+    queue.offer([pdf()], 100 << 20)
+    const first = queue.items[0].id
+    await queue.start(first)
+    await until(() => stage(queue) === 'reupload' && server.jobs.get('job-1')!.state === 'cancelled')
+    expect(queue.items[0]).toMatchObject({ problem: 'size_mismatch' })
+    expect(queue.items[0].id).not.toBe(first)
+    // The file as it is now: longer, same name.
+    queue.offer([pdf('one, edited')], 100 << 20)
+    await until(() => stage(queue) === 'queued')
+    expect(queue.items).toHaveLength(1)
+    expect(server.paths('POST').filter((path) => path === 'POST /convert/v1/jobs')).toHaveLength(2)
+    expect(store.saved()).toHaveLength(1)
+  })
+})
+
+describe('backing off', () => {
+  it('an upload that keeps failing waits longer each time, then stops with a retry', async () => {
+    const server = fakeServer()
+    server.reply('PUT /source', ...Array.from({ length: 5 }, () => ({ status: 502 })))
+    const { queue } = make(server)
+    await queue.loaded
+    queue.offer([pdf()], 100 << 20)
+    await queue.start(queue.items[0].id)
+    for (const [wait, count] of [[30_000, 2], [60_000, 3], [120_000, 4], [240_000, 5]]) {
+      await later(wait - 1_000)
+      expect(server.paths('PUT')).toHaveLength(count - 1)
+      await later(1_000)
+      await until(() => server.paths('PUT').length === count && (!!queue.items[0].retryAt || stage(queue) === 'failed'))
+    }
+    await until(() => stage(queue) === 'failed')
+    expect(queue.items[0]).toMatchObject({ problem: 'upload_failed', retryable: true })
+    await later(600_000)
+    expect(server.paths('PUT')).toHaveLength(5)
+    // The retry sends the same job's upload again.
+    await queue.retry(queue.items[0].id)
+    await until(() => stage(queue) === 'queued')
+    expect(server.paths('PUT')).toHaveLength(6)
+    expect(server.paths('POST').filter((path) => path === 'POST /convert/v1/jobs')).toHaveLength(1)
+  })
+
+  it('a download that does not match the result is fetched again later, not every poll', async () => {
+    const server = fakeServer()
+    const { queue, importEpub } = await started(server)
+    server.move('job-1', 'ready', { result: { bytes: server.epub.size, sha256: '0'.repeat(64) } })
+    await later(pollInterval)
+    await until(() => queue.items[0].attempts === 1)
+    expect(stage(queue)).toBe('importing')
+    await later(20_000)
+    expect(server.paths().filter((path) => path.endsWith('/epub'))).toHaveLength(1)
+    for (let attempt = 2; attempt <= 5; attempt++) {
+      await later(600_000)
+      await until(() => server.paths().filter((path) => path.endsWith('/epub')).length === attempt)
+    }
+    await until(() => stage(queue) === 'failed')
+    expect(queue.items[0]).toMatchObject({ problem: 'download_failed', retryable: true })
+    expect(server.paths().filter((path) => path.endsWith('/epub'))).toHaveLength(5)
+    expect(importEpub).not.toHaveBeenCalled()
+  })
+
+  it('a 503 without converter_unavailable is a passing fault, not a stopped converter', async () => {
+    const server = fakeServer()
+    const { queue } = await started(server)
+    server.reply('GET /{id}', { status: 503 })
+    await later(pollInterval)
+    await until(() => queue.items[0].problem === 'network')
+    expect(stage(queue)).toBe('queued')
+  })
+})
+
+describe('finishing', () => {
+  it('another edition with the same identifier never asks: the list offers to keep it in this browser', async () => {
+    const server = fakeServer()
+    const { queue, importEpub } = await started(server)
+    importEpub.mockRejectedValueOnce(Object.assign(new Error('conflict'), { name: 'EditionConflict' }))
+    server.move('job-1', 'ready')
+    await later(pollInterval)
+    await until(() => stage(queue) === 'failed')
+    expect(queue.items[0]).toMatchObject({ problem: 'edition_conflict', retryable: true })
+    expect(server.jobs.get('job-1')!.state).toBe('ready')
+    await queue.retry(queue.items[0].id)
+    await until(() => stage(queue) === 'done' && !queue.items[0].unacknowledged)
+    expect(importEpub.mock.calls.map((call) => call[1])).toEqual([false, true])
+  })
+
+  it('cancelling a job that finished meanwhile acknowledges it', async () => {
+    const server = fakeServer()
+    const { queue } = await started(server)
+    server.reply('POST /cancel', { status: 409, detail: 'not_cancellable' })
+    await queue.cancel(queue.items[0].id)
+    expect(server.paths('POST').slice(-2)).toEqual(['POST /convert/v1/jobs/job-1/cancel', 'POST /convert/v1/jobs/job-1/acknowledge'])
+  })
+
+  it('dismissed offline, a result stays saved until the server is told', async () => {
+    const server = fakeServer()
+    const { queue, store } = await started(server)
+    const original = server.request.getMockImplementation()!
+    server.request.mockImplementation(async (path, init) => {
+      if (path.endsWith('/acknowledge')) throw new TypeError('Failed to fetch')
+      return original(path, init)
+    })
+    server.move('job-1', 'ready')
+    await later(pollInterval)
+    await until(() => stage(queue) === 'done')
+    await queue.dismiss(queue.items[0].id)
+    expect(queue.items[0]).toMatchObject({ dismissed: true, unacknowledged: true })
+    expect(store.saved()).toHaveLength(1)
+    server.request.mockImplementation(original)
+    await later(pollInterval)
+    await until(() => queue.items.length === 0)
+    expect(store.saved()).toEqual([])
+    expect(server.jobs.get('job-1')!.state).toBe('acknowledged')
+  })
+})
+
+describe('several tabs', () => {
+  let serial = 0
+  const tabs = (shared: boolean) => {
+    const server = fakeServer()
+    const store = memoryStore()
+    const name = `test-conversions-${++serial}`
+    const tab = () => make(server, store, shared
+      ? { name, locks: navigator.locks, channel: new BroadcastChannel(name) }
+      : {}).queue
+    return { server, store, tab }
+  }
+
+  it('one tab drives a conversion; another shows it, keeps its own, and takes over when the first closes', async () => {
+    const { server, store, tab } = tabs(true)
+    const a = tab(), b = tab()
+    await Promise.all([a.loaded, b.loaded])
+    a.offer([pdf('one', 'One.pdf')], 100 << 20)
+    await a.start(a.items[0].id)
+    await until(() => stage(a) === 'queued' && stage(b) === 'queued')
+    b.offer([pdf('two', 'Two.pdf')], 100 << 20)
+    await b.start(b.items.at(-1)!.id)
+    await until(() => store.saved().length === 2 && a.items.length === 2 && b.items.every((item) => item.stage === 'queued'))
+    const polled = () => server.paths('GET').sort()
+    await later(pollInterval)
+    await until(() => polled().length === 2)
+    // Each job is polled once a round, by the tab that drives it.
+    expect(polled()).toEqual(['GET /convert/v1/jobs/job-1', 'GET /convert/v1/jobs/job-2'])
+
+    server.move('job-1', 'running')
+    await later(pollInterval)
+    await until(() => stage(b, 0) === 'converting')
+    a.dispose()
+    server.move('job-1', 'ready')
+    await later(pollInterval)
+    await until(() => stage(b, 0) === 'done' && !b.items[0].unacknowledged)
+    expect(store.saved().map((item) => item.stage)).toEqual(['done', 'queued'])
+  })
+
+  it('a tab cancels a conversion another drives: that tab stops it too', async () => {
+    const { server, store, tab } = tabs(true)
+    const a = tab(), b = tab()
+    await Promise.all([a.loaded, b.loaded])
+    a.offer([pdf()], 100 << 20)
+    await a.start(a.items[0].id)
+    await until(() => stage(b) === 'queued')
+    await b.cancel(b.items[0].id)
+    await until(() => a.items.length === 0 && store.saved().length === 0)
+    const count = server.calls.length
+    await later(pollInterval * 3)
+    expect(server.calls).toHaveLength(count)
+  })
+
+  it('without Web Locks, each save keeps what another tab saved', async () => {
+    const { server, store, tab } = tabs(false)
+    const a = tab(), b = tab()
+    await Promise.all([a.loaded, b.loaded])
+    // Both loaded the empty list; each saves over a fresh read.
+    a.offer([pdf('one', 'One.pdf')], 100 << 20)
+    await a.start(a.items[0].id)
+    b.offer([pdf('two', 'Two.pdf')], 100 << 20)
+    await b.start(b.items[0].id)
+    await until(() => store.saved().length === 2)
+    server.move('job-1', 'running')
+    await later(pollInterval)
+    await until(() => store.saved().find((item) => item.name === 'One.pdf')?.stage === 'converting')
+    expect(store.saved().map((item) => item.name).sort()).toEqual(['One.pdf', 'Two.pdf'])
   })
 })

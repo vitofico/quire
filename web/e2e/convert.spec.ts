@@ -1,10 +1,18 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { createHash } from 'node:crypto'
 import { strToU8, zipSync } from 'fflate'
 
 test.use({ actionTimeout: 10_000, navigationTimeout: 15_000 })
-// The client polls every five seconds; a conversion takes a few polls.
-const poll = { timeout: 15_000 }
+/**
+ * The client polls every five seconds and a conversion takes a few polls: the
+ * page's clock jumps a poll ahead each round instead of the test waiting.
+ */
+async function eventually(page: Page, item: Locator, text: string | RegExp) {
+  await expect(async () => {
+    await page.clock.fastForward(5_000)
+    await expect(item).toContainText(text, { timeout: 1_000 })
+  }).toPass({ timeout: 15_000 })
+}
 
 const pdf = (text = 'Field notes', name = 'Field notes.pdf') => ({
   name, mimeType: 'application/pdf', buffer: Buffer.from(`%PDF-1.7\n${text}\n%%EOF\n`),
@@ -31,6 +39,8 @@ async function connect(page: Page, options: Options = {}) {
   const calls: string[] = []
   const keys: string[] = []
   const epub = convertedBook()
+  const epubSha = createHash('sha256').update(epub).digest('hex')
+  await page.clock.install()
   await page.addInitScript(() => { Reflect.deleteProperty(Navigator.prototype, 'serviceWorker') })
   await page.route('**/quire/v1/bootstrap', route => route.fulfill({ json: {
     version: 1, sync: false, ai: false, aiAvailable: false, login: 'native', password: true,
@@ -44,7 +54,7 @@ async function connect(page: Page, options: Options = {}) {
     id: job.id, state: job.state, mode: 'local', attempt: 1,
     created_at: '2026-11-25T10:00:00+00:00', updated_at: '2026-11-25T10:00:00+00:00', expires_at: '2026-11-26T10:00:00+00:00',
     source: { sha256: job.sha256, bytes: job.bytes }, engine_revision: 'quire-convert 0.1.0',
-    result: ['ready', 'review'].includes(job.state) ? { sha256: 'e'.repeat(64), bytes: epub.length, rendition_id: 'urn:uuid:x', issue_counts: {} } : null,
+    result: ['ready', 'review'].includes(job.state) ? { sha256: epubSha, bytes: epub.length, rendition_id: 'urn:uuid:x', issue_counts: {} } : null,
     review: job.state === 'review' ? job.review : null,
     failure: job.state === 'failed' ? job.failure : null,
   })
@@ -124,7 +134,7 @@ test('a PDF becomes a book: confirmed, uploaded, converted, imported once, and k
   await list(page).getByRole('button', { name: 'Convert to EPUB' }).click()
   await expect(list(page).getByRole('listitem').filter({ hasText: 'Field notes.pdf' })).toHaveCount(1)
 
-  await expect(item).toContainText('Added to your library. Some pages need a look.', poll)
+  await eventually(page, item, 'Added to your library. Some pages need a look.')
   await expect(item.getByRole('list', { name: 'Pages to check' })).toHaveText('Page 12 (xii)')
   // Worker text is shown as text, never as markup.
   await expect(item).toContainText('<b>1 page</b> needs review')
@@ -168,15 +178,15 @@ test('failures explain themselves and offer a retry only when the server says it
   const scan = list(page).getByRole('listitem').filter({ hasText: 'Scan.pdf' })
   await locked.getByRole('button', { name: 'Convert to EPUB' }).click()
   await scan.getByRole('button', { name: 'Convert to EPUB' }).click()
-  await expect(locked).toContainText('This PDF is encrypted or password-protected, so it cannot be converted.', poll)
+  await eventually(page, locked, 'This PDF is encrypted or password-protected, so it cannot be converted.')
   await expect(locked.getByRole('button', { name: 'Try again' })).toHaveCount(0)
-  await expect(scan).toContainText('The conversion did not finish.', poll)
+  await eventually(page, scan, 'The conversion did not finish.')
   await expect(scan).toContainText('<i>ocr</i> stage')
   // Both reasons are kept in this browser; the server's copies go.
   expect(server.calls).toEqual(expect.arrayContaining(['POST /convert/v1/jobs/job-1/acknowledge', 'POST /convert/v1/jobs/job-2/acknowledge']))
 
   await scan.getByRole('button', { name: 'Try again' }).click()
-  await expect(scan).toContainText('Added to your library.', poll)
+  await eventually(page, scan, 'Added to your library.')
   expect(new Set(server.keys).size).toBe(3)
 })
 
@@ -195,7 +205,7 @@ test('a reload during the upload asks for the file again and finishes the same j
   // Confirmed before the reload: the same file carries on without asking again.
   await (await chooser).setFiles(pdf())
   await expect(list(page).getByRole('listitem')).toHaveCount(1)
-  await expect(item).toContainText('Added to your library.', poll)
+  await eventually(page, item, 'Added to your library.')
   expect(server.jobs.size).toBe(1)
   expect(new Set(server.keys).size).toBe(1)
 })
@@ -239,8 +249,11 @@ test('the conversions list stays readable, focusable and inside a phone screen',
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/quire/')
   await page.locator('input[type=file]').setInputFiles([pdf('a', 'A very long file name for a scanned field notebook from 1974, volume two.pdf'), pdf('b', 'Second.pdf')])
-  await list(page).getByRole('button', { name: 'Convert to EPUB' }).first().click()
-  await expect(list(page)).toContainText('The conversion took too long and was stopped.', poll)
+  const first = list(page).getByRole('listitem').first()
+  await first.getByRole('button', { name: 'Convert to EPUB' }).click()
+  // The button goes once the conversion starts; focus stays on its row.
+  await expect(first).toBeFocused()
+  await eventually(page, list(page), 'The conversion took too long and was stopped.')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true)
 
   // Every control is a named button the keyboard reaches with a visible focus ring.

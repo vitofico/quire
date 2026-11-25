@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { type Conversion, type ConversionStore, type ConvertCapabilities, Conversions, convertCapabilities } from './convert'
 import type { DiscoveryRequest } from './discovery/api'
 
@@ -33,6 +33,10 @@ const problems: Record<string, string> = {
   not_offered: 'This server no longer converts PDFs.',
   import_failed: 'The converted book could not be added to your library.',
   network: 'Quire could not reach the server. It tries again shortly.',
+  file_unreadable: 'Quire could not read this file. Choose it again.',
+  upload_failed: 'The upload kept failing. Try again when the connection is steady.',
+  download_failed: 'The converted book could not be downloaded. Try again when the connection is steady.',
+  edition_conflict: 'Another edition in your library has this identifier. You can keep this copy only in this browser.',
 }
 const fallback = 'The server refused this conversion.'
 
@@ -67,18 +71,26 @@ function stageText(item: Conversion, t: T, converterDown: boolean) {
   }
 }
 
+/** The stage and, while it carries on, what is in the way: what the live region says. */
+function newsText(item: Conversion, t: T, converterDown: boolean) {
+  const hint = item.problem && inFlight(item) && item.stage !== 'waiting' ? ` ${problemText(item, t)}` : ''
+  return `${item.name}: ${stageText(item, t, converterDown)}${hint}`
+}
+
 const inFlight = (item: Conversion) => ['preparing', 'uploading', 'reupload', 'waiting', 'queued', 'converting'].includes(item.stage)
 
 type Options = {
+  /** The account's namespace: its tabs share one list. */
+  namespace: string
   store: ConversionStore | null
   request?: DiscoveryRequest
   /** The session's `pdf_conversion`; unknown for Calibre-Web logins, so the server is asked. */
   capability?: boolean
-  importEpub: (epub: Blob) => Promise<string>
+  importEpub: (epub: Blob, keepLocal: boolean) => Promise<string>
 }
 
 /** The reader's conversions and the server's limits, for the shelf. */
-export function useConversions({ store, request, capability, importEpub }: Options) {
+export function useConversions({ namespace, store, request, capability, importEpub }: Options) {
   const [items, setItems] = useState<Conversion[]>([])
   const [limits, setLimits] = useState<ConvertCapabilities | null>()
   const queue = useRef<Conversions | undefined>(undefined)
@@ -91,17 +103,36 @@ export function useConversions({ store, request, capability, importEpub }: Optio
       setLimits(null)
       return
     }
-    let live = true
-    convertCapabilities(latest.current.request!).then((value) => { if (live) setLimits(value ?? null) }, () => undefined)
-    return () => { live = false }
+    // Asked again when the page comes back online or into view, until it answers.
+    let live = true, known = false
+    const check = () => {
+      if (known || document.visibilityState === 'hidden') return
+      convertCapabilities(latest.current.request!).then((value) => {
+        if (!live) return
+        known = true
+        setLimits(value ?? null)
+      }, () => undefined)
+    }
+    check()
+    window.addEventListener('online', check)
+    document.addEventListener('visibilitychange', check)
+    return () => {
+      live = false
+      window.removeEventListener('online', check)
+      document.removeEventListener('visibilitychange', check)
+    }
   }, [asks])
 
   const ensure = useCallback((target: ConversionStore) => {
     if (!queue.current) {
+      const name = `quire-conversions:${namespace}`
       const made = new Conversions({
         store: target,
         request: (path, init) => latest.current.request!(path, init),
-        importEpub: (epub) => latest.current.importEpub(epub),
+        importEpub: (epub, keepLocal) => latest.current.importEpub(epub, keepLocal),
+        name,
+        locks: navigator.locks,
+        channel: typeof BroadcastChannel === 'function' ? new BroadcastChannel(name) : undefined,
         hidden: () => document.visibilityState === 'hidden',
         onVisibility: (listener) => {
           document.addEventListener('visibilitychange', listener)
@@ -112,7 +143,7 @@ export function useConversions({ store, request, capability, importEpub }: Optio
       queue.current = made
     }
     return queue.current
-  }, [])
+  }, [namespace])
 
   // Conversions saved before a reload carry on once the library is open.
   useEffect(() => {
@@ -152,84 +183,111 @@ type ListProps = {
 }
 
 /** The conversions in progress or just finished, next to the shelf's add control. */
-export function ConversionList({ items, queue, limits, pick, t }: ListProps) {
-  if (!items.length || !queue) return null
+export function ConversionList({ items: all, queue, limits, pick, t }: ListProps) {
+  const section = useRef<HTMLElement>(null)
+  /** The row whose button was used: focus stays with it, or the next row, should the button go. */
+  const acted = useRef<{ id: string; index: number } | null>(null)
+  const items = all.filter((item) => !item.dismissed)
+  useLayoutEffect(() => {
+    const last = acted.current, root = section.current
+    if (!last || !root) return
+    const active = document.activeElement
+    if (active && active !== document.body) {
+      // Still on the button, or the reader moved on.
+      if (!root.contains(active)) acted.current = null
+      return
+    }
+    acted.current = null
+    const rows = [...root.querySelectorAll<HTMLElement>('li.conversion')]
+    const target = rows.find((row) => row.dataset.id === last.id) ?? rows[Math.min(last.index, rows.length - 1)]
+      ?? root.closest<HTMLElement>('main')
+    target?.focus()
+  })
+  if (!queue && !limits) return null
   const converterDown = limits?.available === false
-  const news = queue.announcement && items.find((item) => item.id === queue.announcement!.id)
+  const news = queue?.announcement && items.find((item) => item.id === queue.announcement!.id)
+  const act = (item: Conversion, action: (id: string) => Promise<void>) => () => {
+    acted.current = { id: item.id, index: items.indexOf(item) }
+    void action.call(queue, item.id)
+  }
   return (
-    <section className="conversions" aria-labelledby="conversions-title">
-      <h2 className="eyebrow" id="conversions-title">{t('PDF conversions')}</h2>
-      <p role="status" className="visually-hidden">
-        {news && `${news.name}: ${stageText(news, t, converterDown)}`}
-      </p>
-      <ul>
-        {items.map((item) => {
-          const name = `conversion-${item.id}`
-          const busy = item.stage === 'preparing' || item.stage === 'uploading' || item.stage === 'converting' || item.stage === 'importing'
-          return (
-            <li key={item.id} className={'conversion ' + item.stage} aria-labelledby={name} aria-busy={busy || undefined}>
-              <div className="conversion-head">
-                <strong id={name}>{item.name}</strong>
-                <small className="muted">{fileSize(item.bytes)}</small>
-              </div>
-              {item.stage === 'confirm' && item.tooLarge ? (
-                <p>
-                  {t('This PDF is {size}. This server converts PDFs up to {max}.')
-                    .replace('{size}', fileSize(item.bytes)).replace('{max}', fileSize(limits?.max_bytes ?? 0))}
-                </p>
-              ) : (
-                <p>{stageText(item, t, converterDown)}</p>
-              )}
-              {item.stage === 'confirm' && !item.tooLarge && limits && (
-                <p className="hint">
-                  {t('This server converts PDFs of up to {pages} pages.').replace('{pages}', String(limits.max_pages))}
-                </p>
-              )}
-              {item.problem && inFlight(item) && item.stage !== 'waiting' && <p className="hint">{problemText(item, t)}</p>}
-              {item.detail && <p className="hint conversion-detail">{item.detail}</p>}
-              {item.stage === 'review' && (
-                <>
-                  {item.reason && <p className="hint conversion-detail">{item.reason}</p>}
-                  {!!item.pages?.length && (
-                    <ul className="pages" aria-label={t('Pages to check')}>
-                      {item.pages.map((page) => (
-                        <li key={page.page}>
-                          {t('Page {page}').replace('{page}', String(page.page))}
-                          {page.label && page.label !== String(page.page) ? ` (${page.label})` : ''}
-                        </li>
-                      ))}
-                    </ul>
+    <section className="conversions" aria-labelledby={items.length ? 'conversions-title' : undefined} ref={section}>
+      {/* Mounted before the first conversion, so its first change is heard. */}
+      <p role="status" className="visually-hidden">{news && newsText(news, t, converterDown)}</p>
+      {!!items.length && queue && <>
+        <h2 className="eyebrow" id="conversions-title">{t('PDF conversions')}</h2>
+        <ul>
+          {items.map((item) => {
+            const name = `conversion-${item.id}`
+            const busy = item.stage === 'preparing' || item.stage === 'uploading' || item.stage === 'converting' || item.stage === 'importing'
+            return (
+              <li key={item.id} className={'conversion ' + item.stage} aria-labelledby={name} aria-busy={busy || undefined}
+                tabIndex={-1} data-id={item.id}>
+                <div className="conversion-head">
+                  <strong id={name}>{item.name}</strong>
+                  <small className="muted">{fileSize(item.bytes)}</small>
+                </div>
+                {item.stage === 'confirm' && item.tooLarge ? (
+                  <p>
+                    {t('This PDF is {size}. This server converts PDFs up to {max}.')
+                      .replace('{size}', fileSize(item.bytes)).replace('{max}', fileSize(limits?.max_bytes ?? 0))}
+                  </p>
+                ) : (
+                  <p>{stageText(item, t, converterDown)}</p>
+                )}
+                {item.stage === 'confirm' && !item.tooLarge && limits && (
+                  <p className="hint">
+                    {t('This server converts PDFs of up to {pages} pages.').replace('{pages}', String(limits.max_pages))}
+                  </p>
+                )}
+                {item.problem && inFlight(item) && item.stage !== 'waiting' && <p className="hint">{problemText(item, t)}</p>}
+                {item.detail && <p className="hint conversion-detail">{item.detail}</p>}
+                {item.stage === 'review' && (
+                  <>
+                    {item.reason && <p className="hint conversion-detail">{item.reason}</p>}
+                    {!!item.pages?.length && (
+                      <ul className="pages" aria-label={t('Pages to check')}>
+                        {item.pages.map((page) => (
+                          <li key={page.page}>
+                            {t('Page {page}').replace('{page}', String(page.page))}
+                            {page.label && page.label !== String(page.page) ? ` (${page.label})` : ''}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </>
+                )}
+                <div className="actions">
+                  {item.stage === 'confirm' && !item.tooLarge && (
+                    <button className="primary" aria-describedby={name} onClick={act(item, queue.start)}>
+                      {t('Convert to EPUB')}
+                    </button>
                   )}
-                </>
-              )}
-              <div className="actions">
-                {item.stage === 'confirm' && !item.tooLarge && (
-                  <button className="primary" aria-describedby={name} onClick={() => void queue.start(item.id)}>
-                    {t('Convert to EPUB')}
-                  </button>
-                )}
-                {item.stage === 'reupload' && (
-                  <button className="primary" aria-describedby={name} onClick={pick}>{t('Choose the file again')}</button>
-                )}
-                {(item.stage === 'done' || item.stage === 'review') && item.book && (
-                  <a className="button" href={'#/book/' + encodeURIComponent(item.book)} aria-describedby={name}>{t('Open book')}</a>
-                )}
-                {item.stage === 'failed' && item.retryable && (
-                  <button aria-describedby={name} onClick={() => void queue.retry(item.id)}>{t('Try again')}</button>
-                )}
-                {(item.stage === 'confirm' || inFlight(item)) && (
-                  <button aria-describedby={name} onClick={() => void queue.cancel(item.id)}>
-                    {t(item.stage === 'confirm' && item.tooLarge ? 'Dismiss' : 'Cancel')}
-                  </button>
-                )}
-                {(item.stage === 'done' || item.stage === 'review' || item.stage === 'failed') && (
-                  <button aria-describedby={name} onClick={() => void queue.dismiss(item.id)}>{t('Dismiss')}</button>
-                )}
-              </div>
-            </li>
-          )
-        })}
-      </ul>
+                  {item.stage === 'reupload' && (
+                    <button className="primary" aria-describedby={name} onClick={pick}>{t('Choose the file again')}</button>
+                  )}
+                  {(item.stage === 'done' || item.stage === 'review') && item.book && (
+                    <a className="button" href={'#/book/' + encodeURIComponent(item.book)} aria-describedby={name}>{t('Open book')}</a>
+                  )}
+                  {item.stage === 'failed' && item.retryable && (
+                    <button aria-describedby={name} onClick={act(item, queue.retry)}>
+                      {t(item.problem === 'edition_conflict' ? 'Keep in this browser' : 'Try again')}
+                    </button>
+                  )}
+                  {(item.stage === 'confirm' || inFlight(item)) && (
+                    <button aria-describedby={name} onClick={act(item, queue.cancel)}>
+                      {t(item.stage === 'confirm' && item.tooLarge ? 'Dismiss' : 'Cancel')}
+                    </button>
+                  )}
+                  {(item.stage === 'done' || item.stage === 'review' || item.stage === 'failed') && (
+                    <button aria-describedby={name} onClick={act(item, queue.dismiss)}>{t('Dismiss')}</button>
+                  )}
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+      </>}
     </section>
   )
 }

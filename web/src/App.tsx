@@ -489,6 +489,8 @@ function Workspace({
     match?: string,
     catalogCover?: Blob,
     catalogId: string | null = null,
+    /** On another edition with this identifier: ask, keep this copy in this browser, or refuse. */
+    conflict: 'ask' | 'keep' | 'refuse' = 'ask',
   ) {
     const replica = await storage()
     const parsed = await openEpub(blob),
@@ -523,10 +525,11 @@ function Workspace({
       if (
         !(e instanceof EditionConflict) ||
         match ||
-        !(await ask(
+        conflict === 'refuse' ||
+        (conflict === 'ask' && !(await ask(
           t('Another edition has this identifier. Keep this copy only in this browser?'),
           { confirm: t('Keep in this browser'), cancel: t('Cancel') },
-        ))
+        )))
       )
         throw e
       await replica.putBook(record, blob, { localOnly: true })
@@ -548,17 +551,24 @@ function Workspace({
   const importLatest = useRef(imported)
   importLatest.current = imported
   const conversions = useConversions({
+    namespace: active.namespace,
     store: replica,
     request: active.mode === 'connected' ? active.request : undefined,
     capability: active.capabilities?.pdf_conversion,
-    importEpub: (epub) => importLatest.current(epub),
+    // A conversion finishes in the background: it never asks, the list offers the choice.
+    importEpub: (epub, keepLocal) =>
+      importLatest.current(epub, null, undefined, undefined, null, keepLocal ? 'keep' : 'refuse'),
   })
   async function importFiles(files: File[], match?: string) {
     const pdfs = files.filter(isPdf), epubs = files.filter((picked) => !isPdf(picked))
-    if (pdfs.length) {
+    if (pdfs.length && match) {
+      report('Choose an EPUB to replace this edition.')
+    } else if (pdfs.length) {
       // A PDF becomes an EPUB on the server first: the reader confirms it in the conversions list.
       const refusal = await conversions.choose(pdfs, await storage())
       if (refusal) report(refusal)
+      // The list is on the shelf.
+      else if (!epubs.length && alive.current) go('library')
     }
     let key = ''
     for (const picked of epubs) {
