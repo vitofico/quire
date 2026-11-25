@@ -24,9 +24,9 @@ checkout and a running production DB.
 
 ## Branches (forward-only from 0004)
 
-The current AI head is `ai_009`, adding `ai_usage_monthly` for an optional
-generic authenticated HTTP policy. It follows `ai_008` without rewriting any
-deployed revision. Quotas are inert unless the operator enables that policy.
+The current AI head is `ai_011`, deleting `calibre_book_id` identity aliases
+(a Calibre-Web book number is not unique across servers). It follows `ai_010`
+without rewriting any deployed revision.
 
 The current progress head is `progress_005`, adding an optional private comment
 to each highlight. Its parent `progress_004` introduced caller-scoped `highlights` plus `highlight_sync_state`. Highlights
@@ -48,7 +48,7 @@ From the split point onward, every new migration belongs to exactly one branch:
 | `catalogs` | `"catalogs"` | shared | `catalogs_001` (synced catalogs saved to an account); always upgraded. |
 | `core`     | `"core"`     | shared | Reserved; no migrations yet.                                                                     |
 | `progress` | `"progress"` | sync   | `progress_001` → `progress_002` → `progress_003` → `progress_004` (private highlights) → `progress_005` (comments). Spliced from `0004`. |
-| `ai`       | `"ai"`       | AI     | `ai_001` through `ai_009`; the latest adds monthly job admission. |
+| `ai`       | `"ai"`       | AI     | `ai_001` through `ai_011`; the latest deletes `calibre_book_id` aliases. |
 
 ### Adding the FIRST migration on a branch (splice)
 

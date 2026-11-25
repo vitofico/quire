@@ -2540,7 +2540,7 @@ def _synthetic_content_hash(ident: DocumentIdentity, original_hints: dict[str, s
     if ident.metadata_id:
         return f"synthetic:metadata_id:{ident.metadata_id}"
     if original_hints:
-        for scheme in ("opds_dc_id", "isbn", "calibre_book_id", "opds_href"):
+        for scheme in ("opds_dc_id", "isbn", "opds_href"):
             v = original_hints.get(scheme)
             if v:
                 return f"synthetic:{scheme}:{v}"
