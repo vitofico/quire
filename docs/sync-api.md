@@ -821,8 +821,16 @@ so a stored password is never sent somewhere it was not entered for. Keeping
 it also needs the stored value, so on a row that cannot be decrypted that
 save is `409 needs_login`: send the password again.
 
+`unique_url` is an optional boolean, `false` by default. When it is `true` and
+the id is new, a catalog whose stored address equals `url` (both trimmed) is
+not saved a second time: the answer is `409` with
+`{"detail": "catalog_exists", "id": "<the existing id>"}`. Quire Web sets it
+when adding a suggested open catalog. Without it, as older apps send, the same
+address can be saved under two ids.
+
 | Status | `detail` | When |
 |---|---|---|
+| 409 | `catalog_exists` | `unique_url` is `true`, the id is new and the account already holds this address; the body names its `id`. |
 | 409 | `catalog_limit_reached` | Creating a 21st catalog. An account holds at most 20; replacing one at the limit is fine. |
 | 409 | `needs_login` | `password` omitted and the stored one cannot be read. |
 | 422 | `invalid_name` | `name` is blank after trimming (at most 60 characters). |
