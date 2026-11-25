@@ -36,6 +36,8 @@ data class DetailsCover(
     /** Absolute for Open Library, a server path for a generated cover. */
     val url: String? = null,
     val generated: Boolean = false,
+    /** Painted artwork for this generated cover is on its way: a later lookup answers with a new [url]. */
+    val painting: Boolean = false,
 )
 
 @Serializable
@@ -48,6 +50,8 @@ data class DetailsResponse(
     val tidy: String,
     /** The matched Open Library work, for attribution. */
     @SerialName("openlibrary_url") val openLibraryUrl: String? = null,
+    /** How often the app has asked again for artwork still being painted. The app's own count, kept with the answer. */
+    @SerialName("painting_checks") val paintingChecks: Int = 0,
 )
 
 const val ORIGIN_FILE = "file"

@@ -180,7 +180,10 @@ class BookDetailsRepository(
      * The automatic pass: quietly, once per book, for a book that lacks a cover, an author or a
      * description, or whose title looks like a file name. At most [DAILY_LOOKUPS] lookups a
      * day, since a lookup may spend a generation of the reader's allowance. A book whose tidy
-     * could not run (allowance spent, or failed) is asked about again a day later. The pass
+     * could not run (allowance spent, or failed) is asked about again a day later. A book whose
+     * cover artwork is still being painted is asked about again an hour later, up to
+     * [PAINTING_CHECKS] times; those lookups cost nothing, so they go first and are not counted,
+     * and never use up the day's lookups for new books. The pass
      * stops at the first sign the server cannot answer now (offline, rate limited, off, opted
      * out, allowance spent), so a patchy library never turns into a burst of retries.
      *
@@ -194,7 +197,9 @@ class BookDetailsRepository(
         val rows = dao.all().associateBy { it.documentId }
         sweepCovers(rows.values.mapNotNullTo(HashSet()) { it.coverPath })
         var due: Long? = null
-        for (doc in documents.observeLibrary().first()) {
+        val painting = rows.values.filter { it.awaitsPainting() }.mapTo(HashSet()) { it.documentId }
+        val library = documents.observeLibrary().first().sortedByDescending { it.id in painting }
+        for (doc in library) {
             if (!mayRunAutomatically()) return null
             val seen = rows[doc.id]
             if (seen != null) {
@@ -209,9 +214,11 @@ class BookDetailsRepository(
                 saveUnlessChanged(null, BookDetailsEntity(doc.id, null, null, useOriginal = false, retryAt = null))
                 continue
             }
-            val used = lookupsToday()
-            if (used >= DAILY_LOOKUPS) return startOfTomorrow()
-            countLookups(used + 1)
+            if (doc.id !in painting) {
+                val used = lookupsToday()
+                if (used >= DAILY_LOOKUPS) return startOfTomorrow()
+                countLookups(used + 1)
+            }
             val response = try {
                 client.lookupDetails(request)
             } catch (e: CancellationException) {
@@ -286,14 +293,17 @@ class BookDetailsRepository(
         background: Boolean,
     ): Long? {
         val (coverPath, coverMissing) = coverFor(doc, response, seen?.coverPath)
+        val asked = seen?.takeIf { background }?.toDetails()?.response?.takeIf { it.cover.painting }
+        val checks = if (response.cover.painting && asked != null) asked.paintingChecks + 1 else 0
         val retryAt = when {
             response.tidy == TIDY_QUOTA_EXCEEDED || response.tidy == TIDY_FAILED -> clock() + DAY_S * 1000L
             coverMissing -> clock() + PAUSE_S * 1000L
+            response.cover.painting && checks < PAINTING_CHECKS -> clock() + PAINTING_WAIT_S * 1000L
             else -> null
         }
         val row = BookDetailsEntity(
             documentId = doc.id,
-            responseJson = json.encodeToString(DetailsResponse.serializer(), response),
+            responseJson = json.encodeToString(DetailsResponse.serializer(), response.copy(paintingChecks = checks)),
             coverPath = coverPath,
             useOriginal = useOriginal,
             retryAt = retryAt,
@@ -305,7 +315,8 @@ class BookDetailsRepository(
                 return null
             }
             save(row)
-            current?.coverPath?.takeIf { it != coverPath }?.let { File(it).delete() }
+            // A replaced cover is left for the sweep, so a shelf still holding its path can draw it meanwhile.
+            current?.coverPath?.takeIf { it != coverPath }?.let { File(it).setLastModified(clock()) }
         }
         return retryAt
     }
@@ -390,10 +401,17 @@ class BookDetailsRepository(
     private fun coverFiles(): List<File> =
         coversDir.listFiles { file -> file.name.startsWith(COVER_PREFIX) }.orEmpty().toList()
 
-    /** Removes cover copies no row points at any more, such as those of deleted books. */
+    /** Removes cover copies no row has pointed at for half an hour, such as those of deleted books or replaced covers. */
     private suspend fun sweepCovers(live: Set<String>) = withContext(Dispatchers.IO) {
         val cutoff = clock() - PAUSE_S * 1000L
         coverFiles().filter { it.absolutePath !in live && it.lastModified() < cutoff }.forEach { it.delete() }
+    }
+
+    /** Waiting to ask again for cover artwork being painted, a free lookup. */
+    private fun BookDetailsEntity.awaitsPainting(): Boolean {
+        if (retryAt == null) return false
+        val response = toDetails()?.response ?: return false
+        return response.cover.painting && response.tidy != TIDY_QUOTA_EXCEEDED && response.tidy != TIDY_FAILED
     }
 
     private fun BookDetailsEntity.toDetails(): BookDetails? {
@@ -409,6 +427,9 @@ class BookDetailsRepository(
         private const val COVER_PREFIX = "details-"
         private const val PAUSE_S = 30 * 60L
         private const val DAY_S = 24 * 60 * 60L
+        private const val PAINTING_WAIT_S = 60 * 60L
+        /** How often the pass asks again for artwork still being painted before keeping the drawn cover. */
+        private const val PAINTING_CHECKS = 3
         private const val MAX_HOPS = 5
         private const val MAX_COVER_BYTES = 10L * 1024 * 1024
         private const val KEY_DAY = "auto_lookup_day"

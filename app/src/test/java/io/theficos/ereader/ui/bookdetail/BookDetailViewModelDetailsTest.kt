@@ -91,7 +91,7 @@ class BookDetailViewModelDetailsTest {
         }
         details = BookDetailsRepository(
             client = client, ai = ai, documents = documents, dao = db.bookDetailsDao(),
-            coversDir = File(System.getProperty("java.io.tmpdir")), openLibraryHttp = OkHttpClient(),
+            coversDir = File(checkNotNull(System.getProperty("java.io.tmpdir"))), openLibraryHttp = OkHttpClient(),
             showTidied = MutableStateFlow(true), owner = flowOf("reader"), unmetered = MutableStateFlow(true),
             prefs = ApplicationProvider.getApplicationContext<Context>().getSharedPreferences("book_details", Context.MODE_PRIVATE),
             scope = repositoryScope,

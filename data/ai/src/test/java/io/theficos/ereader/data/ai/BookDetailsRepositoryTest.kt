@@ -309,6 +309,78 @@ class BookDetailsRepositoryTest {
         assertThat(File(path).readText()).isEqualTo("png-bytes")
     }
 
+    private fun drawnCover(url: String = generatedCover, painting: Boolean = true) =
+        details(cover = """{"source":"generated","url":"$url","generated":true,"painting":$painting}""")
+
+    @Test fun `a cover still being painted is asked for again an hour later, and the painted one replaces it`() = runBlocking {
+        val doc = book()
+        answer("/details/v1/lookup", drawnCover())
+        answer(generatedCover, "drawn")
+
+        assertThat(repo.runAutoPass()).isEqualTo(now + 3_600_000L)
+        val drawn = File(shownFor(doc.id).coverPath!!)
+
+        now += 3_600_000L
+        unmetered.value = false
+        assertThat(repo.runAutoPass()).isNull()
+        assertThat(lookups()).hasSize(1)
+
+        unmetered.value = true
+        val painted = generatedCover.replace("v=7", "v=8")
+        answer("/details/v1/lookup", drawnCover(url = painted, painting = false))
+        answer(painted, "painted")
+        assertThat(repo.runAutoPass()).isNull()
+
+        assertThat(lookups()).hasSize(2)
+        // The stored row moves to the new file; the shelf follows a moment later, so the old one stays a while.
+        val stored = db.bookDetailsDao().find(doc.id)!!.coverPath!!
+        assertThat(File(stored).readText()).isEqualTo("painted")
+        waitFor { shownFor(doc.id).coverPath == stored }
+        assertThat(drawn.readText()).isEqualTo("drawn")
+
+        now += 31 * 60_000L
+        repo.runAutoPass()
+        assertThat(drawn.exists()).isFalse()
+        assertThat(File(stored).exists()).isTrue()
+        now += 24 * 3_600_000L
+        repo.runAutoPass()
+        assertThat(lookups()).hasSize(2)
+    }
+
+    @Test fun `a painting that never arrives is asked about three more times, then the drawn cover stays`() = runBlocking {
+        val doc = book()
+        repeat(5) { answer("/details/v1/lookup", drawnCover()) }
+        answer(generatedCover, "drawn")
+
+        repeat(5) {
+            repo.runAutoPass()
+            now += 3_600_000L
+        }
+
+        assertThat(lookups()).hasSize(4)
+        assertThat(File(shownFor(doc.id).coverPath!!).readText()).isEqualTo("drawn")
+    }
+
+    @Test fun `asking again for a painting goes first and leaves the day's lookups to new books`() = runBlocking {
+        book("first_book")
+        answer("/details/v1/lookup", drawnCover())
+        answer(generatedCover, "drawn")
+        repo.runAutoPass()
+
+        // All but one of the day's lookups spent elsewhere.
+        val prefs = ApplicationProvider.getApplicationContext<Context>().getSharedPreferences("book_details", Context.MODE_PRIVATE)
+        prefs.edit().putInt("auto_lookups", BookDetailsRepository.DAILY_LOOKUPS - 1).apply()
+        book("second_book")
+        now += 3_600_000L
+        answer("/details/v1/lookup", drawnCover(painting = false))
+        answer("/details/v1/lookup", details(title = "Second"))
+
+        repo.runAutoPass()
+
+        assertThat(lookups().map { Json.parseToJsonElement(it.body.readUtf8()).jsonObject["book"]!!.jsonObject["title"]!!.jsonPrimitive.content })
+            .containsExactly("first_book", "first_book", "second_book").inOrder()
+    }
+
     @Test fun `an Open Library cover comes from Open Library and the archive it redirects to, without the account's login`() = runBlocking {
         val doc = book()
         answer("/details/v1/lookup", details(cover = """{"source":"openlibrary","url":"https://covers.openlibrary.org/b/id/1-L.jpg","generated":false}"""))
@@ -486,8 +558,8 @@ class BookDetailsRepositoryTest {
 
         owner.value = "https://other.example reader"
 
-        waitFor { db.bookDetailsDao().all().isEmpty() }
-        assertThat(cover.exists()).isFalse()
+        // The rows go first, then their covers.
+        waitFor { db.bookDetailsDao().all().isEmpty() && !cover.exists() }
         follow.cancelAndJoin()
     }
 
