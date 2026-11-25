@@ -128,7 +128,11 @@ class CatalogCheck(
             // The browser's own rules: a stricter test here would reject a feed the catalog screen
             // then renders fine. Flibusta emits bare `application/epub` on some entries (issue #101).
             val isAcquisition = isAcquisitionRel(rel) && isEpubMediaType(type)
-            val isNavigation = rel == "subsection" || type.startsWith("application/atom+xml;profile=opds-catalog")
+            // An entry linking to another Atom feed is navigation too: Ebooks libres et gratuits
+            // types its home's entries as bare `application/atom+xml`, and the browser opens them.
+            val inEntry = (el.parentNode as? org.w3c.dom.Element)?.localName == "entry"
+            val isNavigation = rel == "subsection" || type.startsWith("application/atom+xml;profile=opds-catalog") ||
+                inEntry && type.startsWith("application/atom+xml")
             if (isAcquisition || isNavigation) return true
         }
         false
