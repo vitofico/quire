@@ -549,6 +549,17 @@ const labels: Record<string, [string, string, string, string]> = {
   'This catalog sent a compressed answer, which Quire does not pass on.': ["Este catálogo envió una respuesta comprimida, que Quire no transmite.", "Questo catalogo ha inviato una risposta compressa, che Quire non inoltra.", "Ce catalogue a envoyé une réponse compressée, que Quire ne transmet pas.", "Dieser Katalog hat eine komprimierte Antwort gesendet, die Quire nicht weitergibt."],
   'Quire is busy with other catalog requests. Try again in a moment.': ["Quire está ocupado con otras solicitudes de catálogo. Inténtalo de nuevo en un momento.", "Quire è occupato con altre richieste ai cataloghi. Riprova tra un momento.", "Quire traite d’autres requêtes de catalogue. Réessayez dans un instant.", "Quire ist mit anderen Kataloganfragen beschäftigt. Versuche es gleich noch einmal."],
   'This catalog is no longer on your account.': ["Este catálogo ya no está en tu cuenta.", "Questo catalogo non è più nel tuo account.", "Ce catalogue n’est plus dans votre compte.", "Dieser Katalog ist nicht mehr in deinem Konto."],
+  'From Open Library': ["De Open Library", "Da Open Library", "Depuis Open Library", "Von Open Library"],
+  'Tidied by AI': ["Ordenado por IA", "Riordinato dall’IA", "Mis en forme par l’IA", "Von KI aufgeräumt"],
+  'Written by AI': ["Escrito por IA", "Scritto dall’IA", "Rédigé par l’IA", "Von KI geschrieben"],
+  'Generated cover': ["Portada generada", "Copertina generata", "Couverture générée", "Erzeugtes Cover"],
+  'First published': ["Primera edición", "Prima edizione", "Première publication", "Erstmals erschienen"],
+  'View on Open Library': ["Ver en Open Library", "Vedi su Open Library", "Voir sur Open Library", "Bei Open Library ansehen"],
+  'Tidying sends this book’s details to your configured AI service.': ["Para ordenar los datos, se envían los datos de este libro al servicio de IA configurado.", "Per riordinare i dati, i dati di questo libro vengono inviati al servizio IA configurato.", "La mise en forme transmet les informations de ce livre au service d’IA configuré.", "Beim Aufräumen werden die Angaben zu diesem Buch an den eingestellten KI-Dienst gesendet."],
+  'Tidy details': ["Ordenar datos", "Riordina i dati", "Mettre en forme les informations", "Angaben aufräumen"],
+  'Use original': ["Usar los originales", "Usa gli originali", "Utiliser l’original", "Original verwenden"],
+  'Tidying details…': ["Ordenando datos…", "Riordino dei dati…", "Mise en forme des informations…", "Angaben werden aufgeräumt…"],
+  'Details tidied.': ["Datos ordenados.", "Dati riordinati.", "Informations mises en forme.", "Angaben aufgeräumt."],
 }
 export const languages = {
   en: 'English',
