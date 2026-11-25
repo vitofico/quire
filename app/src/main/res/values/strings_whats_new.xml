@@ -12,5 +12,5 @@
     <string name="whats_new_catalogs_title">All your catalogs, on every device</string>
     <string name="whats_new_catalogs_description">Save several catalogs in %1$s → %2$s and switch between them while browsing. Signed in to Quire, the list follows you to your other devices.</string>
     <string name="whats_new_book_details_title">Tidier book details</string>
-    <string name="whats_new_book_details_description">Books with a file name for a title, or no cover, author or description, now get their details from Open Library or tidied by AI, with a label saying which. Turn it off in %1$s → %2$s, or go back to a book’s original details from its menu.</string>
+    <string name="whats_new_book_details_description">Books with a file name for a title, or no cover, author or description, now get their details from Open Library or tidied by AI, with a label saying which. It runs on Wi-Fi, up to 25 books a day. Turn it off in %1$s → %2$s, or go back to a book’s original details from its menu.</string>
 </resources>

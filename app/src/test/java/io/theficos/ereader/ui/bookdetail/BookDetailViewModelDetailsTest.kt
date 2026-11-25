@@ -1,5 +1,6 @@
 package io.theficos.ereader.ui.bookdetail
 
+import android.content.Context
 import androidx.lifecycle.viewModelScope
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
@@ -20,12 +21,16 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -55,6 +60,7 @@ class BookDetailViewModelDetailsTest {
     private val responses = ConcurrentHashMap<String, ConcurrentLinkedQueue<MockResponse>>()
     private val holdTidy = CountDownLatch(1)
     private val viewModels = mutableListOf<BookDetailViewModel>()
+    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var bookId = 0L
 
     @Before fun setUp() {
@@ -86,7 +92,9 @@ class BookDetailViewModelDetailsTest {
         details = BookDetailsRepository(
             client = client, ai = ai, documents = documents, dao = db.bookDetailsDao(),
             coversDir = File(System.getProperty("java.io.tmpdir")), openLibraryHttp = OkHttpClient(),
-            showTidied = MutableStateFlow(true),
+            showTidied = MutableStateFlow(true), owner = flowOf("reader"), unmetered = MutableStateFlow(true),
+            prefs = ApplicationProvider.getApplicationContext<Context>().getSharedPreferences("book_details", Context.MODE_PRIVATE),
+            scope = repositoryScope,
         )
     }
 
@@ -95,6 +103,7 @@ class BookDetailViewModelDetailsTest {
         try {
             runTest { viewModels.forEach { it.viewModelScope.coroutineContext[Job]?.cancelAndJoin() } }
         } finally {
+            repositoryScope.cancel()
             runCatching { server.shutdown() }
             db.close()
             Dispatchers.resetMain()
@@ -165,7 +174,10 @@ class BookDetailViewModelDetailsTest {
     @Test fun `tidy failures read as the reader's words`() {
         val en = englishContext()
         fun message(e: Throwable) = tidyErrorMessage(e).asString(en)
-        assertThat(message(AiHttpException(429, "{}"))).isEqualTo("You’ve used up your AI allowance for now.")
+        assertThat(message(AiHttpException(429, """{"detail":"monthly_ai_quota_exhausted"}""")))
+            .isEqualTo("You’ve used up your AI allowance for now.")
+        assertThat(message(AiHttpException(429, """{"detail":"details_rate_limited"}""", retryAfterSeconds = 20)))
+            .isEqualTo("The server is busy. Try again in a moment.")
         assertThat(message(AiHttpException(409, """{"detail":"ai_not_opted_in"}""")))
             .isEqualTo("AI isn’t available for your account right now. Check AI features in Settings.")
         assertThat(message(AiHttpException(404, "{}"))).isEqualTo("This server doesn’t tidy book details right now.")

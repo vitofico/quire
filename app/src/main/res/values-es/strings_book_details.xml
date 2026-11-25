@@ -11,9 +11,11 @@
     <string name="details_ai_not_available">"La IA no está disponible para tu cuenta en este momento. Revisa las funciones de IA en Ajustes."</string>
     <string name="details_not_offered">"Este servidor no ordena los detalles de los libros en este momento."</string>
     <string name="details_couldn_t_tidy">"No se pudieron ordenar los detalles. Inténtalo más tarde."</string>
+    <string name="details_busy">"El servidor está ocupado. Inténtalo de nuevo en un momento."</string>
     <string name="details_from_open_library">"De Open Library"</string>
     <string name="details_tidied_by_ai">"Ordenado por IA"</string>
     <string name="details_written_by_ai">"Escrito por IA"</string>
     <string name="details_generated_cover">"Portada generada"</string>
     <string name="details_cover_from_open_library">"Portada de Open Library"</string>
+    <string name="details_view_on_open_library">"Ver en Open Library"</string>
 </resources>

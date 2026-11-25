@@ -26,5 +26,5 @@
     <string name="settings_last_synced_sentence">"Última sincronización: %1$s."</string>
     <string name="settings_last_attempt_failed_sentence">"Último intento fallido: %1$s"</string>
     <string name="settings_tidy_book_details">"Ordenar los detalles de los libros"</string>
-    <string name="settings_tidy_book_details_description">"Completa portadas, autores y descripciones que faltan con Open Library. Donde no hay nada, la IA ordena los títulos que parecen nombres de archivo, escribe una breve descripción o crea una portada sencilla. Cada libro conserva sus propios detalles y puedes volver a ellos desde el menú del libro."</string>
+    <string name="settings_tidy_book_details_description">"Completa portadas, autores y descripciones que faltan con Open Library. La IA ordena los títulos que parecen nombres de archivo, aunque Open Library conozca el libro, crea una portada sencilla cuando no se encuentra una real y escribe una breve descripción donde no hay ninguna. Cada ordenación cuenta para tu cupo de IA. Los libros se revisan solo con Wi-Fi, hasta 25 al día. Cada libro conserva sus propios detalles y puedes volver a ellos desde el menú del libro."</string>
 </resources>

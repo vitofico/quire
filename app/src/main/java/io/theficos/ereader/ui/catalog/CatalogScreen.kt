@@ -67,7 +67,10 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.theficos.ereader.auth.SavedCatalog
+import io.theficos.ereader.data.ai.BookDetails
 import io.theficos.ereader.data.opds.OpdsPublication
+import io.theficos.ereader.ui.bookdetail.coverNote
+import io.theficos.ereader.ui.bookdetail.withNote
 import io.theficos.ereader.ui.components.catalogCoverRequest
 import io.theficos.ereader.ui.components.CoverImage
 import io.theficos.ereader.ui.components.CoverInfoButton
@@ -207,7 +210,7 @@ internal fun CatalogError(
 private fun Loaded(
     state: CatalogUiState.Loaded,
     downloadedUrls: Set<String>,
-    storedCovers: Map<String, String>,
+    storedCovers: Map<String, BookDetails>,
     sort: CatalogSort,
     onSort: (CatalogSort) -> Unit,
     onNavigate: (String) -> Unit,
@@ -271,13 +274,16 @@ private fun Loaded(
                     ),
                 ) {
                     Box {
+                        val catalogCover = catalogCoverRequest(pub.coverUrl)
+                        val found = storedCovers[pub.epubDownloadHref].takeIf { catalogCover == null }
                         CoverImage(
-                            source = catalogCoverRequest(pub.coverUrl) ?: storedCovers[pub.epubDownloadHref],
+                            source = catalogCover ?: found?.coverPath,
                             title = pub.title,
                             author = pub.author,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .aspectRatio(2f / 3f),
+                            contentDescription = withNote(pub.title, found?.let(::coverNote)),
                         )
                         when {
                             downloading -> CircularProgressIndicator(

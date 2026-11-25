@@ -303,6 +303,11 @@ class LibraryViewModelTest {
 
         tidiedVm.setQuery("herbert")
         assertThat(tidiedVm.books().first { it.size == 1 }.single().document.id).isEqualTo(tidiedId)
+        tidiedVm.setQuery("")
+        tidiedVm.books().first { it.size >= 2 }
+        // The book's own title still finds it.
+        tidiedVm.setQuery("zzz_dune")
+        assertThat(tidiedVm.books().first { it.size == 1 }.single().document.id).isEqualTo(tidiedId)
     }
 
     @Test fun `query filters by author`() = runTest {

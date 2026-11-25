@@ -2,6 +2,7 @@ package io.theficos.ereader.data.ai
 
 import io.theficos.ereader.testing.awaitRequest
 import com.google.common.truth.Truth.assertThat
+import com.google.common.truth.Truth.assertWithMessage
 import io.theficos.ereader.core.metadata.MetadataBundle
 import io.theficos.ereader.core.model.DocumentIdentity
 import kotlinx.coroutines.Dispatchers
@@ -473,11 +474,20 @@ class AiClientTest {
     @Test
     fun `a generated cover comes only from the cover endpoint`() = runTest {
         server.enqueue(MockResponse().setBody("png"))
+        val key = "0123456789abcdef".repeat(4)
 
-        assertThat(String(client.detailsCover("/details/v1/covers/k?v=2"))).isEqualTo("png")
-        assertThat(server.awaitRequest().path).isEqualTo("/details/v1/covers/k?v=2")
-        assertThat(runCatching { client.detailsCover("/ai/v1/profile") }.exceptionOrNull())
-            .isInstanceOf(IllegalArgumentException::class.java)
+        assertThat(String(client.detailsCover("/details/v1/covers/$key?v=2"))).isEqualTo("png")
+        assertThat(server.awaitRequest().path).isEqualTo("/details/v1/covers/$key?v=2")
+        listOf(
+            "/ai/v1/profile",
+            "/details/v1/covers/../../../ai/v1/profile",
+            "/details/v1/covers/%2e%2e/%2e%2e/%2e%2e/ai/v1/profile",
+            "/details/v1/covers/k?v=2",
+            "@elsewhere.example/details/v1/covers/$key",
+        ).forEach { path ->
+            assertWithMessage(path).that(runCatching { client.detailsCover(path) }.exceptionOrNull())
+                .isInstanceOf(IllegalArgumentException::class.java)
+        }
         assertThat(server.requestCount).isEqualTo(1)
     }
 }

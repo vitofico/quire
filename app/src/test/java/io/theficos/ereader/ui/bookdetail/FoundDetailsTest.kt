@@ -75,4 +75,29 @@ class FoundDetailsTest {
         assertThat(facts.first { it.label == R.string.book_publisher }.note).isNull()
         assertThat(facts.first { it.label == R.string.book_published }.note).isEqualTo(R.string.details_from_open_library)
     }
+
+    @Test fun `a found series number is labelled too`() {
+        assertThat(headerNotes(doc, found(mapOf("title" to "file", "series_index" to "ai"))))
+            .containsExactly(R.string.details_tidied_by_ai)
+    }
+
+    @Test fun `only a found description is shown as plain text`() {
+        val book = DetailsBook(title = "Dune", description = "A <b>desert</b> planet.")
+        assertThat(usesFoundDescription(found(mapOf("description" to "ai"), book))).isTrue()
+        assertThat(usesFoundDescription(found(mapOf("description" to "openlibrary"), book))).isTrue()
+        assertThat(usesFoundDescription(found(mapOf("description" to "file"), book))).isFalse()
+        assertThat(usesFoundDescription(found(mapOf("description" to "ai"), book.copy(description = null)))).isFalse()
+    }
+
+    @Test fun `the Open Library link shows only for an https openlibrary_org address`() {
+        fun link(url: String?) = openLibraryLink(
+            BookDetails(DetailsResponse(key = "k", book = DetailsBook(title = "Dune"), tidy = "done", openLibraryUrl = url), null, false),
+        )
+        assertThat(link("https://openlibrary.org/works/OL893415W")).isEqualTo("https://openlibrary.org/works/OL893415W")
+        assertThat(link("http://openlibrary.org/works/OL893415W")).isNull()
+        assertThat(link("https://openlibrary.org.example/works/OL1W")).isNull()
+        assertThat(link("https://user@openlibrary.org/works/OL1W")).isNull()
+        assertThat(link("javascript:alert(1)")).isNull()
+        assertThat(link(null)).isNull()
+    }
 }

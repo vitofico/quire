@@ -15,6 +15,7 @@ import kotlinx.serialization.json.jsonObject
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -169,8 +170,17 @@ class AiClient(
      * only ever goes to the cover endpoint.
      */
     suspend fun detailsCover(path: String): ByteArray = withContext(Dispatchers.IO) {
-        require(path.startsWith("/details/v1/covers/")) { "not a details cover path" }
-        http.newCall(Request.Builder().url("${resolveBaseUrl()}$path").get().build()).await().use { resp ->
+        val root = resolveBaseUrl()
+        val base = root.toHttpUrl()
+        val url = "$root$path".toHttpUrlOrNull()
+        // Checked once resolved, so a ".." or another host in [path] cannot step out.
+        val prefix = base.pathSegments.filter { it.isNotEmpty() }
+        require(
+            url != null && url.scheme == base.scheme && url.host == base.host && url.port == base.port &&
+                url.pathSegments == prefix + listOf("details", "v1", "covers", url.pathSegments.last()) &&
+                COVER_KEY.matches(url.pathSegments.last()),
+        ) { "not a details cover path" }
+        http.newCall(Request.Builder().url(url).get().build()).await().use { resp ->
             if (!resp.isSuccessful) {
                 throw makeError(resp.code, resp.body?.string().orEmpty(), resp.header("Retry-After"))
             }
@@ -300,36 +310,6 @@ class AiClient(
     }
 
     /**
-     * Issue #102: every request path in this client awaits its [Call]
-     * through here instead of calling `execute()` directly, so cancelling
-     * the coroutine (e.g. the reader screen that asked for the call is left)
-     * cancels the OkHttp call too, rather than leaving it to hold an IO
-     * thread and a socket until the call timeout elapses.
-     *
-     * `onResponse` can race `invokeOnCancellation`: OkHttp may hand us a
-     * `Response` after the coroutine is already cancelled, and a plain
-     * `resume` would then be a no-op, leaking that response's connection.
-     * The 3-argument `resume(value, onCancellation)` added in
-     * kotlinx-coroutines 1.9 covers exactly this: `onCancellation` runs with
-     * the undelivered value when the resume loses the race, so we close it
-     * there instead.
-     */
-    private suspend fun Call.await(): Response =
-        suspendCancellableCoroutine { cont ->
-            cont.invokeOnCancellation { cancel() }
-            enqueue(object : Callback {
-                override fun onFailure(call: Call, e: IOException) {
-                    if (cont.isCancelled) return
-                    cont.resumeWithException(e)
-                }
-
-                override fun onResponse(call: Call, response: Response) {
-                    cont.resume(response) { _, undelivered, _ -> undelivered.close() }
-                }
-            })
-        }
-
-    /**
      * Issue #102: a client for calls that block on a model. The shared
      * client's timeouts are sized for OPDS and sync, not for a generation
      * or profile refresh that the server bounds at [timeoutS] and retries
@@ -387,6 +367,9 @@ class AiClient(
         /** Server default for QUIRE_SERVER_AI_TIMEOUT_S, assumed when the server does not advertise one. */
         const val DEFAULT_GENERATION_TIMEOUT_S = 120
 
+        /** A details record key: a SHA-256 in hex. */
+        private val COVER_KEY = Regex("^[0-9a-f]{64}$")
+
         /**
          * Twice the server's generation timeout (the server retries once on
          * malformed output) plus 30 s for retrieval and queueing, clamped to
@@ -420,3 +403,33 @@ class InsightNotCachedException : RuntimeException("insight not cached")
 /** [retryAfterSeconds] as on [AiHttpException]. */
 class AiQuotaException(val info: QuotaInfo, val retryAfterSeconds: Long? = null) :
     RuntimeException("AI quota exhausted: ${info.used}/${info.limit}, resets at ${info.resetsAt}")
+
+/**
+ * Issue #102: every request path in this client, and the book details
+ * cover fetches, await their [Call] through here instead of calling
+ * `execute()` directly, so cancelling the coroutine (e.g. the reader screen that asked for the call is left)
+ * cancels the OkHttp call too, rather than leaving it to hold an IO
+ * thread and a socket until the call timeout elapses.
+ *
+ * `onResponse` can race `invokeOnCancellation`: OkHttp may hand us a
+ * `Response` after the coroutine is already cancelled, and a plain
+ * `resume` would then be a no-op, leaking that response's connection.
+ * The 3-argument `resume(value, onCancellation)` added in
+ * kotlinx-coroutines 1.9 covers exactly this: `onCancellation` runs with
+ * the undelivered value when the resume loses the race, so we close it
+ * there instead.
+ */
+internal suspend fun Call.await(): Response =
+    suspendCancellableCoroutine { cont ->
+        cont.invokeOnCancellation { cancel() }
+        enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                if (cont.isCancelled) return
+                cont.resumeWithException(e)
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                cont.resume(response) { _, undelivered, _ -> undelivered.close() }
+            }
+        })
+    }

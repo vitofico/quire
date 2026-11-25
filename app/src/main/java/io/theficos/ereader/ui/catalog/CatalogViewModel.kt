@@ -93,11 +93,11 @@ class CatalogViewModel(
         .map { list -> list.map { it.downloadUrl }.toSet() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
 
-    /** The found cover of each downloaded book that has none of its own, by download address. */
-    val storedCovers: StateFlow<Map<String, String>> = docs.observeLibrary()
+    /** The found details of each downloaded book with a found cover and none of its own, by download address; only the cover shows. */
+    val storedCovers: StateFlow<Map<String, BookDetails>> = docs.observeLibrary()
         .combine(shownDetails) { list, details ->
             list.mapNotNull { doc ->
-                details[doc.id]?.coverPath?.takeIf { doc.coverPath == null }?.let { doc.downloadUrl to it }
+                details[doc.id]?.takeIf { doc.coverPath == null && it.coverPath != null }?.let { doc.downloadUrl to it }
             }.toMap()
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())

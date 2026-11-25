@@ -47,6 +47,9 @@ interface BookDetailsDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun save(row: BookDetailsEntity)
 
+    @Query("DELETE FROM book_details")
+    suspend fun clear()
+
     @Query("UPDATE book_details SET useOriginal = :useOriginal WHERE documentId = :documentId")
     suspend fun setUseOriginal(documentId: Long, useOriginal: Boolean)
 }

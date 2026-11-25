@@ -32,6 +32,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.net.SocketTimeoutException
@@ -170,6 +173,7 @@ internal fun tidyOutcome(response: DetailsResponse): UiText = when (response.tid
 /** Why "Tidy details" did not work, in the reader's words. */
 internal fun tidyErrorMessage(e: Throwable): UiText = when {
     e is AiQuotaException -> uiText(R.string.details_allowance_used_until, e.info.resetsAt.take(10))
+    e is AiHttpException && e.code == 429 && e.isRateLimited() -> uiText(R.string.details_busy)
     e is AiHttpException && e.code == 429 -> uiText(R.string.details_allowance_used)
     e is AiHttpException && e.code == 409 -> uiText(R.string.details_ai_not_available)
     e is AiHttpException && (e.code == 404 || e.code == 503) -> uiText(R.string.details_not_offered)
@@ -178,6 +182,10 @@ internal fun tidyErrorMessage(e: Throwable): UiText = when {
     e is IOException -> uiText(R.string.bookdetail_couldn_t_reach_the_server_check_the)
     else -> uiText(R.string.details_couldn_t_tidy)
 }
+
+/** The server's "too many requests this minute", as opposed to a spent allowance. */
+private fun AiHttpException.isRateLimited(): Boolean =
+    runCatching { Json.parseToJsonElement(body).jsonObject["detail"]?.jsonPrimitive?.content }.getOrNull() == "details_rate_limited"
 
 /**
  * Metadata sent with an insight lookup. The OPF wins where it has a value,

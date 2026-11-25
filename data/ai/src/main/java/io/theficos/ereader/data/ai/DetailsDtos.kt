@@ -46,7 +46,7 @@ data class DetailsResponse(
     val origins: Map<String, String> = emptyMap(),
     val cover: DetailsCover = DetailsCover(),
     val tidy: String,
-    val cached: Boolean = false,
+    /** The matched Open Library work, for attribution. */
     @SerialName("openlibrary_url") val openLibraryUrl: String? = null,
 )
 

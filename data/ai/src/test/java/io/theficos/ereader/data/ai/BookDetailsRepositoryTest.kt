@@ -1,5 +1,6 @@
 package io.theficos.ereader.data.ai
 
+import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
@@ -10,20 +11,32 @@ import io.theficos.ereader.core.model.SIDELOAD_URL_PREFIX
 import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.db.EReaderDatabase
 import java.io.File
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
@@ -47,8 +60,16 @@ class BookDetailsRepositoryTest {
     private lateinit var dir: File
     private lateinit var ai: AiRepository
     private lateinit var repo: BookDetailsRepository
+    private lateinit var client: AiClient
+    private lateinit var http: OkHttpClient
     private val showTidied = MutableStateFlow(true)
-    private var now = 1_000_000L
+    private val owner = MutableStateFlow<String?>("https://quire.example reader")
+    private val unmetered = MutableStateFlow(true)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    /** Midday, so an hour either way stays on the same local day. */
+    private var now = LocalDate.of(2026, 11, 25).atTime(12, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+    /** What the repository waited for, as [BookDetailsRepository.followLibrary] sleeps between passes. */
+    private val waits = Channel<Long>(Channel.UNLIMITED)
 
     /** Responses by request path, taken in order; anything else answers 404. */
     private val responses = ConcurrentHashMap<String, ConcurrentLinkedQueue<MockResponse>>()
@@ -63,26 +84,42 @@ class BookDetailsRepositoryTest {
         dir = kotlin.io.path.createTempDirectory("book-details").toFile()
         server = MockWebServer().apply { dispatcher = routes(); start() }
         openLibrary = MockWebServer().apply { dispatcher = routes(); start() }
-        val http = OkHttpClient.Builder().callTimeout(5, TimeUnit.SECONDS).build()
-        val client = AiClient({ server.url("").toString().trimEnd('/') }, http)
+        http = OkHttpClient.Builder().callTimeout(5, TimeUnit.SECONDS).build()
+        client = AiClient({ server.url("").toString().trimEnd('/') }, http)
         ai = AiRepository(client, db.insightDao())
         answer("/ai/v1/config", """{"configured":true,"details_supported":true}""")
         answer("/ai/v1/preferences", """{"ai_enabled":true,"style":{"tone":"neutral","language":"auto"}}""")
         runBlocking { ai.refresh() }
         received.clear()
-        repo = BookDetailsRepository(
-            client = client,
-            ai = ai,
-            documents = documents,
-            dao = db.bookDetailsDao(),
-            coversDir = dir,
-            openLibraryHttp = http,
-            showTidied = showTidied,
-            clock = { now },
-        )
+        repo = newRepository()
     }
 
+    /** Open Library's https hosts, answered by [openLibrary]. */
+    private val toOpenLibrary = Interceptor { chain ->
+        chain.proceed(chain.request().newBuilder().url(openLibrary.url(chain.request().url.encodedPath)).build())
+    }
+
+    private fun newRepository() = BookDetailsRepository(
+        client = client,
+        ai = ai,
+        documents = documents,
+        dao = db.bookDetailsDao(),
+        coversDir = dir,
+        openLibraryHttp = http.newBuilder().addInterceptor(toOpenLibrary).build(),
+        showTidied = showTidied,
+        owner = owner,
+        unmetered = unmetered,
+        prefs = ApplicationProvider.getApplicationContext<Context>().getSharedPreferences("book_details", Context.MODE_PRIVATE),
+        scope = scope,
+        clock = { now },
+        sleep = { ms ->
+            now += ms
+            waits.send(ms)
+        },
+    )
+
     @After fun tearDown() {
+        scope.cancel()
         holdLookup?.countDown()
         runCatching { server.shutdown() }
         runCatching { openLibrary.shutdown() }
@@ -118,6 +155,17 @@ class BookDetailsRepositoryTest {
 
     private fun lookups() = received.filter { it.path == "/details/v1/lookup" }
 
+    /** The shelf's answer for [id], once it shows. */
+    private suspend fun shownFor(id: Long): BookDetails = withTimeout(5_000) { repo.shown.first { id in it } }.getValue(id)
+
+    private suspend fun waitFor(condition: suspend () -> Boolean) = withTimeout(5_000) {
+        while (!condition()) delay(10)
+    }
+
+    private fun startOfTomorrow() =
+        Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault()).toLocalDate().plusDays(1)
+            .atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+
     private suspend fun book(
         title: String = "dune_frank_herbert",
         author: String? = null,
@@ -145,9 +193,9 @@ class BookDetailsRepositoryTest {
         server.shutdown()
         repo.runAutoPass()
         assertThat(lookups()).hasSize(1)
-        val shown = repo.observeShown().first()
-        assertThat(doc.shownWith(shown[doc.id]).title).isEqualTo("Dune")
-        assertThat(doc.shownWith(shown[doc.id]).author).isEqualTo("Frank Herbert")
+        val shown = shownFor(doc.id)
+        assertThat(doc.shownWith(shown).title).isEqualTo("Dune")
+        assertThat(doc.shownWith(shown).author).isEqualTo("Frank Herbert")
         assertThat(documents.findById(doc.id)!!.title).isEqualTo("dune_frank_herbert")
     }
 
@@ -165,9 +213,9 @@ class BookDetailsRepositoryTest {
     @Test fun `a 429 pauses the whole pass for as long as Retry-After says`() = runBlocking {
         book("first_book")
         book("second_book")
-        answer("/details/v1/lookup", """{"detail":"rate_limited"}""", code = 429, retryAfter = "120")
+        answer("/details/v1/lookup", """{"detail":"details_rate_limited"}""", code = 429, retryAfter = "120")
 
-        repo.runAutoPass()
+        assertThat(repo.runAutoPass()).isEqualTo(now + 120_000)
         assertThat(lookups()).hasSize(1)
         assertThat(db.bookDetailsDao().all()).isEmpty()
 
@@ -182,18 +230,22 @@ class BookDetailsRepositoryTest {
         assertThat(lookups()).hasSize(3)
     }
 
-    @Test fun `a 429 without Retry-After, or a spent allowance, pauses the pass for a day`() = runBlocking {
-        book("first_book")
-        answer("/details/v1/lookup", """{"detail":{"used":5,"limit":5,"resets_at":"2026-12-01T00:00:00Z"}}""", code = 429)
+    @Test fun `a tidy refused for the month, with no Retry-After, pauses the background pass for a day`() = runBlocking {
+        val doc = book()
+        answer("/details/v1/tidy", """{"detail":"monthly_ai_quota_exhausted"}""", code = 429)
 
-        repo.runAutoPass()
+        val error = runCatching { repo.tidy(doc.id) }.exceptionOrNull()
+        assertThat((error as AiHttpException).code).isEqualTo(429)
+        assertThat(repo.runAutoPass()).isEqualTo(now + 24 * 3_600_000L)
+
         now += 23 * 3_600_000L
         repo.runAutoPass()
-        assertThat(lookups()).hasSize(1)
+        assertThat(lookups()).isEmpty()
 
         now += 3_600_000L
+        answer("/details/v1/lookup", details())
         repo.runAutoPass()
-        assertThat(lookups()).hasSize(2)
+        assertThat(lookups()).hasSize(1)
     }
 
     @Test fun `offline, feature off and opted out each pause the pass and keep nothing`() = runBlocking {
@@ -218,16 +270,22 @@ class BookDetailsRepositoryTest {
         book("second_book")
         answer("/details/v1/lookup", details(tidy = "quota_exceeded", origins = """{"title":"file","authors":"openlibrary"}""", title = "first_book"))
 
+        assertThat(repo.runAutoPass()).isEqualTo(startOfTomorrow())
+        assertThat(lookups()).hasSize(1)
+        assertThat(repo.observe(first.id).first { it != null }!!.response.book.authors).containsExactly("Frank Herbert")
+
+        // No more lookups that day, even from a fresh start.
+        now += 3_600_000L
+        repo = newRepository()
         repo.runAutoPass()
         assertThat(lookups()).hasSize(1)
-        assertThat(repo.observe(first.id).first()!!.response.book.authors).containsExactly("Frank Herbert")
 
-        now += 24 * 3_600_000L + 1
+        now += 24 * 3_600_000L
         answer("/details/v1/lookup", details(title = "First"))
         answer("/details/v1/lookup", details(title = "Second"))
         repo.runAutoPass()
         assertThat(lookups()).hasSize(3)
-        assertThat(repo.observe(first.id).first()!!.response.tidy).isEqualTo("done")
+        assertThat(repo.observe(first.id).first { it?.response?.tidy == "done" }).isNotNull()
     }
 
     @Test fun `an answer for different details than were sent is kept as it comes`() = runBlocking {
@@ -236,47 +294,71 @@ class BookDetailsRepositoryTest {
 
         repo.runAutoPass()
 
-        assertThat(doc.shownWith(repo.observeShown().first()[doc.id]).title).isEqualTo("Dune Messiah")
+        assertThat(doc.shownWith(shownFor(doc.id)).title).isEqualTo("Dune Messiah")
     }
 
     @Test fun `a generated cover is fetched from the server and shows where the book has none`() = runBlocking {
         val doc = book()
-        answer("/details/v1/lookup", details(cover = """{"source":"generated","url":"/details/v1/covers/k1?v=7","generated":true}"""))
-        answer("/details/v1/covers/k1?v=7", "png-bytes")
+        answer("/details/v1/lookup", details(cover = """{"source":"generated","url":"$generatedCover","generated":true}"""))
+        answer(generatedCover, "png-bytes")
 
         repo.runAutoPass()
 
-        assertThat(received.map { it.path }).contains("/details/v1/covers/k1?v=7")
-        val path = doc.shownWith(repo.observeShown().first()[doc.id]).coverPath!!
+        assertThat(received.map { it.path }).contains(generatedCover)
+        val path = doc.shownWith(shownFor(doc.id)).coverPath!!
         assertThat(File(path).readText()).isEqualTo("png-bytes")
     }
 
-    @Test fun `an Open Library cover comes from Open Library, not the account's server`() = runBlocking {
+    @Test fun `an Open Library cover comes from Open Library and the archive it redirects to, without the account's login`() = runBlocking {
         val doc = book()
-        val url = openLibrary.url("/b/id/1-L.jpg").toString()
-        answer("/details/v1/lookup", details(cover = """{"source":"openlibrary","url":"$url","generated":false}"""))
+        answer("/details/v1/lookup", details(cover = """{"source":"openlibrary","url":"https://covers.openlibrary.org/b/id/1-L.jpg","generated":false}"""))
         responses.getOrPut("/b/id/1-L.jpg") { ConcurrentLinkedQueue() } +=
+            MockResponse().setResponseCode(302).setHeader("Location", "https://ia800500.us.archive.org/view/1-L.jpg")
+        responses.getOrPut("/view/1-L.jpg") { ConcurrentLinkedQueue() } +=
             MockResponse().setHeader("Content-Type", "image/jpeg").setBody(Buffer().write(byteArrayOf(1, 2, 3)))
 
         repo.runAutoPass()
 
-        assertThat(openLibrary.takeRequest(5, TimeUnit.SECONDS)!!.getHeader("Authorization")).isNull()
-        assertThat(File(repo.observe(doc.id).first()!!.coverPath!!).readBytes()).isEqualTo(byteArrayOf(1, 2, 3))
+        val first = openLibrary.takeRequest(5, TimeUnit.SECONDS)!!
+        assertThat(first.path).isEqualTo("/b/id/1-L.jpg")
+        assertThat(first.getHeader("Authorization")).isNull()
+        assertThat(openLibrary.takeRequest(5, TimeUnit.SECONDS)!!.path).isEqualTo("/view/1-L.jpg")
+        assertThat(File(repo.observe(doc.id).first { it != null }!!.coverPath!!).readBytes()).isEqualTo(byteArrayOf(1, 2, 3))
+    }
+
+    @Test fun `a cover address off Open Library's hosts, or a redirect away from them, is never fetched`() = runBlocking {
+        val plain = book("plain_book")
+        val elsewhere = book("elsewhere_book")
+        val redirected = book("redirected_book")
+        fun cover(url: String) = details(cover = """{"source":"openlibrary","url":"$url","generated":false}""")
+        answer("/details/v1/lookup", cover("http://covers.openlibrary.org/b/id/1-L.jpg"))
+        answer("/details/v1/lookup", cover("https://covers.example/b/id/2-L.jpg"))
+        answer("/details/v1/lookup", cover("https://covers.openlibrary.org/b/id/3-L.jpg"))
+        responses.getOrPut("/b/id/3-L.jpg") { ConcurrentLinkedQueue() } +=
+            MockResponse().setResponseCode(302).setHeader("Location", "https://tracker.example/3-L.jpg")
+
+        repo.runAutoPass()
+
+        assertThat(openLibrary.takeRequest(5, TimeUnit.SECONDS)!!.path).isEqualTo("/b/id/3-L.jpg")
+        assertThat(openLibrary.takeRequest(500, TimeUnit.MILLISECONDS)).isNull()
+        for (doc in listOf(plain, elsewhere, redirected)) {
+            assertThat(repo.observe(doc.id).first { it != null }!!.coverPath).isNull()
+        }
     }
 
     @Test fun `a book with its own cover never gets another`() = runBlocking {
         val cover = File(dir, "own.jpg").apply { writeText("own") }
         val doc = book(cover = cover.path, url = "https://catalog.example/book.epub")
-        answer("/details/v1/lookup", details(cover = """{"source":"generated","url":"/details/v1/covers/k1?v=7","generated":true}"""))
+        answer("/details/v1/lookup", details(cover = """{"source":"generated","url":"$generatedCover","generated":true}"""))
 
         repo.runAutoPass()
 
         val sent = Json.parseToJsonElement(lookups().single().body.readUtf8()).jsonObject
         assertThat(sent["source"]!!.jsonPrimitive.content).isEqualTo("catalog")
         assertThat(sent["cover"]!!.jsonPrimitive.content).isEqualTo("catalog")
-        assertThat(received.map { it.path }).doesNotContain("/details/v1/covers/k1?v=7")
-        assertThat(repo.observe(doc.id).first()!!.coverPath).isNull()
-        assertThat(doc.shownWith(repo.observeShown().first()[doc.id]).coverPath).isEqualTo(cover.path)
+        assertThat(received.map { it.path }).doesNotContain(generatedCover)
+        assertThat(shownFor(doc.id).coverPath).isNull()
+        assertThat(doc.shownWith(shownFor(doc.id)).coverPath).isEqualTo(cover.path)
     }
 
     @Test fun `an explicit tidy wins over a background lookup still under way`() = runBlocking {
@@ -291,18 +373,7 @@ class BookDetailsRepositoryTest {
         holdLookup!!.countDown()
         pass.await()
 
-        assertThat(repo.observe(doc.id).first()!!.response.book.title).isEqualTo("From the tidy")
-    }
-
-    @Test fun `a tidy refused with 429 pauses the background pass too`() = runBlocking {
-        val doc = book()
-        answer("/details/v1/tidy", """{"detail":"monthly_ai_quota_exhausted"}""", code = 429, retryAfter = "600")
-
-        val error = runCatching { repo.tidy(doc.id) }.exceptionOrNull()
-        repo.runAutoPass()
-
-        assertThat((error as AiHttpException).code).isEqualTo(429)
-        assertThat(lookups()).isEmpty()
+        assertThat(db.bookDetailsDao().find(doc.id)!!.responseJson).contains("From the tidy")
     }
 
     @Test fun `use original hides the found details from the shelf and is remembered`() = runBlocking {
@@ -310,25 +381,29 @@ class BookDetailsRepositoryTest {
         answer("/details/v1/lookup", details())
         repo.runAutoPass()
 
+        shownFor(doc.id)
+
         repo.setUseOriginal(doc.id, true)
 
-        assertThat(repo.observeShown().first()).isEmpty()
-        assertThat(repo.observe(doc.id).first()!!.useOriginal).isTrue()
+        withTimeout(5_000) { repo.shown.first { it.isEmpty() } }
+        assertThat(repo.observe(doc.id).first { it?.useOriginal == true }).isNotNull()
     }
 
     @Test fun `with the setting off nothing is sent and nothing shows`() = runBlocking {
         val doc = book()
         answer("/details/v1/lookup", details())
         repo.runAutoPass()
+        shownFor(doc.id)
 
         showTidied.value = false
         book("another_book")
         repo.runAutoPass()
 
         assertThat(lookups()).hasSize(1)
-        assertThat(repo.observeShown().first()).isEmpty()
+        withTimeout(5_000) { repo.shown.first { it.isEmpty() } }
         assertThat(repo.observe(doc.id).first()).isNull()
         assertThat(repo.available.first()).isFalse()
+        assertThat(repo.hasStored.first()).isTrue()
     }
 
     @Test fun `deleting a book drops its details`() = runBlocking {
@@ -339,6 +414,96 @@ class BookDetailsRepositoryTest {
         documents.delete(doc)
 
         assertThat(db.bookDetailsDao().all()).isEmpty()
+    }
+
+    @Test fun `turning the setting off stops a pass under way`() = runBlocking {
+        book("first_book")
+        book("second_book")
+        holdLookup = CountDownLatch(1)
+        answer("/details/v1/lookup", details(title = "First"))
+        answer("/details/v1/lookup", details(title = "Second"))
+
+        val follow = launch(Dispatchers.IO) { repo.followLibrary() }
+        waitFor { lookups().isNotEmpty() }
+        showTidied.value = false
+        delay(300)
+        holdLookup!!.countDown()
+        delay(500)
+
+        assertThat(lookups()).hasSize(1)
+        assertThat(db.bookDetailsDao().all()).isEmpty()
+        follow.cancelAndJoin()
+    }
+
+    @Test fun `after a pause the pass runs again on its own`() = runBlocking {
+        val doc = book()
+        answer("/details/v1/lookup", """{"detail":"details_rate_limited"}""", code = 429, retryAfter = "120")
+        answer("/details/v1/lookup", details())
+
+        val follow = launch(Dispatchers.IO) { repo.followLibrary() }
+
+        assertThat(withTimeout(5_000) { waits.receive() }).isEqualTo(120_000)
+        assertThat(shownFor(doc.id).response.book.title).isEqualTo("Dune")
+        assertThat(lookups()).hasSize(2)
+        follow.cancelAndJoin()
+    }
+
+    @Test fun `the automatic pass makes at most 25 lookups a day`() = runBlocking {
+        repeat(BookDetailsRepository.DAILY_LOOKUPS + 1) { n ->
+            book("book_$n")
+            answer("/details/v1/lookup", details(title = "Book $n"))
+        }
+
+        assertThat(repo.runAutoPass()).isEqualTo(startOfTomorrow())
+        assertThat(lookups()).hasSize(BookDetailsRepository.DAILY_LOOKUPS)
+
+        repo = newRepository()
+        repo.runAutoPass()
+        assertThat(lookups()).hasSize(BookDetailsRepository.DAILY_LOOKUPS)
+
+        now = startOfTomorrow() + 1
+        repo.runAutoPass()
+        assertThat(lookups()).hasSize(BookDetailsRepository.DAILY_LOOKUPS + 1)
+    }
+
+    @Test fun `the automatic pass waits for an unmetered network, an explicit tidy does not`() = runBlocking {
+        val doc = book()
+        unmetered.value = false
+        answer("/details/v1/tidy", details())
+
+        assertThat(repo.runAutoPass()).isNull()
+        assertThat(lookups()).isEmpty()
+        assertThat(repo.tidy(doc.id).book.title).isEqualTo("Dune")
+    }
+
+    @Test fun `another account or server drops the stored details and their covers`() = runBlocking {
+        val doc = book()
+        answer("/details/v1/lookup", details(cover = """{"source":"generated","url":"$generatedCover","generated":true}"""))
+        answer(generatedCover, "png-bytes")
+        val follow = launch(Dispatchers.IO) { repo.followLibrary() }
+        val cover = File(shownFor(doc.id).coverPath!!)
+        assertThat(cover.isFile).isTrue()
+
+        owner.value = "https://other.example reader"
+
+        waitFor { db.bookDetailsDao().all().isEmpty() }
+        assertThat(cover.exists()).isFalse()
+        follow.cancelAndJoin()
+    }
+
+    @Test fun `found details stop showing when the reader opts out of AI, and stay while it is unknown`() = runBlocking {
+        val doc = book()
+        answer("/details/v1/lookup", details())
+        repo.runAutoPass()
+        shownFor(doc.id)
+
+        answer("/ai/v1/config", """{"configured":true,"details_supported":true}""")
+        answer("/ai/v1/preferences", """{"ai_enabled":false,"style":{"tone":"neutral","language":"auto"}}""")
+        ai.refresh()
+
+        withTimeout(5_000) { repo.shown.first { it.isEmpty() } }
+        assertThat(repo.observe(doc.id).first()).isNull()
+        assertThat(repo.hasStored.first { it }).isTrue()
     }
 
     @Test fun `the request carries the library's details and the file's, cut to the server's limits`() {
@@ -383,6 +548,8 @@ class BookDetailsRepositoryTest {
         assertThat(needsDetails(doc, book.copy(description = null))).isTrue()
         assertThat(needsDetails(doc, book.copy(title = "dune_frank_herbert"))).isTrue()
     }
+
+    private val generatedCover = "/details/v1/covers/${"a".repeat(64)}?v=7"
 
     private fun writeEpub(file: File, title: String, author: String, description: String) {
         ZipOutputStream(file.outputStream()).use { zip ->

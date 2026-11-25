@@ -18,8 +18,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.theficos.ereader.ui.bookdetail.shownCoverNote
+import io.theficos.ereader.ui.bookdetail.titleNote
+import io.theficos.ereader.ui.bookdetail.withNote
 import io.theficos.ereader.ui.components.CoverImage
 import io.theficos.ereader.ui.components.QuireCard
 import io.theficos.ereader.ui.components.SectionLabel
@@ -45,13 +50,16 @@ fun ContinueReadingCard(row: LibraryRow, onClick: () -> Unit) {
                     title = row.shown.title,
                     author = row.shown.author,
                     modifier = Modifier.size(width = 64.dp, height = 96.dp),
+                    contentDescription = withNote(row.shown.title, row.found?.let { shownCoverNote(row.document, it) }),
                 )
                 Column(modifier = Modifier.fillMaxWidth()) {
+                    val spokenTitle = withNote(row.shown.title, row.found?.let(::titleNote))
                     Text(
                         text = row.shown.title,
                         style = MaterialTheme.typography.titleMedium,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.semantics { contentDescription = spokenTitle },
                     )
                     row.shown.author?.let { author ->
                         Text(

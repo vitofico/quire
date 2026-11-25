@@ -1,5 +1,6 @@
 package io.theficos.ereader.data.ai
 
+import android.content.SharedPreferences
 import android.database.sqlite.SQLiteConstraintException
 import android.util.Log
 import io.theficos.ereader.core.metadata.MetadataBundle
@@ -12,19 +13,29 @@ import io.theficos.ereader.data.local.db.BookDetailsEntity
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
@@ -44,7 +55,8 @@ data class BookDetails(
  *
  * Nothing is sent unless the server offers the feature, the reader has opted in to AI (the
  * book's details reach the model provider), and the "Tidy up book details" setting
- * ([showTidied]) is on.
+ * ([showTidied]) is on. Stored answers belong to one account on one server ([owner]) and are
+ * dropped when that changes.
  */
 class BookDetailsRepository(
     private val client: AiClient,
@@ -53,12 +65,22 @@ class BookDetailsRepository(
     private val dao: BookDetailsDao,
     private val coversDir: File,
     /** For Open Library covers: no account login may reach a third-party host. */
-    private val openLibraryHttp: OkHttpClient,
+    openLibraryHttp: OkHttpClient,
     private val showTidied: StateFlow<Boolean>,
+    /** The account and server the answers are kept for; null when there is none. */
+    private val owner: Flow<String?>,
+    /** True on a network that is not metered, such as Wi-Fi: the automatic pass waits for one. */
+    private val unmetered: StateFlow<Boolean>,
+    /** Holds the automatic pass's count for the day and the owner of the stored answers. */
+    private val prefs: SharedPreferences,
+    scope: CoroutineScope,
     private val json: Json = Json { ignoreUnknownKeys = true; encodeDefaults = true },
     private val clock: () -> Long = System::currentTimeMillis,
+    private val sleep: suspend (Long) -> Unit = { delay(it) },
 ) {
-    private val passMutex = Mutex()
+    /** Redirects are followed by hand, so every hop is checked against the cover hosts. */
+    private val coverHttp = openLibraryHttp.newBuilder().followRedirects(false).followSslRedirects(false).build()
+
     /** Orders the background pass's writes against an explicit tidy's. */
     private val storeMutex = Mutex()
 
@@ -66,26 +88,40 @@ class BookDetailsRepository(
     @Volatile private var pausedUntil = 0L
 
     /** True while the server offers book details, the reader has opted in, and the setting is on. */
-    val available: Flow<Boolean> = combine(ai.config, ai.preferences, showTidied) { config, prefs, on ->
-        config?.configured == true && config.detailsSupported && prefs?.aiEnabled == true && on
-    }.distinctUntilChanged()
+    val available: Flow<Boolean> = combine(ai.config, ai.preferences, showTidied, ::isAvailable).distinctUntilChanged()
 
-    private fun availableNow(): Boolean {
-        val config = ai.config.value
-        return config?.configured == true && config.detailsSupported &&
-            ai.preferences.value?.aiEnabled == true && showTidied.value
-    }
+    private fun isAvailable(config: AiConfig?, preferences: AiPreferences?, on: Boolean) =
+        config?.configured == true && config.detailsSupported && preferences?.aiEnabled == true && on
 
-    /** One book's stored answer, whether or not the reader chose the original; null while the setting is off. */
-    fun observe(documentId: Long): Flow<BookDetails?> =
-        combine(dao.observe(documentId), showTidied) { row, on -> if (on) row?.toDetails() else null }
+    private fun mayRunAutomatically() =
+        isAvailable(ai.config.value, ai.preferences.value, showTidied.value) && unmetered.value
 
-    /** The answers the shelves show, by book id: the setting is on and the reader kept the found details. */
-    fun observeShown(): Flow<Map<Long, BookDetails>> =
-        combine(dao.observeAll(), showTidied) { rows, on ->
-            if (!on) emptyMap()
-            else rows.filterNot { it.useOriginal }.mapNotNull { row -> row.toDetails()?.let { row.documentId to it } }.toMap()
+    /** Every stored answer by book id, decoded once for all the screens that show them. */
+    private val stored: StateFlow<Map<Long, BookDetails>> = dao.observeAll()
+        .map { rows -> rows.mapNotNull { row -> row.toDetails()?.let { row.documentId to it } }.toMap() }
+        .flowOn(Dispatchers.Default)
+        .stateIn(scope, SharingStarted.Eagerly, emptyMap())
+
+    /**
+     * The stored answers, while the setting is on and the reader has not opted out of AI. An
+     * opt-in not known yet (offline, say) keeps them showing.
+     */
+    private val showable: Flow<Map<Long, BookDetails>> =
+        combine(stored, showTidied, ai.preferences) { all, on, preferences ->
+            if (on && preferences?.aiEnabled != false) all else emptyMap()
         }
+
+    /** The answers the shelves show, by book id: [showable], less those whose reader chose the original. */
+    val shown: StateFlow<Map<Long, BookDetails>> = showable
+        .map { all -> all.filterValues { !it.useOriginal } }
+        .flowOn(Dispatchers.Default)
+        .stateIn(scope, SharingStarted.Eagerly, emptyMap())
+
+    /** True while any answer is stored, so its setting stays in reach even with AI off. */
+    val hasStored: Flow<Boolean> = stored.map { it.isNotEmpty() }.distinctUntilChanged()
+
+    /** One book's stored answer, whether or not the reader chose the original; null while it may not show. */
+    fun observe(documentId: Long): Flow<BookDetails?> = showable.map { it[documentId] }.distinctUntilChanged()
 
     suspend fun setUseOriginal(documentId: Long, useOriginal: Boolean) = dao.setUseOriginal(documentId, useOriginal)
 
@@ -94,7 +130,7 @@ class BookDetailsRepository(
      * serves it, and shows the result again if the reader had chosen the original. Its answer
      * wins over a background lookup of the same book still under way. Throws what
      * [AiClient.tidyDetails] throws, for the screen to explain; a 429 also pauses the
-     * background pass.
+     * background pass. Not counted against the automatic pass's daily lookups.
      */
     suspend fun tidy(documentId: Long): DetailsResponse {
         val doc = documents.findById(documentId) ?: throw IllegalStateException("book $documentId is gone")
@@ -112,74 +148,132 @@ class BookDetailsRepository(
         return response
     }
 
-    /** Runs [runAutoPass] when the feature becomes available and whenever a book joins the library. Never returns. */
+    /**
+     * Keeps the automatic pass going: at start, when the feature becomes available or the
+     * device reaches an unmetered network, and whenever a book joins the library. Any change
+     * cancels a pass under way. After a pass that had to stop, it waits until it may go on and
+     * runs again. First drops the stored answers when the account or server changed, so one
+     * account's details never show under another. Never returns.
+     */
     suspend fun followLibrary() {
-        combine(available, documents.observeLibrary().map { books -> books.map { it.id }.toSet() }, ::Pair)
+        val library = documents.observeLibrary().map { books -> books.mapTo(HashSet()) { it.id } }.distinctUntilChanged()
+        combine(owner, available, unmetered, library) { who, on, free, ids -> Triple(who, on && free, ids) }
             .distinctUntilChanged()
-            .conflate()
-            .collect { (on, _) ->
-                if (!on) return@collect
-                try {
-                    runAutoPass()
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Log.w(TAG, "book details pass failed", e)
+            .collectLatest { (who, go, _) ->
+                forgetOtherOwners(who)
+                if (!go) return@collectLatest
+                while (true) {
+                    val next = try {
+                        runAutoPass()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.w(TAG, "book details pass failed", e)
+                        clock() + PAUSE_S * 1000L
+                    } ?: return@collectLatest
+                    sleep((next - clock()).coerceAtLeast(0L))
                 }
             }
     }
 
     /**
      * The automatic pass: quietly, once per book, for a book that lacks a cover, an author or a
-     * description, or whose title looks like a file name. A book is asked about again only
-     * after the allowance was spent or the tidy failed, a day later. The pass stops at the first
-     * sign the server cannot answer now (offline, rate limited, off, opted out, allowance spent)
-     * and waits before asking again: as long as a 429's Retry-After says, a day without one, half
-     * an hour otherwise. So a patchy library never turns into a burst of retries.
+     * description, or whose title looks like a file name. At most [DAILY_LOOKUPS] lookups a
+     * day, since a lookup may spend a generation of the reader's allowance. A book whose tidy
+     * could not run (allowance spent, or failed) is asked about again a day later. The pass
+     * stops at the first sign the server cannot answer now (offline, rate limited, off, opted
+     * out, allowance spent), so a patchy library never turns into a burst of retries.
+     *
+     * Returns when it may run again: when a pause ends (as long as a 429's Retry-After says, a
+     * day without one, half an hour for other failures), the next day once the day's lookups
+     * are spent, or when a book is next due; null when nothing is waiting.
      */
-    suspend fun runAutoPass() = passMutex.withLock {
-        if (!availableNow() || clock() < pausedUntil) return@withLock
-        sweepCovers(dao.all().mapNotNullTo(HashSet()) { it.coverPath })
+    suspend fun runAutoPass(): Long? {
+        if (!mayRunAutomatically()) return null
+        if (clock() < pausedUntil) return pausedUntil
+        val rows = dao.all().associateBy { it.documentId }
+        sweepCovers(rows.values.mapNotNullTo(HashSet()) { it.coverPath })
+        var due: Long? = null
         for (doc in documents.observeLibrary().first()) {
-            val seen = dao.find(doc.id)
-            if (seen != null && (seen.retryAt ?: Long.MAX_VALUE) > clock()) continue
+            if (!mayRunAutomatically()) return null
+            val seen = rows[doc.id]
+            if (seen != null) {
+                val retryAt = seen.retryAt ?: continue
+                if (retryAt > clock()) {
+                    due = minOf(due ?: retryAt, retryAt)
+                    continue
+                }
+            }
             val request = requestFor(doc)
             if (seen == null && !needsDetails(doc, request.book)) {
-                saveUnlessChanged(seen, BookDetailsEntity(doc.id, null, null, useOriginal = false, retryAt = null))
+                saveUnlessChanged(null, BookDetailsEntity(doc.id, null, null, useOriginal = false, retryAt = null))
                 continue
             }
+            val used = lookupsToday()
+            if (used >= DAILY_LOOKUPS) return startOfTomorrow()
+            countLookups(used + 1)
             val response = try {
                 client.lookupDetails(request)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: AiQuotaException) {
-                return@withLock pause(e.retryAfterSeconds ?: DAY_S)
+                return pause(e.retryAfterSeconds ?: DAY_S)
             } catch (e: AiHttpException) {
-                if (e.code == 429) return@withLock pause(e.retryAfterSeconds ?: DAY_S)
-                if (e.code !in BOOK_REFUSED) return@withLock pause(PAUSE_S)
+                if (e.code == 429) return pause(e.retryAfterSeconds ?: DAY_S)
+                if (e.code !in BOOK_REFUSED) return pause(PAUSE_S)
                 // This book's request is refused as it stands; asking again would change nothing.
                 saveUnlessChanged(seen, seen?.copy(retryAt = null) ?: BookDetailsEntity(doc.id, null, null, false, null))
                 continue
             } catch (e: Exception) {
-                return@withLock pause(PAUSE_S)
+                return pause(PAUSE_S)
             }
-            store(doc, response, seen, useOriginal = seen?.useOriginal ?: false, background = true)
+            val retryAt = store(doc, response, seen, useOriginal = seen?.useOriginal ?: false, background = true)
             when (response.tidy) {
-                TIDY_QUOTA_EXCEEDED -> return@withLock pause(DAY_S)
-                TIDY_FAILED -> return@withLock pause(PAUSE_S)
+                TIDY_QUOTA_EXCEEDED -> {
+                    // The allowance is spent: no more lookups today.
+                    countLookups(DAILY_LOOKUPS)
+                    return startOfTomorrow()
+                }
+                TIDY_FAILED -> return pause(PAUSE_S)
             }
+            if (retryAt != null) due = minOf(due ?: retryAt, retryAt)
         }
+        return due
     }
 
-    private fun pause(seconds: Long) {
+    private fun pause(seconds: Long): Long {
         pausedUntil = clock() + seconds * 1000L
+        return pausedUntil
+    }
+
+    private fun today(): LocalDate = Instant.ofEpochMilli(clock()).atZone(ZoneId.systemDefault()).toLocalDate()
+
+    private fun startOfTomorrow(): Long = today().plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+
+    private fun lookupsToday(): Int =
+        if (prefs.getLong(KEY_DAY, -1L) == today().toEpochDay()) prefs.getInt(KEY_LOOKUPS, 0) else 0
+
+    private fun countLookups(count: Int) {
+        prefs.edit().putLong(KEY_DAY, today().toEpochDay()).putInt(KEY_LOOKUPS, count).apply()
+    }
+
+    /** Drops every stored answer and its cover when they were kept for another account or server. */
+    private suspend fun forgetOtherOwners(who: String?) {
+        if (prefs.getString(KEY_OWNER, null) == who) return
+        storeMutex.withLock {
+            dao.clear()
+            withContext(Dispatchers.IO) { coverFiles().forEach { it.delete() } }
+        }
+        pausedUntil = 0L
+        prefs.edit().putString(KEY_OWNER, who).apply()
     }
 
     private suspend fun requestFor(doc: Document): DetailsLookupBody =
         withContext(Dispatchers.IO) { detailsRequest(doc, readOpfBundle(File(doc.localPath), fallbackTitle = doc.title)) }
 
     /**
-     * Keeps [response] for [doc], whose row read [seen] before asking. The server may answer
+     * Keeps [response] for [doc], whose row read [seen] before asking, and returns when the
+     * automatic pass should ask about the book again, if it should. The server may answer
      * with details other than those sent (the reader's own record of the book); they are kept
      * as they come. A [background] answer is dropped when the row changed meanwhile, so an
      * explicit tidy that landed first is never overwritten.
@@ -190,7 +284,7 @@ class BookDetailsRepository(
         seen: BookDetailsEntity?,
         useOriginal: Boolean,
         background: Boolean,
-    ) {
+    ): Long? {
         val (coverPath, coverMissing) = coverFor(doc, response, seen?.coverPath)
         val retryAt = when {
             response.tidy == TIDY_QUOTA_EXCEEDED || response.tidy == TIDY_FAILED -> clock() + DAY_S * 1000L
@@ -208,11 +302,12 @@ class BookDetailsRepository(
             val current = dao.find(doc.id)
             if (background && current != seen) {
                 if (coverPath != null && coverPath != current?.coverPath) File(coverPath).delete()
-                return
+                return null
             }
             save(row)
             current?.coverPath?.takeIf { it != coverPath }?.let { File(it).delete() }
         }
+        return retryAt
     }
 
     private suspend fun saveUnlessChanged(seen: BookDetailsEntity?, row: BookDetailsEntity) = storeMutex.withLock {
@@ -260,20 +355,45 @@ class BookDetailsRepository(
         }
     }
 
-    private suspend fun openLibraryCover(url: String): ByteArray = withContext(Dispatchers.IO) {
-        openLibraryHttp.newCall(Request.Builder().url(url).get().build()).execute().use { resp ->
-            val type = resp.body?.contentType()
-            if (!resp.isSuccessful || type?.type != "image") throw IOException("no cover (${resp.code})")
-            resp.body!!.bytes()
+    /**
+     * An Open Library cover, over https from Open Library's cover host and the Internet Archive
+     * hosts it redirects to, and no larger than [MAX_COVER_BYTES]. Cancelling the caller
+     * cancels the download.
+     */
+    private suspend fun openLibraryCover(address: String): ByteArray = withContext(Dispatchers.IO) {
+        var url = address.toHttpUrlOrNull()
+        repeat(MAX_HOPS) {
+            val hop = url?.takeIf { it.isCoverHost() } ?: throw IOException("not an Open Library cover address")
+            val bytes = coverHttp.newCall(Request.Builder().url(hop).get().build()).await().use { resp ->
+                if (resp.isRedirect) {
+                    url = resp.header("Location")?.let(hop::resolve)
+                    return@use null
+                }
+                val body = resp.body
+                if (!resp.isSuccessful || body == null || body.contentType()?.type != "image") {
+                    throw IOException("no cover (${resp.code})")
+                }
+                val source = body.source()
+                if (body.contentLength() > MAX_COVER_BYTES || source.request(MAX_COVER_BYTES + 1)) {
+                    throw IOException("cover too large")
+                }
+                source.buffer.readByteArray()
+            }
+            if (bytes != null) return@withContext bytes
         }
+        throw IOException("too many redirects")
     }
+
+    private fun HttpUrl.isCoverHost() =
+        isHttps && (host == "covers.openlibrary.org" || host == "archive.org" || host.endsWith(".archive.org"))
+
+    private fun coverFiles(): List<File> =
+        coversDir.listFiles { file -> file.name.startsWith(COVER_PREFIX) }.orEmpty().toList()
 
     /** Removes cover copies no row points at any more, such as those of deleted books. */
     private suspend fun sweepCovers(live: Set<String>) = withContext(Dispatchers.IO) {
         val cutoff = clock() - PAUSE_S * 1000L
-        coversDir.listFiles { file -> file.name.startsWith(COVER_PREFIX) }.orEmpty()
-            .filter { it.absolutePath !in live && it.lastModified() < cutoff }
-            .forEach { it.delete() }
+        coverFiles().filter { it.absolutePath !in live && it.lastModified() < cutoff }.forEach { it.delete() }
     }
 
     private fun BookDetailsEntity.toDetails(): BookDetails? {
@@ -282,13 +402,20 @@ class BookDetailsRepository(
         return BookDetails(response, coverPath, useOriginal)
     }
 
-    private companion object {
-        const val TAG = "BookDetails"
-        const val COVER_PREFIX = "details-"
-        const val PAUSE_S = 30 * 60L
-        const val DAY_S = 24 * 60 * 60L
+    companion object {
+        /** The automatic pass's lookups a local day. "Tidy details" is not counted. */
+        const val DAILY_LOOKUPS = 25
+        private const val TAG = "BookDetails"
+        private const val COVER_PREFIX = "details-"
+        private const val PAUSE_S = 30 * 60L
+        private const val DAY_S = 24 * 60 * 60L
+        private const val MAX_HOPS = 5
+        private const val MAX_COVER_BYTES = 10L * 1024 * 1024
+        private const val KEY_DAY = "auto_lookup_day"
+        private const val KEY_LOOKUPS = "auto_lookups"
+        private const val KEY_OWNER = "owner"
         /** Statuses that refuse this book's request rather than say the server cannot answer now. */
-        val BOOK_REFUSED = setOf(400, 413, 422)
+        private val BOOK_REFUSED = setOf(400, 413, 422)
     }
 }
 

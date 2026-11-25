@@ -66,6 +66,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
@@ -75,6 +77,9 @@ import io.theficos.ereader.data.sync.SyncEnqueuer
 import io.theficos.ereader.sideload.SideloadFailure
 import io.theficos.ereader.sideload.SideloadImporter
 import io.theficos.ereader.sideload.SideloadResult
+import io.theficos.ereader.ui.bookdetail.shownCoverNote
+import io.theficos.ereader.ui.bookdetail.titleNote
+import io.theficos.ereader.ui.bookdetail.withNote
 import io.theficos.ereader.ui.components.CoverImage
 import io.theficos.ereader.ui.components.MarbledInk
 import io.theficos.ereader.ui.components.QuireLoading
@@ -387,6 +392,7 @@ fun LibraryScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .aspectRatio(2f / 3f),
+                            contentDescription = withNote(row.shown.title, row.found?.let { shownCoverNote(row.document, it) }),
                         )
                         // Top-left, like the catalog's: the book's details, whether or not
                         // there is a server behind them to add AI insights.
@@ -434,12 +440,15 @@ fun LibraryScreen(
                             }
                         }
                     }
+                    val spokenTitle = withNote(row.shown.title, row.found?.let(::titleNote))
                     Text(
                         text = row.shown.title,
                         style = MaterialTheme.typography.titleMedium,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 6.dp),
+                        modifier = Modifier
+                            .padding(top = 6.dp)
+                            .semantics { contentDescription = spokenTitle },
                     )
                 }
             }

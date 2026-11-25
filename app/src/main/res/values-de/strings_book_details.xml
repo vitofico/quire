@@ -11,9 +11,11 @@
     <string name="details_ai_not_available">"KI ist für dein Konto gerade nicht verfügbar. Prüfe die KI-Funktionen in den Einstellungen."</string>
     <string name="details_not_offered">"Dieser Server räumt Buchdetails gerade nicht auf."</string>
     <string name="details_couldn_t_tidy">"Die Details konnten nicht aufgeräumt werden. Versuche es später noch einmal."</string>
+    <string name="details_busy">"Der Server ist gerade ausgelastet. Versuche es gleich noch einmal."</string>
     <string name="details_from_open_library">"Von Open Library"</string>
     <string name="details_tidied_by_ai">"Von KI aufgeräumt"</string>
     <string name="details_written_by_ai">"Von KI geschrieben"</string>
     <string name="details_generated_cover">"Erzeugtes Cover"</string>
     <string name="details_cover_from_open_library">"Cover von Open Library"</string>
+    <string name="details_view_on_open_library">"Auf Open Library ansehen"</string>
 </resources>

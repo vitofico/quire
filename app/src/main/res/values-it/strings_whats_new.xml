@@ -12,5 +12,5 @@
     <string name="whats_new_catalogs_title">Tutti i tuoi cataloghi, su ogni dispositivo</string>
     <string name="whats_new_catalogs_description">Salva più cataloghi in %1$s → %2$s e passa dall’uno all’altro mentre sfogli. Con l’accesso a Quire, l’elenco ti segue sugli altri dispositivi.</string>
     <string name="whats_new_book_details_title">Dettagli dei libri più in ordine</string>
-    <string name="whats_new_book_details_description">I libri con un nome di file come titolo, o senza copertina, autore o descrizione, ora ricevono i dettagli da Open Library o riordinati dall’IA, con un’etichetta che ne indica l’origine. Disattivalo in %1$s → %2$s, oppure torna ai dettagli originali di un libro dal suo menu.</string>
+    <string name="whats_new_book_details_description">I libri con un nome di file come titolo, o senza copertina, autore o descrizione, ora ricevono i dettagli da Open Library o riordinati dall’IA, con un’etichetta che ne indica l’origine. Funziona in Wi-Fi, fino a 25 libri al giorno. Disattivalo in %1$s → %2$s, oppure torna ai dettagli originali di un libro dal suo menu.</string>
 </resources>

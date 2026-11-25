@@ -30,6 +30,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -42,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -246,7 +248,8 @@ fun BookDetailContent(
 
         if (!metadata?.description.isNullOrBlank()) {
             Spacer(Modifier.height(24.dp))
-            if (metadata?.description != state.metadata?.description) {
+            val foundDescription = found != null && usesFoundDescription(found)
+            if (foundDescription) {
                 found?.response?.origins?.get("description")?.let(::originNote)?.let { note ->
                     Text(
                         text = stringResource(note),
@@ -256,7 +259,15 @@ fun BookDetailContent(
                     Spacer(Modifier.height(6.dp))
                 }
             }
-            BookDescription(metadata?.description)
+            BookDescription(metadata?.description, plainText = foundDescription)
+        }
+
+        found?.let(::openLibraryLink)?.let { link ->
+            val uriHandler = LocalUriHandler.current
+            Spacer(Modifier.height(8.dp))
+            TextButton(onClick = { uriHandler.openUri(link) }) {
+                Text(stringResource(R.string.details_view_on_open_library))
+            }
         }
 
         Spacer(Modifier.height(24.dp))

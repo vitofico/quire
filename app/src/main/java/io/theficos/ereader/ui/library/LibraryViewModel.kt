@@ -92,7 +92,7 @@ class LibraryViewModel(
                 pairs.map { (d, p) ->
                     LibraryRow(
                         document = d,
-                        shown = d.shownWith(details[d.id]),
+                        found = details[d.id],
                         percent = p?.percent ?: 0.0,
                         progressUpdatedAt = p?.updatedAt ?: 0L,
                         finishedAt = p?.finishedAt,
@@ -124,9 +124,12 @@ class LibraryViewModel(
                 // searching for a title should always be able to find it.
                 val needle = q.trim().lowercase()
                 LibraryShelf(
+                    // The shown details and the book's own, so a book is found by either.
                     books = sorted.filter { row ->
-                        row.shown.title.lowercase().contains(needle) ||
-                            (row.shown.author?.lowercase()?.contains(needle) == true)
+                        listOf(row.shown, row.document).any { book ->
+                            book.title.lowercase().contains(needle) ||
+                                book.author?.lowercase()?.contains(needle) == true
+                        }
                     },
                     hiddenCount = 0,
                 )
@@ -281,13 +284,15 @@ data class LibraryShelf(
 
 /**
  * [document] is the book as stored, for every action on it; [shown] is how the shelf draws it,
- * with any found details and cover over the book's own.
+ * with the [found] details and cover, if any, over the book's own.
  */
 data class LibraryRow(
     val document: Document,
-    val shown: Document = document,
     val percent: Double,
     val progressUpdatedAt: Long,
     val finishedAt: Long? = null,
     val abandonedAt: Long? = null,
-)
+    val found: BookDetails? = null,
+) {
+    val shown: Document = document.shownWith(found)
+}

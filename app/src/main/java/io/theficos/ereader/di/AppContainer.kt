@@ -1,6 +1,9 @@
 package io.theficos.ereader.di
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import io.theficos.ereader.auth.AccountCredentials
 import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.core.identity.extractIdentity
@@ -62,9 +65,13 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -88,6 +95,24 @@ internal fun AccountCredentials.quireServerUrlOrNull(): String? = when (this) {
     is AccountCredentials.Bearer -> baseUrl
     is AccountCredentials.OpdsOnly -> null
 }
+
+/** Who stored book details belong to: this account on this server, or null with no Quire server. */
+private fun AccountCredentials.detailsOwner(): String? = quireServerUrlOrNull()?.let { "$it $subject" }
+
+/** True while the device's default network is not metered, such as Wi-Fi. */
+private fun unmeteredNetwork(context: Context): Flow<Boolean> = callbackFlow {
+    val connectivity = context.getSystemService(ConnectivityManager::class.java)
+    fun offer(capabilities: NetworkCapabilities?) {
+        trySend(capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == true)
+    }
+    val callback = object : ConnectivityManager.NetworkCallback() {
+        override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) = offer(capabilities)
+        override fun onLost(network: Network) = offer(null)
+    }
+    offer(connectivity.getNetworkCapabilities(connectivity.activeNetwork))
+    connectivity.registerDefaultNetworkCallback(callback)
+    awaitClose { connectivity.unregisterNetworkCallback(callback) }
+}.distinctUntilChanged()
 
 /** Key of the reading-pause notes kept on a device with no account. */
 internal const val DEVICE_MEMORY_KEY = "device-local"
@@ -316,6 +341,10 @@ class AppContainer internal constructor(context: Context, private val db: EReade
         showTidied = libraryPreferencesStore.flow
             .map { it.tidyDetails }
             .stateIn(libraryUploaderScope, SharingStarted.Eagerly, libraryPreferencesStore.flow.value.tidyDetails),
+        owner = credentialStore.accountFlow.map { it?.detailsOwner() },
+        unmetered = unmeteredNetwork(appContext).stateIn(libraryUploaderScope, SharingStarted.Eagerly, false),
+        prefs = appContext.getSharedPreferences("book_details", Context.MODE_PRIVATE),
+        scope = libraryUploaderScope,
     )
 
     val bookDetailViewModelFactory: BookDetailViewModelFactory = BookDetailViewModelFactory(
@@ -522,7 +551,7 @@ class AppContainer internal constructor(context: Context, private val db: EReade
                 }
             }
         }
-        // Quietly fill in missing book details and covers, once per book, while AI is on.
+        // Quietly fill in missing book details and covers, once per book, while AI is on and on Wi-Fi.
         libraryUploaderScope.launch { bookDetailsRepository.followLibrary() }
         // Discard queued promotions when either connection changes ownership.
         libraryUploaderScope.launch {
