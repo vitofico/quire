@@ -63,6 +63,7 @@ from quire_server.core.ai.health_state import AiHealthState
 from quire_server.core.ai.identity import (
     IDENTITY_HIERARCHY,
     CanonicalIdentity,
+    is_catalog_preview,
     load_live_insight_ids_for_canonicals,
     reconcile_aliases,
     resolve_identity,
@@ -1144,17 +1145,11 @@ class InsightOrchestrator:
         if len(rows) <= 1:
             # No collision in cache — just merge the strongest canonical
             # (metadata_id wins over content_hash by hierarchy order).
-            best = next(
-                (c for c in canonicals if c.scheme == "metadata_id"),
-                canonicals[0],
-            )
+            best = min(canonicals, key=_canonical_rank)
             return _populate_ident(ident, best), False
 
         # Collision: 2+ live rows for what we now know is the same book.
-        winner_pair = next(
-            (pair for pair in rows if pair[1].metadata_id is not None),
-            rows[0],
-        )
+        winner_pair = min(rows, key=lambda pair: _canonical_rank(_canonical_from_row(pair[1])))
         winner_row = winner_pair[1]
         losers = [r for c, r in rows if r.id != winner_row.id]
 
@@ -2493,11 +2488,20 @@ def _populate_ident(ident: DocumentIdentity, canonical: CanonicalIdentity) -> Do
     takes precedence). Preserves all alias fields.
     """
     out = ident.model_copy()
+    if is_catalog_preview(out.metadata_id) and not is_catalog_preview(canonical.value):
+        out.metadata_id = None  # a catalog preview key gives way to the book's real identity
     if canonical.scheme == "metadata_id" and out.metadata_id is None:
         out.metadata_id = canonical.value
     elif canonical.scheme == "content_hash" and out.content_hash is None:
         out.content_hash = canonical.value
     return out
+
+
+def _canonical_rank(canonical: CanonicalIdentity) -> int:
+    """Real metadata_id, then content_hash, then a Quire Web catalog preview key."""
+    if is_catalog_preview(canonical.value):
+        return 2
+    return 0 if canonical.scheme == "metadata_id" else 1
 
 
 def _canonical_from_row(row: BookInsight) -> CanonicalIdentity:

@@ -37,7 +37,7 @@ import logging
 from dataclasses import dataclass
 from typing import Literal
 
-from sqlalchemy import and_, or_, select, text
+from sqlalchemy import and_, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -109,6 +109,15 @@ class CanonicalIdentity:
 
     def __str__(self) -> str:  # noqa: D401
         return f"{self.scheme}:{self.value}"
+
+
+# Quire Web keys a catalog preview by a hash of its download link until the book is
+# downloaded and its real metadata_id is known. Any real identity outranks it.
+CATALOG_PREVIEW_PREFIX = "opds-href:"
+
+
+def is_catalog_preview(metadata_id: str | None) -> bool:
+    return bool(metadata_id) and metadata_id.startswith(CATALOG_PREVIEW_PREFIX)
 
 
 def _is_scoped(scheme: str) -> bool:
@@ -250,6 +259,26 @@ async def register_alias(
         # the (transient) row.
         return
     if existing[0] != canonical.scheme or existing[1] != canonical.value:
+        if is_catalog_preview(existing[1]) and not is_catalog_preview(canonical.value):
+            # The download revealed the book behind a catalog preview: follow it.
+            await session.execute(
+                update(Alias)
+                .where(
+                    Alias.alias_scheme == alias_scheme,
+                    Alias.alias_value == alias_value,
+                    (
+                        Alias.user_id == effective_user_id
+                        if effective_user_id is not None
+                        else Alias.user_id.is_(None)
+                    ),
+                )
+                .values(
+                    canonical_scheme=canonical.scheme,
+                    canonical_value=canonical.value,
+                    source=source,
+                )
+            )
+            return
         raise AliasConflict(
             alias_scheme=alias_scheme,
             alias_value=alias_value,
