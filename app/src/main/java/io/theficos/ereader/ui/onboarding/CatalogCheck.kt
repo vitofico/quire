@@ -2,6 +2,7 @@ package io.theficos.ereader.ui.onboarding
 
 import io.theficos.ereader.auth.AccountCredentials
 import io.theficos.ereader.data.opds.CatalogFailure
+import io.theficos.ereader.data.opds.ProbeError
 import io.theficos.ereader.data.opds.ServerProbe
 import io.theficos.ereader.data.opds.ServerProbeResult
 import io.theficos.ereader.data.opds.cleartextBlockedMessage
@@ -12,7 +13,11 @@ import io.theficos.ereader.ui.UiText
 import io.theficos.ereader.ui.uiText
 import io.theficos.quire.R
 import java.io.IOException
+import java.io.InterruptedIOException
+import java.net.ConnectException
+import java.net.UnknownHostException
 import java.util.Base64
+import javax.net.ssl.SSLException
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
@@ -102,8 +107,16 @@ class CatalogCheck(
     private fun request(request: Request, judge: (Int, () -> String) -> UiText?): UiText? = try {
         client.newCall(request).execute().use { resp -> judge(resp.code) { resp.body?.string().orEmpty() } }
     } catch (e: IOException) {
-        if (cleartextBlockedMessage(e) != null) uiText(R.string.error_cleartext_blocked)
-        else e.localizedMessage?.let(UiText::Dynamic) ?: uiText(R.string.common_network_error)
+        // Worded as the server probe words it, never the raw exception.
+        val reason = when {
+            cleartextBlockedMessage(e) != null -> ProbeError.Cleartext
+            e is SSLException -> ProbeError.Tls
+            e is UnknownHostException -> ProbeError.Dns
+            e is ConnectException -> ProbeError.ConnectionRefused
+            e is InterruptedIOException -> ProbeError.Timeout
+            else -> ProbeError.Unexpected
+        }
+        probeErrorMessage(reason, e.localizedMessage.orEmpty())
     }
 
     private fun UiText?.toResult(catalog: AccountCredentials.OpdsOnly): Result =
@@ -128,16 +141,23 @@ class CatalogCheck(
             // The browser's own rules: a stricter test here would reject a feed the catalog screen
             // then renders fine. Flibusta emits bare `application/epub` on some entries (issue #101).
             val isAcquisition = isAcquisitionRel(rel) && isEpubMediaType(type)
-            // An entry linking to another Atom feed is navigation too: Ebooks libres et gratuits
-            // types its home's entries as bare `application/atom+xml`, and the browser opens them.
+            // An entry linking to another Atom feed by a navigation relation is navigation too, as
+            // Quire Web reads it: Ebooks libres et gratuits types its home's entries as bare
+            // `application/atom+xml`. A blog feed's `replies` link is not.
             val inEntry = (el.parentNode as? org.w3c.dom.Element)?.localName == "entry"
             val isNavigation = rel == "subsection" || type.startsWith("application/atom+xml;profile=opds-catalog") ||
-                inEntry && type.startsWith("application/atom+xml")
+                inEntry && type.startsWith("application/atom+xml") && isNavigationRel(rel)
             if (isAcquisition || isNavigation) return true
         }
         false
     }.getOrDefault(false)
 }
+
+private val OPDS_NAVIGATION_REL = Regex("^http://opds-spec\\.org/(sort/|featured|recommended|shelf|subscriptions)")
+
+/** The relations Quire Web follows as navigation, a missing one counting as `alternate`. */
+private fun isNavigationRel(rel: String): Boolean =
+    rel.isBlank() || rel in setOf("alternate", "subsection", "related") || OPDS_NAVIGATION_REL.containsMatchIn(rel)
 
 /** What the reader is told when a change to the catalog list did not go through. */
 fun catalogFailureMessage(reason: CatalogFailure): UiText = uiText(
