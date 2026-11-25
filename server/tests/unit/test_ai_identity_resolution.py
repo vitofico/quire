@@ -252,6 +252,79 @@ async def test_catalog_preview_then_download_converges_to_one_row(
 
 
 # ============================================================================
+# 2b. Quire Web catalog preview, keyed by its download link
+# ============================================================================
+
+WEB_PREVIEW = "opds-href:91e95647"
+
+
+async def _live(session: AsyncSession) -> list[BookInsight]:
+    stmt = select(BookInsight).where(BookInsight.superseded_at.is_(None))
+    return list((await session.execute(stmt)).scalars().all())
+
+
+@pytest.mark.requires_ai
+@pytest.mark.asyncio
+async def test_web_preview_then_download_moves_the_link_alias(
+    session: AsyncSession, make_orch
+) -> None:
+    """Quire Web keys a catalog preview by a hash of its download link and sends the
+    same key as `opds_href`. Opening the downloaded copy later sends the real
+    metadata_id plus that link. The link alias must move to the real identity
+    instead of failing the request after the AI call.
+    """
+    bundle = MetadataBundle(title="Armi, acciaio e malattie")
+    preview = DocumentIdentity(metadata_id=WEB_PREVIEW, opds_href=WEB_PREVIEW)
+    await make_orch().generate(session, preview, bundle, user_id="alice")
+
+    download = DocumentIdentity(
+        metadata_id="real-meta", content_hash="real-sha256", opds_href=WEB_PREVIEW
+    )
+    out = await make_orch().generate(session, download, bundle, user_id="alice")
+    assert out is not None
+
+    alias = (
+        await session.execute(
+            select(InsightIdentityAlias).where(InsightIdentityAlias.alias_scheme == "opds_href")
+        )
+    ).scalar_one()
+    assert (alias.canonical_scheme, alias.canonical_value) == ("metadata_id", "real-meta")
+
+    # Previewing from the catalog again serves the downloaded book's insight and
+    # retires the preview.
+    again = make_orch()
+    await again.generate(session, preview, bundle, user_id="alice")
+    assert again.ai.calls == []
+    assert [row.metadata_id for row in await _live(session)] == ["real-meta"]
+
+
+@pytest.mark.requires_ai
+@pytest.mark.asyncio
+async def test_web_preview_after_download_reuses_the_real_insight(
+    session: AsyncSession, make_orch
+) -> None:
+    """A catalog preview of a book already opened from its download resolves to the
+    real identity rather than generating a second insight under the link key.
+    """
+    bundle = MetadataBundle(title="Lettere a Lucilio")
+    download = DocumentIdentity(
+        metadata_id="real-meta", content_hash="real-sha256", opds_href=WEB_PREVIEW
+    )
+    await make_orch().generate(session, download, bundle, user_id="alice")
+
+    preview = make_orch()
+    out = await preview.generate(
+        session,
+        DocumentIdentity(metadata_id=WEB_PREVIEW, opds_href=WEB_PREVIEW),
+        bundle,
+        user_id="alice",
+    )
+    assert out is not None
+    assert preview.ai.calls == []
+    assert [row.metadata_id for row in await _live(session)] == ["real-meta"]
+
+
+# ============================================================================
 # 3. User-scoped alias does not bleed
 # ============================================================================
 
