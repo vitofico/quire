@@ -272,6 +272,7 @@ def create_app() -> FastAPI:
         "progress_metadata_sync": settings.progress_enabled,
         "ai_enabled": settings.ai_enabled,
         "ai_policy_enabled": bool(policy_settings.url),
+        "book_details": settings.ai_enabled and settings.details_enabled,
         "browser_pairing": bool(identity_settings.public_url),
         "identity_provider_onboarding": bool(identity_settings.oidc_issuer),
     }
@@ -631,6 +632,19 @@ def create_app() -> FastAPI:
             # snapshot rather than the "defensive empty body" branch.
             app.state.ai_health = AiHealthState()
             app.include_router(ai_router, prefix="/ai/v1", dependencies=ai_router_deps)
+
+        if settings.details_enabled:
+            # Book details and designed covers share the AI router's auth,
+            # opt-in and allowance; with AI unconfigured they answer 503.
+            from quire_server.api.details import CoverCache, RateLimit
+            from quire_server.api.details import router as details_router
+            from quire_server.core.ai.details import RecentFailures
+
+            app.state.details_cover_limit = RateLimit()
+            app.state.details_lookup_limit = RateLimit()
+            app.state.details_covers = CoverCache()
+            app.state.details_failures = RecentFailures()
+            app.include_router(details_router, prefix="/details/v1", dependencies=ai_router_deps)
 
     # Middleware: registered LAST is OUTERMOST in ASGI execution order.
     # We want RequestID outermost so it can attach X-Request-ID to ANY

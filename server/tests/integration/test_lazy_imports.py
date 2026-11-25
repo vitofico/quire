@@ -28,6 +28,10 @@ SYNC_ONLY_FORBIDDEN = [
     "quire_server.core.ai.service",
     "quire_server.core.ai.prompts",
     "quire_server.core.ai._compat",  # PR-ε / coordinator §3.18
+    "quire_server.api.details",
+    "quire_server.core.ai.details",
+    "quire_server.core.covers",
+    "PIL",
 ]
 
 # Progress router implementations must stay unloaded even when AI is configured.

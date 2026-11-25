@@ -51,7 +51,15 @@ async def _truncate_ai_tables_between_tests(request, engine: AsyncEngine):
     ]
     lane = request.config.getoption("ci_mode")
     if lane != "sync_only":
-        tables.extend(["insight_identity_aliases", "reader_profiles", "server_settings"])
+        tables.extend(
+            [
+                "insight_identity_aliases",
+                "reader_profiles",
+                "server_settings",
+                "book_details",
+                "book_details_reader",
+            ]
+        )
     if lane != "ai_only":
         tables.extend(
             ["library_items", "highlights", "highlight_sync_state", "library_sync_receipts"]

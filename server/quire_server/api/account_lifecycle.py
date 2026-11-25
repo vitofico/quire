@@ -25,6 +25,7 @@ PRIVATE = {
     "ai_generation_log": "subject",
     "reader_profiles": "subject",
     "account_catalogs": "user_id",
+    "book_details_reader": "user_id",
 }
 TENANT_SCOPED = {"ai_generation_log", "reader_profiles"}
 

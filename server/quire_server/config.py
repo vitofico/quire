@@ -202,6 +202,15 @@ class Settings(BaseSettings):
     # take up to twice this value.
     ai_profile_timeout_s: float = 90.0
 
+    # Book details and covers (`/details/v1/*`): fill a book's missing details
+    # from Open Library, tidy them with one model call and draw a cover for a
+    # book that has none. Part of AI: served only when `ai_enabled` is true.
+    details_enabled: bool = True
+    # Per-reader ceilings per minute, counted in each server process: drawn
+    # covers, and lookups plus tidies together.
+    details_cover_rate_per_min: int = 30
+    details_lookup_rate_per_min: int = 30
+
     # ---------------------------------------------------------------------
     # PR-B: AI auth abstraction (seam-only). Sync routes unaffected.
     # ---------------------------------------------------------------------

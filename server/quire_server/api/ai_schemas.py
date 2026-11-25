@@ -608,6 +608,9 @@ class ConfigResponse(BaseModel):
     # generation_timeout_s instead, which is never too short but longer than
     # needed. None only when AI is disabled; older servers omit it.
     profile_timeout_s: int | None = None
+    # True when /details/v1 is mounted: book details and designed covers.
+    # Older servers omit it.
+    details_supported: bool = False
 
 
 class PreferencesResponse(BaseModel):
