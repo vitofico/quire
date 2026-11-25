@@ -1185,9 +1185,16 @@ dialog.ask .actions {
     scrollbar-width: none;
     margin-inline: -1.25rem;
     padding-inline: 1.25rem;
+    scroll-padding-inline: 1.25rem;
   }
   .chip {
     flex: none;
+    /* Block, so a long name ends in an ellipsis instead of clipping at both ends. */
+    display: block;
+    max-width: 16rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .welcome {
     background: var(--paper);
