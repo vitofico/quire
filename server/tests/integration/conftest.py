@@ -47,6 +47,7 @@ async def _truncate_ai_tables_between_tests(request, engine: AsyncEngine):
         "documents",
         "native_sessions",
         "native_users",
+        "account_catalogs",
     ]
     lane = request.config.getoption("ci_mode")
     if lane != "sync_only":

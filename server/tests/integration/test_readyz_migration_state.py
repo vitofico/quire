@@ -77,7 +77,7 @@ async def test_readyz_200_when_at_ai_head(
     assert body["ready"] is True
     # Phase 0, task S-1 added the always-materialized `auth` branch:
     # The enabled branch heads are sorted in the readiness response.
-    assert body["heads_applied"] == ["ai_011", "auth_005", "progress_006"]
+    assert body["heads_applied"] == ["ai_011", "auth_005", "catalogs_001", "progress_007"]
 
 
 async def test_readyz_503_when_db_below_backbone(
@@ -102,12 +102,13 @@ async def test_readyz_200_with_neither_mode_at_backbone(
     managed_app_factory, monkeypatch, postgres_url, alembic_upgrade, restore_after
 ):
     """With neither feature-mode enabled, the required heads collapse to
-    {backbone, auth} — `auth` is unconditionally required (Phase 0 / S-1).
+    {backbone, auth, catalogs} — both account branches are unconditionally
+    required (Phase 0 / S-1, synced catalogs).
 
-    Stamp the DB to ``(0004, auth_005)`` to exercise the "fresh sync-only
+    Stamp the DB to ``(0004, auth_005, catalogs_001)`` to exercise the "fresh sync-only
     deploy that never materialized the ai or progress branches" code path.
     """
-    await _stamp(postgres_url, ("0004", "auth_005"))
+    await _stamp(postgres_url, ("0004", "auth_005", "catalogs_001"))
     app = _build_app(managed_app_factory, monkeypatch, postgres_url, progress=False, ai=False)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         r = await c.get("/readyz")
@@ -115,9 +116,9 @@ async def test_readyz_200_with_neither_mode_at_backbone(
     body = r.json()
     assert body["modes"] == []
     # ``heads_applied`` lists every row in ``alembic_version`` (sorted).
-    # We stamped both to simulate a deploy that explicitly walked the
-    # backbone + always-on ``auth`` branch.
-    assert body["heads_applied"] == ["0004", "auth_005"]
+    # We stamped them to simulate a deploy that explicitly walked the
+    # backbone + always-on ``auth`` and ``catalogs`` branches.
+    assert body["heads_applied"] == ["0004", "auth_005", "catalogs_001"]
 
 
 async def test_readyz_503_with_neither_mode_below_backbone(
@@ -129,5 +130,6 @@ async def test_readyz_503_with_neither_mode_below_backbone(
         r = await c.get("/readyz")
     assert r.status_code == 503
     body = r.json()
-    # Both the backbone tip and the always-on `auth` head are missing.
+    # Both the backbone tip and the always-on `auth` and `catalogs` heads are missing.
     assert "auth_005" in body["missing"]
+    assert "catalogs_001" in body["missing"]

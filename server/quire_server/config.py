@@ -7,7 +7,7 @@ from typing import Literal
 from urllib.parse import urlsplit
 
 from dotenv import dotenv_values
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ENV_PREFIX = "QUIRE_SERVER_"
@@ -285,6 +285,18 @@ class Settings(BaseSettings):
     # calibre-web username, or `native:<id>` under native auth. Compared
     # case-insensitively. Empty (the default) mounts none of the admin routes.
     admin_users: str = ""
+
+    # Synced catalogs: the keys that encrypt saved catalog logins at rest.
+    # JSON object mapping key id to a base64 32-byte key, the same shape as
+    # `ai_token_secrets`. The first entry encrypts; every entry decrypts.
+    # Kept as text and parsed in `core.catalog_secrets`: a pydantic error on
+    # a dict field quotes the raw value, which would print the key at boot.
+    catalog_keys: SecretStr | None = None
+    # Used when `catalog_keys` is unset; created on first start if missing.
+    # Empty means no key file: the keys must come from `catalog_keys`.
+    catalog_key_file: str = "/var/lib/quire/catalog.key"
+    # Accept plain-http catalog addresses (a catalog on the home network).
+    catalog_allow_http: bool = False
 
     @field_validator("mcp_public_url")
     @classmethod
