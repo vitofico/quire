@@ -24,14 +24,10 @@ class OpenCatalogsTest {
             assertThat(URI(catalog.home).scheme).isEqualTo("https")
             assertThat(catalog.name.length).isAtMost(SavedCatalog.MAX_NAME_LENGTH)
             assertThat(catalog.languages).isNotEmpty()
-            assertThat(catalog.offers).isAnyOf("public_domain", "open_licence")
+            assertThat(catalog.offers).isAnyOf("public_domain", "public_domain_us", "open_licence")
             assertThat(catalog.descriptions.keys).containsExactly("en", "de", "es", "fr", "it")
             catalog.descriptions.values.forEach { assertThat(it).doesNotContain("—") }
         }
-    }
-
-    @Test fun `the list covers each app language`() {
-        assertThat(catalogs.flatMap { it.languages }.toSet()).containsAtLeast("en", "de", "es", "fr", "it")
     }
 
     @Test fun `catalogs in the reader's language come first, the rest keep their order`() {

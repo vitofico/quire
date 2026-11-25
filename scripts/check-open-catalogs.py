@@ -18,10 +18,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
+
+import httpx
 
 from quire_server.api.catalogs import _DOWNLOAD_TYPES, _FEED_TYPES, FEED_LIMIT
 from quire_server.core import catalog_proxy
@@ -31,6 +34,11 @@ ACQUISITION = ("http://opds-spec.org/acquisition", "http://opds-spec.org/acquisi
 EPUB = ("application/epub+zip", "application/epub")
 LIST = Path(__file__).resolve().parent.parent / "catalogs" / "open-catalogs.json"
 MAX_FEEDS = 8
+# The relations Quire Web follows as navigation (web/src/books/opds.ts); none counts as alternate.
+NAVIGATION = ("subsection", "alternate", "related")
+OPDS_NAVIGATION = re.compile(
+    r"^http://opds-spec\.org/(sort/|featured|recommended|shelf|subscriptions)"
+)
 
 
 def origin(url: str) -> tuple[str, str]:
@@ -76,7 +84,7 @@ async def check(catalog: dict) -> list[str]:
         final, media, body = await fetch(url, home, FEED_LIMIT)
         if media not in _FEED_TYPES:
             return [f"{url}: a {media or 'untyped'} answer is not passed on as a feed"]
-        if b"<!DOCTYPE" in body[:4096].upper():
+        if b"<!DOCTYPE" in body.upper():
             return [f"{url}: Quire Web refuses XML with a DOCTYPE"]
         root = ET.fromstring(body)
         if root.tag != ATOM + "feed":
@@ -84,7 +92,7 @@ async def check(catalog: dict) -> list[str]:
         for entry in root.iter(ATOM + "entry"):
             for link in entry.findall(ATOM + "link"):
                 href = urljoin(final, link.get("href", ""))
-                rel, kind = link.get("rel", ""), link.get("type", "")
+                rel, kind = link.get("rel", "alternate"), link.get("type", "")
                 if rel in ACQUISITION and kind.split(";")[0] in EPUB:
                     if origin(href) != origin(home):
                         return [f"EPUB on another origin: {href}"]
@@ -92,17 +100,19 @@ async def check(catalog: dict) -> list[str]:
                     if media not in _DOWNLOAD_TYPES or not book.startswith(b"PK"):
                         return [f"{href}: not an EPUB ({media})"]
                     return []
-                if kind.startswith("application/atom+xml") and origin(href) == origin(home):
+                navigation = rel in NAVIGATION or OPDS_NAVIGATION.match(rel)
+                feed = kind.startswith("application/atom+xml")
+                if feed and navigation and origin(href) == origin(home):
                     queue.append(href)
     return [f"no EPUB within {len(seen)} feeds"]
 
 
 async def main() -> int:
     failed = 0
-    for catalog in json.loads(LIST.read_text())["catalogs"]:
+    for catalog in json.loads(LIST.read_text(encoding="utf-8"))["catalogs"]:
         try:
             problems = await check(catalog)
-        except (catalog_proxy.UpstreamError, ValueError, ET.ParseError) as error:
+        except (catalog_proxy.UpstreamError, httpx.HTTPError, ValueError, ET.ParseError) as error:
             problems = [repr(error)]
         failed += bool(problems)
         print(("FAIL " if problems else "ok   ") + catalog["id"], *problems, sep="  ")
