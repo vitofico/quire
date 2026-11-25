@@ -212,8 +212,8 @@ test('the conversation is a full page at phone width, with everything behind it 
 test('no Select without the server feature, while details still work', async ({ page }) => {
   const { details } = await connect(page, { discuss: false })
   await page.locator('input[type=file]').setInputFiles(book())
-  // Tidy details shows once the AI settings are in: only then is a missing Select meaningful.
-  await expect(page.getByRole('button', { name: 'Tidy details' })).toBeVisible()
+  // Improve details shows once the AI settings are in: only then is a missing Select meaningful.
+  await expect(page.getByRole('button', { name: 'Improve details' })).toBeVisible()
   await expect.poll(() => details.length).toBeGreaterThan(0)
   await page.getByRole('link', { name: 'Highlights', exact: true }).click()
   await expect(page.locator('.quote')).toHaveCount(3)
@@ -225,6 +225,6 @@ test('Select on a server without book details, which stay hidden', async ({ page
   await expect(page.getByRole('button', { name: 'Select', exact: true })).toBeVisible()
   await page.locator('input[type=file]').setInputFiles(book())
   await expect(page.getByRole('heading', { name: 'Field Notes', level: 1 })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Tidy details' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Improve details' })).toHaveCount(0)
   expect(details).toEqual([])
 })
