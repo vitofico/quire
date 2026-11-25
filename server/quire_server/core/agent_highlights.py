@@ -231,7 +231,9 @@ async def get_highlights(
 class HighlightedBook(BaseModel):
     document: HighlightDocument
     book_title: str
+    book_title_truncated: bool
     book_author: str | None
+    book_author_truncated: bool
     highlight_count: int
     noted_count: int
     first_highlight_at: int
@@ -256,20 +258,54 @@ async def list_highlighted_books(
     ``list_highlights`` filters on), most recently highlighted first."""
     bound = scope("books", user_id)
     after = decode_cursor(cursor, bound, _book_position) if cursor else None
-    books = (
+    live = (Highlight.user_id == user_id, Highlight.deleted_at.is_(None))
+    counts = (
         select(
             Highlight.content_hash,
-            func.max(Highlight.metadata_id).label("metadata_id"),
-            func.max(Highlight.identity_hash_version).label("identity_hash_version"),
-            func.left(func.max(Highlight.book_title), 1000).label("book_title"),
-            func.left(func.max(Highlight.book_author), 1000).label("book_author"),
             func.count().label("highlight_count"),
-            func.count(Highlight.comment).label("noted_count"),
+            func.count().filter(func.btrim(Highlight.comment) != "").label("noted_count"),
             func.min(Highlight.created_at).label("first_highlight_at"),
             func.max(Highlight.updated_at).label("last_highlight_at"),
         )
-        .where(Highlight.user_id == user_id, Highlight.deleted_at.is_(None))
+        .where(*live)
         .group_by(Highlight.content_hash)
+        .subquery()
+    )
+    # Title, author and identity come from the book's latest highlight, so a
+    # corrected title wins over an older spelling.
+    latest = (
+        select(
+            Highlight.content_hash,
+            Highlight.metadata_id,
+            Highlight.identity_hash_version,
+            func.left(Highlight.book_title, 1000).label("book_title"),
+            (func.length(Highlight.book_title) > 1000).label("book_title_truncated"),
+            func.left(Highlight.book_author, 1000).label("book_author"),
+            (func.coalesce(func.length(Highlight.book_author), 0) > 1000).label(
+                "book_author_truncated"
+            ),
+            func.row_number()
+            .over(
+                partition_by=Highlight.content_hash,
+                order_by=(Highlight.updated_at.desc(), Highlight.id.desc()),
+            )
+            .label("rank"),
+        )
+        .where(*live)
+        .subquery()
+    )
+    books = (
+        select(
+            counts,
+            latest.c.metadata_id,
+            latest.c.identity_hash_version,
+            latest.c.book_title,
+            latest.c.book_title_truncated,
+            latest.c.book_author,
+            latest.c.book_author_truncated,
+        )
+        .join(latest, latest.c.content_hash == counts.c.content_hash)
+        .where(latest.c.rank == 1)
         .subquery()
     )
     statement = select(books)
@@ -299,7 +335,9 @@ async def list_highlighted_books(
                     identity_hash_version=row.identity_hash_version,
                 ),
                 book_title=row.book_title,
+                book_title_truncated=row.book_title_truncated,
                 book_author=row.book_author,
+                book_author_truncated=row.book_author_truncated,
                 highlight_count=row.highlight_count,
                 noted_count=row.noted_count,
                 first_highlight_at=row.first_highlight_at,

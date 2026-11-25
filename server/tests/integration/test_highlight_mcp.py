@@ -266,9 +266,12 @@ async def test_books_library_batches_and_details(app_under_test, session):
 
     doc = {"metadata_id": None, "content_hash": "dune-file", "identity_hash_version": 1}
     older = highlight(document=doc, text="Fear is the mind-killer.", comment="my note")
+    # The latest highlight names the book, and a blank comment is no note.
     newer = highlight(
         document=doc,
         text="The spice must flow.",
+        book_title="Dune, corrected",
+        comment="   ",
         created_at=1700000000200,
         updated_at=1700000000300,
     )
@@ -308,6 +311,28 @@ async def test_books_library_batches_and_details(app_under_test, session):
             key=key,
         )
     )
+    # A record from an older prompt, and a malformed one, read as no details.
+    for name, version, record in (
+        ("done-file", "details-0", {"title": "Old prompt"}),
+        ("new-file", "details-1", {"title": "Broken", "series_index": "one"}),
+    ):
+        session.add(
+            BookDetails(
+                key=name[0] * 64,
+                identity=f"content_hash:{name}",
+                record=record,
+                design={},
+                model_id="m",
+                prompt_version=version,
+            )
+        )
+        session.add(
+            BookDetailsReader(
+                user_id="alice",
+                identity_hash=hashlib.sha256(f"content_hash:{name}".encode()).hexdigest(),
+                key=name[0] * 64,
+            )
+        )
     await session.commit()
 
     async with app_under_test.router.lifespan_context(app_under_test):
@@ -318,6 +343,8 @@ async def test_books_library_batches_and_details(app_under_test, session):
             assert first["document"]["content_hash"] == "dune-file"
             assert (first["highlight_count"], first["noted_count"]) == (2, 1)
             assert first["last_highlight_at"] == 1700000000300
+            assert first["book_title"] == "Dune, corrected"
+            assert not first["book_title_truncated"] and not first["book_author_truncated"]
             rest = await sdk.call_tool("list_highlighted_books", {"cursor": books["next_cursor"]})
             assert [b["book_title"] for b in rest.structured_content["items"]] == [
                 other["book_title"]
@@ -374,6 +401,8 @@ async def test_books_library_batches_and_details(app_under_test, session):
                 await sdk.call_tool("get_book", {"content_hash": "done-file"})
             ).structured_content
             assert done["details"] is None and done["finished_at"].startswith("2026-11-02")
+            fresh = await sdk.call_tool("get_book", {"content_hash": "new-file"})
+            assert fresh.structured_content["details"] is None
             assert (await sdk.call_tool("get_book", {})).is_error
             assert (await sdk.call_tool("get_book", {"content_hash": "absent"})).is_error
 
@@ -383,3 +412,14 @@ async def test_books_library_batches_and_details(app_under_test, session):
             assert (await bob.call_tool("list_highlighted_books", {})).structured_content[
                 "items"
             ] == []
+            theirs = await bob.call_tool(
+                "get_highlights", {"highlight_ids": [older["id"], newer["id"]]}
+            )
+            assert theirs.structured_content == {
+                "items": [],
+                "not_found": [older["id"], newer["id"]],
+            }
+            replayed = await bob.call_tool(
+                "list_highlighted_books", {"cursor": books["next_cursor"]}
+            )
+            assert replayed.is_error and replayed.content[0].text.endswith("invalid_cursor")

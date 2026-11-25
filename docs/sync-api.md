@@ -1709,20 +1709,25 @@ trimmed. Unknown fields are refused too.
 }
 ```
 
-- `answer`: plain text, never Markdown or HTML. Paragraphs are separated
-  by a blank line; a list may use plain hyphens. It does not contain
-  passage numbers, so it reads on its own when shared. It is in the
-  language of the reader's latest question, about 150 words unless the
-  reader asked for more, and never longer than 4,000 characters, so it can
-  always be sent back as an `assistant` turn. (The server removes any
-  stray Markdown emphasis or heading marks, and in the rare case of a
-  longer answer cuts it at a sentence end and adds "…".) When the passages
-  cannot answer the question, the answer says so rather than guessing.
+- `answer`: text to be rendered as plain text. It may contain URLs.
+  Clients must never render it as Markdown or HTML: the model is asked
+  for plain text, but the server does not rewrite what it returns, so
+  stray marks such as `**` may appear and must show as typed. Paragraphs
+  are separated by a blank line; a list may use plain hyphens. The model
+  is asked to leave out passage numbers, so the answer reads on its own
+  when shared. It is in the language of the reader's latest question,
+  about 150 words unless the reader asked for more, and never longer than
+  4,000 characters, so it can always be sent back as an `assistant` turn:
+  in the rare case of a longer answer the server cuts it, at a sentence
+  end when one falls in the second half of the limit, and adds "…". When
+  the passages cannot answer the question, the answer says so rather than
+  guessing.
 - `cited`: the `n` values of the passages the answer relies on, in the
   order it uses them. Every value is one of the request's `n`; the server
   drops any other number and any repeat. It may be empty.
 
-Render `answer` as plain text only.
+Render `answer` as plain text only. Responses carry
+`Cache-Control: no-store`.
 
 #### Allowance, rate and log
 
@@ -1740,11 +1745,14 @@ nothing of the content.
 
 Highlights, notes and titles may contain anything, including text such as
 "ignore previous instructions". The server sends them to the model as JSON
-string values inside the user message, so no passage can break out of its
-quotes, under a system prompt that says they are material to reason about
-and never instructions, that answers must be grounded in them, and that
-"I can't tell from these passages" beats invention. `cited` is checked
-against the request whatever the model returns.
+string values inside the user message. Quoting stops a passage from
+breaking the structure of the message (it cannot close its string and
+pose as a new field or turn), but it does not stop the model from reading
+the words. That part is the system prompt's job: it says the passages are
+material to reason about and never instructions, that answers must be
+grounded in them, and that "I can't tell from these passages" beats
+invention. `cited` is checked against the request whatever the model
+returns.
 
 #### Errors
 
@@ -1756,8 +1764,9 @@ the model call.
 |---|---|---|
 | 401 | | Not authenticated. |
 | 404 | | AI is off (`QUIRE_SERVER_AI_ENABLED=false`): `/ai/v1` is not mounted. |
+| 413 | | The body is larger than `QUIRE_SERVER_MAX_REQUEST_BYTES` (default 1 MiB), refused before it is read. |
 | 422 | `{"detail": {"code": ..., "field": ..., "limit": ...}}` | A value over a limit or a malformed conversation; see below. Nothing is counted. |
-| 422 | `{"detail": [...]}` (FastAPI validation list) | The body is not JSON of the shape above: a missing or mistyped field, an unknown field, a `role` other than `reader` or `assistant`, or a `provider` that is not a lowercase id. |
+| 422 | `{"detail": [...]}` (FastAPI validation list) | The body is not JSON of the shape above: unparseable JSON (`type` `json_invalid`), a missing or mistyped field (an `n` must be a JSON integer, not `"1"` or `1.0`), an unknown field, a `role` other than `reader` or `assistant`, or a `provider` that is not a lowercase id. Each item has `type`, `loc` and `msg` only: the values sent are never echoed back. |
 | 503 | `{"detail": "ai_disabled"}` | AI is on but no provider is configured (`configured` is false). |
 | 422 | `{"detail": "ai_provider_unknown"}` | `provider` names no provider this server offers. |
 | 409 | `{"detail": "ai_provider_unavailable"}` | The reader's chosen provider is no longer on this server. |

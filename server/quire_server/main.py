@@ -548,7 +548,7 @@ def create_app() -> FastAPI:
         runtime = RuntimeSettings(settings)
         app.state.runtime_settings = runtime
         ai_router_deps = [Depends(refresh_runtime_settings)]
-        from quire_server.api.details import RateLimit
+        from quire_server.core.rate_limit import RateLimit
 
         # Questions about highlights, per reader per minute.
         app.state.discuss_limit = RateLimit()

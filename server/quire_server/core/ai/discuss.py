@@ -9,16 +9,16 @@ allowance, the process-wide rate and the concurrency cap, and one
 ``ai_generation_log`` row of kind ``discuss``.
 
 Passages, notes and titles are quoted material, never instructions. They go
-to the model as JSON strings, which no quote can break out of, under a
-system prompt that says so. Only counts and timings are logged: never a
-passage, a note, a question or an answer.
+to the model as JSON strings, so no quote can break the message's
+structure, under a system prompt that says to treat them as quotes. Only
+counts and timings are logged: never a passage, a note, a question or an
+answer.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import re
 import time
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -75,10 +75,6 @@ Rules:
   answer uses them; an empty list when it relies on none.
 
 Return only the JSON object with "answer" and "cited"."""
-
-# Markdown the model may still slip in: emphasis markers and heading marks.
-_EMPHASIS = re.compile(r"\*\*|__|`")
-_HEADING = re.compile(r"^#{1,6}\s+", re.MULTILINE)
 
 
 class DiscussInvalid(ValueError):
@@ -158,20 +154,24 @@ def prompt(body: DiscussBody) -> str:
     return json.dumps({"passages": passages, "conversation": conversation}, ensure_ascii=False)
 
 
-def _plain(answer: str) -> str:
-    text = _HEADING.sub("", _EMPHASIS.sub("", answer)).strip()
+def _fit(answer: str) -> str:
+    """The answer, short enough to be sent back as an assistant turn. Plain
+    text is left to the prompt: the server does not rewrite the answer."""
+    text = answer.strip()
     if len(text) <= LIMITS.max_answer_chars:
         return text
-    # Keep the answer short enough to be sent back as an assistant turn.
     cut = text[: LIMITS.max_answer_chars - 1]
+    # End at a sentence when one ends in the second half, else at the limit.
     end = max(cut.rfind(". "), cut.rfind("\n"))
-    return (cut[: end + 1] if end > 0 else cut.rsplit(" ", 1)[0]).rstrip() + "…"
+    if end > len(cut) // 2:
+        cut = cut[:end]
+    return cut.rstrip().rstrip(".") + "…"
 
 
 def answer(out: DiscussOutput, body: DiscussBody) -> DiscussResponse:
-    """The model's answer as plain text, its citations limited to the
-    numbers the request holds, without repeats, in the model's order."""
-    text = _plain(out.answer)
+    """The model's answer, its citations limited to the numbers the request
+    holds, without repeats, in the model's order."""
+    text = _fit(out.answer)
     if not text:
         raise ProviderParseError("empty answer")
     known = {h.n for h in body.highlights}
@@ -201,8 +201,9 @@ async def discuss(
         tenant_id=tenant_id,
         is_regen=False,
     )
-    result = answer(out, body)
+    # Commit the log row first: an unusable answer below was still charged.
     await session.commit()
+    result = answer(out, body)
     logger.info(
         "event=ai.discuss highlights=%d turns=%d prompt_chars=%d answer_chars=%d cited=%d "
         "latency_ms=%d",

@@ -8,7 +8,14 @@ load-bearing on both ends.
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictInt,
+    field_validator,
+    model_validator,
+)
 
 # Full ISO 639-1 set (184 codes, current as of 2024). Frozen so a future
 # AiStyle.language="zz" (regex-valid but not a real language) gets a 422
@@ -643,7 +650,7 @@ class DiscussHighlight(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    n: int
+    n: StrictInt
     text: str
     note: str | None = None
     title: str | None = None

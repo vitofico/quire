@@ -50,6 +50,7 @@ from quire_server.api.ai_schemas import (
     ReaderProfileResponse,
     RetrievalSourceHealth,
 )
+from quire_server.api.no_store import NoStoreRoute
 from quire_server.config import get_settings
 from quire_server.core.ai.client import ProviderError, ProviderTimeout
 from quire_server.core.ai.discuss import DiscussInvalid, check_limits, discuss
@@ -754,7 +755,6 @@ async def sync_insights(
     )
 
 
-@router.post("/highlights/discuss", response_model=DiscussResponse)
 async def discuss_highlights(
     request: Request,
     body: DiscussBody,
@@ -790,6 +790,17 @@ async def discuss_highlights(
         )
     except QuotaExceeded as exc:
         raise _quota_http_exception(exc) from exc
+
+
+# NoStoreRoute: the answer is private and never cached, and a 422 does not
+# quote back the passages or questions the client sent.
+router.add_api_route(
+    "/highlights/discuss",
+    discuss_highlights,
+    methods=["POST"],
+    response_model=DiscussResponse,
+    route_class_override=NoStoreRoute,
+)
 
 
 @router.get("/profile", response_model=ReaderProfileResponse)

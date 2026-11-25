@@ -117,6 +117,8 @@ def mount_highlight_mcp(app: FastAPI, settings: Settings, session_factory) -> No
             raise ToolError("highlight_read_failed") from None
 
     async def page(ctx: Context, **kwargs) -> HighlightPage:
+        # Authenticate before validating, so an anonymous caller learns nothing
+        # about its arguments; read() checks the principal again for the query.
         principal(ctx)
         try:
             query = HighlightQuery(**kwargs)
@@ -218,7 +220,7 @@ def mount_highlight_mcp(app: FastAPI, settings: Settings, session_factory) -> No
         both are given): its catalog fields, reading progress, highlight count and, when
         the reader's app tidied them, the improved title, authors, series, description
         and subjects in details."""
-        principal(ctx)
+        principal(ctx)  # authenticate before validating, as page() does
         try:
             query = HighlightQuery(metadata_id=metadata_id, content_hash=content_hash)
         except ValidationError:
