@@ -222,14 +222,14 @@ class SettingsViewModelTest {
     // ---------- issue #101 ----------
 
     @Test fun `an opds account is surfaced as the active account`() {
-        store.saveOpdsAccount("https://kavita.example/api/opds/KEY")
+        store.setCatalog(AccountCredentials.OpdsOnly("https://kavita.example/api/opds/KEY"))
         val vm = newViewModel()
         assertThat(vm.opds.value.isActive).isTrue()
         assertThat(vm.opds.value.catalogUrl).isEqualTo("https://kavita.example/api/opds/KEY")
     }
 
     @Test fun `an opds account reports no sync credentials`() {
-        store.saveOpdsAccount("https://kavita.example/api/opds/KEY")
+        store.setCatalog(AccountCredentials.OpdsOnly("https://kavita.example/api/opds/KEY"))
         val vm = newViewModel()
         assertThat(vm.sync.value.hasCredentials).isFalse()
     }
@@ -247,7 +247,7 @@ class SettingsViewModelTest {
         vm.saveOpds()
         advanceUntilIdle()
 
-        val saved = store.getAccount() as AccountCredentials.OpdsOnly
+        val saved = store.catalogAccount()!!
         assertThat(saved.baseUrl).isEqualTo("https://feed.example/opds")
     }
 
@@ -283,13 +283,13 @@ class SettingsViewModelTest {
         vm.saveOpds()
         advanceUntilIdle()
 
-        val saved = store.getAccount() as AccountCredentials.OpdsOnly
+        val saved = store.catalogAccount()!!
         assertThat(saved.baseUrl).isEqualTo("https://feed.example/opds")
         assertThat(vm.opds.value.catalogUrl).isEqualTo("https://feed.example/opds")
     }
 
     @Test fun `isConnected is false for an opds-only account`() = runTest {
-        store.saveOpdsAccount("https://feed.example/opds")
+        store.setCatalog(AccountCredentials.OpdsOnly("https://feed.example/opds"))
         val vm = newViewModel()
         advanceUntilIdle()
         // Restore reads the quire-server library mirror, which an OPDS-only
@@ -314,13 +314,15 @@ class SettingsViewModelTest {
 
         val signedIn = store.getAccount() as AccountCredentials.Bearer
         assertThat(signedIn.token).isEqualTo("quire-token")
-        assertThat(signedIn.catalog?.baseUrl).isEqualTo("https://books.example/calibre/opds")
+        val catalog = store.catalogAccount()!!
+        assertThat(catalog.baseUrl).isEqualTo("https://books.example/calibre/opds")
         assertThat(vm.isConnected.value).isTrue()
 
         vm.disconnectQuire()
         advanceUntilIdle()
 
-        assertThat(store.getAccount()).isEqualTo(signedIn.catalog)
+        assertThat(store.getAccount()).isNull()
+        assertThat(store.catalogAccount()).isEqualTo(catalog)
         assertThat(vm.calibre.value.baseUrl).isEqualTo("https://books.example/calibre")
         assertThat(vm.isConnected.value).isFalse()
     }

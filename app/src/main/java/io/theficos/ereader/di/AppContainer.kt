@@ -2,7 +2,6 @@ package io.theficos.ereader.di
 
 import android.content.Context
 import io.theficos.ereader.auth.AccountCredentials
-import io.theficos.ereader.auth.catalogAccount
 import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.core.identity.extractIdentity
 import io.theficos.ereader.core.metadata.readOpfBundle
@@ -23,6 +22,8 @@ import io.theficos.ereader.data.local.HighlightRepository
 import io.theficos.ereader.data.local.db.EReaderDatabase
 import io.theficos.ereader.data.local.db.ProgressDao
 import io.theficos.ereader.data.opds.BookDownloader
+import io.theficos.ereader.data.opds.CatalogSyncClient
+import io.theficos.ereader.data.opds.CatalogSyncRepository
 import io.theficos.ereader.data.opds.OpdsClient
 import io.theficos.ereader.data.opds.OpdsHttpClient
 import io.theficos.ereader.data.opds.OpenLibraryClient
@@ -50,6 +51,7 @@ import io.theficos.ereader.ui.library.LibraryStatsCache
 import io.theficos.ereader.ui.library.LibraryStatsViewModel
 import io.theficos.ereader.ui.onboarding.ConnectServerViewModel
 import io.theficos.ereader.ui.onboarding.WelcomePreferencesStore
+import io.theficos.ereader.ui.reader.memoryAccountKey
 import io.theficos.ereader.ui.settings.WhatsNewPreferencesStore
 import io.theficos.ereader.ui.scan.ScanResultRegistry
 import io.theficos.ereader.ui.theme.AppThemePreferencesStore
@@ -60,6 +62,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -83,15 +86,13 @@ internal fun AccountCredentials.quireServerUrlOrNull(): String? = when (this) {
     is AccountCredentials.OpdsOnly -> null
 }
 
-internal fun AccountCredentials.catalogInsightScope(): String? {
+/** Key of the reading-pause notes kept on a device with no account. */
+internal const val DEVICE_MEMORY_KEY = "device-local"
+
+internal fun AccountCredentials.catalogInsightScope(catalog: AccountCredentials.OpdsOnly?): String? {
     val service = quireServerUrlOrNull() ?: return null
-    val catalog = catalogAccount() ?: return null
-    val catalogUser = when (catalog) {
-        is AccountCredentials.Basic -> catalog.username
-        is AccountCredentials.OpdsOnly -> catalog.username.orEmpty()
-        is AccountCredentials.Bearer -> error("A Quire account cannot authenticate a catalog")
-    }
-    val input = listOf(service, subject, catalog.baseUrl, catalogUser)
+    if (catalog == null) return null
+    val input = listOf(service, subject, catalog.baseUrl, catalog.username.orEmpty())
         .joinToString("") { "${it.length}:$it" }
     return MessageDigest.getInstance("SHA-256").digest(input.toByteArray())
         .joinToString("") { "%02x".format(it) }
@@ -165,7 +166,17 @@ class AppContainer internal constructor(context: Context, private val db: EReade
      */
     val catalogInsightStash: CatalogInsightStash = CatalogInsightStash()
 
-    internal fun catalogInsightScope(): String? = credentialStore.getAccount()?.catalogInsightScope()
+    internal fun catalogInsightScope(): String? =
+        credentialStore.getAccount()?.catalogInsightScope(credentialStore.catalogAccount())
+
+    val catalogSyncRepository: CatalogSyncRepository = CatalogSyncRepository(
+        store = credentialStore,
+        client = CatalogSyncClient(
+            baseUrlProvider = { (credentialStore.getAccount() as? AccountCredentials.Bearer)?.baseUrl },
+            http = opdsHttp.quireHttp,
+        ),
+        onCatalogMerged = { from, into -> db.documentDao().replaceCatalogId(from, into) },
+    )
 
     val libraryClient: LibraryClient = LibraryClient(
         baseUrlProvider = { credentialStore.getAccount()?.quireServerUrlOrNull() },
@@ -368,6 +379,7 @@ class AppContainer internal constructor(context: Context, private val db: EReade
                             author = c.authors.firstOrNull(),
                             downloadUrl = c.opdsHref,
                             localPath = file.absolutePath,
+                            catalogId = c.catalogId,
                             coverPath = coverFile?.absolutePath,
                             downloadedAt = System.currentTimeMillis(),
                             seriesName = opf.seriesName,
@@ -408,6 +420,17 @@ class AppContainer internal constructor(context: Context, private val db: EReade
         SyncEnqueuer.enqueue(appContext)
     }
 
+    /**
+     * Before saved catalogs a catalog-only device was signed in as its catalog, and its highlights
+     * and reading-pause notes were kept under that sign-in. They belong to the device now.
+     */
+    private suspend fun releaseLegacyCatalogOwner() {
+        val legacy = credentialStore.legacyCatalogOwner() ?: return
+        highlightSyncer.releaseOwnership(legacy.highlightScope())
+        memoryBookmarkDao.moveAccount(memoryAccountKey(legacy.baseUrl, legacy.subject), DEVICE_MEMORY_KEY)
+        credentialStore.forgetLegacyCatalogOwner()
+    }
+
     private suspend fun readOpfBytes(doc: Document): ByteArray? = withContext(Dispatchers.IO) {
         runCatching {
             java.util.zip.ZipFile(doc.localPath).use { zip ->
@@ -445,6 +468,8 @@ class AppContainer internal constructor(context: Context, private val db: EReade
             client = libraryClient,
             dao = db.documentDao(),
             credentials = CredentialsProvider { credentialStore.getAccount()?.quireServerUrlOrNull() != null },
+            // Only a server that syncs catalogs is new enough to take `catalog_id` in a batch.
+            sendCatalogIds = { credentialStore.catalogRevision.value != null },
         )
         // Once per launch, follow the server if it has moved to another address.
         libraryUploaderScope.launch {
@@ -459,6 +484,12 @@ class AppContainer internal constructor(context: Context, private val db: EReade
             }
         }
         libraryUploaderScope.launch {
+            try {
+                releaseLegacyCatalogOwner()
+            } catch (e: android.database.SQLException) {
+                // The owner stays recorded, so the next app start tries again.
+                android.util.Log.w("AppContainer", "Couldn't move the old catalog's highlights to the device", e)
+            }
             credentialStore.accountFlow.collect { account ->
                 if (account is AccountCredentials.Bearer) {
                     try {
@@ -467,14 +498,17 @@ class AppContainer internal constructor(context: Context, private val db: EReade
                         // Keep the pending migration persisted for retry on the next app start.
                         android.util.Log.w("AppContainer", "Couldn't transfer highlight ownership", e)
                     }
+                    // On app start and on every sign-in; usually an empty 304.
+                    catalogSyncRepository.pull()
                 }
             }
         }
         // Discard queued promotions when either connection changes ownership.
         libraryUploaderScope.launch {
             var seen = catalogInsightScope()
-            credentialStore.accountFlow.collect { account ->
-                val next = account?.catalogInsightScope()
+            combine(credentialStore.accountFlow, credentialStore.activeCatalog) { account, active ->
+                account?.catalogInsightScope(active?.catalog)
+            }.collect { next ->
                 if (next != seen) {
                     seen = next
                     catalogInsightStash.clearAll()

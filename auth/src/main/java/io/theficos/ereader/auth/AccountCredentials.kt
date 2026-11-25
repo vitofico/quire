@@ -8,9 +8,10 @@ import java.security.MessageDigest
  * Three concrete shapes:
  * - [Basic]: `username` + `password` (calibre-web style). Emits
  *   `Authorization: Basic <base64(user:pass)>`.
- * - [Bearer]: native Quire login and an optional, independently authenticated catalog.
+ * - [Bearer]: native Quire login.
  * - [OpdsOnly]: a complete OPDS catalog URL with optional Basic credentials.
- *   Reader-only, with no quire-server behind it. See issue #101.
+ *   It is the address and login of a [SavedCatalog], not an account: the
+ *   account is only ever [Basic], [Bearer] or none. See issue #101.
  *
  * Subclasses **deliberately override `toString()`** to redact secrets — these
  * objects must never leak into logs in their raw form. Tests that need to
@@ -74,7 +75,6 @@ sealed class AccountCredentials {
         val email: String,
         val token: String,
         val expiresAtEpochMs: Long? = null,
-        val catalog: OpdsOnly? = null,
         val accountId: String? = null,
         val previousHighlightScopes: List<String> = emptyList(),
     ) : AccountCredentials() {
@@ -115,7 +115,7 @@ sealed class AccountCredentials {
      * catalog, and both non-null for one behind HTTP Basic. One-of-two is not a
      * valid state and the credential store rejects it.
      *
-     * This can be stored on its own for reading or included in a [Bearer] account.
+     * Saved in the device's catalog list as [SavedCatalog.catalog].
      */
     data class OpdsOnly(
         override val baseUrl: String,
@@ -126,11 +126,12 @@ sealed class AccountCredentials {
         override val scheme: AuthScheme = AuthScheme.OPDS
 
         /**
-         * Local-only principal, used to partition the catalog insight stash.
-         * There is no server behind this account, so there is no server-issued
-         * subject to mirror. A truncated hash of the catalog URL is stable
-         * across restarts, distinct per catalog, and exposes neither the host
-         * nor any embedded key.
+         * Local-only principal. Before saved catalogs a catalog-only device was
+         * signed in as its catalog, and its highlights and notes are still
+         * keyed by this until they move to the device (see
+         * `CalibreCredentialStore.legacyCatalogOwner`). A truncated hash of the
+         * catalog URL is stable across restarts, distinct per catalog, and
+         * exposes neither the host nor any embedded key.
          */
         override val subject: String
             get() = "opds:" + sha256Hex(baseUrl).take(16)
@@ -138,24 +139,6 @@ sealed class AccountCredentials {
         override fun toString(): String =
             "AccountCredentials.OpdsOnly(baseUrl=***, username=$username, password=***)"
     }
-}
-
-/** Credentials and endpoint used for browsing and downloading from the configured catalog. */
-fun AccountCredentials.catalogAccount(): AccountCredentials? = when (this) {
-    is AccountCredentials.Bearer -> catalog
-    else -> this
-}
-
-internal fun AccountCredentials?.independentCatalog(): AccountCredentials.OpdsOnly? = when (this) {
-    is AccountCredentials.OpdsOnly -> this
-    is AccountCredentials.Bearer -> catalog
-    is AccountCredentials.Basic -> AccountCredentials.OpdsOnly(
-        baseUrl = "${baseUrl.trimEnd('/')}/opds",
-        username = username,
-        password = password,
-        calibre = true,
-    )
-    null -> null
 }
 
 private fun sha256Hex(value: String): String =

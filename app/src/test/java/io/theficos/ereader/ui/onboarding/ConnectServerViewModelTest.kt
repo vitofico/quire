@@ -94,7 +94,7 @@ class ConnectServerViewModelTest {
         advanceUntilIdle()
 
         assertThat(vm.state.value).isEqualTo(ConnectServerViewModel.UiState.Completed)
-        val saved = store.getAccount() as AccountCredentials.OpdsOnly
+        val saved = store.catalogAccount()!!
         assertThat(saved.baseUrl).isEqualTo(server.url("/api/opds/KEY").toString())
         assertThat(saved.username).isNull()
     }
@@ -109,7 +109,7 @@ class ConnectServerViewModelTest {
         vm.verifyAndSaveOpds(server.url("/feed").toString(), "alice", "hunter2")
         advanceUntilIdle()
 
-        val saved = store.getAccount() as AccountCredentials.OpdsOnly
+        val saved = store.catalogAccount()!!
         assertThat(saved.username).isEqualTo("alice")
         assertThat(saved.password).isEqualTo("hunter2")
         assertThat(server.awaitRequest().getHeader("Authorization")).isNotNull()
@@ -200,7 +200,7 @@ class ConnectServerViewModelTest {
 
     @Test fun `native sign in keeps an independent OPDS catalog`() = runTest {
         val catalog = "https://books.example/reader/catalog"
-        store.saveOpdsAccount(catalog, "alice", "catalog-password")
+        store.setCatalog(AccountCredentials.OpdsOnly(catalog, "alice", "catalog-password"))
         server.enqueue(
             MockResponse().setResponseCode(200)
                 .setBody("""{"token":"quire-token","account_id":"native:42"}"""),
@@ -213,8 +213,8 @@ class ConnectServerViewModelTest {
         assertThat(vm.state.value).isEqualTo(ConnectServerViewModel.UiState.Completed)
         val saved = store.getAccount() as AccountCredentials.Bearer
         assertThat(saved.accountId).isEqualTo("native:42")
-        assertThat(saved.catalog?.baseUrl).isEqualTo(catalog)
-        assertThat(saved.catalog?.password).isEqualTo("catalog-password")
+        assertThat(store.catalogAccount()?.baseUrl).isEqualTo(catalog)
+        assertThat(store.catalogAccount()?.password).isEqualTo("catalog-password")
         assertThat(server.awaitRequest().path).isEqualTo("/quire/auth/v1/login")
     }
 
@@ -239,7 +239,7 @@ class ConnectServerViewModelTest {
         val saved = store.getAccount() as AccountCredentials.Bearer
         assertThat(saved.token).isEqualTo("claimed-token")
         assertThat(saved.email).isEqualTo("alice@example.com")
-        assertThat(saved.catalog?.baseUrl).isEqualTo("https://books.example/opds")
+        assertThat(store.catalogAccount()?.baseUrl).isEqualTo("https://books.example/opds")
         assertThat(saved.previousHighlightScopes).containsExactly("legacy-highlight-scope")
         val claim = server.awaitRequest()
         assertThat(claim.path).isEqualTo("/quire/auth/v1/migrate/claim")
@@ -327,8 +327,8 @@ class ConnectServerViewModelTest {
 
         assertThat(vm.state.value).isEqualTo(ConnectServerViewModel.UiState.Completed)
         val saved = store.getAccount() as AccountCredentials.Bearer
-        assertThat(saved.catalog?.baseUrl).isEqualTo("$calibreUrl/opds")
-        assertThat(saved.catalog?.calibre).isTrue()
+        assertThat(store.catalogAccount()?.baseUrl).isEqualTo("$calibreUrl/opds")
+        assertThat(store.catalogAccount()?.calibre).isTrue()
         assertThat(saved.previousHighlightScopes).containsExactly("legacy-highlight-scope")
         server.awaitRequest()
         val me = server.awaitRequest()

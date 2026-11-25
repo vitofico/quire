@@ -88,7 +88,8 @@ fun AppNavGraph(
     // changes (via Compose recomposition driven by AppContainer state), and
     // anyway we only need to pick a start destination on cold launch.
     val startDestination = pickStartDestination(
-        hasAccount = container.credentialStore.getAccount() != null,
+        hasAccount = container.credentialStore.getAccount() != null ||
+            container.credentialStore.catalogSession() != null,
         welcomeCompleted = container.welcomePreferencesStore.isCompleted(),
     )
     // Re-auth gating for NativeAuth (Bearer) sessions. The store raises this
@@ -307,12 +308,12 @@ fun AppNavGraph(
                             bookmarks = container.memoryBookmarkDao,
                             accountChanges = container.credentialStore.accountFlow.map { account ->
                                 account?.let { io.theficos.ereader.ui.reader.memoryAccountKey(it.baseUrl, it.subject) }
-                                    ?: "device-local"
+                                    ?: io.theficos.ereader.di.DEVICE_MEMORY_KEY
                             },
                             accountKey = {
                                 container.credentialStore.getAccount()?.let {
                                     io.theficos.ereader.ui.reader.memoryAccountKey(it.baseUrl, it.subject)
-                                } ?: "device-local"
+                                } ?: io.theficos.ereader.di.DEVICE_MEMORY_KEY
                             },
                             highlightRepository = container.highlightRepository,
                         )

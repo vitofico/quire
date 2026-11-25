@@ -20,6 +20,10 @@ class HighlightSyncer(
         dao.moveOwnership(previousScopes, targetScope)
     }
 
+    suspend fun releaseOwnership(scope: String) = mutex.withLock {
+        dao.releaseOwnership(scope)
+    }
+
     suspend fun runOnce(): SyncResult<Unit> = mutex.withLock {
         val session = sessionProvider() ?: return@withLock SyncResult.Success(Unit)
         val key = "highlights:${session.scope}"

@@ -396,94 +396,293 @@ class CalibreCredentialStoreTest {
         assertThat(withExp.isExpiredAt(10L)).isTrue()
     }
 
-    // ---------- issue #101: OPDS-only accounts ----------
+    // ---------- saved catalogs ----------
 
-    @Test fun `opds account round trips without credentials`() {
-        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
-        store.clear()
-        store.saveOpdsAccount("https://kavita.example/api/opds/secret-key")
-        val got = store.getAccount()
-        assertThat(got).isInstanceOf(AccountCredentials.OpdsOnly::class.java)
-        got as AccountCredentials.OpdsOnly
-        assertThat(got.baseUrl).isEqualTo("https://kavita.example/api/opds/secret-key")
-        assertThat(got.username).isNull()
-        assertThat(got.password).isNull()
+    private val context get() = ApplicationProvider.getApplicationContext<android.content.Context>()
+
+    private fun freshStore() = CalibreCredentialStore(context).apply { clear() }
+
+    private fun entry(url: String, user: String? = null, pass: String? = null, name: String = "Books") =
+        SavedCatalog(SavedCatalog.newId(), name, AccountCredentials.OpdsOnly(url, user, pass))
+
+    /** The store's own file, to write what an older version left behind. */
+    private fun rawPrefs() = androidx.security.crypto.EncryptedSharedPreferences.create(
+        context,
+        "calibre_creds",
+        androidx.security.crypto.MasterKey.Builder(context)
+            .setKeyScheme(androidx.security.crypto.MasterKey.KeyScheme.AES256_GCM).build(),
+        androidx.security.crypto.EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+        androidx.security.crypto.EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+    )
+
+    @Test fun `catalogs round trip across a restart with and without a login`() {
+        val store = freshStore()
+        val kavita = entry("https://kavita.example/api/opds/secret-key", name = "Kavita")
+        val feed = entry("https://feed.example/opds/?apiKey=abc", "alice", "hunter2")
+        store.saveCatalog(kavita)
+        store.saveCatalog(feed)
+
+        val reread = CalibreCredentialStore(context)
+        assertThat(reread.catalogs.value.map { it.id }).containsExactly(kavita.id, feed.id).inOrder()
+        assertThat(reread.catalogs.value[0].catalog).isEqualTo(kavita.catalog)
+        assertThat(reread.catalogs.value[1].catalog).isEqualTo(feed.catalog)
+        assertThat(reread.activeCatalog.value?.id).isEqualTo(kavita.id)
+        // A catalog is not an account.
+        assertThat(reread.getAccount()).isNull()
+        assertThat(reread.get()).isNull()
+        reread.notifyUnauthorized()
+        assertThat(reread.needsReauth.value).isFalse()
     }
 
-    @Test fun `opds account round trips with basic credentials`() {
-        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
-        store.clear()
-        store.saveOpdsAccount("https://feed.example/opds", "alice", "hunter2")
-        val got = store.getAccount() as AccountCredentials.OpdsOnly
-        assertThat(got.username).isEqualTo("alice")
-        assertThat(got.password).isEqualTo("hunter2")
+    @Test fun `a catalog's string form never shows its address or password`() {
+        val saved = entry("https://kavita.example/api/opds/secret-key", "alice", "hunter2")
+        assertThat(saved.toString()).doesNotContain("secret-key")
+        assertThat(saved.toString()).doesNotContain("hunter2")
+        assertThat(saved.host).isEqualTo("https://kavita.example")
     }
 
-    @Test fun `opds account preserves a trailing slash and a query`() {
-        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
-        store.clear()
-        store.saveOpdsAccount("https://feed.example/opds/?apiKey=abc")
-        val got = store.getAccount() as AccountCredentials.OpdsOnly
-        assertThat(got.baseUrl).isEqualTo("https://feed.example/opds/?apiKey=abc")
+    @Test fun `setCatalog adds the first catalog and then edits the active one`() {
+        val store = freshStore()
+        store.setCatalog(AccountCredentials.OpdsOnly("https://feed.example/opds", "alice", "one"))
+        val first = store.activeCatalog.value!!
+        assertThat(first.name).isEqualTo("feed.example")
+        store.setCatalog(AccountCredentials.OpdsOnly("https://other.example/opds", "alice", "two"))
+        assertThat(store.catalogs.value).hasSize(1)
+        assertThat(store.activeCatalog.value?.id).isEqualTo(first.id)
+        assertThat(store.activeCatalog.value?.name).isEqualTo("other.example")
+        assertThat(store.catalogAccount()?.password).isEqualTo("two")
+
+        store.setCatalog(null)
+        assertThat(store.catalogs.value).isEmpty()
     }
 
-    @Test fun `opds account is not visible through the legacy basic accessors`() {
-        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
-        store.clear()
-        store.saveOpdsAccount("https://kavita.example/api/opds/secret-key")
-        assertThat(store.get()).isNull()
-        assertThat(store.flow.value).isNull()
-        assertThat(store.accountFlow.value).isNotNull()
+    @Test fun `setCatalog never edits a catalog on the account`() {
+        val store = freshStore()
+        store.saveBearerAccount("https://quire.example", "a@b.c", "tok")
+        val native = store.getAccount() as AccountCredentials.Bearer
+        val synced = entry("https://books.example/opds").copy(remoteUpdatedAt = "t1")
+        store.applyAccountCatalogs(native, "rev") { listOf(synced) }
+
+        store.setCatalog(AccountCredentials.OpdsOnly("https://books.example/opds", "alice", "pw"))
+        assertThat(store.catalogs.value.map { it.id }).hasSize(2)
+        assertThat(store.catalogs.value.first().catalog?.username).isNull()
+        assertThat(store.activeCatalog.value?.onAccount).isFalse()
     }
 
-    @Test fun `saving an opds account clears a previous bearer record`() {
-        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
-        store.clear()
-        store.saveBearerAccount("https://quire.example", "a@b.c", "tok", 1L)
-        store.saveOpdsAccount("https://kavita.example/api/opds/secret-key")
-        val got = store.getAccount()
-        assertThat(got).isInstanceOf(AccountCredentials.OpdsOnly::class.java)
-        assertThat(store.needsReauth.value).isFalse()
-    }
-
-    @Test fun `saving a basic account after an opds account clears the opds record`() {
-        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
-        store.clear()
-        store.saveOpdsAccount("https://kavita.example/api/opds/secret-key", "alice", "hunter2")
-        store.saveBasicAccount("https://calibre.example", "bob", "pw")
-        val got = store.getAccount() as AccountCredentials.Basic
-        assertThat(got.username).isEqualTo("bob")
-        assertThat(got.baseUrl).isEqualTo("https://calibre.example")
-    }
-
-    @Test fun `opds account rejects a blank url`() {
-        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
-        store.clear()
-        try {
-            store.saveOpdsAccount("   ")
-            throw AssertionError("expected IllegalArgumentException")
-        } catch (e: IllegalArgumentException) {
-            assertThat(e).hasMessageThat().contains("catalogUrl")
+    @Test fun `catalog validation rejects a blank address, half a login and a bad name`() {
+        val store = freshStore()
+        for (bad in listOf(
+            entry("   "),
+            entry("https://feed.example/opds", "alice", null),
+            entry("https://feed.example/opds", name = " "),
+            entry("https://feed.example/opds", name = "x".repeat(61)),
+            entry("https://feed.example/opds").copy(id = "not-a-uuid"),
+        )) {
+            val failure = runCatching { store.saveCatalog(bad) }.exceptionOrNull()
+            assertThat(failure).isInstanceOf(IllegalArgumentException::class.java)
         }
+        assertThat(store.catalogs.value).isEmpty()
     }
 
-    @Test fun `opds account rejects a username without a password`() {
-        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
-        store.clear()
-        try {
-            store.saveOpdsAccount("https://feed.example/opds", "alice", null)
-            throw AssertionError("expected IllegalArgumentException")
-        } catch (e: IllegalArgumentException) {
-            assertThat(e).hasMessageThat().contains("both")
-        }
+    @Test fun `switching, reordering and removing catalogs`() {
+        val store = freshStore()
+        val a = entry("https://a.example/opds")
+        val b = entry("https://b.example/opds")
+        val c = entry("https://c.example/opds")
+        listOf(a, b, c).forEach(store::saveCatalog)
+        store.setActiveCatalog(b.id)
+        store.setActiveCatalog("unknown")
+        assertThat(CalibreCredentialStore(context).activeCatalog.value?.id).isEqualTo(b.id)
+
+        store.reorderCatalogs(listOf(c.id, a.id))
+        assertThat(store.catalogs.value.map { it.id }).containsExactly(c.id, a.id, b.id).inOrder()
+
+        store.removeCatalog(b.id)
+        assertThat(store.activeCatalog.value?.id).isEqualTo(c.id)
+        assertThat(store.catalogSession()?.catalogs).containsExactly(c.catalog, a.catalog).inOrder()
+        assertThat(store.catalogSession()?.active).isEqualTo(c.catalog)
     }
 
-    @Test fun `notifyUnauthorized does not raise re-auth for an opds account`() {
-        val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
-        store.clear()
-        store.saveOpdsAccount("https://kavita.example/api/opds/secret-key")
-        store.notifyUnauthorized()
-        assertThat(store.needsReauth.value).isFalse()
+    @Test fun `the legacy sign-in's catalog is pinned first and only goes with the sign-in`() {
+        val store = freshStore()
+        store.saveBasicAccount("https://books.example", "reader", "pw")
+        val extra = entry("https://kavita.example/api/opds/KEY")
+        store.saveCatalog(extra)
+        val pinned = store.catalogs.value.first()
+        assertThat(pinned.pinned).isTrue()
+        assertThat(pinned.catalog).isEqualTo(
+            AccountCredentials.OpdsOnly("https://books.example/opds", "reader", "pw", calibre = true),
+        )
+        assertThat(store.activeCatalog.value).isEqualTo(pinned)
+        assertThat(runCatching { store.saveCatalog(pinned.copy(name = "x")) }.isFailure).isTrue()
+        store.removeCatalog(pinned.id)
+        store.setCatalog(null)
+        assertThat(store.catalogs.value.first()).isEqualTo(pinned)
+        // Editing from the old single-catalog form adds a catalog instead.
+        store.setCatalog(AccountCredentials.OpdsOnly("https://feed.example/opds"))
+        assertThat(store.catalogs.value).hasSize(3)
+
+        // A password change keeps the same row.
+        store.saveBasicAccount("https://books.example", "reader", "new")
+        assertThat(store.catalogs.value.first().id).isEqualTo(pinned.id)
+        assertThat(store.catalogs.value.count { it.id == pinned.id }).isEqualTo(1)
+    }
+
+    @Test fun `moving from the legacy sign-in to a Quire login keeps its catalog and books' catalog id`() {
+        val store = freshStore()
+        store.saveBasicAccount("https://books.example", "reader", "catalog-password")
+        val pinnedId = store.catalogs.value.single().id
+        store.saveBearerAccount("https://quire.example", "a@b.c", "quire-token", accountId = "native:7")
+
+        val reread = CalibreCredentialStore(context)
+        val kept = reread.catalogs.value.single()
+        assertThat(kept.id).isEqualTo(pinnedId)
+        assertThat(kept.pinned).isFalse()
+        assertThat(kept.awaitingUpload).isTrue()
+        assertThat(kept.catalog?.calibre).isTrue()
+        assertThat(reread.catalogAccount()?.password).isEqualTo("catalog-password")
+
+        reread.notifyUnauthorized(reread.getAccount() as AccountCredentials.Bearer)
+        reread.setCatalog(kept.catalog!!.copy(password = "second-password"))
+        assertThat(reread.needsReauth.value).isTrue()
+
+        reread.signOut(keepCatalogs = true)
+        val after = CalibreCredentialStore(context)
+        assertThat(after.getAccount()).isNull()
+        assertThat(after.catalogAccount()?.password).isEqualTo("second-password")
+        assertThat(reread.needsReauth.value).isFalse()
+    }
+
+    @Test fun `signing out keeps catalogs as the device's own or removes them all`() {
+        val store = freshStore()
+        store.saveBearerAccount("https://quire.example", "a@b.c", "tok")
+        val native = store.getAccount() as AccountCredentials.Bearer
+        val synced = entry("https://books.example/opds").copy(remoteUpdatedAt = "t1")
+        val unreadable = SavedCatalog(SavedCatalog.newId(), "Lost", null, remoteUpdatedAt = "t2", needsLogin = true)
+        val deviceOnly = entry("https://home.example/opds").copy(deviceOnly = true)
+        store.saveCatalog(deviceOnly)
+        assertThat(store.applyAccountCatalogs(native, "rev") { listOf(synced, unreadable) + it }).isTrue()
+        assertThat(store.catalogRevision.value).isEqualTo("rev")
+
+        store.signOut(keepCatalogs = true)
+        val kept = CalibreCredentialStore(context).catalogs.value
+        assertThat(kept.map { it.id }).containsExactly(synced.id, deviceOnly.id).inOrder()
+        assertThat(kept.none { it.onAccount || it.deviceOnly || it.needsLogin }).isTrue()
+        assertThat(store.catalogRevision.value).isNull()
+
+        store.saveBearerAccount("https://quire.example", "a@b.c", "tok")
+        store.signOut(keepCatalogs = false)
+        val reread = CalibreCredentialStore(context)
+        assertThat(reread.catalogs.value).isEmpty()
+        assertThat(reread.getAccount()).isNull()
+    }
+
+    @Test fun `another Quire account does not inherit the list's sync state`() {
+        val store = freshStore()
+        store.saveBearerAccount("https://quire.example", "a@b.c", "tok", accountId = "native:1")
+        val first = store.getAccount() as AccountCredentials.Bearer
+        store.applyAccountCatalogs(first, "rev") { listOf(entry("https://books.example/opds").copy(remoteUpdatedAt = "t")) }
+
+        // A fresh token for the same reader keeps it.
+        store.saveBearerAccount("https://quire.example", "a@b.c", "tok2", accountId = "native:1")
+        assertThat(store.catalogRevision.value).isEqualTo("rev")
+        assertThat(store.catalogs.value.single().onAccount).isTrue()
+
+        store.saveBearerAccount("https://quire.example", "b@b.c", "tok3", accountId = "native:2")
+        assertThat(store.catalogRevision.value).isNull()
+        assertThat(store.catalogs.value.single().awaitingUpload).isTrue()
+        // A list fetched for the earlier session is not applied.
+        assertThat(store.applyAccountCatalogs(first, "late") { emptyList() }).isFalse()
+        assertThat(store.catalogs.value).hasSize(1)
+    }
+
+    @Test fun `an unreadable catalog list starts empty instead of crashing`() {
+        freshStore()
+        rawPrefs().edit().putString("catalog_list", "{not json").commit()
+        val store = CalibreCredentialStore(context)
+        assertThat(store.catalogs.value).isEmpty()
+        store.saveCatalog(entry("https://feed.example/opds"))
+        assertThat(CalibreCredentialStore(context).catalogs.value).hasSize(1)
+    }
+
+    // ---------- migration from the single catalog ----------
+
+    @Test fun `a catalog-only device becomes a device with one catalog and no account`() {
+        freshStore()
+        rawPrefs().edit()
+            .putString("base_url", "https://kavita.example/api/opds/KEY")
+            .putString("scheme", "OPDS")
+            .putString("username", "alice")
+            .putString("password", "hunter2")
+            .putBoolean("catalog_calibre", false)
+            .commit()
+
+        val store = CalibreCredentialStore(context)
+        assertThat(store.getAccount()).isNull()
+        val migrated = store.catalogs.value.single()
+        assertThat(migrated.catalog).isEqualTo(
+            AccountCredentials.OpdsOnly("https://kavita.example/api/opds/KEY", "alice", "hunter2"),
+        )
+        assertThat(migrated.name).isEqualTo("kavita.example")
+        assertThat(migrated.awaitingUpload).isTrue()
+        assertThat(store.activeCatalog.value).isEqualTo(migrated)
+        val owner = store.legacyCatalogOwner()!!
+        assertThat(owner.subject).isEqualTo(AccountCredentials.OpdsOnly("https://kavita.example/api/opds/KEY").subject)
+        assertThat(owner.username).isEqualTo("alice")
+        assertThat(rawPrefs().all.keys).containsNoneOf("base_url", "scheme", "username", "password", "catalog_calibre")
+
+        // Again on the next start: nothing changes.
+        assertThat(CalibreCredentialStore(context).catalogs.value).containsExactly(migrated)
+        store.forgetLegacyCatalogOwner()
+        assertThat(CalibreCredentialStore(context).legacyCatalogOwner()).isNull()
+    }
+
+    @Test fun `a Quire login's catalog joins the list and the login stays`() {
+        freshStore()
+        rawPrefs().edit()
+            .putString("base_url", "https://quire.example")
+            .putString("scheme", "BEARER")
+            .putString("email", "a@b.c")
+            .putString("token", "tok")
+            .putString("catalog_url", "https://books.example/opds")
+            .putString("catalog_username", "reader")
+            .putString("catalog_password", "pw")
+            .putBoolean("catalog_calibre", true)
+            .commit()
+
+        val store = CalibreCredentialStore(context)
+        assertThat((store.getAccount() as AccountCredentials.Bearer).token).isEqualTo("tok")
+        assertThat(store.catalogs.value.single().catalog).isEqualTo(
+            AccountCredentials.OpdsOnly("https://books.example/opds", "reader", "pw", calibre = true),
+        )
+        assertThat(store.legacyCatalogOwner()).isNull()
+        assertThat(rawPrefs().all.keys.filter { it.startsWith("catalog_") }).containsExactly("catalog_list", "catalog_active")
+    }
+
+    @Test fun `a catalog written back by an older version merges by address instead of duplicating`() {
+        freshStore()
+        rawPrefs().edit().putString("base_url", "https://quire.example").putString("scheme", "BEARER")
+            .putString("email", "a@b.c").putString("token", "tok")
+            .putString("catalog_url", "https://books.example/opds").commit()
+        val first = CalibreCredentialStore(context).catalogs.value.single()
+        // A downgrade wrote the single catalog again, with a new login.
+        rawPrefs().edit().putString("catalog_url", "https://books.example/opds")
+            .putString("catalog_username", "reader").putString("catalog_password", "new").commit()
+
+        val again = CalibreCredentialStore(context).catalogs.value.single()
+        assertThat(again.id).isEqualTo(first.id)
+        assertThat(again.catalog?.password).isEqualTo("new")
+    }
+
+    @Test fun `a legacy Calibre-Web sign-in migrates to its pinned row only`() {
+        freshStore()
+        rawPrefs().edit().putString("base_url", "https://books.example").putString("username", "reader")
+            .putString("password", "pw").commit()
+
+        val store = CalibreCredentialStore(context)
+        assertThat(store.getAccount()).isInstanceOf(AccountCredentials.Basic::class.java)
+        assertThat(store.catalogs.value.single().pinned).isTrue()
+        assertThat(rawPrefs().getString("catalog_list", null)).isNull()
     }
 
     // ---------- Restored from a backup without its Keystore key ----------
@@ -505,28 +704,6 @@ class CalibreCredentialStoreTest {
             assertThat(CalibreCredentialStore(ctx).getAccount()).isInstanceOf(AccountCredentials.Basic::class.java)
         }
     }
-    @Test fun `native login keeps Calibre catalog independent across restart and disconnect`() {
-        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
-        val store = CalibreCredentialStore(context)
-        store.clear()
-        store.saveBasicAccount("https://books.example", "reader", "catalog-password")
-        store.saveBearerAccount("https://quire.example", "a@b.c", "quire-token", accountId = "native:7")
-        val reread = CalibreCredentialStore(context)
-        val native = reread.getAccount() as AccountCredentials.Bearer
-        assertThat(native.accountId).isEqualTo("native:7")
-        assertThat(native.catalog).isEqualTo(
-            AccountCredentials.OpdsOnly("https://books.example/opds", "reader", "catalog-password", calibre = true)
-        )
-        reread.notifyUnauthorized(native)
-        reread.setCatalog(native.catalog!!.copy(password = "second-password"))
-        assertThat(reread.needsReauth.value).isTrue()
-
-        reread.disconnectQuire()
-        val standalone = CalibreCredentialStore(context).getAccount() as AccountCredentials.OpdsOnly
-        assertThat(standalone.calibre).isTrue()
-        assertThat(standalone.password).isEqualTo("second-password")
-        assertThat(reread.needsReauth.value).isFalse()
-    }
 
     @Test fun `login keeps pending ownership transfer until migration is completed`() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
@@ -536,7 +713,7 @@ class CalibreCredentialStoreTest {
         val reread = CalibreCredentialStore(context)
         val native = reread.getAccount() as AccountCredentials.Bearer
         assertThat(native.previousHighlightScopes).containsExactly("abc")
-        assertThat(native.catalogAccount()).isNull()
+        assertThat(reread.catalogAccount()).isNull()
         reread.completeHighlightMigration(native, listOf("abc"))
         assertThat((CalibreCredentialStore(context).getAccount() as AccountCredentials.Bearer).previousHighlightScopes).isEmpty()
     }

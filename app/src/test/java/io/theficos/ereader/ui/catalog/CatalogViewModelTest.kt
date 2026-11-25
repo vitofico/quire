@@ -7,6 +7,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import coil.request.CachePolicy
 import com.google.common.truth.Truth.assertThat
+import io.theficos.ereader.auth.AccountCredentials
 import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.data.library.LibraryClient
 import io.theficos.ereader.data.library.LibraryUploader
@@ -175,6 +176,8 @@ class CatalogViewModelTest {
     }
 
     @Test fun `successful download clears progress sync cursor and enqueues sync`() = runTest {
+        // Only a Quire login has a server to sync with.
+        credentialStore.saveBearerAccount("https://quire.example", "a@b.c", "tok")
         // Prime the cursor; it must be wiped after the download completes.
         db.syncStateDao().set(SyncStateEntity(tableName = "progress", lastPulledAt = 12345L))
         assertThat(db.syncStateDao().lastPulled("progress")).isEqualTo(12345L)
@@ -345,7 +348,7 @@ class CatalogViewModelTest {
 
     @Test fun `opds account loads the catalog url verbatim`() = runTest {
         serveFeedAtEveryPath()
-        credentialStore.saveOpdsAccount(server.url("/api/opds/TEST-KEY").toString())
+        credentialStore.setCatalog(AccountCredentials.OpdsOnly(server.url("/api/opds/TEST-KEY").toString()))
         newViewModel().loadRoot()
 
         assertThat(firstRequestPath()).isEqualTo("/api/opds/TEST-KEY")
@@ -353,7 +356,7 @@ class CatalogViewModelTest {
 
     @Test fun `opds account does not append the catalog suffix`() = runTest {
         serveFeedAtEveryPath()
-        credentialStore.saveOpdsAccount(server.url("/api/opds/TEST-KEY").toString())
+        credentialStore.setCatalog(AccountCredentials.OpdsOnly(server.url("/api/opds/TEST-KEY").toString()))
         newViewModel().loadRoot()
 
         assertThat(firstRequestPath()).doesNotContain("/api/opds/TEST-KEY/opds")
@@ -386,13 +389,13 @@ class CatalogViewModelTest {
                 }
         }
         val authenticatedClient = OpdsClient(OpdsHttpClient(credentialStore).okHttp)
-        credentialStore.saveOpdsAccount(catalogUrl, initialUsername, initialPassword)
+        credentialStore.setCatalog(AccountCredentials.OpdsOnly(catalogUrl, initialUsername, initialPassword))
         val vm = newViewModel(client = authenticatedClient)
         val error = vm.state.first { it is CatalogUiState.Error } as CatalogUiState.Error
         assertThat(error.message.asString(englishContext())).contains("401")
         assertThat(firstRequestPath()).isEqualTo("/catalog")
 
-        credentialStore.saveOpdsAccount(catalogUrl, "reader", "correct-password")
+        credentialStore.setCatalog(AccountCredentials.OpdsOnly(catalogUrl, "reader", "correct-password"))
 
         val retry = server.takeRequest(10, TimeUnit.SECONDS)
             ?: error("changing OPDS credentials did not reload the catalog")
@@ -403,7 +406,7 @@ class CatalogViewModelTest {
 
         // StateFlow compares the full account, so saving identical credentials
         // must keep the loaded feed and avoid another request.
-        credentialStore.saveOpdsAccount(catalogUrl, "reader", "correct-password")
+        credentialStore.setCatalog(AccountCredentials.OpdsOnly(catalogUrl, "reader", "correct-password"))
         assertThat(vm.state.value).isInstanceOf(CatalogUiState.Loaded::class.java)
         assertThat(server.takeRequest(250, TimeUnit.MILLISECONDS)).isNull()
         assertThat(server.requestCount).isEqualTo(2)
@@ -593,7 +596,7 @@ class CatalogViewModelTest {
 
     @Test fun `download from an opds catalog does not enqueue sync or a mirror push`() = runTest {
         serveCatalogAndLibrary()
-        credentialStore.saveOpdsAccount(server.url("/api/opds/TEST-KEY").toString())
+        credentialStore.setCatalog(AccountCredentials.OpdsOnly(server.url("/api/opds/TEST-KEY").toString()))
         val uploaderScope = CoroutineScope(Dispatchers.IO)
         try {
             downloadFirstPublication(newViewModel(libraryUploader = libraryUploaderOn(uploaderScope)))
@@ -607,7 +610,7 @@ class CatalogViewModelTest {
 
     @Test fun `a successful HTTP response containing HTML is rejected and removed from disk`() = runTest {
         serveCatalogAndLibrary("<html><body>Sign in</body></html>".toByteArray())
-        credentialStore.saveOpdsAccount(server.url("/catalog").toString())
+        credentialStore.setCatalog(AccountCredentials.OpdsOnly(server.url("/catalog").toString()))
         val vm = newViewModel()
         vm.download(awaitLoaded(vm).feed.publications.single(), context)
         val finished = vm.state.first {

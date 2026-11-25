@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.theficos.ereader.auth.AccountCredentials
 import io.theficos.ereader.auth.CalibreCredentialStore
-import io.theficos.ereader.auth.catalogAccount
 import io.theficos.ereader.data.ai.AiConfig
 import io.theficos.ereader.data.ai.AiHealthResponse
 import io.theficos.ereader.data.ai.AiPreferences
@@ -41,6 +40,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -151,19 +151,19 @@ class SettingsViewModel(
     /**
      * True when a SERVER-BACKED account is configured, gating the restore action.
      *
-     * Restore reads the library mirror off quire-server, so an OPDS-only account
-     * can never satisfy it: RestoreInProgressUseCase reaches
+     * Restore reads the library mirror off quire-server, so a device with only
+     * catalogs can never satisfy it: RestoreInProgressUseCase reaches
      * LibraryClient.resolveBaseUrl() on its first statement and throws because
      * quireServerUrlOrNull() is null. Offering the action anyway put an internal
      * exception string in front of a user who had done nothing wrong.
      */
     val isConnected: StateFlow<Boolean> =
         store.accountFlow
-            .map { it != null && it !is AccountCredentials.OpdsOnly }
+            .map { it != null }
             .stateIn(
                 viewModelScope,
                 SharingStarted.Eagerly,
-                store.accountFlow.value.let { it != null && it !is AccountCredentials.OpdsOnly },
+                store.accountFlow.value != null,
             )
 
     private val _restoreRunning = MutableStateFlow(false)
@@ -217,6 +217,13 @@ class SettingsViewModel(
             }
         }
         viewModelScope.launch {
+            // The catalog forms show the catalog being browsed.
+            store.activeCatalog.drop(1).collect {
+                _calibre.value = loadInitialCalibre()
+                _opds.value = loadInitialOpds()
+            }
+        }
+        viewModelScope.launch {
             aiRepository.refresh()
             _aiHealth.value = aiRepository.fetchHealth()
             _lastInsightSync.value = insightDao?.latestSyncedAt()
@@ -224,7 +231,7 @@ class SettingsViewModel(
     }
 
     private fun AccountCredentials.quireSession(): AccountCredentials? = when (this) {
-        is AccountCredentials.Bearer -> copy(catalog = null, previousHighlightScopes = emptyList())
+        is AccountCredentials.Bearer -> copy(previousHighlightScopes = emptyList())
         is AccountCredentials.Basic -> this
         is AccountCredentials.OpdsOnly -> null
     }
@@ -240,7 +247,7 @@ class SettingsViewModel(
 
     private fun loadInitialCalibre(current: AccountCredentials? = account.value): CalibreUiState {
         val legacy = current as? AccountCredentials.Basic
-        val catalog = (current?.catalogAccount() as? AccountCredentials.OpdsOnly)?.takeIf { it.calibre }
+        val catalog = store.catalogAccount()?.takeIf { it.calibre }
         return CalibreUiState(
             baseUrl = legacy?.baseUrl ?: catalog?.baseUrl?.removeSuffix("/opds").orEmpty(),
             username = legacy?.username ?: catalog?.username.orEmpty(),
@@ -276,7 +283,7 @@ class SettingsViewModel(
     }
 
     private fun loadInitialOpds(current: AccountCredentials? = account.value): OpdsUiState {
-        val catalog = (current?.catalogAccount() as? AccountCredentials.OpdsOnly)?.takeUnless { it.calibre }
+        val catalog = store.catalogAccount()?.takeUnless { it.calibre }
         return OpdsUiState(
             catalogUrl = catalog?.baseUrl.orEmpty(),
             username = catalog?.username.orEmpty(),
@@ -286,15 +293,13 @@ class SettingsViewModel(
         )
     }
 
+    /** Forgets the catalog being browsed. The legacy sign-in's own catalog goes only with the sign-in. */
     fun disconnectCatalog() {
-        val current = account.value
-        if (current is AccountCredentials.OpdsOnly || (current is AccountCredentials.Bearer && current.catalog != null)) {
-            store.setCatalog(null)
-        }
+        store.setCatalog(null)
     }
 
     fun disconnectQuire() {
-        store.disconnectQuire()
+        store.signOut(keepCatalogs = true)
     }
 
     fun onOpdsCatalogUrlChange(value: String) {

@@ -3,7 +3,6 @@ package io.theficos.ereader.ui.library
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import io.theficos.ereader.auth.AccountCredentials
 import io.theficos.ereader.core.model.Document
 import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.ProgressRepository
@@ -157,14 +156,12 @@ class LibraryViewModel(
      * statement. See issue #101.
      */
     private val connected: StateFlow<Boolean> =
-        (credentialStore?.accountFlow?.map { it != null && it !is AccountCredentials.OpdsOnly }
+        (credentialStore?.accountFlow?.map { it != null }
             ?: flowOf(false))
             .stateIn(
                 viewModelScope,
                 SharingStarted.Eagerly,
-                credentialStore?.accountFlow?.value.let {
-                    it != null && it !is AccountCredentials.OpdsOnly
-                },
+                credentialStore?.accountFlow?.value != null,
             )
 
     /**

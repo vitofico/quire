@@ -12,6 +12,7 @@ import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.ProgressRepository
 import io.theficos.ereader.data.local.db.DocumentEntity
 import io.theficos.ereader.data.local.db.EReaderDatabase
+import io.theficos.ereader.auth.AccountCredentials
 import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.data.sync.SyncClient
 import io.theficos.ereader.data.sync.SyncOrchestrator
@@ -405,7 +406,7 @@ class LibraryViewModelTest {
 
     @Test fun `canRestore is false for an opds-only account even if library empty`() = runTest {
         val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
-        store.saveOpdsAccount("https://feed.example/opds")
+        store.setCatalog(AccountCredentials.OpdsOnly("https://feed.example/opds"))
         val restoreVm = vmWith(store)
         restoreVm.canRestore.test {
             // An OPDS catalog has no quire-server behind it, so the restore
