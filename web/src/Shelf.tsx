@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { type ReplicaSnapshot, type ShelfBook, type Progress } from './data'
 import { Icon } from './icons'
 import { foundCover, originLabel, withDetails } from './details'
@@ -79,8 +79,13 @@ type Props = {
   choose: () => void
   details: (id: string) => void
   read: (id: string) => void
+  /** The server converts PDFs: the add control takes them too. */
+  pdf?: boolean
+  /** PDF conversions under way, shown by the add control. */
+  conversions?: ReactNode
 }
-export function Shelf({ ready, local, art, data, loadCover, t, choose, details, read }: Props) {
+export function Shelf({ ready, local, art, data, loadCover, t, choose, details, read, pdf, conversions }: Props) {
+  const importLabel = t(pdf ? 'Import EPUB or PDF' : 'Import EPUB')
   const [search, setSearch] = useState(''),
     [filter, setFilter] = useState('All books'),
     [sort, setSort] = useState('Recently read'),
@@ -142,10 +147,11 @@ export function Shelf({ ready, local, art, data, loadCover, t, choose, details, 
         {rows.length > 0 && (
           <button className="primary" disabled={!ready} onClick={choose}>
             <Icon name="upload" />
-            {t('Import EPUB')}
+            {importLabel}
           </button>
         )}
       </div>
+      {conversions}
       {conflicts.length > 0 && (
         <section className="notice" aria-label={t('Resolve edition conflicts')}>
           <strong>{t('Resolve edition conflicts')}</strong>
@@ -187,10 +193,10 @@ export function Shelf({ ready, local, art, data, loadCover, t, choose, details, 
             <Icon name="library" />
           </span>
           <h2>{t('Add your first book')}</h2>
-          <p>{t('Drop an EPUB here or choose a file.')}</p>
+          <p>{t(pdf ? 'Drop an EPUB or PDF here or choose a file.' : 'Drop an EPUB here or choose a file.')}</p>
           <button className="primary" onClick={choose}>
             <Icon name="upload" />
-            {t('Import EPUB')}
+            {importLabel}
           </button>
           {local && <p className="hint">{t('Books you add stay in this browser.')}</p>}
         </section>
