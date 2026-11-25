@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type KeyboardEvent } from 'react'
 import type { Replica } from '../data'
 import type { Epub } from '../books/epub'
-import { captureRange, chapterProgress, displayRange, parseLocator, readAnchor, resolveRange, viewportRange, type Locator } from './anchors'
+import { aligned, captureRange, chapterProgress, currentPage, displayRange, pageCount, parseLocator, readAnchor, resolveRange, showElement, showPage, startOf, viewportRange, type Locator } from './anchors'
 import { chapterShell, readerSandbox, jumpFragment, mountChapter, chapterSearchText } from './publication'
 import { chapterStyles, palettes, sanitizePreferences, type PauseBookmark, type ReaderPreferences } from './preferences'
 import { findMatches, matchRange, searchableText } from './search'
@@ -92,14 +92,14 @@ function restoreLegacy(doc: Document, locator: Locator): boolean {
     try {
       const node = doc.querySelector(selector)
       if (node && node.textContent?.trim() === locator.text.highlight.trim()) {
-        node.scrollIntoView({ block: 'start' })
+        showElement(doc, node)
         return true
       }
     } catch { /* Invalid selectors fall back to chapter progression. */ }
   }
   const fragments = locator.locations?.fragments
   return Array.isArray(fragments)
-    && fragments.some((value: unknown) => typeof value === 'string' && jumpFragment(doc, value))
+    && fragments.some((value: unknown) => typeof value === 'string' && !!jumpFragment(doc, value))
 }
 
 function comparePassages(epub: Epub, first: ReaderHighlight, second: ReaderHighlight) {
@@ -269,7 +269,7 @@ export default function Reader({
 
   async function report(doc: Document, refine = false) {
     const token = ++captureSequence.current
-    const range = remember(doc)
+    const range = viewportRange(doc)
     const base = baseLocator(doc)
     const viewport = range ? await captureRange(doc, base, range, range.toString(), true) : undefined
     if (token !== captureSequence.current || frame.current?.contentDocument !== doc || pendingNavigation.current) return
@@ -339,8 +339,6 @@ export default function Reader({
   useEffect(() => {
     if (!active || active.index !== index) return
     const { doc } = active
-    const scroller = doc.scrollingElement
-    if (!scroller) return
     let cancelled = false
     const restore = async () => {
       pendingNavigation.current = true
@@ -349,11 +347,14 @@ export default function Reader({
       const target = destination.locator
       const exact = target && await resolveRange(doc, target, destination.highlight?.text)
       if (cancelled) return
+      // What a reflow keeps on screen: the passage navigated to, else the top of the page.
+      let shown: Range | undefined
       if (destination.highlight && !exact) {
         setNotice(callbacks.current.t('Passage location unavailable'))
         setPanel('passages')
       } else if (exact) {
         displayRange(doc, exact)
+        shown = exact
         if (destination.highlight) paint(doc, 'quire-active', [exact])
       } else if (destination.find) {
         const { text, chunks } = searchableText(doc.body)
@@ -361,14 +362,19 @@ export default function Reader({
         const range = match && matchRange(doc, chunks, match)
         if (range) {
           displayRange(doc, range)
+          shown = range
           paint(doc, 'quire-active', [range])
         }
-      } else if (!jumpFragment(doc, destination.fragment) && !(target && restoreLegacy(doc, target))) {
-        const fraction = clamp(target?.locations?.progression ?? destination.fraction ?? 0)
-        scroller.scrollTop = fraction * (scroller.scrollHeight - scroller.clientHeight)
-        if (target) setNotice(callbacks.current.t('Restored approximate position'))
+      } else {
+        const element = jumpFragment(doc, destination.fragment)
+        if (element) shown = startOf(doc, element)
+        else if (!(target && restoreLegacy(doc, target))) {
+          const fraction = clamp(target?.locations?.progression ?? destination.fraction ?? 0)
+          showPage(doc, Math.round(fraction * (pageCount(doc) - 1)))
+          if (target) setNotice(callbacks.current.t('Restored approximate position'))
+        }
       }
-      remember(doc)
+      warm.current = shown ?? viewportRange(doc)
       pendingNavigation.current = false
       if (!destination.keepProgress) void report(doc, true)
     }
@@ -402,11 +408,9 @@ export default function Reader({
 
   function page(direction: number) {
     const doc = active?.doc
-    const scroller = doc?.scrollingElement
-    if (!doc || !scroller || pendingNavigation.current) return
-    const max = scroller.scrollHeight - scroller.clientHeight
-    const top = scroller.scrollTop
-    if ((direction > 0 && top >= max - 2) || (direction < 0 && top <= 2)) {
+    if (!doc || pendingNavigation.current) return
+    const current = currentPage(doc)
+    if ((direction > 0 && current >= pageCount(doc) - 1) || (direction < 0 && current <= 0)) {
       const next = index + direction
       if (next >= 0 && next < epub.spine.length) go({index: next, fraction: direction > 0 ? 0 : 1})
       else if (direction > 0 && index === epub.spine.length - 1) {
@@ -418,7 +422,8 @@ export default function Reader({
       return
     }
     intentional.current = true
-    scroller.scrollTop += direction * Math.max(100, scroller.clientHeight - 56)
+    showPage(doc, current + direction)
+    remember(doc)
   }
 
   function closePanel() {
@@ -439,7 +444,7 @@ export default function Reader({
     if (target?.matches?.('input,textarea,select,button,a,[contenteditable]')) return
     if (event.shiftKey && event.key !== ' ') return
     const rtl = active?.doc.defaultView?.getComputedStyle(active.doc.body).direction === 'rtl'
-    const keys: Record<string, number> = {PageDown: 1, PageUp: -1, ArrowRight: rtl ? -1 : 1, ArrowLeft: rtl ? 1 : -1, ' ': event.shiftKey ? -1 : 1}
+    const keys: Record<string, number> = {PageDown: 1, PageUp: -1, ArrowRight: rtl ? -1 : 1, ArrowLeft: rtl ? 1 : -1, ArrowDown: 1, ArrowUp: -1, ' ': event.shiftKey ? -1 : 1}
     if (event.key in keys) {
       event.preventDefault()
       page(keys[event.key])
@@ -454,8 +459,18 @@ export default function Reader({
     let width = doc.documentElement.clientWidth
     let height = doc.documentElement.clientHeight
     let touch: { x: number; y: number } | undefined
+    let wheelLock = false
+    let wheelTimer: number | undefined
     const deliberate = () => { intentional.current = true }
     const scroll = () => {
+      // Focus moves and find-in-page can scroll part way: settle on a whole page.
+      if (!aligned(doc)) {
+        const focused = doc.activeElement
+        if (focused && focused !== doc.body && doc.body.contains(focused)) {
+          showElement(doc, focused)
+          remember(doc)
+        } else showPage(doc, currentPage(doc)) // A resize puts the remembered passage back itself.
+      }
       if (pendingNavigation.current || !intentional.current) return
       clearTimeout(timer)
       const token = captureSequence.current
@@ -533,12 +548,20 @@ export default function Reader({
       }
       touch = undefined
     }
-    const key = (event: globalThis.KeyboardEvent) => {
-      if (['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) deliberate()
-      handleReaderKey.current(event)
+    const wheel = (event: WheelEvent) => {
+      // One wheel or trackpad gesture turns one page, however many events it sends.
+      clearTimeout(wheelTimer)
+      wheelTimer = window.setTimeout(() => { wheelLock = false }, 200)
+      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY
+      if (wheelLock || event.ctrlKey || Math.abs(delta) < 20) return
+      wheelLock = true
+      const rtl = Math.abs(event.deltaX) > Math.abs(event.deltaY)
+        && doc.defaultView?.getComputedStyle(doc.body).direction === 'rtl'
+      page((delta > 0 ? 1 : -1) * (rtl ? -1 : 1))
     }
+    const key = (event: globalThis.KeyboardEvent) => handleReaderKey.current(event)
     doc.addEventListener('scroll', scroll, { passive: true })
-    doc.addEventListener('wheel', deliberate, { passive: true })
+    doc.addEventListener('wheel', wheel, { passive: true })
     doc.addEventListener('pointerdown', deliberate, { passive: true })
     doc.addEventListener('touchstart', startTouch, { passive: true })
     doc.addEventListener('touchend', endTouch, { passive: true })
@@ -548,9 +571,10 @@ export default function Reader({
     doc.defaultView?.addEventListener('resize', resize)
     return () => {
       clearTimeout(timer)
+      clearTimeout(wheelTimer)
       cancelAnimationFrame(resizeFrame)
       doc.removeEventListener('scroll', scroll)
-      doc.removeEventListener('wheel', deliberate)
+      doc.removeEventListener('wheel', wheel)
       doc.removeEventListener('pointerdown', deliberate)
       doc.removeEventListener('touchstart', startTouch)
       doc.removeEventListener('touchend', endTouch)

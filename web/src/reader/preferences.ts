@@ -49,10 +49,15 @@ export function chapterStyles(prefs: ReaderPreferences) {
   const palette = palettes[prefs.palette]
   return `
     html { background: ${palette.background}; color: ${palette.text}; overflow-wrap: break-word; overflow-anchor: none; }
+    /* Each column is one window wide and one page tall: the reader turns pages by
+       moving one column sideways, never by scrolling down. */
+    :root:not([data-quire-fixed]) { --qr-column: calc(100vh - 2 * min(${prefs.margin}px, 5vh));
+      height: 100vh; box-sizing: border-box; overflow: hidden; padding: min(${prefs.margin}px, 5vh) 0;
+      column-width: 100vw; column-gap: 0; column-fill: auto; direction: ltr; }
     body { font: ${prefs.size}px/${prefs.spacing} ${fonts[prefs.font]}; max-width: 42rem;
-      padding: ${prefs.margin}px min(${prefs.margin}px, 8vw); margin: 0 auto; box-sizing: content-box; }
+      padding: 0 min(${prefs.margin}px, 8vw); margin: 0 auto; box-sizing: content-box; }
     ${prefs.font !== 'publisher' ? `body :where(p, span, div, h1, h2, h3, h4, h5, h6, blockquote, li, table, td, em, strong, a) { font-family: ${fonts[prefs.font]} !important; }` : ''}
-    img, svg, video { max-width: 100%; max-height: calc(100vh - 3rem); }
+    img, svg, video { max-width: 100%; max-height: var(--qr-column, calc(100vh - 3rem)); break-inside: avoid; }
     img { object-fit: contain; }
     pre { overflow: auto; }
     a { color: ${palette.link}; }
