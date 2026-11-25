@@ -8,8 +8,6 @@
     <!-- The automatic book details pass waits for an unmetered network. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.CAMERA" />
-    <!-- A PDF conversion moves its upload and download in a data sync foreground service. -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 
     <application
@@ -85,12 +83,6 @@
                 <data android:mimeType="application/pdf" />
             </intent-filter>
         </activity>
-
-        <!-- WorkManager's foreground service, typed for the PDF conversion's transfers. -->
-        <service
-            android:name="androidx.work.impl.foreground.SystemForegroundService"
-            android:foregroundServiceType="dataSync"
-            tools:node="merge" />
 
     </application>
 </manifest>
