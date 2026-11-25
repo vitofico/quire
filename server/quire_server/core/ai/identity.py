@@ -1,22 +1,26 @@
 """Identity-resolution seam (PR2).
 
 This module sits between the `/ai/v1/*` API and the insight orchestrator.
-It maps non-canonical identity hints (`opds_href`, `opds_dc_id`,
-`calibre_book_id`, `isbn`) to canonical schemes (`metadata_id`,
-`content_hash`) via the `insight_identity_aliases` table.
+It maps non-canonical identity hints (`opds_href`, `opds_dc_id`, `isbn`)
+to canonical schemes (`metadata_id`, `content_hash`) via the
+`insight_identity_aliases` table.
 
 Resolution order (per the roadmap "identity hierarchy" §):
   1. metadata_id          -- canonical
   2. content_hash         -- canonical
   3. opds_dc_id           -- alias (pre-download)
   4. isbn                 -- alias
-  5. calibre_book_id      -- alias (pre-download)
-  6. opds_href            -- alias fallback (pre-download)
+  5. opds_href            -- alias fallback (pre-download)
 
 `metadata_id`, `content_hash`, `isbn` aliases are GLOBAL (`user_id=NULL`).
-`opds_href`, `opds_dc_id`, `calibre_book_id` aliases are USER-SCOPED — the
-same OPDS string can mean different books on different calibre-web
-instances and must not cross-contaminate.
+`opds_href`, `opds_dc_id` aliases are USER-SCOPED — the same OPDS string
+can mean different books on different calibre-web instances and must not
+cross-contaminate.
+
+Clients also send `calibre_book_id`, the bare number from a Calibre-Web
+download link. It is not an alias: book 5 on one server and book 5 on
+another are different books, and the host-qualified `opds_href` already
+identifies the catalog entry. The API accepts the field and ignores it.
 
 The resolver short-circuits canonical-in/canonical-out: a request that
 already supplies `metadata_id` does not hit the DB. For alias inputs,
@@ -49,7 +53,7 @@ CanonicalScheme = Literal["metadata_id", "content_hash"]
 
 CANONICAL_SCHEMES: frozenset[str] = frozenset({"metadata_id", "content_hash"})
 ALIAS_SCHEMES: frozenset[str] = frozenset(
-    {"metadata_id", "content_hash", "opds_href", "opds_dc_id", "calibre_book_id", "isbn"}
+    {"metadata_id", "content_hash", "opds_href", "opds_dc_id", "isbn"}
 )
 
 # Resolution priority: canonicals first (no DB read), then alias schemes
@@ -60,7 +64,6 @@ IDENTITY_HIERARCHY: tuple[str, ...] = (
     "content_hash",
     "opds_dc_id",
     "isbn",
-    "calibre_book_id",
     "opds_href",
 )
 
@@ -72,7 +75,6 @@ SCOPE_BY_SCHEME: dict[str, bool] = {
     "isbn": False,
     "opds_href": True,
     "opds_dc_id": True,
-    "calibre_book_id": True,
 }
 
 
