@@ -191,6 +191,9 @@ class Settings(BaseSettings):
     # counter (no DB row); pod restart resets — acceptable because cost of
     # a promote is dominated by the row-copy, not LLM. 0 disables the limit.
     ai_promote_daily_limit: int = 100
+    # Questions each reader may ask per minute about their highlights
+    # (POST /ai/v1/highlights/discuss), counted in each server process.
+    ai_discuss_rate_per_min: int = Field(10, ge=1)
 
     # pr-β (Bundle 3, coordinator §3.11): per-user, per-UTC-day cap on
     # POST /ai/v1/profile/refresh. Counted against ai_usage_daily.profile_count.

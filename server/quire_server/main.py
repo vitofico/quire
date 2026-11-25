@@ -548,6 +548,10 @@ def create_app() -> FastAPI:
         runtime = RuntimeSettings(settings)
         app.state.runtime_settings = runtime
         ai_router_deps = [Depends(refresh_runtime_settings)]
+        from quire_server.api.details import RateLimit
+
+        # Questions about highlights, per reader per minute.
+        app.state.discuss_limit = RateLimit()
 
         if settings.ai_base_url and settings.ai_model:
             # Lazy imports: only pull AI modules when AI mode is on AND configured.
@@ -679,7 +683,7 @@ def create_app() -> FastAPI:
         if settings.details_enabled:
             # Book details and designed covers share the AI router's auth,
             # opt-in and allowance; with AI unconfigured they answer 503.
-            from quire_server.api.details import CoverCache, RateLimit
+            from quire_server.api.details import CoverCache
             from quire_server.api.details import router as details_router
             from quire_server.core.ai.details import RecentFailures
 
