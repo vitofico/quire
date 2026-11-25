@@ -16,7 +16,7 @@ import time
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -190,6 +190,42 @@ def test_a_forged_report_fails_the_job(folder, case):
     assert (update["state"], update["failure_code"]) == ("failed", "invalid_result")
     assert update["summary"]["retryable"] is True
     assert list(folder.store.iterdir()) == []
+
+
+# What the real worker publishes, written by converter/tests/test_worker.py.
+WORKER_RESULTS = Path(__file__).parents[3] / "converter/tests/fixtures/worker-results.json"
+
+
+@pytest.mark.parametrize("outcome", ["ready", "review", "failed"])
+def test_what_the_worker_publishes_is_accepted(folder, outcome):
+    published = json.loads(WORKER_RESULTS.read_text())[outcome]
+    job = SimpleNamespace(id=UUID(published["job"]), attempt=published["attempt"])
+    # The fixture's EPUB is a stand-in; the server checks this one against the report.
+    if published["epub"] is not None:
+        published["epub"] |= {"sha256": sha(EPUB), "bytes": len(EPUB)}
+    data = None if published["epub"] is None else EPUB
+    update = accept(folder, job, publish(folder, job, data, published))
+    assert update["state"] == outcome
+    assert update["engine_revision"] == published["engine"]
+    if outcome == "failed":
+        assert update["failure_code"] == published["code"]
+        return
+    summary = update["summary"]
+    assert summary["affected_pages"] == published["affected_pages"]
+    assert summary["issues"] == published["issues"]
+    assert summary["issue_counts"] == published["issue_counts"]
+    assert summary["rendition_id"] == published["epub"]["rendition_id"]
+
+
+def test_a_refusal_names_the_check_and_nothing_the_worker_wrote(folder, caplog):
+    job = new_job()
+    pages = [{"page": 0, "label": "secret label"}]
+    published = publish(folder, job, result=report(job) | {"affected_pages": pages})
+    with caplog.at_level("INFO", logger=convert.__name__):
+        assert accept(folder, job, published)["failure_code"] == "invalid_result"
+    (line,) = [r.getMessage() for r in caplog.records if "result_refused" in r.getMessage()]
+    assert line.endswith("error=Untrusted check=affected_page")
+    assert "secret" not in line
 
 
 @pytest.mark.parametrize(
