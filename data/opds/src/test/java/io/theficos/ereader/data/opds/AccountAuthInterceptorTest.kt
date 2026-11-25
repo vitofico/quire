@@ -628,6 +628,22 @@ class AccountAuthInterceptorTest {
         }
     }
 
+    @Test fun `the Quire client signs PDF conversion and the catalog client never does`() {
+        val account = AccountCredentials.Bearer(server.url("/").toString(), "alice@example.com", "native-token")
+        val client = OkHttpClient.Builder().quireAuth({ account }) {}.build()
+        for (path in listOf("/convert/v1/capabilities", "/convert/v1/jobs/abc/source")) {
+            server.enqueue(MockResponse())
+            get(client, server.url(path))
+            assertThat(server.awaitRequest().getHeader("Authorization")).isEqualTo("Bearer native-token")
+        }
+
+        val catalog = AccountCredentials.OpdsOnly(server.url("/").toString(), "reader", "secret")
+        val catalogs = OkHttpClient.Builder().catalogAuth { session(account, catalog) }.build()
+        server.enqueue(MockResponse())
+        get(catalogs, server.url("/convert/v1/capabilities"))
+        assertThat(server.awaitRequest().getHeader("Authorization")).isNull()
+    }
+
     @Test fun `a caller's own Authorization header never survives the catalog client`() {
         val catalog = AccountCredentials.OpdsOnly(server.url("/opds").toString())
         val client = OkHttpClient.Builder().catalogAuth { CatalogSession(listOf(catalog), catalog, null) }.build()

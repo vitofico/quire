@@ -44,6 +44,8 @@ import io.theficos.ereader.ui.catalog.CatalogScreen
 import io.theficos.ereader.ui.catalog.CatalogViewModel
 import io.theficos.ereader.ui.catalogdetail.CatalogDetailScreen
 import io.theficos.ereader.ui.catalogdetail.CatalogDetailViewModel
+import io.theficos.ereader.ui.convert.ConversionsScreen
+import io.theficos.ereader.ui.convert.ConversionsViewModel
 import io.theficos.ereader.ui.library.LibraryInsightsScreen
 import io.theficos.ereader.ui.library.LibraryInsightsViewModel
 import io.theficos.ereader.ui.library.LibraryScreen
@@ -264,6 +266,8 @@ fun AppNavGraph(
                         onShowStats = { nav.navigate("library/stats") },
                         onShowInsights = { nav.navigate("library/insights") },
                         sideloadImporter = container.sideloadImporter,
+                        conversions = container.conversionRepository,
+                        onShowConversions = { nav.navigate("library/conversions") },
                         contentPadding = padding,
                     )
                     Tab.CATALOG -> CatalogScreen(
@@ -457,6 +461,16 @@ fun AppNavGraph(
             LibraryStatsScreen(
                 viewModel = vm,
                 onBack = { nav.popBackStack() },
+            )
+        }
+        composable("library/conversions") {
+            val vm: ConversionsViewModel = viewModel(
+                factory = viewModelFactory { initializer { ConversionsViewModel(container.conversionRepository) } },
+            )
+            ConversionsScreen(
+                viewModel = vm,
+                onBack = { nav.popBackStack() },
+                onOpenBook = { id -> nav.navigate("reader/$id") },
             )
         }
         composable("library/insights") {

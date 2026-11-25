@@ -13,4 +13,6 @@
     <string name="whats_new_catalogs_description">Enregistrez plusieurs catalogues dans %1$s → %2$s et passez de l’un à l’autre pendant la navigation. Une fois connecté à Quire, vous retrouvez la liste sur vos autres appareils.</string>
     <string name="whats_new_book_details_title">Des détails de livres mieux rangés</string>
     <string name="whats_new_book_details_description">Les livres dont le titre est un nom de fichier, ou sans couverture, auteur ou description, reçoivent maintenant leurs détails d’Open Library ou mis en ordre par l’IA, avec une mention de leur origine. Cela se fait en Wi-Fi, 25 livres au plus par jour. Désactivez-le dans %1$s → %2$s, ou revenez aux détails d’origine d’un livre depuis son menu.</string>
+    <string name="whats_new_pdf_conversion_title">Des PDF devenus livres</string>
+    <string name="whats_new_pdf_conversion_description">Partagez un PDF avec Quire, ou ajoutez-le avec + dans la bibliothèque, et votre serveur Quire le convertit en EPUB dans votre bibliothèque. La conversion se fait sur votre propre serveur, rien n’est envoyé ailleurs. Suivez-la dans %1$s → %2$s, dans la bibliothèque.</string>
 </resources>

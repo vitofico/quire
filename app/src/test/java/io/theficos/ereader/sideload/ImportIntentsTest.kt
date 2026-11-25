@@ -3,6 +3,7 @@ package io.theficos.ereader.sideload
 import android.content.Intent
 import android.net.Uri
 import com.google.common.truth.Truth.assertThat
+import io.theficos.ereader.ui.convert.isPdf
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -44,5 +45,14 @@ class ImportIntentsTest {
 
     @Test fun `null intent returns null`() {
         assertThat(extractImportUri(null)).isNull()
+    }
+
+    @Test fun `a PDF is told apart by its type, or by its name when the type says nothing`() {
+        assertThat(isPdf("application/pdf", null)).isTrue()
+        assertThat(isPdf(null, "Field notes.PDF")).isTrue()
+        assertThat(isPdf("application/octet-stream", "notes.pdf")).isTrue()
+        assertThat(isPdf("application/epub+zip", "misnamed.pdf")).isFalse()
+        assertThat(isPdf(null, "book.epub")).isFalse()
+        assertThat(isPdf(null, null)).isFalse()
     }
 }

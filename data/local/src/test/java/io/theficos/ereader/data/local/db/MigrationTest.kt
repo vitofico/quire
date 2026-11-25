@@ -41,7 +41,7 @@ class MigrationTest {
             } catch (e: IllegalStateException) {
                 throw AssertionError("The production Room builder must open existing version-two data", e)
             }
-            assertThat(sqlite.version).isEqualTo(15)
+            assertThat(sqlite.version).isEqualTo(16)
             assertThat(db.documentDao().findById(1)?.title).isEqualTo("Book")
             val progress = checkNotNull(db.progressDao().findByDocument(1))
             assertThat(progress.locator).isEqualTo("loc")
@@ -367,7 +367,7 @@ class MigrationTest {
         val db = EReaderDatabase.build(context)
         try {
             val sqlite = db.openHelper.writableDatabase
-            assertThat(sqlite.version).isEqualTo(15)
+            assertThat(sqlite.version).isEqualTo(16)
             sqlite.query("SELECT identityHashVersion FROM book_insights").use { rows ->
                 assertThat(rows.count).isEqualTo(0)
             }
@@ -430,6 +430,35 @@ class MigrationTest {
                 assertThat(c.moveToFirst()).isTrue()
                 assertThat(c.getString(0)).isEqualTo("dune_frank_herbert")
                 assertThat(c.getString(1)).isEqualTo("{}")
+            }
+        }
+    }
+
+    @Test fun `migrate 15 to 16 adds conversion jobs and leaves the library untouched`() {
+        helper.createDatabase(DB, 15).use { db ->
+            db.execSQL(
+                "INSERT INTO documents (id, metadataId, contentHash, title, author, downloadUrl, localPath, coverPath, downloadedAt, identityHashVersion) " +
+                    "VALUES (7, 'm7', 'h7', 'Book', NULL, 'u', 'p', NULL, 70, 1)"
+            )
+        }
+
+        helper.runMigrationsAndValidate(DB, 16, true, EReaderDatabase.MIGRATION_15_16).use { db ->
+            db.query("SELECT COUNT(*) FROM conversion_jobs").use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.getInt(0)).isEqualTo(0)
+            }
+            db.execSQL(
+                "INSERT INTO conversion_jobs (id, owner, idempotencyKey, fileName, sha256, bytes, sourcePath, jobId, stage, " +
+                    "problem, jobJson, retryAt, failures, documentId, createdAt, updatedAt) " +
+                    "VALUES ('c1', 'o', 'key-0001', 'f.pdf', 'aa', 10, NULL, NULL, 'upload', NULL, NULL, NULL, 0, NULL, 1, 1)"
+            )
+            db.query("SELECT stage FROM conversion_jobs WHERE id = 'c1'").use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.getString(0)).isEqualTo("upload")
+            }
+            db.query("SELECT title FROM documents WHERE id = 7").use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.getString(0)).isEqualTo("Book")
             }
         }
     }
