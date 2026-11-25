@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { type ReplicaSnapshot, type ShelfBook, type Progress } from './data'
 import { Icon } from './icons'
+import { foundCover, originLabel, withDetails } from './details'
 export const authors = (book: ShelfBook) =>
   book.authors?.join(', ') || book.author || ''
 export function findProgress(book: ShelfBook, rows: Progress[]) {
@@ -14,17 +15,26 @@ export function findProgress(book: ShelfBook, rows: Progress[]) {
 // A book without artwork gets a steady colour of its own, so a shelf of them is not one block.
 const tint = (title: string) =>
   `hsl(${[...title].reduce((sum, char) => sum + char.charCodeAt(0), 0) * 47 % 360} 24% 33%)`
-export function Cover({ book }: { book: ShelfBook }) {
+/** Reads the found or drawn cover kept for a book. */
+export type LoadCover = (key: string) => Promise<Blob | undefined>
+export function Cover({ book, load }: { book: ShelfBook; load?: LoadCover }) {
   const [url, setUrl] = useState('')
+  const found = load && foundCover(book)
   useEffect(() => {
-    if (!(book.cover instanceof Blob)) {
-      setUrl('')
-      return
+    let source = '', live = true
+    const show = (blob?: Blob) => {
+      if (!live || !blob) return
+      source = URL.createObjectURL(blob)
+      setUrl(source)
     }
-    const source = URL.createObjectURL(book.cover)
-    setUrl(source)
-    return () => URL.revokeObjectURL(source)
-  }, [book.cover])
+    setUrl('')
+    if (book.cover instanceof Blob) show(book.cover)
+    else if (found) load(book.key).then(show, () => undefined)
+    return () => {
+      live = false
+      if (source) URL.revokeObjectURL(source)
+    }
+  }, [book.cover, book.key, found, load])
   return (
     <span
       className={'cover' + (url ? ' with-image' : '')}
@@ -32,6 +42,19 @@ export function Cover({ book }: { book: ShelfBook }) {
     >
       {url ? <img src={url} alt="" /> : book.title}
     </span>
+  )
+}
+/** A quiet sign that the shelf shows a drawn cover or a title that is not the book's own. */
+function Marks({ book, t }: { book: ShelfBook; t: (s: string) => string }) {
+  const label = [
+    foundCover(book) && book.details?.answer?.cover.generated && t('Generated cover'),
+    originLabel(book, 'title', t),
+  ].filter(Boolean).join(', ')
+  return label && (
+    <small className="origin">
+      <span aria-hidden="true">✦</span>
+      <span className="visually-hidden">{label}</span>
+    </small>
   )
 }
 function Meter({ percent }: { percent: number }) {
@@ -51,12 +74,13 @@ type Props = {
   local?: boolean
   art?: boolean
   data: ReplicaSnapshot
+  loadCover?: LoadCover
   t: (s: string) => string
   choose: () => void
   details: (id: string) => void
   read: (id: string) => void
 }
-export function Shelf({ ready, local, art, data, t, choose, details, read }: Props) {
+export function Shelf({ ready, local, art, data, loadCover, t, choose, details, read }: Props) {
   const [search, setSearch] = useState(''),
     [filter, setFilter] = useState('All books'),
     [sort, setSort] = useState('Recently read'),
@@ -64,7 +88,7 @@ export function Shelf({ ready, local, art, data, t, choose, details, read }: Pro
   const rows = useMemo(
     () =>
       data.books.map((book) => ({
-        book,
+        book: withDetails(book),
         p: findProgress(book, data.progress),
       })),
     [data],
@@ -144,7 +168,7 @@ export function Shelf({ ready, local, art, data, t, choose, details, read }: Pro
                   book.hasDownload ? read(book.key) : details(book.key)
                 }
               >
-                <Cover book={book} />
+                <Cover book={book} load={loadCover} />
                 <span>
                   <strong>{book.title}</strong>
                   <small>{authors(book)}</small>
@@ -228,10 +252,11 @@ export function Shelf({ ready, local, art, data, t, choose, details, read }: Pro
                 key={book.key}
                 onClick={() => details(book.key)}
               >
-                <Cover book={book} />
+                <Cover book={book} load={loadCover} />
                 <span className="who">
                   <strong>{book.title}</strong>
                   <small>{authors(book)}</small>
+                  <Marks book={book} t={t} />
                 </span>
                 {p?.finished_at ? (
                   <small>{t('Finished')}</small>
