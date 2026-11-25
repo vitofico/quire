@@ -17,6 +17,14 @@ export function Passages({ passages, books, t, open, report }: Props) {
       .toLocaleLowerCase()
       .includes(query.toLocaleLowerCase()),
   )
+  // One section per book, in the order each book first appears in the list.
+  const byBook = new Map<string, Highlight[]>()
+  for (const h of filtered) {
+    const group = byBook.get(h.document.content_hash)
+    if (group) group.push(h)
+    else byBook.set(h.document.content_hash, [h])
+  }
+  const groups = [...byBook.values()]
   return (
     <>
       <h1>{t('Highlights')}</h1>
@@ -42,39 +50,42 @@ export function Passages({ passages, books, t, open, report }: Props) {
           <p>{t('Select text while reading and choose Save highlight. Your passages and notes collect here.')}</p>
         </section>
       )}
-      {filtered.map((h) => {
-        const book = books.find((b) => b.key === h.document.content_hash)
-        const quote =
-          h.text +
-          ' — ' +
-          [h.book_title, h.book_author].filter(Boolean).join(', ')
+      {groups.map((group) => {
+        const first = group[0]
+        const book = books.find((b) => b.key === first.document.content_hash)
+        const source = [first.book_title, first.book_author].filter(Boolean).join(', ')
         return (
-          <article className="quote" key={h.id}>
-            <small>
-              {[h.book_title, h.book_author].filter(Boolean).join(' · ')}
-            </small>
-            <blockquote>{h.text}</blockquote>
-            {h.comment && <p>{h.comment}</p>}
-            <div className="actions">
-              <button
-                className="ghost"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(quote)
-                  } catch (e) {
-                    report(String(e))
-                  }
-                }}
-              >
-                {t('Copy as quote')}
-              </button>
-              {book && (
-                <button className="ghost" onClick={() => open(book, h)}>
-                  {t(book.hasDownload ? 'Open passage' : 'Open your copy')}
-                </button>
-              )}
-            </div>
-          </article>
+          <section className="quote-group" key={first.document.content_hash}>
+            <h2>
+              {first.book_title || book?.title}
+              {first.book_author && <small>{first.book_author}</small>}
+            </h2>
+            {group.map((h) => (
+              <article className="quote" key={h.id}>
+                <blockquote>{h.text}</blockquote>
+                {h.comment && <p>{h.comment}</p>}
+                <div className="actions">
+                  <button
+                    className="ghost"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(h.text + ' — ' + source)
+                      } catch (e) {
+                        report(String(e))
+                      }
+                    }}
+                  >
+                    {t('Copy as quote')}
+                  </button>
+                  {book && (
+                    <button className="ghost" onClick={() => open(book, h)}>
+                      {t(book.hasDownload ? 'Open passage' : 'Open your copy')}
+                    </button>
+                  )}
+                </div>
+              </article>
+            ))}
+          </section>
         )
       })}
       {passages.length > 0 && !filtered.length && (

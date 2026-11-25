@@ -1026,6 +1026,14 @@ dialog.ask .actions {
 }
 
 /* Highlights */
+.quote-group {
+  margin-bottom: 2rem;
+}
+.quote-group h2 small {
+  display: block;
+  font: 0.9rem/1.4 var(--body);
+  color: var(--muted);
+}
 .quote {
   margin: 0 0 1rem;
   padding: 1.1rem 1.25rem;
