@@ -328,17 +328,16 @@ class AIGenerationLog(Base):
 # Scoped alias table (PR2, 2026-05-16)
 # ----------------------------------------------------------------------------
 # `insight_identity_aliases` maps non-canonical identity hints (`opds_href`,
-# `opds_dc_id`, `calibre_book_id`, `isbn`) to canonical schemes
-# (`metadata_id`, `content_hash`). The resolver runs BEFORE every cache
-# lookup, generation-lock acquisition, regenerate, and invalidate.
+# `opds_dc_id`, `isbn`) to canonical schemes (`metadata_id`,
+# `content_hash`). The resolver runs BEFORE every cache lookup,
+# generation-lock acquisition, regenerate, and invalidate.
 #
 # `user_id` is INTENTIONAL cache-key scoping, NOT a tenant-leak:
 #   - Global aliases (user_id IS NULL): `metadata_id`, `content_hash`,
 #     `isbn`. These are universally stable across instances.
 #   - User-scoped aliases (user_id = <calibre-web user>): `opds_href`,
-#     `opds_dc_id`, `calibre_book_id`. The same OPDS string can mean
-#     different books on different calibre-web instances, so they must
-#     not cross-contaminate.
+#     `opds_dc_id`. The same OPDS string can mean different books on
+#     different calibre-web instances, so they must not cross-contaminate.
 #
 # Cache-key audit test split (PR2 §4): this table appears in
 # `SCOPED_ALIAS_TABLES`, NOT `SHARED_CACHE_TABLES`. The `user_id` column
@@ -439,6 +438,9 @@ class LibraryItem(Base):
         JSONB, nullable=False, server_default=text("'[]'::jsonb"), default=list
     )
     opds_href: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Client-chosen UUID of the saved catalog the book came from. Loose
+    # reference on purpose: no foreign key to any catalogs table.
+    catalog_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -606,3 +608,35 @@ class NativeSession(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     kind: Mapped[str] = mapped_column(String, nullable=False, default="api", server_default="api")
     device_name: Mapped[str | None] = mapped_column(String)
+
+
+# Synced catalogs — `catalogs` branch, always materialized like `auth`.
+class AccountCatalog(Base):
+    """A book catalog saved to a Quire account and synced to its devices.
+
+    The full address goes inside ``secret`` with the login, because some
+    catalogs (Kavita) embed an account key in the URL path. ``host`` is
+    scheme and host only, safe to show and to log. ``secret`` is sealed by
+    ``core.catalog_secrets`` and bound to this row's ``(user_id, id)``.
+    """
+
+    __tablename__ = "account_catalogs"
+    __table_args__ = (
+        CheckConstraint("kind IN ('calibre', 'opds')", name="ck_account_catalogs_kind"),
+    )
+
+    # The account's storage user id, as in every other user-scoped table.
+    user_id: Mapped[str] = mapped_column(String, primary_key=True)
+    # Chosen by the client, so a retried create lands on the same row.
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    name: Mapped[str] = mapped_column(String(60), nullable=False)
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    host: Mapped[str] = mapped_column(String, nullable=False)
+    secret: Mapped[str] = mapped_column(String, nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

@@ -20,6 +20,7 @@ exists.
 - [Deploy modes](#deploy-modes)
 - [Remote MCP access](#remote-mcp-access)
 - [AI provider](#ai-provider)
+- [Synced catalogs](#synced-catalogs)
 - [Status page](#status-page)
 - [Docker Compose variables](#docker-compose-variables)
 - [Advanced](#advanced)
@@ -90,6 +91,7 @@ What that does depends on the setting:
 | `QUIRE_SERVER_AI_SOURCES` | Retrieval off. The default applies only when the line is missing. |
 | `QUIRE_SERVER_AI_PROMPT_VERSION` | The built-in prompt version, the same as the default. |
 | Numbers, `true`/`false` settings, fixed-choice settings, `QUIRE_SERVER_AI_TOKEN_SECRETS` | The server refuses to start. |
+| `QUIRE_SERVER_CATALOG_KEYS` | Unset, the same as no line. |
 | `QUIRE_SERVER_LOG_LEVEL` | `INFO`, the same as the default. |
 | Other text settings | Empty text, taken literally, which breaks whatever uses it. |
 
@@ -625,6 +627,168 @@ These are fixed in the code today, so there is no variable to look for:
 - **The model server's own behaviour,** such as how long Ollama keeps a model
   loaded. Set that on the model server (see
   [CPU-only local models](#cpu-only-local-models)).
+
+## Synced catalogs
+
+A reader signed in with a Quire account can save several book catalogs
+(an address, plus a login when the catalog needs one) and find them on every
+device. The server stores each address and login encrypted with a key that
+is kept outside the database, so a database dump or backup on its own
+exposes nothing usable. Someone who takes over the running server has the
+key too. The status page shows where the key comes from and how many
+catalogs are saved; the routes are in
+[Saved catalogs](sync-api.md#saved-catalogs-catalogsv1).
+
+Nothing needs setting up. At start the server takes the key from
+`QUIRE_SERVER_CATALOG_KEYS` if it is set, otherwise from the key file at
+`QUIRE_SERVER_CATALOG_KEY_FILE`. If neither exists and the file's folder is
+writable, it creates a random key there, readable by the server's own user
+only, and uses it from then on. Both compose files mount a small volume,
+`quire_keys`, at `/var/lib/quire` for this, so the key appears on first
+start and survives upgrades. With no key, or when creating one fails (the
+database cannot be reached, the file cannot be written), the server still
+starts, catalog sync is off, and the server
+logs one line at start that begins `Catalog sync is off` and names the
+setting; nothing is ever stored unencrypted.
+
+**Back up the key file together with the database.** A database restored
+without it still works, but every saved catalog login is unreadable and
+readers are asked to enter them again. When the server finds saved catalogs
+and no key, it does not create a new one: restore the file, or supply the
+key through `QUIRE_SERVER_CATALOG_KEYS`.
+
+**Several server copies need the environment route.** Each copy would
+otherwise create its own key file and could not read the others' rows. Give
+every copy the same `QUIRE_SERVER_CATALOG_KEYS` from your secret store.
+
+### `QUIRE_SERVER_CATALOG_KEYS`
+
+- Type: JSON object that maps a key id (1 to 32 letters, digits, `-` or `_`)
+  to a base64-encoded 32-byte key
+- Default: unset
+- Example: `QUIRE_SERVER_CATALOG_KEYS='{"key-2026-11": "<output of openssl rand -base64 32>"}'`
+
+The keys for saved catalog logins. When set, the key file is not read or
+created. The first entry encrypts; every entry can decrypt. To rotate, put
+the new key first and keep the old ones: a catalog moves to the first key
+the next time a reader saves it, even with no change. A catalog nobody saves
+stays on its old key, so remove an old key only once no row uses it; this
+query lists the key ids still in use:
+`SELECT split_part(secret, ':', 1) AS key_id, count(*) FROM account_catalogs GROUP BY 1`.
+A catalog whose key was removed is listed with `needs_login` until its login
+is entered again. A value that does not parse stops the server at boot with a message
+naming this setting (never the key). An empty line counts as unset. To move
+from the key file to this setting, its content is already in this format:
+`QUIRE_SERVER_CATALOG_KEYS=$(cat /var/lib/quire/catalog.key)`.
+
+When to change it: on Kubernetes, for several server copies, or to keep the
+key in a secret store.
+
+### `QUIRE_SERVER_CATALOG_KEY_FILE`
+
+- Type: file path inside the container
+- Default: `/var/lib/quire/catalog.key`
+- Example: `QUIRE_SERVER_CATALOG_KEY_FILE=/var/lib/quire/catalog.key`
+
+Where the server reads, and on first start creates, its catalog key when
+`QUIRE_SERVER_CATALOG_KEYS` is unset. The file holds the same JSON as that
+setting. The server never overwrites it. If it exists but cannot be read or
+parsed, the server stops at boot. Empty means no key file, so the key must
+come from `QUIRE_SERVER_CATALOG_KEYS`.
+
+When to change it: only to keep the key on a volume mounted elsewhere.
+
+### `QUIRE_SERVER_CATALOG_ALLOW_HTTP`
+
+- Type: `true` or `false`
+- Default: `false`
+- Example: `QUIRE_SERVER_CATALOG_ALLOW_HTTP=true`
+
+Saved catalog addresses must use `https`, because the login travels with
+every request. `true` also accepts plain `http`, for a catalog on your home
+network.
+
+When to change it: only for a catalog you reach over a network you trust.
+
+### `QUIRE_SERVER_CATALOG_PROXY_ENABLED`
+
+- Type: `true` or `false`
+- Default: `true`
+- Example: `QUIRE_SERVER_CATALOG_PROXY_ENABLED=false`
+
+A browser cannot read most third-party catalogs, so Quire Web opens a saved
+catalog through the server: the server fetches each page, cover and book with
+the saved login and passes the answer on
+([`/fetch`](sync-api.md#get-catalogsv1catalogsidfetch)). Every book a reader
+downloads that way passes through the server's bandwidth. `false` turns that
+off on its own: phones keep syncing their catalogs, and Quire Web shows only
+the server's own catalog. The catalog key must be present either way.
+
+With it on, any signed-in account can make the server fetch from any public
+host it saves as a catalog, with the server's own address as the sender. On a
+public service where anyone can sign up, weigh keeping it off.
+
+When to change it: on a server that should not carry readers' downloads from
+other sites, or one open to accounts you do not know.
+
+### `QUIRE_SERVER_CATALOG_PROXY_ALLOW_PRIVATE`
+
+- Type: `true` or `false`
+- Default: `false`
+- Example: `QUIRE_SERVER_CATALOG_PROXY_ALLOW_PRIVATE=true`
+
+By default the server fetches a saved catalog only from a globally routable
+address, so a reader cannot use it to reach machines inside the server's own
+network. `true` also allows exactly these ranges, for a catalog on your home
+network or a Tailscale address:
+
+- RFC 1918 private IPv4: `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`
+- CGNAT: `100.64.0.0/10`
+- IPv6 unique local: `fc00::/7`
+
+Everything else that is not globally routable stays refused whatever this
+says: loopback (`127.0.0.0/8`, `::1`), link-local (`169.254.0.0/16`,
+`fe80::/10`, which holds the cloud metadata services), IPv6 site-local
+(`fec0::/10`), IPv4-compatible and IPv4-mapped IPv6 (`::/96`,
+`::ffff:0:0/96`), documentation and benchmark ranges, multicast, unspecified
+and broadcast addresses, and the metadata services that sit inside an allowed
+range (`100.100.100.200`, `fd00:ec2::254`). So a catalog in another container
+on the same Docker network works with `true`, while one on the host's own
+loopback (`localhost`) does not: publish it on a private address instead. A
+catalog on plain `http` also needs
+[`QUIRE_SERVER_CATALOG_ALLOW_HTTP`](#quire_server_catalog_allow_http).
+
+When to change it: on a self-hosted server whose readers save catalogs on the
+local network. Leave it `false` on a server open to people you do not know.
+
+### `QUIRE_SERVER_CATALOG_PROXY_RATE_PER_MIN`
+
+- Type: whole number, 1 or more
+- Default: `120`
+- Example: `QUIRE_SERVER_CATALOG_PROXY_RATE_PER_MIN=60`
+
+How many saved-catalog fetches one account may make per minute, counted per
+server process. A catalog page costs one fetch plus one per cover on it.
+Past the limit the server answers `429` with `Retry-After` until the minute
+is over.
+
+When to change it: lower it on a shared server to bound what one account can
+make the server fetch.
+
+### `QUIRE_SERVER_CATALOG_PROXY_MAX_CONCURRENT`
+
+- Type: whole number, 1 or more
+- Default: `8`
+- Example: `QUIRE_SERVER_CATALOG_PROXY_MAX_CONCURRENT=4`
+
+How many saved-catalog fetches the server runs at once, all accounts
+together, counted per server process. One account may run 4 at a time. Past
+either limit the server answers `429` (`too_many_fetches`) at once instead of
+queueing. A fetch holds no database connection while it waits for the
+catalog, so this bounds open connections to other sites, not the database.
+
+When to change it: lower it on a small server, raise it on one with many
+readers browsing saved catalogs at once.
 
 ## Status page
 

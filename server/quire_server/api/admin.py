@@ -27,6 +27,7 @@ from urllib.parse import parse_qsl, urlsplit
 from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
+from sqlalchemy import func, select
 
 from quire_server.api.admin_page import render_page
 from quire_server.api.health import _enabled_modes, migration_state
@@ -41,6 +42,7 @@ from quire_server.core.runtime_settings import (
     parse_value,
     runtime_settings,
 )
+from quire_server.db.models import AccountCatalog
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +53,7 @@ MASK = "***"
 # Settings whose value is a credential. Shown as MASK when set, null when not.
 # `test_every_secret_looking_setting_is_masked` fails if a setting named like
 # a secret is added without being listed here.
-SECRET_SETTINGS = frozenset({"ai_api_key", "ai_token_secrets"})
+SECRET_SETTINGS = frozenset({"ai_api_key", "ai_token_secrets", "catalog_keys"})
 
 # Settings that hold a URL, masked by `_mask_url` whatever their value looks
 # like. `test_every_url_setting_is_masked` fails if a `*_url` setting is added
@@ -265,12 +267,21 @@ async def build_status(app: FastAPI) -> dict[str, object]:
             "health": (await ai_health_payload(app)).model_dump(),
         }
 
+    # How many catalogs readers saved, across every account: never which ones.
+    try:
+        async with app.state.identity_factory() as session:
+            saved = await session.scalar(select(func.count()).select_from(AccountCatalog))
+    except Exception as exc:  # noqa: BLE001 — shown on the page, never raised
+        logger.warning("event=admin.catalogs_unreadable error_class=%s", type(exc).__name__)
+        saved = None
+
     return {
         "version": settings.version,
         "modes": _enabled_modes(settings.progress_enabled, settings.ai_enabled),
         "warnings": list(getattr(app.state, "config_warnings", [])),
         "ai": ai,
         "migrations": migrations,
+        "catalogs": {"key_source": app.state.catalog_key_source, "saved": saved},
         "editable": editable_view(runtime) if runtime is not None else None,
         "settings": settings_view(settings, runtime),
     }

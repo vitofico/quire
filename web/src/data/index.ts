@@ -156,6 +156,7 @@ export class Replica {
       books.set(book.key, {
         ...remote, ...book,
         opds_href: book.opds_href ?? remote?.opds_href,
+        catalog_id: book.catalog_id !== undefined ? book.catalog_id : remote?.catalog_id,
         hasDownload: downloads.has(book.key),
         synced: Boolean(remote),
         localOnly,

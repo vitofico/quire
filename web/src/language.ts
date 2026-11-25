@@ -439,6 +439,12 @@ const labels: Record<string, [string, string, string, string]> = {
     'Le catalogue n’a pas renvoyé d’EPUB.',
     'Der Katalog hat kein EPUB zurückgegeben.',
   ],
+  'The catalog stopped sending before the end. Try again.': [
+    'El catálogo dejó de enviar antes del final. Inténtalo de nuevo.',
+    'Il catalogo ha smesso di inviare prima della fine. Riprova.',
+    'Le catalogue a cessé d’envoyer avant la fin. Réessayez.',
+    'Der Katalog hat vor dem Ende aufgehört zu senden. Versuche es erneut.',
+  ],
   'Loading…': [
     'Cargando…',
     'Caricamento…',
@@ -529,6 +535,20 @@ const labels: Record<string, [string, string, string, string]> = {
   '{count} book': ["{count} libro", "{count} libro", "{count} livre", "{count} Buch"],
   '{count} books': ["{count} libros", "{count} libri", "{count} livres", "{count} Bücher"],
   '{percent} read': ["{percent} leído", "{percent} letto", "{percent} lu", "{percent} gelesen"],
+  Catalogs: ["Catálogos", "Cataloghi", "Catalogues", "Kataloge"],
+  'This server': ["Este servidor", "Questo server", "Ce serveur", "Dieser Server"],
+  'Catalogs you add in the Quire app on Android appear here.': ["Los catálogos que añadas en la app Quire para Android aparecen aquí.", "I cataloghi che aggiungi nell’app Quire per Android compaiono qui.", "Les catalogues que vous ajoutez dans l’app Quire pour Android apparaissent ici.", "Kataloge, die du in der Quire-App für Android hinzufügst, erscheinen hier."],
+  'Your saved catalogs open in the Quire app on Android. This server does not open them in the browser.': ["Tus catálogos guardados se abren en la app Quire para Android. Este servidor no los abre en el navegador.", "I tuoi cataloghi salvati si aprono nell’app Quire per Android. Questo server non li apre nel browser.", "Vos catalogues enregistrés s’ouvrent dans l’app Quire pour Android. Ce serveur ne les ouvre pas dans le navigateur.", "Deine gespeicherten Kataloge öffnen sich in der Quire-App für Android. Dieser Server öffnet sie nicht im Browser."],
+  'This catalog’s login no longer works. Update it in the Quire app on Android.': ["El inicio de sesión de este catálogo ya no funciona. Actualízalo en la app Quire para Android.", "L’accesso a questo catalogo non funziona più. Aggiornalo nell’app Quire per Android.", "L’identifiant de ce catalogue ne fonctionne plus. Mettez-le à jour dans l’app Quire pour Android.", "Die Anmeldung für diesen Katalog funktioniert nicht mehr. Aktualisiere sie in der Quire-App für Android."],
+  'Enter this catalog’s login again in the Quire app on Android.': ["Vuelve a introducir el inicio de sesión de este catálogo en la app Quire para Android.", "Inserisci di nuovo l’accesso a questo catalogo nell’app Quire per Android.", "Saisissez à nouveau l’identifiant de ce catalogue dans l’app Quire pour Android.", "Gib die Anmeldung für diesen Katalog in der Quire-App für Android erneut ein."],
+  'Quire could not reach this catalog. Try again later.': ["Quire no ha podido conectar con este catálogo. Inténtalo más tarde.", "Quire non è riuscito a raggiungere questo catalogo. Riprova più tardi.", "Quire n’a pas pu joindre ce catalogue. Réessayez plus tard.", "Quire konnte diesen Katalog nicht erreichen. Versuche es später erneut."],
+  'This catalog sent Quire to another site, so it stopped there.': ["Este catálogo envió a Quire a otro sitio, así que se detuvo ahí.", "Questo catalogo ha mandato Quire su un altro sito, quindi si è fermato lì.", "Ce catalogue a renvoyé Quire vers un autre site, il s’est donc arrêté là.", "Dieser Katalog hat Quire auf eine andere Website geschickt, daher hat es dort angehalten."],
+  'This catalog sent more than Quire passes on.': ["Este catálogo envió más de lo que Quire transmite.", "Questo catalogo ha inviato più di quanto Quire inoltri.", "Ce catalogue a envoyé plus que ce que Quire transmet.", "Dieser Katalog hat mehr gesendet, als Quire weitergibt."],
+  'Too many catalog requests. Wait a minute and try again.': ["Demasiadas solicitudes al catálogo. Espera un minuto y vuelve a intentarlo.", "Troppe richieste al catalogo. Attendi un minuto e riprova.", "Trop de requêtes au catalogue. Attendez une minute et réessayez.", "Zu viele Kataloganfragen. Warte eine Minute und versuche es erneut."],
+  'This Quire server does not open saved catalogs in the browser.': ["Este servidor Quire no abre catálogos guardados en el navegador.", "Questo server Quire non apre i cataloghi salvati nel browser.", "Ce serveur Quire n’ouvre pas les catalogues enregistrés dans le navigateur.", "Dieser Quire-Server öffnet gespeicherte Kataloge nicht im Browser."],
+  'This catalog sent a compressed answer, which Quire does not pass on.': ["Este catálogo envió una respuesta comprimida, que Quire no transmite.", "Questo catalogo ha inviato una risposta compressa, che Quire non inoltra.", "Ce catalogue a envoyé une réponse compressée, que Quire ne transmet pas.", "Dieser Katalog hat eine komprimierte Antwort gesendet, die Quire nicht weitergibt."],
+  'Quire is busy with other catalog requests. Try again in a moment.': ["Quire está ocupado con otras solicitudes de catálogo. Inténtalo de nuevo en un momento.", "Quire è occupato con altre richieste ai cataloghi. Riprova tra un momento.", "Quire traite d’autres requêtes de catalogue. Réessayez dans un instant.", "Quire ist mit anderen Kataloganfragen beschäftigt. Versuche es gleich noch einmal."],
+  'This catalog is no longer on your account.': ["Este catálogo ya no está en tu cuenta.", "Questo catalogo non è più nel tuo account.", "Ce catalogue n’est plus dans votre compte.", "Dieser Katalog ist nicht mehr in deinem Konto."],
 }
 export const languages = {
   en: 'English',

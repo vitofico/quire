@@ -89,6 +89,7 @@ def _to_response(row: LibraryItem) -> LibraryItemResponse:
         language=row.language,
         subjects=list(row.subjects or []),
         opds_href=row.opds_href,
+        catalog_id=row.catalog_id,
         created_at=row.created_at,
         updated_at=row.updated_at,
         deleted_at=row.deleted_at,
@@ -111,6 +112,10 @@ def _apply_payload(row: LibraryItem, payload: LibraryItemRequest) -> None:
     row.language = payload.language
     row.subjects = list(payload.subjects)
     row.opds_href = payload.opds_href
+    # The one exception to full replace: clients that predate catalogs omit
+    # `catalog_id`, and their pushes must not wipe it. Explicit null clears.
+    if "catalog_id" in payload.model_fields_set:
+        row.catalog_id = payload.catalog_id
 
 
 @router.put("/items", response_model=LibraryItemResponse)
@@ -169,6 +174,7 @@ async def put_item(
             language=payload.language,
             subjects=list(payload.subjects),
             opds_href=payload.opds_href,
+            catalog_id=payload.catalog_id,
             created_at=now,
             updated_at=now,
             deleted_at=None,
@@ -309,6 +315,7 @@ _DIFF_FIELDS: tuple[str, ...] = (
     "language",
     "subjects",
     "opds_href",
+    "catalog_id",
 )
 
 
@@ -319,8 +326,11 @@ def _entry_to_payload(entry: LibrarySyncEntry) -> dict[str, object]:
     full-replace semantics: an entry that omits `authors` is asserting "no
     authors", same as the existing PUT endpoint. Bulk sync MUST NOT
     diverge from per-item PUT on this rule.
+
+    The exception is `catalog_id`, present in the dict only when the entry
+    sent it: an omitted one keeps the stored value (see `_apply_payload`).
     """
-    return {
+    payload: dict[str, object] = {
         "metadata_id": entry.metadata_id,
         "title": entry.title or "",
         "authors": list(entry.authors),
@@ -331,6 +341,9 @@ def _entry_to_payload(entry: LibrarySyncEntry) -> dict[str, object]:
         "subjects": list(entry.subjects),
         "opds_href": entry.opds_href,
     }
+    if "catalog_id" in entry.model_fields_set:
+        payload["catalog_id"] = entry.catalog_id
+    return payload
 
 
 def _row_matches_payload(row: LibraryItem, payload: dict[str, object]) -> bool:
@@ -342,6 +355,8 @@ def _row_matches_payload(row: LibraryItem, payload: dict[str, object]) -> bool:
     we want to skip.
     """
     for f in _DIFF_FIELDS:
+        if f not in payload:
+            continue  # omitted `catalog_id`: the stored value stays
         existing = getattr(row, f)
         incoming = payload[f]
         # JSONB fields (authors/subjects) come back from SQLAlchemy as
@@ -376,6 +391,8 @@ def _apply_sync_payload(
     row.language = payload["language"]  # type: ignore[assignment]
     row.subjects = payload["subjects"]  # type: ignore[assignment]
     row.opds_href = payload["opds_href"]  # type: ignore[assignment]
+    if "catalog_id" in payload:
+        row.catalog_id = payload["catalog_id"]  # type: ignore[assignment]
 
 
 def _dedupe_entries(entries: list[LibrarySyncEntry]) -> list[LibrarySyncEntry]:
@@ -618,6 +635,7 @@ async def sync_library(
                 language=payload["language"],
                 subjects=payload["subjects"],
                 opds_href=payload["opds_href"],
+                catalog_id=payload.get("catalog_id"),
                 created_at=now,
                 updated_at=now,
                 deleted_at=None,

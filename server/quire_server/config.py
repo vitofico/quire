@@ -7,7 +7,7 @@ from typing import Literal
 from urllib.parse import urlsplit
 
 from dotenv import dotenv_values
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ENV_PREFIX = "QUIRE_SERVER_"
@@ -285,6 +285,28 @@ class Settings(BaseSettings):
     # calibre-web username, or `native:<id>` under native auth. Compared
     # case-insensitively. Empty (the default) mounts none of the admin routes.
     admin_users: str = ""
+
+    # Synced catalogs: the keys that encrypt saved catalog logins at rest.
+    # JSON object mapping key id to a base64 32-byte key, the same shape as
+    # `ai_token_secrets`. The first entry encrypts; every entry decrypts.
+    # Kept as text and parsed in `core.catalog_secrets`: a pydantic error on
+    # a dict field quotes the raw value, which would print the key at boot.
+    catalog_keys: SecretStr | None = None
+    # Used when `catalog_keys` is unset; created on first start if missing.
+    # Empty means no key file: the keys must come from `catalog_keys`.
+    catalog_key_file: str = "/var/lib/quire/catalog.key"
+    # Accept plain-http catalog addresses (a catalog on the home network).
+    catalog_allow_http: bool = False
+    # Quire Web opens a saved catalog through `/catalogs/v1/catalogs/{id}/fetch`,
+    # the server fetching on the browser's behalf. Off leaves sync for phones.
+    catalog_proxy_enabled: bool = True
+    # Let that fetch reach RFC 1918, CGNAT and IPv6 ULA addresses (a catalog
+    # on the home network). Loopback and link-local stay refused.
+    catalog_proxy_allow_private: bool = False
+    # Fetches per account per minute. A catalog page costs one plus one per cover.
+    catalog_proxy_rate_per_min: int = Field(120, ge=1)
+    # Fetches in flight at once, all accounts together (each account: 4).
+    catalog_proxy_max_concurrent: int = Field(8, ge=1)
 
     @field_validator("mcp_public_url")
     @classmethod

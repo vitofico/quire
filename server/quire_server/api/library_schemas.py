@@ -22,15 +22,23 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import Annotated
+from uuid import UUID
 
 from pydantic import (
+    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
+    StringConstraints,
     field_serializer,
     field_validator,
     model_validator,
 )
+
+# Client-chosen UUID of the saved catalog an item came from, stored in
+# canonical lowercase form so two clients spelling it differently agree.
+CatalogId = Annotated[str, StringConstraints(max_length=64), AfterValidator(lambda v: str(UUID(v)))]
 
 
 class LibraryItemRequest(BaseModel):
@@ -54,6 +62,7 @@ class LibraryItemRequest(BaseModel):
     language: str | None = None
     subjects: list[str] = Field(default_factory=list)
     opds_href: str | None = None
+    catalog_id: CatalogId | None = None
 
 
 class LibraryItemPutBody(BaseModel):
@@ -93,6 +102,7 @@ class LibraryItemResponse(BaseModel):
     language: str | None
     subjects: list[str]
     opds_href: str | None
+    catalog_id: str | None
     created_at: datetime
     updated_at: datetime
     deleted_at: datetime | None
@@ -267,6 +277,7 @@ class LibrarySyncEntry(BaseModel):
     language: str | None = None
     subjects: list[str] = Field(default_factory=list)
     opds_href: str | None = None
+    catalog_id: CatalogId | None = None
 
     @field_validator("last_seen_at")
     @classmethod

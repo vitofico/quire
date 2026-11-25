@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import re
 
+import pytest
+
 from quire_server.api.admin import (
     MASK,
     SECRET_SETTINGS,
@@ -115,7 +117,9 @@ def test_every_url_setting_is_masked():
 def test_every_secret_looking_setting_is_masked():
     """A new setting named like a secret must be added to SECRET_SETTINGS."""
     pattern = re.compile(r"key|secret|password")
-    looks_secret = {name for name in Settings.model_fields if pattern.search(name)}
+    # The path of the key file, not the key: an operator needs to see it.
+    not_secret = {"catalog_key_file"}
+    looks_secret = {name for name in Settings.model_fields if pattern.search(name)} - not_secret
 
     assert looks_secret <= SECRET_SETTINGS, f"unmasked: {sorted(looks_secret - SECRET_SETTINGS)}"
 
@@ -144,6 +148,7 @@ def _status(**overrides) -> dict:
             },
         },
         "migrations": {"applied": ["ai_007"], "required": ["ai_007"], "missing": []},
+        "catalogs": {"key_source": "environment", "saved": 0},
         "settings": settings_view(Settings(ai_model="llama3.2", ai_base_url="http://o/v1")),
     }
     status.update(overrides)
@@ -253,3 +258,20 @@ def test_render_page_flags_missing_migrations_and_disabled_ai():
 
     assert "Migrations are behind: ai_007 not applied." in page
     assert "AI insights are switched off" in page
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("environment", "The key comes from <code>QUIRE_SERVER_CATALOG_KEYS</code>"),
+        ("file", "Back that file up together with the database"),
+        ("none", "Off: the server has no key"),
+    ],
+)
+def test_render_page_says_where_the_catalog_key_comes_from(source, expected):
+    page = render_page(_status(catalogs={"key_source": source, "saved": 3}))
+
+    assert expected in page
+    assert "Catalogs saved, all accounts together: 3" in page
+    if source == "file":
+        assert "<code>/var/lib/quire/catalog.key</code>" in page
