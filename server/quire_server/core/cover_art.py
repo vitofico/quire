@@ -1,9 +1,10 @@
 """Painted cover artwork: an image model paints the background of a drawn cover.
 
-Off by default (``QUIRE_SERVER_COVER_ART_ENABLED``). When a lookup or a tidy
-answers with a drawn cover, the API asks ``CoverArtist.schedule`` to paint
-one. The painting runs afterwards in this process, one or two at a time,
-never on the request: the answer that scheduled it carries the drawn cover.
+Off by default (``QUIRE_SERVER_COVER_ART_ENABLED``). When a reader asks for
+a painted cover (``cover_choice: "paint"``) and the lookup or tidy answers
+with a drawn one, the API asks ``CoverArtist.schedule`` to paint it. The
+painting runs afterwards in this process, one or two at a time, never on
+the request: the answer that scheduled it carries the drawn cover.
 The renderer (``core/covers.py``) then sets the title and author on the
 artwork, so the type is always the book's and always legible.
 
@@ -21,7 +22,7 @@ looks passing (a timeout, the provider busy or down), and 30 days otherwise
 row that counts as abandoned after an hour. Attempts are capped server-wide
 per UTC day by ``QUIRE_SERVER_COVER_ART_DAILY_BUDGET``, counted from the rows
 attempted today, and logged in ``ai_generation_log`` as kind 'cover_art';
-they are never charged to the reader, who did not ask for them.
+they are never charged to the reader's allowance.
 """
 
 from __future__ import annotations

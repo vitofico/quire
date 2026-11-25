@@ -96,7 +96,20 @@ export interface BookDetails {
   painting_checks?: number
   /** The reader chose to see the book's own details instead. */
   original?: boolean
+  /** The book's own fields the answer was asked for: a field the book changed since shows the book's value again. */
+  basis?: DetailsFields
+  /** The improvements the reader accepted in the preview; without it, all of them. */
+  accepted?: TidiedField[]
+  /** The cover the reader chose in the preview; without it, `keep`. */
+  cover_choice?: CoverChoice
+  /** The key of a record the reader rejected in the preview: served again, it shows none of its improvements. */
+  declined?: string
 }
+
+/** What `cover_choice` asks the server for: the book's own cover, Open Library's, Quire's drawn one or a painted one. */
+export type CoverChoice = 'keep' | 'find' | 'draw' | 'paint'
+/** The improvements a reader accepts or rejects one by one. */
+export type TidiedField = 'title' | 'authors' | 'series' | 'description'
 
 export interface ShelfBook extends LocalBook {
   hasDownload: boolean
