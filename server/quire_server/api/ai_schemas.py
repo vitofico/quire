@@ -8,7 +8,14 @@ load-bearing on both ends.
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictInt,
+    field_validator,
+    model_validator,
+)
 
 # Full ISO 639-1 set (184 codes, current as of 2024). Frozen so a future
 # AiStyle.language="zz" (regex-valid but not a real language) gets a 422
@@ -577,6 +584,23 @@ class AIProviderView(BaseModel):
     model_id: str
 
 
+class DiscussLimits(BaseModel):
+    """Ceilings of POST /ai/v1/highlights/discuss, in characters (Unicode
+    code points). The defaults are the limits the server enforces."""
+
+    max_highlights: int = 20
+    max_text_chars: int = 2000
+    max_note_chars: int = 1000
+    max_title_chars: int = 500
+    max_authors: int = 10
+    max_author_chars: int = 200
+    max_question_chars: int = 1000
+    max_answer_chars: int = 4000
+    max_questions: int = 6
+    max_total_chars: int = 60_000
+    questions_per_minute: int = 10
+
+
 class ConfigResponse(BaseModel):
     providers: list[AIProviderView] = Field(default_factory=list)
     provider_id: str = "default"
@@ -620,6 +644,52 @@ class ConfigResponse(BaseModel):
     # True when /convert/v1 is mounted: PDF to EPUB conversion. Works without
     # AI too; `GET /convert/v1/capabilities` is the full answer.
     conversion_supported: bool = False
+    # True when POST /ai/v1/highlights/discuss answers, with its limits.
+    # Older servers omit both; clients read them as false and null.
+    highlights_discuss: bool = False
+    highlights_discuss_limits: DiscussLimits | None = None
+
+
+class DiscussHighlight(BaseModel):
+    """One passage the reader picked. Sizes are checked by
+    ``core.ai.discuss.check_limits`` so a 422 names the field and the limit."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    n: StrictInt
+    text: str
+    note: str | None = None
+    title: str | None = None
+    authors: list[str] = Field(default_factory=list)
+
+
+class DiscussMessage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["reader", "assistant"]
+    content: str
+
+
+class DiscussBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    highlights: list[DiscussHighlight]
+    messages: list[DiscussMessage]
+    provider: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_-]{0,31}$")
+
+
+class DiscussResponse(BaseModel):
+    answer: str
+    cited: list[int]
+
+
+class DiscussOutput(BaseModel):
+    """What the model returns. Both fields required: strict structured output."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    answer: str
+    cited: list[int]
 
 
 class PreferencesResponse(BaseModel):
