@@ -142,6 +142,17 @@ proxies must forward `/mcp` and `/agent/*` to Quire Server with Host preserved.
 See [Agent and MCP access](../docs/agent-access.md) for authentication, tools,
 preview limits, pagination and REST examples.
 
+### Synced catalogs
+
+A reader signed in with a Quire account saves the book catalogs they browse
+(an address and an optional login) under `/catalogs/v1`, and finds them on
+each of their devices. Addresses and logins are stored encrypted with a key
+kept outside the database; the server creates it on first start, so back up
+the key file with the database. Calibre-Web Basic logins and legacy-only
+deployments do not get this. See [Synced catalogs](../docs/configuration.md#synced-catalogs)
+for the key and [`../docs/sync-api.md`](../docs/sync-api.md#saved-catalogs-catalogsv1)
+for the routes.
+
 ## Self-hosting via docker-compose
 
 Two reference composes ship in this directory. Pick one:
@@ -261,7 +272,7 @@ environment. If enabling OIDC, register
 
 ```caddyfile
 read.example.com {
-    @quire path /quire /quire/* /sync/* /library/* /ai/* /health /readyz
+    @quire path /quire /quire/* /sync/* /library/* /catalogs/* /ai/* /health /readyz
     @browserAuth path /auth/v1/browser /auth/v1/browser/login /auth/v1/me /auth/v1/logout /auth/v1/oidc/start /auth/v1/oidc/callback
     @deviceAuth path /auth/v1/login /auth/v1/pairing /auth/v1/pairing/exchange /auth/v1/migrate /auth/v1/migrate/claim /auth/v1/account/export
     handle @browserAuth {
@@ -293,7 +304,7 @@ catalogue.
 A Caddy front-end with path-based routing, so the Android app only needs
 to know one base URL
 (the Caddy hostname) — calibre-web's OPDS catalog AND quire-server's
-`/sync/*`, `/library/*`, `/ai/*`, `/agent/*`, `/mcp` endpoints and the `/quire-admin` status
+`/sync/*`, `/library/*`, `/catalogs/*`, `/ai/*`, `/agent/*`, `/mcp` endpoints and the `/quire-admin` status
 page all live under the same origin.
 
 ```sh
@@ -316,7 +327,7 @@ Routing inside the Caddy front-end (`caddy/Caddyfile`):
 {$QUIRE_SITE_ADDRESS:localhost} {
     tls internal
 
-    @quire path /quire /quire/* /sync/* /ai/* /library/* /agent/* /mcp /mcp/* /quire-admin /quire-admin/* /health /readyz
+    @quire path /quire /quire/* /sync/* /ai/* /library/* /catalogs/* /agent/* /mcp /mcp/* /quire-admin /quire-admin/* /health /readyz
     handle @quire {
         reverse_proxy quire-server:8000
     }
@@ -533,6 +544,10 @@ log in with your calibre-web account, and it shows:
   through, and a **Test AI connection** button that sends one short request
   and reports the outcome with the same message and hint the app would get;
 - whether the database migrations are up to date;
+- where the key for saved catalog logins comes from (the environment, the
+  key file, or none, which turns catalog sync off), a reminder to back up the
+  key file with the database, and how many catalogs readers have saved. It
+  never shows a catalog's address or the key;
 - an **AI settings** form that changes the AI time limits, the lookup
   sources, the rate limit and the daily quotas without a restart. A setting
   the environment or `.env` gives is shown greyed out, because the

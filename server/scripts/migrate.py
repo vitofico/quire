@@ -116,6 +116,11 @@ def run_migrations(cfg: Config, *, progress_enabled: bool, ai_enabled: bool) -> 
     if "auth" in labels:
         _upgrade_branch(cfg, "auth")
 
+    # Synced catalogs belong to accounts, which exist in every mode, so the
+    # branch is foundational like ``auth``.
+    if "catalogs" in labels:
+        _upgrade_branch(cfg, "catalogs")
+
     if progress_enabled and "progress" in labels:
         _upgrade_branch(cfg, "progress")
     elif progress_enabled:

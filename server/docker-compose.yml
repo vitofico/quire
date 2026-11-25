@@ -36,9 +36,14 @@ services:
       - "host.docker.internal:host-gateway"
     ports:
       - "${QUIRE_SERVER_PORT:-8000}:8000"
+    # Holds the key that encrypts saved catalog logins, created on first
+    # start. Back it up together with the database (docs/configuration.md).
+    volumes:
+      - quire_keys:/var/lib/quire
     command: >
       sh -c "python /app/scripts/migrate.py &&
              uvicorn quire_server.main:app --host 0.0.0.0 --port 8000"
 
 volumes:
   pg_data:
+  quire_keys:

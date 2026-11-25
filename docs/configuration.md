@@ -20,6 +20,7 @@ exists.
 - [Deploy modes](#deploy-modes)
 - [Remote MCP access](#remote-mcp-access)
 - [AI provider](#ai-provider)
+- [Synced catalogs](#synced-catalogs)
 - [Status page](#status-page)
 - [Docker Compose variables](#docker-compose-variables)
 - [Advanced](#advanced)
@@ -90,6 +91,7 @@ What that does depends on the setting:
 | `QUIRE_SERVER_AI_SOURCES` | Retrieval off. The default applies only when the line is missing. |
 | `QUIRE_SERVER_AI_PROMPT_VERSION` | The built-in prompt version, the same as the default. |
 | Numbers, `true`/`false` settings, fixed-choice settings, `QUIRE_SERVER_AI_TOKEN_SECRETS` | The server refuses to start. |
+| `QUIRE_SERVER_CATALOG_KEYS` | Unset, the same as no line. |
 | `QUIRE_SERVER_LOG_LEVEL` | `INFO`, the same as the default. |
 | Other text settings | Empty text, taken literally, which breaks whatever uses it. |
 
@@ -625,6 +627,88 @@ These are fixed in the code today, so there is no variable to look for:
 - **The model server's own behaviour,** such as how long Ollama keeps a model
   loaded. Set that on the model server (see
   [CPU-only local models](#cpu-only-local-models)).
+
+## Synced catalogs
+
+A reader signed in with a Quire account can save several book catalogs
+(an address, plus a login when the catalog needs one) and find them on every
+device. The server stores each address and login encrypted with a key that
+is kept outside the database, so a database dump or backup on its own
+exposes nothing usable. Someone who takes over the running server has the
+key too. The status page shows where the key comes from and how many
+catalogs are saved; the routes are in
+[Saved catalogs](sync-api.md#saved-catalogs-catalogsv1).
+
+Nothing needs setting up. At start the server takes the key from
+`QUIRE_SERVER_CATALOG_KEYS` if it is set, otherwise from the key file at
+`QUIRE_SERVER_CATALOG_KEY_FILE`. If neither exists and the file's folder is
+writable, it creates a random key there, readable by the server's own user
+only, and uses it from then on. Both compose files mount a small volume,
+`quire_keys`, at `/var/lib/quire` for this, so the key appears on first
+start and survives upgrades. With no key, or when creating one fails (the
+database cannot be reached, the file cannot be written), the server still
+starts, catalog sync is off, and the server
+logs one line at start that begins `Catalog sync is off` and names the
+setting; nothing is ever stored unencrypted.
+
+**Back up the key file together with the database.** A database restored
+without it still works, but every saved catalog login is unreadable and
+readers are asked to enter them again. When the server finds saved catalogs
+and no key, it does not create a new one: restore the file, or supply the
+key through `QUIRE_SERVER_CATALOG_KEYS`.
+
+**Several server copies need the environment route.** Each copy would
+otherwise create its own key file and could not read the others' rows. Give
+every copy the same `QUIRE_SERVER_CATALOG_KEYS` from your secret store.
+
+### `QUIRE_SERVER_CATALOG_KEYS`
+
+- Type: JSON object that maps a key id (1 to 32 letters, digits, `-` or `_`)
+  to a base64-encoded 32-byte key
+- Default: unset
+- Example: `QUIRE_SERVER_CATALOG_KEYS='{"key-2026-11": "<output of openssl rand -base64 32>"}'`
+
+The keys for saved catalog logins. When set, the key file is not read or
+created. The first entry encrypts; every entry can decrypt. To rotate, put
+the new key first and keep the old ones: a catalog moves to the first key
+the next time a reader saves it, even with no change. A catalog nobody saves
+stays on its old key, so remove an old key only once no row uses it; this
+query lists the key ids still in use:
+`SELECT split_part(secret, ':', 1) AS key_id, count(*) FROM account_catalogs GROUP BY 1`.
+A catalog whose key was removed is listed with `needs_login` until its login
+is entered again. A value that does not parse stops the server at boot with a message
+naming this setting (never the key). An empty line counts as unset. To move
+from the key file to this setting, its content is already in this format:
+`QUIRE_SERVER_CATALOG_KEYS=$(cat /var/lib/quire/catalog.key)`.
+
+When to change it: on Kubernetes, for several server copies, or to keep the
+key in a secret store.
+
+### `QUIRE_SERVER_CATALOG_KEY_FILE`
+
+- Type: file path inside the container
+- Default: `/var/lib/quire/catalog.key`
+- Example: `QUIRE_SERVER_CATALOG_KEY_FILE=/var/lib/quire/catalog.key`
+
+Where the server reads, and on first start creates, its catalog key when
+`QUIRE_SERVER_CATALOG_KEYS` is unset. The file holds the same JSON as that
+setting. The server never overwrites it. If it exists but cannot be read or
+parsed, the server stops at boot. Empty means no key file, so the key must
+come from `QUIRE_SERVER_CATALOG_KEYS`.
+
+When to change it: only to keep the key on a volume mounted elsewhere.
+
+### `QUIRE_SERVER_CATALOG_ALLOW_HTTP`
+
+- Type: `true` or `false`
+- Default: `false`
+- Example: `QUIRE_SERVER_CATALOG_ALLOW_HTTP=true`
+
+Saved catalog addresses must use `https`, because the login travels with
+every request. `true` also accepts plain `http`, for a catalog on your home
+network.
+
+When to change it: only for a catalog you reach over a network you trust.
 
 ## Status page
 

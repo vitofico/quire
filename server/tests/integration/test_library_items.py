@@ -476,3 +476,40 @@ async def test_identity_hash_version_rejects_zero(app_under_test, unique_user):
             headers=headers,
         )
     assert r.status_code == 422, r.text
+
+
+CATALOG = "3f2b9c1e-8d4a-4f6b-9a7e-2c5d1e0b4a93"
+
+
+async def test_put_catalog_id_round_trips_omission_keeps_null_clears(app_under_test, unique_user):
+    """Unlike every other field, an omitted `catalog_id` keeps the stored value."""
+    transport = ASGITransport(app=app_under_test)
+    headers = _basic(*unique_user)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        r = await c.put("/library/v1/items", json=_put_body(catalog_id=CATALOG), headers=headers)
+        assert r.status_code == 200, r.text
+        assert r.json()["catalog_id"] == CATALOG
+        listed = (await c.get("/library/v1/items", headers=headers)).json()["items"]
+        assert listed[0]["catalog_id"] == CATALOG
+
+        # An old client never sends the field: accepted, the value survives,
+        # while an omitted `opds_href` is still replaced with null.
+        old = _put_body()
+        del old["item"]["opds_href"]
+        r2 = await c.put("/library/v1/items", json=old, headers=headers)
+        assert r2.status_code == 200, r2.text
+        assert r2.json()["catalog_id"] == CATALOG
+        assert r2.json()["opds_href"] is None
+
+        r3 = await c.put("/library/v1/items", json=_put_body(catalog_id=None), headers=headers)
+        assert r3.json()["catalog_id"] is None
+
+
+async def test_put_rejects_invalid_catalog_id(app_under_test, unique_user):
+    transport = ASGITransport(app=app_under_test)
+    headers = _basic(*unique_user)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        r = await c.put(
+            "/library/v1/items", json=_put_body(catalog_id="catalog-1"), headers=headers
+        )
+        assert r.status_code == 422

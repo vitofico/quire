@@ -329,6 +329,7 @@ def _status(runtime: RuntimeSettings) -> dict:
         "warnings": [],
         "ai": None,
         "migrations": {"applied": ["ai_008"], "required": ["ai_008"], "missing": []},
+        "catalogs": {"key_source": "none", "saved": 0},
         "editable": editable_view(runtime),
         "settings": settings_view(Settings(), runtime),
     }

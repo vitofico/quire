@@ -22,6 +22,10 @@ dependencies = [
     # acceptable for password-hash storage.
     "argon2-cffi>=23.1",
     "PyJWT[crypto]>=2.10,<3",
+    # AES-256-GCM for the saved logins of synced catalogs.
+    "cryptography>=43",
+    # Strict IDNA 2008 check of a synced catalog's host (httpx already needs it).
+    "idna>=3.7",
 ]
 
 [project.optional-dependencies]
@@ -35,7 +39,6 @@ dev = [
     # .pre-commit-config.yaml; bump both together or the hook and CI
     # format code differently.
     "ruff==0.16.8",
-    "cryptography>=43",
 ]
 
 [tool.setuptools.packages.find]

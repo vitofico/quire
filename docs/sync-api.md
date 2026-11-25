@@ -4,7 +4,8 @@ REST surface of the `quire-server` server. Endpoints live under
 prefixes — `/sync/v1` (progress, highlights + planned bookmarks), `/library/v1`
 (per-user library mirror, including the Phase 0 push-model
 `POST /library/v1/sync` bulk endpoint), `/ai/v1` (optional book insights
-and reader profile), `/agent/v1` (read-only highlights), and the unprefixed
+and reader profile), `/agent/v1` (read-only highlights), `/catalogs/v1`
+(book catalogs saved to a Quire account), and the unprefixed
 `/health` / `/readyz` operational probes. All request and response bodies are JSON. Authenticated
 endpoints accept the same credential as calibre-web by default; see
 [Authentication](#authentication) for the Phase 0 pluggable backend.
@@ -147,6 +148,11 @@ the operator migrates. Plan cutover within the two-minor-release window.
 | `GET` | `/library/v1/items` | yes | List items, optional `since=<ISO>` cursor with tombstones |
 | `DELETE` | `/library/v1/items` | yes | Soft-delete one library item by `content_hash` |
 | `GET` | `/library/v1/stats` | yes | Per-user library roll-up: totals + top authors + top themes |
+| `GET` | `/catalogs/v1/catalogs` | Quire session | Saved catalogs without addresses or logins, with a `revision` and `ETag` |
+| `GET` | `/catalogs/v1/catalogs/{id}/secret` | Quire session | One catalog's address and login |
+| `PUT` | `/catalogs/v1/catalogs/{id}` | Quire session | Create or replace one catalog |
+| `DELETE` | `/catalogs/v1/catalogs/{id}` | Quire session | Remove one catalog |
+| `PUT` | `/catalogs/v1/order` | Quire session | Reorder the whole list |
 | `GET` | `/ai/v1/health` | none | AI provider + retrieval reachability snapshot (mode-gated on `QUIRE_SERVER_AI_ENABLED`) |
 | `GET` | `/ai/v1/config` | yes | User-visible AI configuration |
 | `GET`/`PUT` | `/ai/v1/preferences` | yes | Per-user opt-in + tone/language |
@@ -433,6 +439,7 @@ Content-Type: application/json
       "language": "en",
       "subjects": ["Fiction", "Classics"],
       "opds_href": "/opds/book/42/download",
+      "catalog_id": "3f2b9c1e-8d4a-4f6b-9a7e-2c5d1e0b4a93",
       "last_seen_at": "2026-05-22T10:15:32+00:00"
     },
     {
@@ -460,6 +467,7 @@ Per-entry fields:
 | `language`              | optional                   |                                                                                             |
 | `subjects`              | optional                   | List of strings.                                                                            |
 | `opds_href`             | optional                   |                                                                                             |
+| `catalog_id`            | optional                   | UUID of the saved catalog the book came from; stored lowercase. Not a foreign key. Unlike every other field, omitted keeps the stored value; explicit `null` clears it (see PUT below). |
 | `last_seen_at`          | optional                   | ISO-8601, **tz-aware** (naive rejected). Validated but not persisted in v1.                 |
 
 Batch semantics:
@@ -541,10 +549,18 @@ with a different content-hash row, the server returns `409` with
     "isbn": "9780141036144",
     "language": "en",
     "subjects": ["Fiction", "Classics"],
-    "opds_href": "/opds/book/42/download"
+    "opds_href": "/opds/book/42/download",
+    "catalog_id": "3f2b9c1e-8d4a-4f6b-9a7e-2c5d1e0b4a93"
   }
 }
 ```
+
+`catalog_id` is optional and validated as a UUID (`422` otherwise). It is
+the one field PUT and sync do not replace when omitted: leaving it out keeps
+the stored value, and only an explicit `null` clears it. Clients that predate
+saved catalogs never send it and re-push the whole library, so full replace
+would keep wiping the value a newer client set. An omitted `catalog_id` is
+also not a change, so a replay from such a client is still skipped.
 
 Response: the persisted row, including server-assigned `created_at`,
 `updated_at`, and `deleted_at` (null on a live row).
@@ -679,6 +695,146 @@ GET /sync/v1/bookmarks?since=<ISO8601>[&document=<id>]
 
 Returns rows where `updated_at > since`, **including tombstones**
 (`deleted: true`), so deletes propagate.
+
+## Saved catalogs (`/catalogs/v1`)
+
+A reader signed in with a Quire account saves the book catalogs they use
+(an address, plus a login when the catalog needs one), and every device
+signed in to that account gets the same list. The server keeps each address
+and login together in one encrypted value (see
+[Synced catalogs](configuration.md#synced-catalogs) for the key). The full
+address counts as a secret, because some servers (Kavita) put an account key
+in the URL path.
+
+Who can call it: a Quire account session only, Bearer token or browser
+cookie. A Calibre-Web Basic login gets `401 native_login_required`, and
+legacy-only (`calibreweb`) deployments do not mount these routes. While the
+server has no catalog key, every route answers `404 {"detail": "Not Found"}`,
+the same as a route that does not exist, and `GET /quire/v1/bootstrap`
+reports `catalogSync: false`. `catalogSync` is `true` only when the key is
+present and this browser can sign in to a Quire account on this host.
+
+Rules for every route:
+
+- Every response, errors included, is `Cache-Control: no-store`.
+- Rows belong to the account's storage scope. Another account's catalog is
+  indistinguishable from one that does not exist.
+- A `422` never repeats what was sent. Schema errors come back as
+  `{"detail": [{"type", "loc", "msg"}]}`, without FastAPI's usual `input`.
+  Rule errors come back as `{"detail": "<code>"}`.
+- The server logs a catalog by its id only.
+- The browser's account binding (`X-Quire-Account`) covers `/catalogs/v1/`:
+  a mismatch is `409 account_changed`, as on `/library/v1/`.
+
+### `GET /catalogs/v1/catalogs`
+
+```json
+{
+  "revision": "6f1c0d9e2b7a4c3f8e5d1a0b9c8d7e6f",
+  "catalogs": [
+    {
+      "id": "3f2b9c1e-8d4a-4f6b-9a7e-2c5d1e0b4a93",
+      "name": "Kavita",
+      "kind": "opds",
+      "host": "https://books.example.org",
+      "has_login": true,
+      "needs_login": false,
+      "position": 0,
+      "updated_at": "2026-11-25T10:15:32.123456+00:00"
+    }
+  ]
+}
+```
+
+In `position` order. No address, username or password, only `host`: scheme,
+host and a non-default port, never the path. A name with non-ASCII letters
+shows in its ASCII (`xn--`) form. `kind` is `calibre` for a
+Calibre-Web catalog and `opds` for any other OPDS server. `updated_at` moves
+on every change to that catalog, its position included, so a device fetches a
+catalog's `/secret` when the catalog is new or its `updated_at` changed.
+
+`needs_login: true` means the server cannot decrypt the stored address and
+login, typically after a database restore without its key file. The row is
+still listed (one unreadable row never fails the list), `has_login` is then
+`false` because the server cannot tell, and the reader has to enter the
+catalog again with a `PUT`.
+
+The response carries `ETag: "<revision>"`. Send it back as `If-None-Match`
+and an unchanged list is a `304` with no body. The revision changes on every
+create, edit, reorder and delete, and when a row becomes readable or
+unreadable. A save that changes nothing keeps it, even when it moves the row
+to a newer key.
+
+### `GET /catalogs/v1/catalogs/{id}/secret`
+
+```json
+{ "url": "https://books.example.org/api/opds/<key>", "username": "reader", "password": "..." }
+```
+
+`username` and `password` are both `null` for a catalog without a login.
+`404 not_found` for an unknown id. `409 needs_login` when the stored value
+cannot be decrypted: ask the reader for the catalog's address and login again
+and `PUT` them.
+
+### `PUT /catalogs/v1/catalogs/{id}`
+
+```json
+{
+  "name": "Kavita",
+  "kind": "opds",
+  "url": "https://books.example.org/api/opds/<key>",
+  "username": "reader",
+  "password": "..."
+}
+```
+
+Creates or replaces the catalog with this id, which the client chooses
+(a UUID, otherwise `422`), so a retried create lands on the same row.
+Answers `200` with the catalog as listed. A save identical to what is stored
+writes nothing. A new catalog goes last; a replaced one keeps its place.
+
+`username` and `password` are optional, and blank counts as absent. On an
+existing catalog, sending `username` without `password` keeps the stored
+password; sending neither removes the login. The password is kept only while
+the address stays on the same scheme, host and port: a new path is fine, but
+moving to another server needs the password again (`422 login_incomplete`),
+so a stored password is never sent somewhere it was not entered for. Keeping
+it also needs the stored value, so on a row that cannot be decrypted that
+save is `409 needs_login`: send the password again.
+
+| Status | `detail` | When |
+|---|---|---|
+| 409 | `catalog_limit_reached` | Creating a 21st catalog. An account holds at most 20; replacing one at the limit is fine. |
+| 409 | `needs_login` | `password` omitted and the stored one cannot be read. |
+| 422 | `invalid_name` | `name` is blank after trimming (at most 60 characters). |
+| 422 | `invalid_url` | `url` does not parse, has an invalid port, contains spaces, control characters or `\`, or is not `http` or `https`; or its host is not an IPv4 address, a bracketed IPv6 address (no zone) or a name valid under IDNA 2008 (letters, digits, `-` and `.` once in ASCII form). At most 2048 characters. |
+| 422 | `https_required` | `url` is `http` and `QUIRE_SERVER_CATALOG_ALLOW_HTTP` is not `true`. |
+| 422 | `credentials_in_url` | `url` carries a login (`user:pass@host`); send it as `username` and `password`. |
+| 422 | `login_incomplete` | Only one of `username` and `password`, with no stored password to keep, or the address moved to another scheme, host or port. |
+| 422 | schema list | Missing or unknown field, `kind` other than `calibre` or `opds`, `username` over 256 or `password` over 1024 characters. |
+
+### `DELETE /catalogs/v1/catalogs/{id}`
+
+`204` whether or not the catalog existed, so a retry is safe.
+
+### `PUT /catalogs/v1/order`
+
+```json
+{ "ids": ["3f2b9c1e-8d4a-4f6b-9a7e-2c5d1e0b4a93", "0c8e6a4f-2d1b-4e9a-8c7f-5b3a1d0e9f82"] }
+```
+
+The account's whole list in its new order. Answers `200` with the list as
+`GET` returns it, new `revision` and `ETag` included. A list that is not
+exactly the account's current catalogs (one missing, one extra, a duplicate)
+is `409 order_mismatch`: fetch the list and try again.
+
+### In account export and deletion
+
+`GET /auth/v1/account/export` includes `account_catalogs`, one entry per
+catalog with its readable `url`, `username` and `password` in place of the
+encrypted value. A catalog that cannot be decrypted is exported with
+`secret_unreadable: true` and no address or login. Purging an account deletes
+its catalogs.
 
 ## Health
 

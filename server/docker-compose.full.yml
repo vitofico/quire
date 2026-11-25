@@ -79,6 +79,10 @@ services:
     # an Ollama running on the Docker host, on Linux as well as Docker Desktop.
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # Holds the key that encrypts saved catalog logins, created on first
+    # start. Back it up together with the database (docs/configuration.md).
+    volumes:
+      - quire_keys:/var/lib/quire
     command: >
       sh -c "python /app/scripts/migrate.py &&
              uvicorn quire_server.main:app --host 0.0.0.0 --port 8000"
@@ -120,6 +124,7 @@ services:
 
 volumes:
   pg_data:
+  quire_keys:
   calibre_config:
   caddy_data:
   caddy_config:

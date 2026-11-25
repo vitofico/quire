@@ -45,6 +45,7 @@ From the split point onward, every new migration belongs to exactly one branch:
 | Branch     | Label        | Owners | Notes                                                                                            |
 | ---------- | ------------ | ------ | ------------------------------------------------------------------------------------------------ |
 | `auth`     | `"auth"`     | shared | `auth_001` → `auth_002` → `auth_003`; always upgraded. |
+| `catalogs` | `"catalogs"` | shared | `catalogs_001` (synced catalogs saved to an account); always upgraded. |
 | `core`     | `"core"`     | shared | Reserved; no migrations yet.                                                                     |
 | `progress` | `"progress"` | sync   | `progress_001` → `progress_002` → `progress_003` → `progress_004` (private highlights) → `progress_005` (comments). Spliced from `0004`. |
 | `ai`       | `"ai"`       | AI     | `ai_001` through `ai_009`; the latest adds monthly job admission. |
@@ -112,7 +113,7 @@ The container entrypoint runs `python /app/scripts/migrate.py`, not
 `alembic upgrade head`. The wrapper:
 
 1. Always upgrades the unlabeled backbone (today: `0004`).
-2. Upgrades the foundational `auth` branch when present.
+2. Upgrades the foundational `auth` and `catalogs` branches when present.
 3. For each enabled+materialized feature branch (per `QUIRE_SERVER_PROGRESS_ENABLED` and
    `QUIRE_SERVER_AI_ENABLED`), runs `alembic upgrade <branch>@head`.
 

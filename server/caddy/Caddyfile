@@ -1,6 +1,6 @@
 # Quire reference Caddyfile (full-stack compose).
 #
-# Path-based routing puts quire-server's `/sync/*`, `/library/*`, `/ai/*`,
+# Path-based routing puts quire-server's `/sync/*`, `/library/*`, `/catalogs/*`, `/ai/*`,
 # `/agent/*`, `/mcp`, `/quire`, `/quire-admin`, `/health`, and `/readyz` in front of calibre-web, with
 # everything else falling through to calibre-web on `/`. The status page
 # lives at `/quire-admin` rather than `/admin` because calibre-web serves
@@ -22,7 +22,7 @@
 	# path (unlike `handle_path`, which strips the matched prefix);
 	# FastAPI mounts routers at `/sync/v1`, `/library/v1`, and
 	# `/ai/v1`, so we must forward the prefix intact.
-	@quire path /quire /quire/* /sync/* /ai/* /library/* /agent/* /mcp /mcp/* /quire-admin /quire-admin/* /health /readyz /auth/v1/login /auth/v1/me /auth/v1/logout /auth/v1/account/export /auth/v1/migrate /auth/v1/migrate/claim /auth/v1/pairing /auth/v1/pairing/exchange
+	@quire path /quire /quire/* /sync/* /ai/* /library/* /catalogs/* /agent/* /mcp /mcp/* /quire-admin /quire-admin/* /health /readyz /auth/v1/login /auth/v1/me /auth/v1/logout /auth/v1/account/export /auth/v1/migrate /auth/v1/migrate/claim /auth/v1/pairing /auth/v1/pairing/exchange
 	# Authenticated OPDS responses and book downloads are private.
 	@catalog path /opds /opds/* /download/*
 	header @catalog >Cache-Control "private, no-store"

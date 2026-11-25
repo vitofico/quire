@@ -247,6 +247,21 @@ def create_app() -> FastAPI:
     app.state.canonical_url = settings.canonical_url
     app.state.identity_factory = session_factory
     app.state.native_login_guard = LoginGuard()
+    # Synced catalogs are on when `catalog_secrets` is not None. With no key
+    # configured, the first start creates one, but only once the database
+    # confirms no saved catalog needs a key this server lacks.
+    from quire_server.core.catalog_secrets import create_catalog_key, load_catalog_secrets
+
+    app.state.catalog_secrets, app.state.catalog_key_source = load_catalog_secrets(settings)
+    if app.state.catalog_secrets is None:
+
+        async def create_catalog_key_on_start() -> None:
+            async with session_factory() as session:
+                created = await create_catalog_key(settings, session)
+            if created is not None:
+                app.state.catalog_secrets, app.state.catalog_key_source = created, "file"
+
+        app.router.add_event_handler("startup", create_catalog_key_on_start)
     hosted_policy = (
         MonthlyPolicy(policy_settings, httpx.AsyncClient(), session_factory)
         if policy_settings.url
@@ -332,6 +347,9 @@ def create_app() -> FastAPI:
 
         app.include_router(browser_router, prefix="/auth/v1")
         app.include_router(lifecycle_router)
+        from quire_server.api.catalogs import router as catalogs_router
+
+        app.include_router(catalogs_router, prefix="/catalogs/v1")
         if settings.auth_backend == "transition" and settings.self_migration_enabled:
             from quire_server.api.calibre_migration import router as migration_router
 
@@ -399,7 +417,11 @@ def create_app() -> FastAPI:
                         )
                     ).scalar_one_or_none()
                     if row is None or row.closed_at is not None:
-                        return JSONResponse({"detail": "account_closed"}, status_code=401)
+                        return JSONResponse(
+                            {"detail": "account_closed"},
+                            status_code=401,
+                            headers={"Cache-Control": "no-store"},
+                        )
                     if (
                         hosted_policy
                         and request.method not in {"GET", "HEAD", "OPTIONS"}
@@ -421,9 +443,12 @@ def create_app() -> FastAPI:
                     and exc.status_code == 401
                 ):
                     headers = {"WWW-Authenticate": 'Basic realm="Quire Server", charset="UTF-8"'}
-                return JSONResponse(
+                response = JSONResponse(
                     {"detail": exc.detail}, status_code=exc.status_code, headers=headers
                 )
+                # An answer about this login is never one to cache.
+                response.headers["Cache-Control"] = "no-store"
+                return response
 
     if settings.progress_enabled:
         # Lazy import: only pull progress + library routers when progress mode
