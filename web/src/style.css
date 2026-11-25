@@ -1042,6 +1042,51 @@ dialog.ask .actions {
   margin-top: 1.5rem;
 }
 
+/* PDF conversions, by the shelf's add control. */
+.conversions .eyebrow {
+  margin-top: 0;
+}
+.conversions > ul {
+  list-style: none;
+  margin: 0 0 1.25rem;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+.conversion {
+  padding: 0.85rem 1rem;
+  background: var(--card);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-card);
+  overflow-wrap: anywhere;
+}
+.conversion.failed {
+  box-shadow: inset 4px 0 0 var(--danger), var(--shadow-card);
+}
+.conversion.review {
+  box-shadow: inset 4px 0 0 var(--accent), var(--shadow-card);
+}
+.conversion-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.conversion p {
+  margin: 0.35rem 0 0;
+}
+.conversion-detail {
+  white-space: pre-line;
+}
+.conversion .pages {
+  margin: 0.35rem 0 0;
+  padding-inline-start: 1.2rem;
+}
+.conversion .actions {
+  margin: 0.75rem 0 0;
+}
+
 /* Highlights */
 .quote-group {
   margin-bottom: 2rem;

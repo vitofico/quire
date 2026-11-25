@@ -1960,7 +1960,9 @@ Clients find out with any of:
 
 - `GET /convert/v1/capabilities`: `200` when conversion is on (any login).
 - `capabilities.pdf_conversion` in `GET /auth/v1/me` (browser sessions and
-  Quire accounts).
+  Quire accounts). A Calibre-Web browser session (`/quire/v1/session`)
+  carries no capabilities, so a client signed in that way asks
+  `GET /convert/v1/capabilities`.
 - `conversion_supported` in `GET /ai/v1/config`, when AI is on.
 
 Rules for every route:
@@ -2019,7 +2021,8 @@ state, whatever it is. If it is still `created`, upload again. A retried
 `PUT` that answers `409 not_accepting_source` means the first upload arrived
 and only its answer was lost: `GET` the job. `409 upload_in_progress` means
 an earlier upload of the job is still arriving (or went quiet less than two
-minutes ago): wait, then `GET` the job.
+minutes ago): wait, then `GET` the job. If it is still `created` two minutes
+later, that upload died: upload again.
 
 **When no worker runs.** A queued job waits for a worker and expires 24 hours
 after creation if none comes. Offer conversion only while `available` is
@@ -2164,9 +2167,9 @@ seconds is dropped.
 | 408 | `{"detail": "upload_timed_out"}`: no bytes for 60 seconds. The job stays `created`; upload again. |
 | 409 | `{"detail": "not_accepting_source"}`: the job is past `created` (the source already arrived, or it was cancelled or expired). |
 | 409 | `{"detail": "upload_in_progress"}`: another upload of this job is under way, or went quiet less than two minutes ago. |
-| 413 | `{"detail": "request body exceeds <max_bytes> bytes"}`: the body went over `max_bytes`, with or without `Content-Length`. |
+| 413 | `{"detail": "request body exceeds <max_bytes> bytes"}`: the body went over `max_bytes`, with or without `Content-Length`. The detail is free text, so match on the status. |
 | 415 | `{"detail": "unsupported_media_type"}`: not `application/pdf`. |
-| 422 | `{"detail": "size_mismatch"}` (more or fewer bytes than `bytes`, or a `Content-Length` that says so), `{"detail": "checksum_mismatch"}`, `{"detail": "not_a_pdf"}`. The job stays `created`, so the client can upload again. |
+| 422 | `{"detail": "size_mismatch"}` (more or fewer bytes than `bytes`, or a `Content-Length` that says so), `{"detail": "checksum_mismatch"}`, `{"detail": "not_a_pdf"}`. The job stays `created`, so the client can upload again. A client that will not upload again (the file is not a PDF, or is too large) should cancel the job: a `created` job counts toward `max_active_jobs` until it expires. |
 
 ### `GET /convert/v1/jobs` and `GET /convert/v1/jobs/{id}`
 

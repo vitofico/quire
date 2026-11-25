@@ -40,6 +40,8 @@ import { catalogInsightIdentity, promotePreview } from './discovery/api'
 import { missingProvider, useAiState } from './discovery/aiState'
 import { bookIdentity, fillDetails } from './details'
 import { TidyDetails } from './TidyDetails'
+import { ConversionList, useConversions } from './Conversions'
+import { isPdf } from './convert'
 import { allowsBasic, allowsNative } from './account/useAccount'
 import { Welcome } from './Welcome'
 import { Icon, type IconName } from './icons'
@@ -487,6 +489,8 @@ function Workspace({
     match?: string,
     catalogCover?: Blob,
     catalogId: string | null = null,
+    /** On another edition with this identifier: ask, keep this copy in this browser, or refuse. */
+    conflict: 'ask' | 'keep' | 'refuse' = 'ask',
   ) {
     const replica = await storage()
     const parsed = await openEpub(blob),
@@ -521,10 +525,11 @@ function Workspace({
       if (
         !(e instanceof EditionConflict) ||
         match ||
-        !(await ask(
+        conflict === 'refuse' ||
+        (conflict === 'ask' && !(await ask(
           t('Another edition has this identifier. Keep this copy only in this browser?'),
           { confirm: t('Keep in this browser'), cancel: t('Cancel') },
-        ))
+        )))
       )
         throw e
       await replica.putBook(record, blob, { localOnly: true })
@@ -543,15 +548,36 @@ function Workspace({
         .catch(() => {})
     return record.key
   }
+  const importLatest = useRef(imported)
+  importLatest.current = imported
+  const conversions = useConversions({
+    namespace: active.namespace,
+    store: replica,
+    request: active.mode === 'connected' ? active.request : undefined,
+    capability: active.capabilities?.pdf_conversion,
+    // A conversion finishes in the background: it never asks, the list offers the choice.
+    importEpub: (epub, keepLocal) =>
+      importLatest.current(epub, null, undefined, undefined, null, keepLocal ? 'keep' : 'refuse'),
+  })
   async function importFiles(files: File[], match?: string) {
+    const pdfs = files.filter(isPdf), epubs = files.filter((picked) => !isPdf(picked))
+    if (pdfs.length && match) {
+      report('Choose an EPUB to replace this edition.')
+    } else if (pdfs.length) {
+      // A PDF becomes an EPUB on the server first: the reader confirms it in the conversions list.
+      const refusal = await conversions.choose(pdfs, await storage())
+      if (refusal) report(refusal)
+      // The list is on the shelf.
+      else if (!epubs.length && alive.current) go('library')
+    }
     let key = ''
-    for (const picked of files) {
+    for (const picked of epubs) {
       key = await imported(picked, null, match)
     }
     if (alive.current && key)
       go(
-        files.length === 1 ? 'book' : 'library',
-        files.length === 1 ? key : undefined,
+        epubs.length === 1 ? 'book' : 'library',
+        epubs.length === 1 ? key : undefined,
       )
   }
   async function clearNamespace(ns: string, discardPending = false) {
@@ -1167,6 +1193,16 @@ function Workspace({
           choose={() => choose()}
           read={read}
           details={details}
+          pdf={conversions.offered}
+          conversions={
+            <ConversionList
+              items={conversions.items}
+              queue={conversions.queue}
+              limits={conversions.limits}
+              pick={() => choose()}
+              t={t}
+            />
+          }
         />
       </>
     )
@@ -1223,7 +1259,7 @@ function Workspace({
           type="file"
           disabled={!replica || account.status === 'loading'}
           hidden
-          accept=".epub,application/epub+zip"
+          accept={'.epub,application/epub+zip' + (conversions.offered ? ',.pdf,application/pdf' : '')}
           multiple
           onChange={(e) => {
             const files = Array.from(e.target.files ?? [])
