@@ -181,15 +181,63 @@ export async function captureRange(doc: Document, locator: Locator, range: Range
   } catch { /* The selection may include content outside the publication. */ }
 }
 
-export function chapterProgress(doc: Document): number {
+// A chapter is laid out in columns exactly one window wide, so page N starts
+// N window widths to the right.
+function pitch(doc: Document) {
+  return doc.documentElement.getBoundingClientRect().width || 1
+}
+
+export function pageCount(doc: Document): number {
   const scroller = doc.scrollingElement
-  if (!scroller) return 0
-  return scroller.scrollTop / Math.max(1, scroller.scrollHeight - scroller.clientHeight)
+  return scroller ? Math.max(1, Math.round(scroller.scrollWidth / pitch(doc))) : 1
+}
+
+export function currentPage(doc: Document): number {
+  return Math.round((doc.scrollingElement?.scrollLeft ?? 0) / pitch(doc))
+}
+
+export function aligned(doc: Document): boolean {
+  const left = doc.scrollingElement?.scrollLeft ?? 0
+  return Math.abs(left - currentPage(doc) * pitch(doc)) < 1
+}
+
+export function showPage(doc: Document, page: number) {
+  const scroller = doc.scrollingElement
+  if (scroller) scroller.scrollLeft = Math.min(pageCount(doc) - 1, Math.max(0, page)) * pitch(doc)
+}
+
+export function chapterProgress(doc: Document): number {
+  const pages = pageCount(doc)
+  return pages > 1 ? currentPage(doc) / (pages - 1) : 0
+}
+
+function showRect(doc: Document, rect: DOMRect | undefined) {
+  // Measured from the chapter start, so a page left misaligned by a resize still lands right.
+  if (rect && doc.scrollingElement) showPage(doc, Math.floor((doc.scrollingElement.scrollLeft + rect.left + 1) / pitch(doc)))
 }
 
 export function displayRange(doc: Document, range: Range) {
-  const rect = Array.from(range.getClientRects()).find(item => item.width && item.height)
-  if (rect && doc.scrollingElement) doc.scrollingElement.scrollTop += rect.top - 28
+  showRect(doc, Array.from(range.getClientRects()).find(item => item.width && item.height))
+}
+
+/** The first visible character at or after an element, to keep it in view when the page reflows. */
+export function startOf(doc: Document, element: Element): Range | undefined {
+  const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT)
+  walker.currentNode = element
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const text = node as Text
+    const offset = text.data.search(/\S/)
+    if (offset < 0) continue
+    const range = doc.createRange()
+    range.setStart(text, offset)
+    range.setEnd(text, offset + (text.data.codePointAt(offset)! > 0xffff ? 2 : 1))
+    return range
+  }
+}
+
+export function showElement(doc: Document, element: Element) {
+  // An empty named anchor has no width, but it still has a position.
+  showRect(doc, element.getClientRects()[0] ?? element.getBoundingClientRect())
 }
 
 export function viewportRange(doc: Document): Range | undefined {
@@ -216,7 +264,8 @@ export function viewportRange(doc: Document): Range | undefined {
         range.setStart(node, i)
         range.setEnd(node, i + (point > 0xffff ? 2 : 1))
         const rect = range.getBoundingClientRect()
-        if (range.toString().trim() && rect.width && rect.height && rect.bottom > 0 && rect.top < height) return range
+        if (range.toString().trim() && rect.width && rect.height && rect.bottom > 0 && rect.top < height
+            && rect.right > 0 && rect.left < width) return range
       }
     }
   }
