@@ -31,8 +31,17 @@ function answer(title: string) {
   }
 }
 
-async function connect(page: Page) {
-  const calls: { path: string; body?: unknown }[] = []
+type Server = {
+  /** What `/ai/v1/config` adds. */
+  config?: Record<string, unknown>
+  lookup?: (body: Record<string, unknown>) => unknown
+  tidy?: (body: Record<string, unknown>) => unknown
+  /** The status a drawn cover's image answers with. */
+  coverStatus?: number
+}
+
+async function connect(page: Page, server: Server = {}) {
+  const calls: { path: string; body?: Record<string, unknown> }[] = []
   let tidyAllowed = false
   await page.addInitScript(() => { Reflect.deleteProperty(Navigator.prototype, 'serviceWorker') })
   await page.route('**/quire/v1/bootstrap', route => route.fulfill({ json: {
@@ -46,7 +55,7 @@ async function connect(page: Page) {
   await page.route('**/ai/v1/**', route => {
     switch (new URL(route.request().url()).pathname) {
       case '/ai/v1/config':
-        return route.fulfill({ json: { configured: true, details_supported: true, providers: [] } })
+        return route.fulfill({ json: { configured: true, details_supported: true, providers: [], ...server.config } })
       case '/ai/v1/preferences':
         return route.fulfill({ json: { ai_enabled: true, provider_id: 'default', style: { tone: 'neutral', language: 'auto' } } })
       default:
@@ -58,7 +67,9 @@ async function connect(page: Page) {
     const { pathname, search } = new URL(request.url())
     calls.push({ path: pathname + search, body: request.postDataJSON() ?? undefined })
     expect(request.headers()['x-csrf-token']).toBe('test')
-    if (pathname === '/details/v1/lookup') return route.fulfill({ json: answer('Dune') })
+    const body = request.postDataJSON()
+    if (pathname === '/details/v1/lookup') return route.fulfill({ json: server.lookup?.(body) ?? answer('Dune') })
+    if (pathname === '/details/v1/tidy' && server.tidy) return route.fulfill({ json: server.tidy(body) })
     if (pathname === '/details/v1/tidy') {
       if (!tidyAllowed) {
         tidyAllowed = true
@@ -66,6 +77,7 @@ async function connect(page: Page) {
       }
       return route.fulfill({ json: answer('Dune, tidied again') })
     }
+    if (server.coverStatus) return route.fulfill({ status: server.coverStatus, json: { detail: 'unavailable' } })
     return route.fulfill({ contentType: 'image/png', headers: { 'X-Quire-Cover': 'generated' }, body: png })
   })
   return calls
@@ -94,9 +106,9 @@ test('a messy book gets found details once, labelled, kept offline, and the read
     source: 'file', cover: null,
   })
 
-  const original = page.getByRole('button', { name: 'Use original' })
-  await original.click()
-  await expect(original).toHaveAttribute('aria-pressed', 'true')
+  await page.getByRole('button', { name: 'Use original' }).click()
+  const improved = page.getByRole('button', { name: 'Use improved details' })
+  await expect(improved).toBeVisible()
   await expect(title).toHaveText('dune_frank_herbert_(retail)')
   await expect(page.getByText('Generated cover')).toHaveCount(0)
   await expect(page.getByText('Tidied by AI')).toHaveCount(0)
@@ -104,16 +116,24 @@ test('a messy book gets found details once, labelled, kept offline, and the read
   // The choice and the found details live in this browser: no second lookup.
   await page.reload()
   await expect(title).toHaveText('dune_frank_herbert_(retail)')
-  await page.getByRole('button', { name: 'Use original' }).click()
+  await page.getByRole('button', { name: 'Use improved details' }).click()
   await expect(title).toHaveText('Dune')
   expect(calls).toHaveLength(2)
 
-  const tidy = page.getByRole('button', { name: 'Tidy details' })
-  await tidy.click()
+  const improve = page.getByRole('button', { name: 'Improve details' })
+  await improve.click()
   await expect(page.getByRole('alert')).toHaveText('AI limit reached. Try again after the quota resets.')
   await expect(title).toHaveText('Dune')
-  await tidy.click()
-  await expect(page.getByText('Details tidied.')).toBeVisible()
+  await improve.click()
+  // Nothing is applied before the reader says so.
+  const sheet = page.getByRole('dialog', { name: 'Improve details' })
+  await expect(sheet.getByRole('checkbox', { name: 'Title' })).toBeChecked()
+  await expect(sheet.getByRole('checkbox')).toHaveCount(1)
+  await expect(title).toHaveText('Dune')
+  await sheet.getByRole('button', { name: 'Apply' }).click()
+  await expect(sheet).toHaveCount(0)
+  await expect(page.getByText('Updated: title.')).toBeVisible()
+  await expect(improve).toBeFocused()
   await expect(title).toHaveText('Dune, tidied again')
   // Same cover address: the stored image is kept, not fetched again.
   expect(calls.map(call => call.path)).toEqual(['/details/v1/lookup', coverPath, '/details/v1/tidy', '/details/v1/tidy'])
@@ -133,7 +153,7 @@ test('details labels and controls stay readable, focusable and inside a phone sc
   await expect(page.getByText('Generated cover')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true)
 
-  const tidy = page.getByRole('button', { name: 'Tidy details' })
+  const tidy = page.getByRole('button', { name: 'Improve details' })
   await tidy.focus()
   await page.keyboard.press(browserName === 'webkit' && process.platform === 'darwin' ? 'Alt+Tab' : 'Tab')
   const original = page.getByRole('button', { name: 'Use original' })
@@ -166,4 +186,151 @@ test('details labels and controls stay readable, focusable and inside a phone sc
     expect(ratios.length).toBeGreaterThan(0)
     for (const ratio of ratios) expect(ratio, theme).toBeGreaterThanOrEqual(4.5)
   }
+})
+
+function coveredBook() {
+  const files = {
+    'META-INF/container.xml': strToU8('<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="book.opf"/></rootfiles></container>'),
+    'book.opf': strToU8('<package xmlns="http://www.idpf.org/2007/opf" version="3.0" xmlns:dc="http://purl.org/dc/elements/1.1/" unique-identifier="id"><metadata><dc:title>Dune</dc:title><dc:creator>Frank Herbert</dc:creator><dc:identifier id="id">urn:uuid:0b6c2e1a-7f3d-4c55-8e21-9a4f0c3b7d12</dc:identifier><dc:language>en</dc:language></metadata><manifest><item id="cover" href="cover.png" media-type="image/png" properties="cover-image"/><item id="one" href="one.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="one"/></spine></package>'),
+    'cover.png': new Uint8Array(png),
+    'one.xhtml': strToU8('<html xmlns="http://www.w3.org/1999/xhtml"><head><title>One</title></head><body><p>Arrakis.</p></body></html>'),
+  }
+  return { name: 'dune.epub', mimeType: 'application/epub+zip', buffer: Buffer.from(zipSync(files)) }
+}
+
+const blurb = 'A duke’s son inherits a desert planet. '.repeat(10).trim()
+/** A book that has its own cover: the server keeps it unless the reader chooses another. */
+function improvement(body: Record<string, unknown>, fields: Record<string, unknown> = {}) {
+  const choice = body.cover_choice as string | undefined
+  const drawn = choice === 'draw' || choice === 'paint'
+  return {
+    key,
+    book: { ...(body.book as object), ...fields },
+    origins: { title: 'file', authors: 'file', ...Object.fromEntries(Object.keys(fields).map(name => [name, 'ai'])), cover: drawn ? 'ai' : 'file' },
+    cover: drawn ? { source: 'generated', url: coverPath, generated: true, painting: choice === 'paint' } : { source: 'file', generated: false },
+    tidy: Object.keys(fields).length ? 'done' : 'not_needed', cached: false, openlibrary_url: null,
+  }
+}
+
+test('the reader keeps only the changes they tick, and a chosen cover replaces the book\'s own until they pick the original', async ({ page }) => {
+  const calls = await connect(page, {
+    config: { cover_choice_supported: true },
+    lookup: body => improvement(body),
+    tidy: body => improvement(body, { description: blurb, series_name: 'Dune Chronicles', series_index: 1 }),
+  })
+  await page.goto('/quire/')
+  await page.locator('input[type=file]').setInputFiles(coveredBook())
+  const title = page.getByRole('heading', { level: 1 })
+  await expect(title).toHaveText('Dune')
+  await expect.poll(() => calls.filter(call => call.path === '/details/v1/lookup').length).toBe(1)
+  const own = await page.locator('.detail-cover img').getAttribute('src')
+
+  const improve = page.getByRole('button', { name: 'Improve details' })
+  await improve.click()
+  const sheet = page.getByRole('dialog', { name: 'Improve details' })
+  await expect(sheet).toBeVisible()
+  await expect.poll(() => page.evaluate(() => !!document.activeElement?.closest('dialog'))).toBe(true)
+  // Only what changes is offered, ticked.
+  await expect(sheet.getByRole('checkbox', { name: 'Title' })).toHaveCount(0)
+  await expect(sheet.getByRole('checkbox', { name: 'Series' })).toBeChecked()
+  await expect(sheet.getByRole('checkbox', { name: 'Description' })).toBeChecked()
+  const more = sheet.getByRole('button', { name: 'Show more' })
+  await more.click()
+  await expect(sheet.getByRole('button', { name: 'Show less' })).toHaveAttribute('aria-expanded', 'true')
+  await expect(sheet.getByRole('radio', { name: /A painted cover/ })).toHaveCount(0)
+  await expect(sheet.getByRole('radio', { name: 'Keep this book’s cover' })).toBeChecked()
+
+  await sheet.getByRole('radio', { name: 'Quire’s drawn cover' }).check()
+  await expect(sheet.locator('.compare').last().getByText('Generated cover')).toBeVisible()
+  await sheet.getByRole('checkbox', { name: 'Series' }).uncheck()
+  await sheet.getByRole('button', { name: 'Apply' }).click()
+  await expect(sheet).toHaveCount(0)
+  await expect(page.getByRole('status')).toHaveText('Updated: description. New cover.')
+  await expect(improve).toBeFocused()
+
+  await expect(page.getByText(blurb)).toBeVisible()
+  await expect(page.getByText('Dune Chronicles')).toHaveCount(0)
+  await expect(page.locator('.detail-cover').getByText('Generated cover')).toBeVisible()
+  await expect.poll(() => page.locator('.detail-cover img').getAttribute('src')).not.toBe(own)
+
+  const tidyCall = calls.find(call => call.path === '/details/v1/tidy')!
+  expect(tidyCall.body).not.toHaveProperty('cover_choice')
+  expect(calls.filter(call => call.path === '/details/v1/lookup').at(-1)!.body).toMatchObject({ cover_choice: 'draw', cover: 'file' })
+
+  // The original brings everything back, the cover too.
+  await page.getByRole('button', { name: 'Use original' }).click()
+  await expect(page.getByRole('button', { name: 'Use improved details' })).toBeVisible()
+  await expect(page.getByText(blurb)).toHaveCount(0)
+  await expect(page.locator('.detail-cover').getByText('Generated cover')).toHaveCount(0)
+  await expect.poll(() => page.locator('.detail-cover img').count()).toBe(1)
+})
+
+test('a book that needs nothing says so and opens no preview', async ({ page }) => {
+  const calls = await connect(page, { lookup: body => improvement(body), tidy: body => improvement(body) })
+  await page.goto('/quire/')
+  await page.locator('input[type=file]').setInputFiles(coveredBook())
+  await page.getByRole('button', { name: 'Improve details' }).click()
+  await expect(page.getByRole('status')).toHaveText('These details already look right.')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  expect(calls.filter(call => call.path === '/details/v1/tidy')).toHaveLength(1)
+})
+
+test('a painted cover is asked for only on apply and the preview fits a phone', async ({ page }) => {
+  const calls = await connect(page, {
+    config: { cover_choice_supported: true, cover_painting_supported: true },
+    lookup: body => improvement(body),
+    tidy: body => improvement(body),
+  })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/quire/')
+  await page.locator('input[type=file]').setInputFiles(coveredBook())
+  const improve = page.getByRole('button', { name: 'Improve details' })
+  await improve.click()
+  const sheet = page.getByRole('dialog', { name: 'Improve details' })
+  // Nothing to tick, but the cover can still be chosen.
+  await expect(sheet.getByText('These details already look right.')).toBeVisible()
+  await sheet.getByRole('radio', { name: /A painted cover/ }).check()
+  await expect(sheet.getByText('Painting takes a while: the drawn cover shows until the painting arrives.')).toBeVisible()
+  await expect(sheet.locator('.compare img')).toHaveCount(2)
+  const box = await sheet.boundingBox()
+  expect(box).toMatchObject({ x: 0, width: 390 })
+  expect(await sheet.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
+  const choices = () => calls.filter(call => call.path === '/details/v1/lookup').map(call => call.body?.cover_choice)
+  expect(choices()).toEqual([undefined, 'draw'])
+  await sheet.getByRole('button', { name: 'Apply' }).click()
+  await expect(page.getByRole('status')).toHaveText('New cover. A painted cover is on its way.')
+  expect(choices()).toEqual([undefined, 'draw', 'paint'])
+
+  // Escape closes a preview without keeping anything, and focus comes back.
+  await improve.click()
+  await expect(sheet).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(sheet).toHaveCount(0)
+  await expect(improve).toBeFocused()
+})
+
+test('a cover that fails to download does not hold back the text changes', async ({ page }) => {
+  const calls = await connect(page, {
+    config: { cover_choice_supported: true },
+    lookup: body => improvement(body),
+    tidy: body => improvement(body, { description: 'A desert planet.' }),
+    coverStatus: 500,
+  })
+  await page.goto('/quire/')
+  await page.locator('input[type=file]').setInputFiles(coveredBook())
+  await expect.poll(() => calls.filter(call => call.path === '/details/v1/lookup').length).toBe(1)
+  await page.getByRole('button', { name: 'Improve details' }).click()
+  const sheet = page.getByRole('dialog', { name: 'Improve details' })
+  await sheet.getByRole('radio', { name: 'Quire’s drawn cover' }).check()
+  await expect(sheet.getByRole('alert')).toBeVisible()
+  await sheet.getByRole('button', { name: 'Apply' }).click()
+  await expect(sheet).toHaveCount(0)
+  await expect(page.getByRole('status')).toHaveText('Updated: description.')
+  await expect(page.getByText('A desert planet.')).toBeVisible()
+  // The book's own cover stays, and the drawn one is not asked for again.
+  await expect(page.locator('.detail-cover img')).toHaveCount(1)
+  await expect(page.locator('.detail-cover').getByText('Generated cover')).toHaveCount(0)
+  await page.reload()
+  await expect(page.getByText('A desert planet.')).toBeVisible()
+  expect(calls.filter(call => call.body?.cover_choice).map(call => call.body?.cover_choice)).toEqual(['draw'])
 })
