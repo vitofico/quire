@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 16,
-    "identityHash": "5118f8c439f464365c1b7d8fd0f8dcb8",
+    "identityHash": "d6b637114a20170e89a8949fb88ad935",
     "entities": [
       {
         "tableName": "documents",
@@ -656,7 +656,7 @@
       },
       {
         "tableName": "conversion_jobs",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `owner` TEXT NOT NULL, `idempotencyKey` TEXT NOT NULL, `fileName` TEXT NOT NULL, `sha256` TEXT NOT NULL, `bytes` INTEGER NOT NULL, `sourcePath` TEXT, `jobId` TEXT, `stage` TEXT NOT NULL, `problem` TEXT, `jobJson` TEXT, `retryAt` INTEGER, `failures` INTEGER NOT NULL, `documentId` INTEGER, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `owner` TEXT NOT NULL, `idempotencyKey` TEXT NOT NULL, `fileName` TEXT NOT NULL, `sha256` TEXT NOT NULL, `bytes` INTEGER NOT NULL, `sourcePath` TEXT, `jobId` TEXT, `stage` TEXT NOT NULL, `problem` TEXT, `jobJson` TEXT, `retryAt` INTEGER, `failures` INTEGER NOT NULL, `documentId` INTEGER, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `allowMetered` INTEGER NOT NULL, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -753,6 +753,12 @@
             "columnName": "updatedAt",
             "affinity": "INTEGER",
             "notNull": true
+          },
+          {
+            "fieldPath": "allowMetered",
+            "columnName": "allowMetered",
+            "affinity": "INTEGER",
+            "notNull": true
           }
         ],
         "primaryKey": {
@@ -778,7 +784,7 @@
     "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '5118f8c439f464365c1b7d8fd0f8dcb8')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'd6b637114a20170e89a8949fb88ad935')"
     ]
   }
 }

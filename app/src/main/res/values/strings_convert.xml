@@ -10,6 +10,7 @@
     <string name="convert_confirm">"%1$s (%2$s) is converted to EPUB on your Quire server. Nothing is sent anywhere else. The book appears in your library when it’s ready."</string>
     <string name="convert_confirm_unknown_size">"%1$s is converted to EPUB on your Quire server. Nothing is sent anywhere else. The book appears in your library when it’s ready."</string>
     <string name="convert_metered">"You’re on a metered connection. This sends %1$s."</string>
+    <string name="convert_metered_unknown_size">"You’re on a metered connection. This sends the whole PDF."</string>
     <string name="convert_action">"Convert"</string>
     <string name="convert_too_large">"This PDF is %1$s. Your server converts PDFs up to %2$s."</string>
     <string name="convert_too_large_unknown">"This PDF is larger than your server converts (up to %1$s)."</string>
@@ -19,6 +20,7 @@
     <string name="convert_signed_out">"You’re signed out of your Quire server. Sign in again in Settings to convert PDFs."</string>
     <string name="convert_unreachable">"Couldn’t reach your Quire server. Check your connection and try again."</string>
     <string name="convert_unreadable">"Couldn’t read this PDF."</string>
+    <string name="convert_no_space">"There isn’t enough free space on this device to copy the PDF. Free up some space and try again."</string>
     <string name="convert_started">"Converting on your server. Follow it in %1$s → %2$s in the library."</string>
     <string name="convert_already_converting">"This PDF is already being converted."</string>
     <string name="convert_already_in_library">"This PDF is already in your library as a book."</string>
@@ -50,8 +52,12 @@
     <string name="convert_wait_network">"Couldn’t reach your server. Trying again shortly."</string>
     <string name="convert_wait_busy">"Your server is converting other PDFs of yours. Trying again shortly."</string>
     <string name="convert_wait_daily_limit">"You’ve reached today’s conversion limit on your server. Trying again at %1$s."</string>
+    <string name="convert_wait_daily_limit_date">"You’ve reached today’s conversion limit on your server. Trying again on %1$s."</string>
     <string name="convert_wait_signed_out">"Signed out of your Quire server. Sign in again in Settings to carry on."</string>
     <string name="convert_wait_upload_in_progress">"Another upload of this PDF is under way. Checking again shortly."</string>
+    <string name="convert_wait_open_app">"Open Quire to continue the upload."</string>
+    <string name="convert_wait_unmetered">"Waiting for Wi-Fi to send the PDF."</string>
+    <string name="convert_wait_converter">"Your server’s converter isn’t running yet. Trying again shortly."</string>
 
     <!-- Why a conversion failed. -->
     <string name="convert_failed_encrypted">"This PDF is encrypted or password-protected, so it can’t be converted."</string>

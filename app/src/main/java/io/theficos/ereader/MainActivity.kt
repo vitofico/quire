@@ -11,9 +11,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.lifecycleScope
 import io.theficos.ereader.ui.AppNavGraph
 import io.theficos.ereader.ui.theme.QuireTheme
 import io.theficos.ereader.ui.theme.styleSystemBars
+import kotlinx.coroutines.launch
 
 class MainActivity : FragmentActivity() {
     // Fires before super dispatches the config change to fragments, so the reader
@@ -44,6 +46,16 @@ class MainActivity : FragmentActivity() {
                     AppNavGraph(container = container, appTheme = theme)
                 }
             }
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // A PDF conversion carries on: after process death, or one waiting for the app to be open.
+        val conversions = (application as EReaderApp).container.conversionRepository
+        lifecycleScope.launch {
+            runCatching { conversions.resume() }
+                .onFailure { android.util.Log.w("MainActivity", "Couldn't resume PDF conversions", it) }
         }
     }
 

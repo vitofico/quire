@@ -106,7 +106,10 @@ internal fun AccountCredentials.quireServerUrlOrNull(): String? = when (this) {
 }
 
 /** Who stored book details belong to: this account on this server, or null with no Quire server. */
-private fun AccountCredentials.detailsOwner(): String? = quireServerUrlOrNull()?.let { "$it $subject" }
+private fun AccountCredentials.detailsOwner(): String? = quireServerUrlOrNull()?.let { accountOwner(it, subject) }
+
+/** An account on a Quire server, as book details and PDF conversions record their owner. */
+internal fun accountOwner(serverUrl: String, subject: String): String = "$serverUrl $subject"
 
 /** True while the device's default network is not metered, such as Wi-Fi. */
 private fun unmeteredNetwork(context: Context): Flow<Boolean> = callbackFlow {
@@ -305,6 +308,7 @@ class AppContainer internal constructor(context: Context, private val db: EReade
             }
         },
         wake = { ConversionScheduler.now(appContext) },
+        metered = { appContext.getSystemService(ConnectivityManager::class.java).isActiveNetworkMetered },
     )
 
     val aiRepository: AiRepository = AiRepository(
@@ -560,10 +564,17 @@ class AppContainer internal constructor(context: Context, private val db: EReade
         ConversionDependencies.holder = ConversionDependencies.Holder(conversionRepository) {
             appContext.getString(R.string.convert_notification)
         }
-        // A conversion the process died in the middle of carries on.
+        // Signing out forgets the account's PDF conversions; another account's wait for it a few days.
         libraryUploaderScope.launch {
-            runCatching { conversionRepository.resume() }
-                .onFailure { android.util.Log.w("AppContainer", "Couldn't resume PDF conversions", it) }
+            var signedIn: String? = null
+            credentialStore.accountFlow.map { it?.detailsOwner() }.distinctUntilChanged().collect { owner ->
+                val left = signedIn
+                signedIn = owner
+                if (owner == null && left != null) {
+                    runCatching { conversionRepository.forgetOwner(left) }
+                        .onFailure { android.util.Log.w("AppContainer", "Couldn't forget PDF conversions", it) }
+                }
+            }
         }
         // Once per launch, follow the server if it has moved to another address.
         libraryUploaderScope.launch {
@@ -572,6 +583,7 @@ class AppContainer internal constructor(context: Context, private val db: EReade
                     credentialStore,
                     ConnectServerViewModel.defaultOnboardingClient(),
                     memoryBookmarkDao::moveAccount,
+                    conversionRepository::moveOwner,
                 ).follow()
             } catch (e: android.database.SQLException) {
                 android.util.Log.w("AppContainer", "Couldn't follow the server address", e)

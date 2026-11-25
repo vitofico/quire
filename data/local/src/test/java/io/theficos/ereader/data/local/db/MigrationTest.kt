@@ -449,8 +449,8 @@ class MigrationTest {
             }
             db.execSQL(
                 "INSERT INTO conversion_jobs (id, owner, idempotencyKey, fileName, sha256, bytes, sourcePath, jobId, stage, " +
-                    "problem, jobJson, retryAt, failures, documentId, createdAt, updatedAt) " +
-                    "VALUES ('c1', 'o', 'key-0001', 'f.pdf', 'aa', 10, NULL, NULL, 'upload', NULL, NULL, NULL, 0, NULL, 1, 1)"
+                    "problem, jobJson, retryAt, failures, documentId, createdAt, updatedAt, allowMetered) " +
+                    "VALUES ('c1', 'o', 'key-0001', 'f.pdf', 'aa', 10, NULL, NULL, 'upload', NULL, NULL, NULL, 0, NULL, 1, 1, 0)"
             )
             db.query("SELECT stage FROM conversion_jobs WHERE id = 'c1'").use { c ->
                 assertThat(c.moveToFirst()).isTrue()

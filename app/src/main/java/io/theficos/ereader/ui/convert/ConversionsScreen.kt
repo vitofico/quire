@@ -1,6 +1,7 @@
 package io.theficos.ereader.ui.convert
 
 import android.text.format.DateFormat
+import android.text.format.DateUtils
 import android.text.format.Formatter
 import androidx.annotation.StringRes
 import androidx.compose.foundation.clickable
@@ -158,15 +159,26 @@ private fun statusText(row: Conversion): String = stringResource(
 
 @Composable
 private fun waitingText(row: Conversion): String? {
+    // Waits for the reader, with no time set.
+    if (row.problem == ConversionRepository.NEEDS_APP && row.status == ConversionStatus.UPLOADING) {
+        return stringResource(R.string.convert_wait_open_app)
+    }
     val until = row.waitingUntil ?: return null
     return when (row.problem) {
         ConversionRepository.TOO_MANY_ACTIVE_JOBS -> stringResource(R.string.convert_wait_busy)
-        ConversionRepository.DAILY_LIMIT_REACHED -> stringResource(
-            R.string.convert_wait_daily_limit,
-            DateFormat.getTimeFormat(LocalContext.current).format(until),
-        )
+        ConversionRepository.DAILY_LIMIT_REACHED -> {
+            val context = LocalContext.current
+            if (DateUtils.isToday(until)) {
+                stringResource(R.string.convert_wait_daily_limit, DateFormat.getTimeFormat(context).format(until))
+            } else {
+                val at = DateUtils.formatDateTime(context, until, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME)
+                stringResource(R.string.convert_wait_daily_limit_date, at)
+            }
+        }
         ConversionRepository.SIGNED_OUT -> stringResource(R.string.convert_wait_signed_out)
         ConversionRepository.UPLOAD_IN_PROGRESS -> stringResource(R.string.convert_wait_upload_in_progress)
+        ConversionRepository.WAITING_UNMETERED -> stringResource(R.string.convert_wait_unmetered)
+        ConversionRepository.CONVERTER_UNAVAILABLE -> stringResource(R.string.convert_wait_converter)
         else -> stringResource(R.string.convert_wait_network)
     }
 }

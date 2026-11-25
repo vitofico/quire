@@ -15,7 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /** Why a PDF cannot be converted from here; each has its own plain explanation. */
-enum class ConvertBlocked { NO_SERVER, NOT_OFFERED, UNAVAILABLE, SIGNED_OUT, UNREACHABLE, UNREADABLE }
+enum class ConvertBlocked { NO_SERVER, NOT_OFFERED, UNAVAILABLE, SIGNED_OUT, UNREACHABLE, UNREADABLE, NO_SPACE }
 
 sealed interface PdfConvertState {
     data object Checking : PdfConvertState
@@ -67,9 +67,11 @@ class PdfConvertViewModel(
         val confirm = _state.value as? PdfConvertState.Confirm ?: return
         _state.value = PdfConvertState.Preparing
         viewModelScope.launch {
-            _state.value = when (val started = repository.start(fileName, confirm.maxBytes, open)) {
+            val started = repository.start(fileName, sizeBytes, confirm.maxBytes, allowMetered = confirm.metered, open)
+            _state.value = when (started) {
                 is ConversionStart.TooLarge -> PdfConvertState.TooLarge(started.maxBytes)
                 ConversionStart.Unreadable -> PdfConvertState.Blocked(ConvertBlocked.UNREADABLE)
+                ConversionStart.NoSpace -> PdfConvertState.Blocked(ConvertBlocked.NO_SPACE)
                 ConversionStart.NoServer -> PdfConvertState.Blocked(ConvertBlocked.NO_SERVER)
                 else -> PdfConvertState.Done(started)
             }

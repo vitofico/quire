@@ -177,7 +177,7 @@ class ConvertViewModelsTest {
     }
 
     @Test fun `the conversions screen lists, cancels and removes`() = runTest {
-        repository.start("Field notes.pdf", 1_000) { pdf.inputStream() }
+        repository.start("Field notes.pdf", null, 1_000, allowMetered = false) { pdf.inputStream() }
         wakes = 0
         val vm = ConversionsViewModel(repository).also { built += it }
         vm.conversions.filterNotNull().test {

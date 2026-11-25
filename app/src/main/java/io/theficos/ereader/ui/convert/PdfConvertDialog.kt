@@ -7,10 +7,16 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -57,7 +63,11 @@ fun PdfConvertDialog(
             } else {
                 stringResource(R.string.convert_confirm_unknown_size, viewModel.fileName)
             }
-            if (s.metered && size != null) main + "\n\n" + stringResource(R.string.convert_metered, size) else main
+            when {
+                !s.metered -> main
+                size != null -> main + "\n\n" + stringResource(R.string.convert_metered, size)
+                else -> main + "\n\n" + stringResource(R.string.convert_metered_unknown_size)
+            }
         }
         is PdfConvertState.TooLarge -> {
             val limit = Formatter.formatShortFileSize(context, s.maxBytes)
@@ -77,6 +87,7 @@ fun PdfConvertDialog(
                     ConvertBlocked.SIGNED_OUT -> R.string.convert_signed_out
                     ConvertBlocked.UNREACHABLE -> R.string.convert_unreachable
                     ConvertBlocked.UNREADABLE -> R.string.convert_unreadable
+                    ConvertBlocked.NO_SPACE -> R.string.convert_no_space
                 },
             )
         }
@@ -112,11 +123,13 @@ fun PdfConvertDialog(
     )
 }
 
-/** [PdfConvertDialog] for the PDF at [uri]; a new [key] asks afresh for the same file. */
+/**
+ * [PdfConvertDialog] for the PDF at [uri], with its view model in the nearest store: the
+ * activity's, or one [OwnViewModels] gives each pick.
+ */
 @Composable
 fun PdfConvertPrompt(
     uri: Uri,
-    key: String,
     repository: ConversionRepository,
     onDismiss: () -> Unit,
     onShowConversions: (() -> Unit)? = null,
@@ -124,7 +137,6 @@ fun PdfConvertPrompt(
 ) {
     val context = LocalContext.current.applicationContext
     val vm: PdfConvertViewModel = viewModel(
-        key = "pdf-convert:$key",
         factory = viewModelFactory {
             initializer {
                 val resolver = context.contentResolver
@@ -140,4 +152,16 @@ fun PdfConvertPrompt(
         },
     )
     PdfConvertDialog(vm, onDismiss, onShowConversions, onOpenBook)
+}
+
+/** View models that live as long as [content] stays in the composition, and no longer. */
+@Composable
+fun OwnViewModels(content: @Composable () -> Unit) {
+    val owner = remember {
+        object : ViewModelStoreOwner {
+            override val viewModelStore = ViewModelStore()
+        }
+    }
+    DisposableEffect(owner) { onDispose { owner.viewModelStore.clear() } }
+    CompositionLocalProvider(LocalViewModelStoreOwner provides owner, content = content)
 }

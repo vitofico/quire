@@ -47,7 +47,7 @@
             android:exported="true"
             android:excludeFromRecents="true"
             android:taskAffinity=""
-            android:theme="@style/Theme.Quire.Translucent"
+            android:theme="@style/Theme.Quire"
             android:label="@string/common_import_epub">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
@@ -65,11 +65,13 @@
             </intent-filter>
         </activity>
 
-        <!-- PDFs reach the same sink under their own label: the server converts them to EPUB. -->
-        <activity-alias
+        <!-- PDFs: a dialog over the sending app; the server converts them to EPUB. -->
+        <activity
             android:name="io.theficos.ereader.sideload.ConvertPdfActivity"
-            android:targetActivity="io.theficos.ereader.sideload.ImportActivity"
             android:exported="true"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Quire.Translucent"
             android:label="@string/convert_share_label">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
@@ -79,11 +81,10 @@
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="content" />
                 <data android:mimeType="application/pdf" />
             </intent-filter>
-        </activity-alias>
+        </activity>
 
         <!-- WorkManager's foreground service, typed for the PDF conversion's transfers. -->
         <service

@@ -11,22 +11,32 @@ import io.theficos.ereader.data.local.db.EReaderDatabase
 import io.theficos.ereader.testing.awaitRequest
 import java.io.File
 import java.security.MessageDigest
+import java.io.InputStream
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
+import okhttp3.RequestBody
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.QueueDispatcher
 import okhttp3.mockwebserver.RecordedRequest
 import okhttp3.mockwebserver.SocketPolicy
 import okio.Buffer
+import okio.BufferedSink
+import okio.ForwardingSink
+import okio.buffer
 import org.junit.After
 import org.junit.Before
 import org.junit.Rule
@@ -48,6 +58,10 @@ class ConversionRepositoryTest {
     private var owner: String? = OWNER
     private var wakes = 0
     private var keys = 0
+    private var metered = false
+
+    /** Holds the server's next answer until the test lets it go, to cut in while a step waits. */
+    private val dispatcher = HeldDispatcher()
 
     /** What the next import answers; null imports for real into the documents table. */
     private var importAnswer: ImportOutcome? = null
@@ -60,7 +74,8 @@ class ConversionRepositoryTest {
     @Before fun setUp() {
         server = MockWebServer()
         // An unexpected request gets an answer the repository treats as a refusal, never a hang.
-        (server.dispatcher as QueueDispatcher).setFailFast(MockResponse().setResponseCode(418))
+        dispatcher.setFailFast(MockResponse().setResponseCode(418))
+        server.dispatcher = dispatcher
         server.start()
         db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), EReaderDatabase::class.java)
             .allowMainThreadQueries().build()
@@ -77,12 +92,8 @@ class ConversionRepositoryTest {
     }
 
     /** A fresh repository over the same database and files, as after process death. */
-    private fun repository() = ConversionRepository(
-        client = ConvertClient(
-            baseUrlProvider = { server.url("/").toString() },
-            // OkHttp would otherwise resend a request whose connection broke, hiding the failure.
-            http = OkHttpClient.Builder().callTimeout(10, TimeUnit.SECONDS).retryOnConnectionFailure(false).build(),
-        ),
+    private fun repository(http: OkHttpClient = client().build()) = ConversionRepository(
+        client = ConvertClient(baseUrlProvider = { server.url("/").toString() }, http = http),
         dao = db.conversionJobDao(),
         documents = db.documentDao(),
         owner = { owner },
@@ -95,6 +106,7 @@ class ConversionRepositoryTest {
             importAnswer ?: ImportOutcome.Saved(saveBook(file.readBytes()))
         },
         wake = { wakes++ },
+        metered = { metered },
         now = { clock },
         newId = { "id-${++keys}" },
     )
@@ -111,8 +123,14 @@ class ConversionRepositoryTest {
         )
     }
 
-    private suspend fun ConversionRepository.startPdf(bytes: ByteArray = pdf, maxBytes: Long = 1_000_000) =
-        start("Field notes.pdf", maxBytes) { bytes.inputStream() }
+    // OkHttp would otherwise resend a request whose connection broke, hiding the failure.
+    private fun client() = OkHttpClient.Builder().callTimeout(10, TimeUnit.SECONDS).retryOnConnectionFailure(false)
+
+    private suspend fun ConversionRepository.startPdf(
+        bytes: ByteArray = pdf,
+        maxBytes: Long = 1_000_000,
+        allowMetered: Boolean = false,
+    ) = start("Field notes.pdf", bytes.size.toLong(), maxBytes, allowMetered) { bytes.inputStream() }
 
     /** Steps until nothing is left to do, letting the clock run through each wait. */
     private suspend fun ConversionRepository.drain() {
@@ -328,9 +346,19 @@ class ConversionRepositoryTest {
         assertThat(server.awaitRequest().jsonBody()["idempotency_key"]!!.jsonPrimitive.content).isEqualTo("id-3")
     }
 
-    @Test fun `no running converter fails with a retry that keeps the key`() = runTest {
+    @Test fun `a converter not running is waited for a few minutes, then fails with a retry that keeps the key`() = runTest {
         val repo = repository()
-        val row = failOnCreate(refusal(503, "converter_unavailable", retryAfter = 60), repo)
+        repo.startPdf()
+        repeat(6) { server.enqueue(refusal(503, "converter_unavailable", retryAfter = 60)) }
+        assertThat(repo.step()).isEqualTo(60_000)
+        val waiting = repo.only()
+        assertThat(waiting.status).isEqualTo(ConversionStatus.UPLOADING)
+        assertThat(waiting.problem).isEqualTo("converter_unavailable")
+        assertThat(waiting.waitingUntil).isEqualTo(clock + 60_000)
+        repo.drain()
+        assertThat(requests(6).toSet()).containsExactly("POST /jobs")
+        val row = repo.only()
+        assertThat(row.status).isEqualTo(ConversionStatus.FAILED)
         assertThat(row.problem).isEqualTo("converter_unavailable")
         assertThat(row.canRetry).isTrue()
 
@@ -390,8 +418,12 @@ class ConversionRepositoryTest {
         clock += ConversionRepository.UPLOAD_RETRY_MS
         server.enqueue(job("created"))
         server.enqueue(refusal(408, "upload_timed_out"))
+        server.enqueue(job("cancelled"))
         assertThat(repo.step()).isNull()
-        assertThat(requests(4).count { it.startsWith("PUT") }).isEqualTo(2)
+        // Given up on, the job waiting for its PDF is cancelled so it frees its slot.
+        assertThat(requests(5)).containsExactly(
+            "POST /jobs", "PUT /jobs/job-1/source", "POST /jobs", "PUT /jobs/job-1/source", "POST /jobs/job-1/cancel",
+        ).inOrder()
 
         val failed = repo.only()
         assertThat(failed.problem).isEqualTo(ConversionRepository.UPLOAD_FAILED)
@@ -399,13 +431,15 @@ class ConversionRepositoryTest {
         // Nothing more goes out until the reader asks.
         clock += 3_600_000
         assertThat(repo.step()).isNull()
-        assertThat(server.requestCount).isEqualTo(4)
+        assertThat(server.requestCount).isEqualTo(5)
 
         repo.retry(failed.id)
         server.enqueue(job("created"))
         server.enqueue(job("queued"))
         repo.step()
-        assertThat(requests(2)).containsExactly("POST /jobs", "PUT /jobs/job-1/source").inOrder()
+        val create = server.awaitRequest()
+        assertThat(create.jsonBody()["idempotency_key"]!!.jsonPrimitive.content).isEqualTo("id-3")
+        assertThat(server.awaitRequest().route()).isEqualTo("PUT /jobs/job-1/source")
     }
 
     @Test fun `an upload under way elsewhere is waited for, then asked about`() = runTest {
@@ -444,8 +478,10 @@ class ConversionRepositoryTest {
             repo.startPdf(bytes = pdf + problem.toByteArray())
             server.enqueue(job("created"))
             server.enqueue(answer)
+            server.enqueue(job("cancelled"))
             assertThat(repo.step()).isNull()
             assertThat(repo.conversions.first().first().problem).isEqualTo(problem)
+            assertThat(requests(3).last()).isEqualTo("POST /jobs/job-1/cancel")
         }
     }
 
@@ -499,9 +535,9 @@ class ConversionRepositoryTest {
         assertThat(repo.only().canRetry).isTrue()
     }
 
-    @Test fun `a busy server while polling waits for Retry-After`() = runTest {
+    @Test fun `a server error while polling waits for its Retry-After`() = runTest {
         insert(stage = "convert", jobId = "job-1")
-        server.enqueue(refusal(503, "converter_unavailable", retryAfter = 45))
+        server.enqueue(refusal(503, "Service Unavailable", retryAfter = 45))
         assertThat(repository().step()).isEqualTo(45_000)
     }
 
@@ -661,32 +697,59 @@ class ConversionRepositoryTest {
         assertThat(repo.only().status).isEqualTo(ConversionStatus.CANCELLED)
     }
 
-    @Test fun `cancelling cuts off an upload under way`() = runTest {
-        val repo = repository()
-        repo.startPdf()
-        server.enqueue(job("created"))
-        // The server holds its answer, so the upload is still going when the reader cancels.
-        server.enqueue(job("queued").setHeadersDelay(5, TimeUnit.SECONDS))
+    @Test fun `cancelling cuts off an upload half way through the PDF`() = runTest {
+        val sending = CountDownLatch(1)
+        val repo = repository(stalledUploads(sending))
+        repo.startPdf(bytes = bigPdf, maxBytes = bigPdf.size.toLong())
+        server.enqueue(job("created").setHeader("Connection", "close"))
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.STALL_SOCKET_AT_START))
         val stepping = async(Dispatchers.IO) { repo.step() }
-        requests(2)
+        server.awaitRequest()
+        assertThat(sending.await(10, TimeUnit.SECONDS)).isTrue()
         repo.cancel("id-1")
         assertThat(stepping.await()).isEqualTo(0)
 
+        // The next run, with a client that never saw the stalled server's address fail.
         server.enqueue(job("cancelled"))
-        repo.drain()
-        assertThat(server.awaitRequest().route()).isEqualTo("POST /jobs/job-1/cancel")
-        assertThat(repo.only().status).isEqualTo(ConversionStatus.CANCELLED)
+        val next = repository()
+        next.drain()
+        // A stalled connection is recorded as a request with no path; skip it.
+        val cancel = generateSequence { server.awaitRequest() }.first { it.path != null }
+        assertThat(cancel.route()).isEqualTo("POST /jobs/job-1/cancel")
+        assertThat(next.only().status).isEqualTo(ConversionStatus.CANCELLED)
     }
 
     @Test fun `a cancel arriving while a step works is never overwritten`() = runTest {
         insert(stage = "convert", jobId = "job-1")
         val repo = repository()
-        server.enqueue(job("ready").setHeadersDelay(1, TimeUnit.SECONDS))
+        server.enqueue(job("ready"))
+        val answer = dispatcher.holdNext()
         val stepping = async(Dispatchers.IO) { repo.step() }
         server.awaitRequest()
         repo.cancel("id-1")
+        answer.countDown()
         stepping.await()
         assertThat(db.conversionJobDao().find("id-1")!!.stage).isEqualTo("cancel")
+    }
+
+    @Test fun `a job created just as the reader cancels is still cancelled on the server`() = runTest {
+        val repo = repository()
+        repo.startPdf()
+        server.enqueue(job("created"))
+        val answer = dispatcher.holdNext()
+        val stepping = async(Dispatchers.IO) { repo.step() }
+        assertThat(server.awaitRequest().route()).isEqualTo("POST /jobs")
+        repo.cancel("id-1")
+        answer.countDown()
+        assertThat(stepping.await()).isEqualTo(0)
+        val row = db.conversionJobDao().find("id-1")!!
+        assertThat(row.stage).isEqualTo("cancel")
+        assertThat(row.jobId).isEqualTo("job-1")
+
+        server.enqueue(job("cancelled"))
+        repo.drain()
+        assertThat(server.awaitRequest().route()).isEqualTo("POST /jobs/job-1/cancel")
+        assertThat(server.requestCount).isEqualTo(2) // the PDF never went
     }
 
     // Discovery.
@@ -706,12 +769,272 @@ class ConversionRepositoryTest {
         assertThat(repo.offer()).isEqualTo(ConversionOffer.Unreachable)
     }
 
-    @Test fun `a network failure is retried later without failing`() = runTest {
+    @Test fun `a network failure is retried later without failing, each time a while longer`() = runTest {
         insert(stage = "convert", jobId = "job-1")
-        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START))
+        repeat(2) { server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START)) }
         val repo = repository()
         assertThat(repo.step()).isEqualTo(NETWORK_RETRY_MS)
         assertThat(repo.only().status).isEqualTo(ConversionStatus.QUEUED)
+        // Not asked again before then.
+        assertThat(repo.step()).isEqualTo(NETWORK_RETRY_MS)
+        assertThat(server.requestCount).isEqualTo(1)
+        clock += NETWORK_RETRY_MS
+        assertThat(repo.step()).isEqualTo(2 * NETWORK_RETRY_MS)
+    }
+
+    // Transfers: counted, one a run, and only where they can finish.
+
+    @Test fun `an upload cut off with the worker still counts as a try`() = runTest {
+        val sending = CountDownLatch(1)
+        val repo = repository(stalledUploads(sending))
+        repo.startPdf(bytes = bigPdf, maxBytes = bigPdf.size.toLong())
+        server.enqueue(job("created").setHeader("Connection", "close"))
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.STALL_SOCKET_AT_START))
+        val stepping = launch(Dispatchers.IO) { repo.step() }
+        server.awaitRequest()
+        assertThat(sending.await(10, TimeUnit.SECONDS)).isTrue()
+        stepping.cancel() // WorkManager stops the run
+        stepping.join()
+        val row = db.conversionJobDao().find("id-1")!!
+        assertThat(row.stage).isEqualTo("upload")
+        assertThat(row.failures).isEqualTo(1)
+    }
+
+    @Test fun `uploads cut off twice are left to the reader without sending a third`() = runTest {
+        insert(stage = "upload", jobId = "job-1", jobJson = """{"id":"job-1","state":"created"}""", failures = 2)
+        server.enqueue(job("cancelled"))
+        val repo = repository()
+        assertThat(repo.step()).isNull()
+        assertThat(server.awaitRequest().route()).isEqualTo("POST /jobs/job-1/cancel")
+        assertThat(server.requestCount).isEqualTo(1)
+        assertThat(repo.only().problem).isEqualTo(ConversionRepository.UPLOAD_FAILED)
+        assertThat(repo.only().canRetry).isTrue()
+    }
+
+    @Test fun `an upload the worker can't show waits for the app to be open`() = runTest {
+        val repo = repository()
+        repo.startPdf()
+        assertThat(repo.step(beforeTransfer = { upload -> !upload })).isNull()
+        assertThat(server.requestCount).isEqualTo(0)
+        val waiting = repo.only()
+        assertThat(waiting.status).isEqualTo(ConversionStatus.UPLOADING)
+        assertThat(waiting.problem).isEqualTo(ConversionRepository.NEEDS_APP)
+        assertThat(waiting.waitingUntil).isNull()
+
+        // The app opens: the worker may show itself now.
+        wakes = 0
+        repo.resume()
+        assertThat(wakes).isEqualTo(1)
+        server.enqueue(job("created"))
+        server.enqueue(job("queued"))
+        assertThat(repo.step()).isEqualTo(POLL_MS)
+        assertThat(requests(2)).containsExactly("POST /jobs", "PUT /jobs/job-1/source").inOrder()
+        assertThat(repo.only().problem).isNull()
+    }
+
+    @Test fun `a download goes even when the worker can't show itself`() = runTest {
+        insert(stage = "import", jobId = "job-1", jobJson = readyJson())
+        server.enqueue(epubBody())
+        repository().step(beforeTransfer = { upload -> !upload })
+        assertThat(server.awaitRequest().route()).isEqualTo("GET /jobs/job-1/epub")
+        assertThat(imported).hasSize(1)
+    }
+
+    @Test fun `a step moves one PDF and leaves the next to the next run`() = runTest {
+        val repo = repository()
+        repo.startPdf()
+        repo.startPdf(bytes = pdf + "second".toByteArray())
+        server.enqueue(job("created"))
+        server.enqueue(job("queued"))
+        assertThat(repo.step()).isEqualTo(0)
+        assertThat(requests(2)).containsExactly("POST /jobs", "PUT /jobs/job-1/source").inOrder()
+        assertThat(server.requestCount).isEqualTo(2)
+    }
+
+    @Test fun `a metered network holds an upload the reader didn't agree to`() = runTest {
+        metered = true
+        val repo = repository()
+        repo.startPdf()
+        assertThat(repo.step()).isEqualTo(ConversionRepository.UNMETERED_WAIT_MS)
+        assertThat(server.requestCount).isEqualTo(0)
+        assertThat(repo.only().problem).isEqualTo(ConversionRepository.WAITING_UNMETERED)
+
+        metered = false
+        clock += ConversionRepository.UNMETERED_WAIT_MS
+        server.enqueue(job("queued"))
+        repo.step()
+        assertThat(server.awaitRequest().route()).isEqualTo("POST /jobs")
+    }
+
+    @Test fun `agreeing on a metered network lets the upload use it`() = runTest {
+        metered = true
+        val repo = repository()
+        repo.startPdf(allowMetered = true)
+        server.enqueue(job("queued"))
+        repo.step()
+        assertThat(server.awaitRequest().route()).isEqualTo("POST /jobs")
+    }
+
+    // Polling and how long a job is worth waiting for.
+
+    @Test fun `polls start every five seconds and space out the longer a conversion takes`() = runTest {
+        insert(stage = "convert", jobId = "job-1")
+        val repo = repository()
+        val waits = mutableListOf<Long>()
+        val startedAt = clock
+        while (clock - startedAt < 30 * 60_000L) {
+            server.enqueue(job("running"))
+            val wait = repo.step()!!
+            waits += wait
+            clock += wait
+        }
+        assertThat(waits.first()).isEqualTo(POLL_MS)
+        assertThat(waits.take(20).toSet()).containsExactly(POLL_MS)
+        assertThat(waits.last()).isGreaterThan(60_000L)
+        assertThat(waits.max()).isAtMost(ConversionRepository.MAX_POLL_MS)
+        assertThat(waits).isInOrder()
+    }
+
+    @Test fun `a job older than the server keeps it fails without asking`() = runTest {
+        insert(stage = "convert", jobId = "job-1", createdAt = clock - ConversionRepository.MAX_AGE_MS - 1)
+        val repo = repository()
+        assertThat(repo.step()).isNull()
+        assertThat(server.requestCount).isEqualTo(0)
+        assertThat(repo.only().problem).isEqualTo(ConversionRepository.JOB_GONE)
+        assertThat(repo.only().canRetry).isTrue()
+
+        // A new job starts the clock again.
+        repo.retry("id-1")
+        server.enqueue(job("queued"))
+        repo.step()
+        assertThat(server.awaitRequest().route()).isEqualTo("POST /jobs")
+    }
+
+    @Test fun `a book saved long ago is done even if acknowledging never got through`() = runTest {
+        insert(
+            stage = "acknowledge", jobId = "job-1", jobJson = readyJson(), documentId = 7,
+            createdAt = clock - ConversionRepository.MAX_AGE_MS - 1,
+        )
+        val repo = repository()
+        assertThat(repo.step()).isNull()
+        assertThat(repo.only().status).isEqualTo(ConversionStatus.READY)
+    }
+
+    // Acknowledging.
+
+    @Test fun `once the book is saved an odd answer to acknowledge still ends in the library`() = runTest {
+        insert(stage = "acknowledge", jobId = "job-1", jobJson = readyJson(), documentId = 7)
+        server.enqueue(refusal(403, "forbidden"))
+        val repo = repository()
+        assertThat(repo.step()).isNull()
+        val done = repo.only()
+        assertThat(done.status).isEqualTo(ConversionStatus.READY)
+        assertThat(done.documentId).isEqualTo(7)
+    }
+
+    @Test fun `once the book is saved a server error on acknowledge is asked again`() = runTest {
+        insert(stage = "acknowledge", jobId = "job-1", jobJson = readyJson(), documentId = 7)
+        server.enqueue(refusal(502, "Bad Gateway"))
+        val repo = repository()
+        assertThat(repo.step()).isEqualTo(NETWORK_RETRY_MS)
+        assertThat(db.conversionJobDao().find("id-1")!!.stage).isEqualTo("acknowledge")
+    }
+
+    // Downloads.
+
+    @Test fun `a download longer than the job said is cut off and never imported`() = runTest {
+        insert(stage = "import", jobId = "job-1", jobJson = readyJson())
+        server.enqueue(epubBody(epub + ByteArray(256 * 1024)))
+        val repo = repository()
+        assertThat(repo.step()).isEqualTo(NETWORK_RETRY_MS)
+        assertThat(imported).isEmpty()
+        assertThat(db.conversionJobDao().find("id-1")!!.failures).isEqualTo(1)
+    }
+
+    // Accounts.
+
+    @Test fun `signing in elsewhere mid step leaves the other conversions alone`() = runTest {
+        insert(stage = "convert", jobId = "job-1", id = "id-1")
+        insert(stage = "convert", jobId = "job-2", id = "id-2", createdAt = clock + 1)
+        val repo = repository()
+        server.enqueue(job("running"))
+        val answer = dispatcher.holdNext()
+        val stepping = async(Dispatchers.IO) { repo.step() }
+        server.awaitRequest()
+        owner = "https://quire.example bob"
+        answer.countDown()
+        stepping.await()
+        assertThat(server.requestCount).isEqualTo(1)
+    }
+
+    @Test fun `signing out forgets the account's conversions and their PDFs`() = runTest {
+        insert(stage = "convert", jobId = "job-1")
+        insert(stage = "convert", jobId = "job-2", id = "id-2", owner = "https://quire.example bob")
+        val repo = repository()
+        repo.forgetOwner(OWNER)
+        assertThat(db.conversionJobDao().find("id-1")).isNull()
+        assertThat(File(sourceDir, "id-1.pdf").exists()).isFalse()
+        assertThat(db.conversionJobDao().find("id-2")).isNotNull()
+    }
+
+    @Test fun `conversions follow their server to its new address`() = runTest {
+        insert(stage = "convert", jobId = "job-1")
+        val repo = repository()
+        repo.moveOwner(OWNER, "https://books.example alice")
+        owner = "https://books.example alice"
+        server.enqueue(job("running"))
+        repo.step()
+        assertThat(server.awaitRequest().route()).isEqualTo("GET /jobs/job-1")
+    }
+
+    @Test fun `another account's conversions go after a few days`() = runTest {
+        val old = clock - ConversionRepository.KEEP_OTHERS_MS - 1
+        insert(stage = "convert", jobId = "job-1", owner = "elsewhere bob", createdAt = old, updatedAt = old)
+        repository().step()
+        assertThat(db.conversionJobDao().find("id-1")).isNull()
+        assertThat(sourceDir.listFiles()).isEmpty()
+        assertThat(server.requestCount).isEqualTo(0)
+    }
+
+    // Starting.
+
+    @Test fun `a start cancelled half way leaves no copy behind`() = runTest {
+        val repo = repository()
+        lateinit var starting: Job
+        var reads = 0
+        val endless = object : InputStream() {
+            override fun read(): Int = 0
+            override fun read(b: ByteArray, off: Int, len: Int): Int {
+                if (++reads == 2) starting.cancel()
+                return len
+            }
+        }
+        starting = launch(Dispatchers.IO, CoroutineStart.LAZY) {
+            repo.start("Endless.pdf", null, Long.MAX_VALUE - 1, false) { endless }
+        }
+        starting.join()
+        assertThat(sourceDir.listFiles()).isEmpty()
+        assertThat(repo.conversions.first()).isEmpty()
+        assertThat(wakes).isEqualTo(0)
+    }
+
+    @Test fun `a copy no conversion knows is swept up`() = runTest {
+        val stray = File(sourceDir, "lost.pdf").apply {
+            writeBytes(pdf)
+            setLastModified(System.currentTimeMillis() - 2 * 60 * 60_000L)
+        }
+        val fresh = File(sourceDir, "copying.pdf").apply { writeBytes(pdf) }
+        repository().step()
+        assertThat(stray.exists()).isFalse()
+        assertThat(fresh.exists()).isTrue() // a start may still be copying it
+    }
+
+    @Test fun `a PDF that failed before makes way for the same PDF again`() = runTest {
+        val repo = repository()
+        failOnCreate(refusal(403, "hosting_subscription_required"), repo)
+        assertThat(repo.startPdf()).isEqualTo(ConversionStart.Started("id-3"))
+        assertThat(repo.only().status).isEqualTo(ConversionStatus.UPLOADING)
+        assertThat(sourceDir.listFiles()!!.map { it.name }).containsExactly("id-3.pdf")
     }
 
     private suspend fun failOnCreate(answer: MockResponse, repo: ConversionRepository = repository()): Conversion {
@@ -731,16 +1054,65 @@ class ConversionRepositoryTest {
         jobJson: String? = null,
         documentId: Long? = null,
         owner: String = OWNER,
+        id: String = "id-1",
+        failures: Int = 0,
+        createdAt: Long = clock,
+        updatedAt: Long = clock,
     ) {
-        val source = File(sourceDir, "id-1.pdf").apply { writeBytes(pdf) }
+        val source = File(sourceDir, "$id.pdf").apply { writeBytes(pdf) }
         db.conversionJobDao().insert(
             ConversionJobEntity(
-                id = "id-1", owner = owner, idempotencyKey = "key-1", fileName = "Field notes.pdf",
+                id = id, owner = owner, idempotencyKey = "key-$id", fileName = "Field notes.pdf",
                 sha256 = sha256(pdf), bytes = pdf.size.toLong(), sourcePath = source.absolutePath, jobId = jobId,
-                stage = stage, problem = null, jobJson = jobJson, retryAt = null, failures = 0,
-                documentId = documentId, createdAt = clock, updatedAt = clock,
+                stage = stage, problem = null, jobJson = jobJson, retryAt = null, failures = failures,
+                documentId = documentId, createdAt = createdAt, updatedAt = updatedAt, allowMetered = false,
             ),
         )
+    }
+
+    private val bigPdf = "%PDF-1.7 ".toByteArray() + ByteArray(8 shl 20) { it.toByte() }
+
+    /**
+     * A client whose uploads count [sending] down once the first bytes of the PDF are written,
+     * for a server that never reads them: the upload is then stuck half way.
+     */
+    private fun stalledUploads(sending: CountDownLatch): OkHttpClient = client().addNetworkInterceptor(
+        Interceptor { chain ->
+            val request = chain.request()
+            val body = request.body
+            if (request.method != "PUT" || body == null) return@Interceptor chain.proceed(request)
+            chain.proceed(
+                request.newBuilder().put(object : RequestBody() {
+                    override fun contentType() = body.contentType()
+                    override fun contentLength() = body.contentLength()
+                    override fun writeTo(sink: BufferedSink) {
+                        val signalling = object : ForwardingSink(sink) {
+                            override fun write(source: Buffer, byteCount: Long) {
+                                super.write(source, byteCount)
+                                sending.countDown()
+                            }
+                        }.buffer()
+                        body.writeTo(signalling)
+                        signalling.emit()
+                    }
+                }).build(),
+            )
+        },
+    ).build()
+
+    class HeldDispatcher : QueueDispatcher() {
+        @Volatile private var held: CountDownLatch? = null
+
+        /** The next answer waits until the latch is counted down. */
+        fun holdNext(): CountDownLatch = CountDownLatch(1).also { held = it }
+
+        override fun dispatch(request: RecordedRequest): MockResponse {
+            held?.let {
+                held = null
+                it.await(10, TimeUnit.SECONDS)
+            }
+            return super.dispatch(request)
+        }
     }
 
     private companion object {

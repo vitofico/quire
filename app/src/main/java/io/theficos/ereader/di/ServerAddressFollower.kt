@@ -17,12 +17,13 @@ import okhttp3.Request
  * Moves a signed-in Quire account to the address its server names as canonical.
  *
  * The server stays the same, only its address changes, so the session token keeps
- * working. Highlights and stopping-point notes are keyed by address and follow.
+ * working. Highlights, stopping-point notes and PDF conversions are keyed by address and follow.
  */
 internal class ServerAddressFollower(
     private val store: CalibreCredentialStore,
     private val client: OkHttpClient,
     private val moveMemory: suspend (from: String, to: String) -> Unit,
+    private val moveConversions: suspend (from: String, to: String) -> Unit = { _, _ -> },
 ) {
     private data class Identity(val accountId: String, val serverUrl: String?)
 
@@ -43,8 +44,14 @@ internal class ServerAddressFollower(
 
         val from = memoryAccountKey(account.baseUrl, account.subject)
         val to = memoryAccountKey(target, account.subject)
+        val fromOwner = accountOwner(account.baseUrl, account.subject)
+        val toOwner = accountOwner(target, account.subject)
         moveMemory(from, to)
-        if (!store.moveQuireServer(account, target, account.highlightScope())) moveMemory(to, from)
+        moveConversions(fromOwner, toOwner)
+        if (!store.moveQuireServer(account, target, account.highlightScope())) {
+            moveMemory(to, from)
+            moveConversions(toOwner, fromOwner)
+        }
     }
 
     private fun identity(serverUrl: String, token: String): Identity? = runCatching {

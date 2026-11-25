@@ -9,6 +9,7 @@
     <string name="convert_confirm">"%1$s (%2$s) se convierte a EPUB en tu servidor Quire. No se envía nada a ningún otro sitio. El libro aparece en tu biblioteca cuando esté listo."</string>
     <string name="convert_confirm_unknown_size">"%1$s se convierte a EPUB en tu servidor Quire. No se envía nada a ningún otro sitio. El libro aparece en tu biblioteca cuando esté listo."</string>
     <string name="convert_metered">"Estás en una conexión medida. Esto envía %1$s."</string>
+    <string name="convert_metered_unknown_size">"Estás en una conexión medida. Esto envía el PDF completo."</string>
     <string name="convert_action">"Convertir"</string>
     <string name="convert_too_large">"Este PDF ocupa %1$s. Tu servidor convierte PDF de hasta %2$s."</string>
     <string name="convert_too_large_unknown">"Este PDF es más grande de lo que convierte tu servidor (hasta %1$s)."</string>
@@ -18,6 +19,7 @@
     <string name="convert_signed_out">"Has cerrado sesión en tu servidor Quire. Vuelve a iniciar sesión en Ajustes para convertir PDF."</string>
     <string name="convert_unreachable">"No se pudo conectar con tu servidor Quire. Revisa tu conexión e inténtalo de nuevo."</string>
     <string name="convert_unreadable">"No se pudo leer este PDF."</string>
+    <string name="convert_no_space">"No hay espacio libre suficiente en este dispositivo para copiar el PDF. Libera espacio y vuelve a intentarlo."</string>
     <string name="convert_started">"Convirtiendo en tu servidor. Síguelo en %1$s → %2$s en la biblioteca."</string>
     <string name="convert_already_converting">"Este PDF ya se está convirtiendo."</string>
     <string name="convert_already_in_library">"Este PDF ya está en tu biblioteca como libro."</string>
@@ -47,8 +49,12 @@
     <string name="convert_wait_network">"No se pudo conectar con tu servidor. Se volverá a intentar en breve."</string>
     <string name="convert_wait_busy">"Tu servidor está convirtiendo otros PDF tuyos. Se volverá a intentar en breve."</string>
     <string name="convert_wait_daily_limit">"Has alcanzado el límite de conversiones de hoy en tu servidor. Se volverá a intentar a las %1$s."</string>
+    <string name="convert_wait_daily_limit_date">"Has alcanzado el límite de conversiones de hoy en tu servidor. Se volverá a intentar el %1$s."</string>
     <string name="convert_wait_signed_out">"Sesión cerrada en tu servidor Quire. Vuelve a iniciar sesión en Ajustes para continuar."</string>
     <string name="convert_wait_upload_in_progress">"Ya se está subiendo este PDF. Se volverá a comprobar en breve."</string>
+    <string name="convert_wait_open_app">"Abre Quire para continuar la subida."</string>
+    <string name="convert_wait_unmetered">"Esperando una red wifi para enviar el PDF."</string>
+    <string name="convert_wait_converter">"El conversor de tu servidor aún no está funcionando. Se volverá a intentar en breve."</string>
     <string name="convert_failed_encrypted">"Este PDF está cifrado o protegido con contraseña, así que no se puede convertir."</string>
     <string name="convert_failed_too_many_pages">"Este PDF tiene más páginas de las que convierte tu servidor."</string>
     <string name="convert_failed_unreadable_pdf">"Tu servidor no pudo leer este archivo como PDF."</string>

@@ -41,8 +41,11 @@ data class ConversionJobEntity(
     val failures: Int,
     /** The library book the converted EPUB became. */
     val documentId: Long?,
+    /** Since this server job was asked for: a new key starts the clock again. */
     val createdAt: Long,
     val updatedAt: Long,
+    /** The reader agreed to send the PDF over a metered network. */
+    val allowMetered: Boolean,
 )
 
 @Dao
@@ -61,6 +64,34 @@ abstract class ConversionJobDao {
 
     @Query("SELECT * FROM conversion_jobs WHERE stage IN (:stages) AND updatedAt < :before")
     abstract suspend fun settledBefore(stages: List<String>, before: Long): List<ConversionJobEntity>
+
+    /** Rows of any account but [owner] (every row, without one) not touched since [before]. */
+    @Query("SELECT * FROM conversion_jobs WHERE (:owner IS NULL OR owner != :owner) AND updatedAt < :before")
+    abstract suspend fun othersBefore(owner: String?, before: Long): List<ConversionJobEntity>
+
+    @Query("SELECT * FROM conversion_jobs WHERE owner = :owner")
+    abstract suspend fun ownedBy(owner: String): List<ConversionJobEntity>
+
+    @Query("SELECT sourcePath FROM conversion_jobs WHERE sourcePath IS NOT NULL")
+    abstract suspend fun sourcePaths(): List<String>
+
+    /** The account's server moved to another address: its conversions go with it. */
+    @Query("UPDATE conversion_jobs SET owner = :to WHERE owner = :from")
+    abstract suspend fun moveOwner(from: String, to: String)
+
+    /**
+     * Marks a conversion to be stopped, touching nothing else, so a job id the worker saved a
+     * moment earlier stays. Answers 0 when it was past stopping.
+     */
+    @Query(
+        "UPDATE conversion_jobs SET stage = 'cancel', problem = NULL, retryAt = NULL, updatedAt = :at " +
+            "WHERE id = :id AND stage IN ('upload', 'convert')",
+    )
+    abstract suspend fun cancel(id: String, at: Long): Int
+
+    /** Records the server job a key asked for, whatever stage the row moved to meanwhile. */
+    @Query("UPDATE conversion_jobs SET jobId = :jobId, jobJson = :jobJson WHERE id = :id AND idempotencyKey = :key")
+    abstract suspend fun setJob(id: String, key: String, jobId: String, jobJson: String)
 
     @Insert(onConflict = OnConflictStrategy.ABORT)
     abstract suspend fun insert(row: ConversionJobEntity)

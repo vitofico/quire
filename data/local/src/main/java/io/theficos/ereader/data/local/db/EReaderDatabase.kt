@@ -298,6 +298,7 @@ abstract class EReaderDatabase : RoomDatabase() {
                         documentId INTEGER,
                         createdAt INTEGER NOT NULL,
                         updatedAt INTEGER NOT NULL,
+                        allowMetered INTEGER NOT NULL,
                         PRIMARY KEY(id)
                     )
                 """.trimIndent())

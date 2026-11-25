@@ -8,7 +8,7 @@
         <item name="android:navigationBarColor">@color/quire_surface</item>
         <item name="android:windowLightNavigationBar" tools:targetApi="27">true</item>
     </style>
-    <!-- The share sink: a dialog over the sending app, or nothing at all for a toast. -->
+    <!-- The PDF share sink: a dialog over the sending app. -->
     <style name="Theme.Quire.Translucent" parent="Theme.Quire">
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowBackground">@android:color/transparent</item>

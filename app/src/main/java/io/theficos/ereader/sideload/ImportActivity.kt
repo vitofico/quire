@@ -3,15 +3,8 @@ package io.theficos.ereader.sideload
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.lifecycle.lifecycleScope
 import io.theficos.ereader.EReaderApp
-import io.theficos.ereader.ui.convert.PdfConvertPrompt
-import io.theficos.ereader.ui.convert.isPdf
-import io.theficos.ereader.ui.convert.queryNameAndSize
-import io.theficos.ereader.ui.theme.QuireTheme
 import io.theficos.quire.R
 import kotlinx.coroutines.launch
 
@@ -27,9 +20,8 @@ import kotlinx.coroutines.launch
  * so a user who shared a book from another app doesn't end up with Quire
  * sitting in their multitasker switcher.
  *
- * UI: an EPUB gets a toast on completion. A PDF gets a short dialog over the
- * sending app: converting it on the reader's Quire server, or why that can't
- * happen. The PDF is copied before the dialog closes, for the same reason.
+ * UI: deliberately minimal — a toast on completion. Spec forbids any
+ * curation / metadata-confirm UI in v1.
  */
 class ImportActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -40,19 +32,10 @@ class ImportActivity : ComponentActivity() {
             finish()
             return
         }
-        val container = (application as EReaderApp).container
-        val (name, _) = queryNameAndSize(contentResolver, uri)
-        if (isPdf(intent.type ?: contentResolver.getType(uri), name ?: uri.lastPathSegment)) {
-            setContent {
-                val theme by container.appThemePreferencesStore.flow.collectAsState()
-                QuireTheme(theme = theme) {
-                    PdfConvertPrompt(uri, key = uri.toString(), container.conversionRepository, onDismiss = ::finish)
-                }
-            }
-            return
-        }
+        val importer = (application as EReaderApp).container.sideloadImporter
+        val displayName = SideloadImporter.queryDisplayName(contentResolver, uri)
         lifecycleScope.launch {
-            val result = container.sideloadImporter.import(uri, name)
+            val result = importer.import(uri, displayName)
             val msg = when (result) {
                 is SideloadResult.Imported -> getString(R.string.common_imported, result.title)
                 is SideloadResult.AlreadyImported -> getString(R.string.sideload_already_in_your_library, result.title)

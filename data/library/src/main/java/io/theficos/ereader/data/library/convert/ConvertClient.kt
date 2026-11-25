@@ -65,8 +65,11 @@ class ConvertClient(
 
     suspend fun acknowledge(id: String): ConvertJob = call(post(url("jobs", id, "acknowledge"), null))
 
-    /** Streams the EPUB into [dest] and answers its size and SHA-256, to check against the job's result. */
-    suspend fun download(id: String, dest: File): Downloaded =
+    /**
+     * Streams the EPUB into [dest] and answers its size and SHA-256, to check against the job's
+     * result. Stops past [maxBytes], the size the job announced.
+     */
+    suspend fun download(id: String, dest: File, maxBytes: Long): Downloaded =
         transferHttp.newCall(get(url("jobs", id, "epub"))).await().use { resp ->
             if (!resp.isSuccessful) throw error(resp)
             withContext(Dispatchers.IO) {
@@ -83,6 +86,7 @@ class ConvertClient(
                             digest.update(buffer, 0, n)
                             out.write(buffer, 0, n)
                             total += n
+                            if (total > maxBytes) throw IOException("more than the announced size")
                         }
                     }
                 }

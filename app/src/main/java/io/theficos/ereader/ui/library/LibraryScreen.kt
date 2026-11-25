@@ -57,6 +57,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -91,6 +92,7 @@ import io.theficos.ereader.ui.components.SectionLabel
 import io.theficos.ereader.ui.components.rememberSaveEpubAs
 import io.theficos.ereader.ui.convert.ConversionsBanner
 import io.theficos.ereader.ui.convert.PDF_TYPE
+import io.theficos.ereader.ui.convert.OwnViewModels
 import io.theficos.ereader.ui.convert.PdfConvertPrompt
 import io.theficos.ereader.ui.convert.isPdf
 import io.theficos.ereader.ui.convert.showsBanner
@@ -154,7 +156,7 @@ fun LibraryScreen(
     val conversionRows by remember(conversions) { conversions?.conversions ?: flowOf(emptyList()) }
         .collectAsState(emptyList())
     // A picked PDF and how many have been picked, so the same file picked again asks afresh.
-    var pickedPdf by remember { mutableStateOf<Pair<Uri, Int>?>(null) }
+    var pickedPdf by rememberSaveable { mutableStateOf<Uri?>(null) }
     var pdfPicks by rememberSaveable { mutableIntStateOf(0) }
 
     LaunchedEffect(Unit) {
@@ -182,7 +184,7 @@ fun LibraryScreen(
                 isPdf(context.contentResolver.getType(uri), SideloadImporter.queryDisplayName(context.contentResolver, uri))
             ) {
                 pdfPicks += 1
-                pickedPdf = uri to pdfPicks
+                pickedPdf = uri
             } else if (uri != null) {
                 scope.launch {
                     val displayName = SideloadImporter.queryDisplayName(context.contentResolver, uri)
@@ -206,19 +208,24 @@ fun LibraryScreen(
         { l.launch(if (conversions != null) IMPORT_MIME_FILTER + PDF_TYPE else IMPORT_MIME_FILTER) }
     }
     if (conversions != null) {
-        pickedPdf?.let { (uri, pick) ->
-            PdfConvertPrompt(
-                uri, key = "$uri#$pick", conversions,
-                onDismiss = { pickedPdf = null },
-                onShowConversions = {
-                    pickedPdf = null
-                    onShowConversions()
-                },
-                onOpenBook = { id ->
-                    pickedPdf = null
-                    onOpenBook(id)
-                },
-            )
+        pickedPdf?.let { uri ->
+            // Each pick its own view model, cleared with its dialog.
+            key(pdfPicks) {
+                OwnViewModels {
+                    PdfConvertPrompt(
+                        uri, conversions,
+                        onDismiss = { pickedPdf = null },
+                        onShowConversions = {
+                            pickedPdf = null
+                            onShowConversions()
+                        },
+                        onOpenBook = { id ->
+                            pickedPdf = null
+                            onOpenBook(id)
+                        },
+                    )
+                }
+            }
         }
     }
 
