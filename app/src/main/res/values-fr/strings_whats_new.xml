@@ -16,5 +16,5 @@
     <string name="whats_new_pdf_conversion_title">Des PDF devenus livres</string>
     <string name="whats_new_pdf_conversion_description">Partagez un PDF avec Quire, ou ajoutez-le avec + dans la bibliothèque, et votre serveur Quire le convertit en EPUB dans votre bibliothèque. La conversion se fait sur votre propre serveur, rien n’est envoyé ailleurs. Suivez-la dans %1$s → %2$s, dans la bibliothèque.</string>
     <string name="whats_new_open_catalogs_title">Des livres gratuits pour commencer</string>
-    <string name="whats_new_open_catalogs_description">Ajoute d’un geste un catalogue gratuit et légal en français, anglais, italien, espagnol ou allemand dans %1$s → %2$s, ou depuis l’onglet Catalogue tant que tu n’en as aucun.</string>
+    <string name="whats_new_open_catalogs_description">Ajoutez d’un geste un catalogue gratuit et légal de classiques dans %1$s → %2$s, ou depuis l’onglet Catalogue tant que vous n’en avez aucun. Ceux dans votre langue apparaissent en premier.</string>
 </resources>

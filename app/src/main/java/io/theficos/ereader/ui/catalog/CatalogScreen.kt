@@ -85,9 +85,9 @@ import io.theficos.quire.R
 @Composable
 fun CatalogScreen(
     viewModel: CatalogViewModel,
-    contentPadding: PaddingValues,
     /** Offers the open catalogs while the reader has none. */
-    catalogsViewModel: CatalogsViewModel? = null,
+    catalogsViewModel: CatalogsViewModel,
+    contentPadding: PaddingValues,
     onShowDetails: (OpdsPublication) -> Unit = {},
     onScan: () -> Unit = {},
 ) {
@@ -114,7 +114,7 @@ fun CatalogScreen(
             CatalogSwitcher(catalogs = catalogs, activeId = active?.id, onSelect = viewModel::selectCatalog)
         }
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-            if (catalogs.isEmpty() && catalogsViewModel != null) {
+            if (catalogs.isEmpty()) {
                 NoCatalog(catalogsViewModel)
             } else when (val s = state) {
                 CatalogUiState.Idle -> {}

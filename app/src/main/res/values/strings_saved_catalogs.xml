@@ -56,5 +56,7 @@
     <string name="open_catalogs_added">Added</string>
     <string name="open_catalogs_public_domain">Public domain</string>
     <string name="open_catalogs_open_licence">Open licence</string>
+    <string name="open_catalogs_public_domain_us">Public domain in the US</string>
+    <string name="open_catalogs_synced">It is saved to your Quire account too, like any catalog.</string>
     <string name="open_catalogs_no_catalog">No catalog yet. Add one of these free catalogs to find books, or add your own in Settings → Catalogs.</string>
 </resources>

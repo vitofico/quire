@@ -47,8 +47,16 @@ data class CatalogForm(
         "CatalogForm(id=$id, isNew=$isNew, address=***, username=$username, password=***, name=$name, busy=$busy)"
 }
 
-/** An open catalog being added ([busy]) or that could not be, and why. */
-data class OpenCatalogAdding(val id: String, val busy: Boolean, val error: UiText? = null)
+/**
+ * An open catalog being added ([busy]) or that could not be, and why. [tested] is set when the
+ * Quire account is full, so the reader can keep it on this device only without testing it again.
+ */
+data class OpenCatalogAdding(
+    val id: String,
+    val busy: Boolean,
+    val error: UiText? = null,
+    val tested: SavedCatalog? = null,
+)
 
 /**
  * The catalog list in Settings and the sign-in question about uploading it. Every change goes
@@ -189,7 +197,25 @@ class CatalogsViewModel(
             val entry = SavedCatalog(SavedCatalog.newId(), open.name, (tested as CatalogCheck.Result.Found).catalog)
             _openAdding.value = when (val saved = repository.save(entry, toAccount = true)) {
                 CatalogResult.Done -> null
-                is CatalogResult.Failed -> OpenCatalogAdding(open.id, busy = false, error = catalogFailureMessage(saved.reason))
+                is CatalogResult.Failed -> OpenCatalogAdding(
+                    open.id,
+                    busy = false,
+                    error = catalogFailureMessage(saved.reason),
+                    tested = entry.takeIf { saved.reason == CatalogFailure.LIMIT_REACHED },
+                )
+            }
+        }
+    }
+
+    /** Keep the open catalog the full Quire account refused on this device only. */
+    fun keepOpenOnDevice() {
+        val adding = _openAdding.value?.takeUnless { it.busy } ?: return
+        val entry = adding.tested ?: return
+        _openAdding.value = adding.copy(busy = true, error = null)
+        viewModelScope.launch {
+            _openAdding.value = when (val saved = repository.save(entry.copy(deviceOnly = true), toAccount = false)) {
+                CatalogResult.Done -> null
+                is CatalogResult.Failed -> adding.copy(error = catalogFailureMessage(saved.reason), tested = null)
             }
         }
     }

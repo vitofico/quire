@@ -57,5 +57,7 @@
     <string name="open_catalogs_added">Añadido</string>
     <string name="open_catalogs_public_domain">Dominio público</string>
     <string name="open_catalogs_open_licence">Licencia abierta</string>
+    <string name="open_catalogs_public_domain_us">Dominio público en EE. UU.</string>
+    <string name="open_catalogs_synced">También se guarda en tu cuenta de Quire, como cualquier catálogo.</string>
     <string name="open_catalogs_no_catalog">Todavía no hay ningún catálogo. Añade uno de estos catálogos gratuitos para encontrar libros, o el tuyo en Ajustes → Catálogos.</string>
 </resources>

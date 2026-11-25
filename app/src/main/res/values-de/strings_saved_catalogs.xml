@@ -56,5 +56,7 @@
     <string name="open_catalogs_added">Hinzugefügt</string>
     <string name="open_catalogs_public_domain">Gemeinfrei</string>
     <string name="open_catalogs_open_licence">Offene Lizenz</string>
+    <string name="open_catalogs_public_domain_us">Gemeinfrei in den USA</string>
+    <string name="open_catalogs_synced">Er wird auch in deinem Quire-Konto gespeichert, wie jeder Katalog.</string>
     <string name="open_catalogs_no_catalog">Noch kein Katalog. Füge einen dieser kostenlosen Kataloge hinzu, um Bücher zu finden, oder deinen eigenen unter Einstellungen → Kataloge.</string>
 </resources>

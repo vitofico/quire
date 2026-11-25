@@ -303,6 +303,28 @@ class CatalogsViewModelTest {
         assertThat(store.catalogs.value).isEmpty()
     }
 
+    @Test fun `an open catalog the full account refuses can stay on this device only`() = runTest {
+        signedIn()
+        repository.pull()
+        request()
+        routes["GET /open"] = atom()
+        routes["PUT /catalogs/v1/catalogs/*"] = json("""{"detail":"catalog_limit_reached"}""", 409)
+        val vm = newViewModel()
+        vm.addOpen(open())
+        // The account call runs on the IO dispatcher, outside the test scheduler.
+        val refused = vm.openAdding.first { it?.busy == false }!!
+
+        assertThat(refused.error).isEqualTo(uiText(R.string.catalogs_failed_limit))
+        assertThat(refused.tested).isNotNull()
+        assertThat(store.catalogs.value).isEmpty()
+
+        vm.keepOpenOnDevice()
+        vm.openAdding.first { it == null }
+        val kept = store.catalogs.value.single()
+        assertThat(kept.deviceOnly).isTrue()
+        assertThat(kept.name).isEqualTo("Free books")
+    }
+
     @Test fun `the form's string form never shows the address or password`() {
         val form = CatalogForm(SavedCatalog.newId(), isNew = true, address = "https://books.example/opds/KEY", username = "alice", password = "hunter2")
         assertThat(form.toString()).doesNotContain("KEY")
