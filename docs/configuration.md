@@ -21,6 +21,7 @@ exists.
 - [Remote MCP access](#remote-mcp-access)
 - [AI provider](#ai-provider)
 - [Synced catalogs](#synced-catalogs)
+- [PDF conversion](#pdf-conversion)
 - [Status page](#status-page)
 - [Docker Compose variables](#docker-compose-variables)
 - [Advanced](#advanced)
@@ -961,6 +962,188 @@ catalog, so this bounds open connections to other sites, not the database.
 When to change it: lower it on a small server, raise it on one with many
 readers browsing saved catalogs at once.
 
+## PDF conversion
+
+Readers can turn a PDF into an EPUB from the app: the app uploads the PDF,
+the server queues it, and a separate worker container converts it with
+Calibre, Poppler and EPUBCheck (`quire-convert` from `converter/`). Nothing
+leaves the server and no model is used, so it works with AI switched off.
+The routes are in [PDF conversion](sync-api.md#pdf-conversion-convert-v1).
+It is off by default.
+
+**How the two containers work together.** The server and the worker share
+one folder and nothing else. The worker has no network, no database and no
+login of any account: it picks up a queued PDF from the folder, converts it,
+leaves the EPUB and a short report there, and exits; the container restarts
+it for the next job. The server keeps every job's state in the database and
+clears the folder: the PDF goes as soon as the job finishes, the EPUB when
+the reader acknowledges it or 24 hours after the job was created. A job
+nobody uploads a PDF for expires after an hour.
+
+**What the server checks, and what it does not.** The server treats
+everything the worker writes as untrusted, because a crafted PDF could take
+over Calibre inside the worker. It reads only regular files of a bounded
+size (never a link, a FIFO or a folder), checks the report field by field,
+copies the EPUB into a file of its own while hashing it, and keeps it only if
+the size and SHA-256 match the report and the zip looks like a plain EPUB:
+`mimetype` first with the EPUB media type, no entry name that leaves the
+book, at most 10,000 entries, and an unpacked size of at most 5 times the
+EPUB size ceiling (which is twice `QUIRE_SERVER_CONVERT_MAX_BYTES`). It does
+not check the book's content: an EPUB that passes is still a file from an
+untrusted PDF, and the apps open it like any sideloaded book.
+
+The worker exits after each job so that nothing a PDF starts outlives its
+job; on Linux it also adopts and kills every process the conversion leaves.
+What remains: while one job runs, a conversion that took over the worker can
+read the other PDFs queued at that moment and write results for them (which
+the server then checks as above). Running a container or a user id per job
+would close that; Quire does not do it yet, so keep the caps per account and
+the daily limit low on a server with untrusted accounts.
+
+**Turning it on with Docker Compose.** Both compose files already mount the
+`quire_convert` volume on the server and define the worker under the
+`convert` profile, with `restart: always` (the worker stops after every
+job). Add `QUIRE_SERVER_CONVERT_ENABLED=true` to `.env`, then start with the
+profile:
+
+```sh
+docker compose --profile convert up -d
+```
+
+The app shows the option once the worker has checked in (within a few
+seconds). The server logs one line at start that begins
+`PDF conversion is off` when the folder cannot be used, and `/health` repeats
+it. The compose default pulls `ghcr.io/vitofico/quire-convert:latest`, which
+works only while that package is public on GitHub; a fork publishes its own
+and sets `QUIRE_CONVERT_IMAGE`.
+
+**The worker container** (`ghcr.io/vitofico/quire-convert`, built from
+`converter/Dockerfile`, amd64 only) runs as user 1000 with a read-only root
+filesystem. It needs the shared folder mounted at `/jobs` (writable) and a
+writable `/tmp` (a 512 MB tmpfs is enough). It needs no network at all:
+`network_mode: none` in compose. It converts one book and exits; give it
+2 CPUs and 3 GB of memory (the compose files do), more for very long books.
+For more throughput, run more worker containers on the same folder: each
+job is claimed by exactly one of them. Docker waits a little longer before
+each restart when containers stop within ten seconds of starting, so a run
+of quick failures (encrypted PDFs, say) is picked up seconds to a minute
+apart.
+
+**Folder ownership and size.** The server creates the layout on start. The
+three subfolders the worker writes to (`running`, `done`, `workers`) are
+open to every user and sticky, so the worker can run as any user id and
+nobody removes another's entries; the uploads and finished books
+(`incoming`, `store`) are readable by the server's user only. The server
+image runs as root, so it can always clear what the worker leaves. If you
+run the server as another user, give it and the worker the same group (the
+worker makes its files group-writable). Mount the folder into these two
+containers only, and prefer a volume with a size limit, so a worker that
+fills `done/` cannot fill the server's disk.
+
+**On Kubernetes or another proxy.** Run the worker as a second container in
+the server's pod: the pod's `restartPolicy: Always` restarts it after every
+job the same way compose does, though Kubernetes waits longer between
+restarts (from ten seconds up to five minutes) when they come quickly, so
+`available` may read `false` for a while after a run of quick jobs. Do not
+set `shareProcessNamespace` on that pod: the worker's processes must end
+with its container. Mount one `ReadWriteOnce` volume into both containers
+(or a `ReadWriteMany` volume when they run apart), and let the reverse proxy
+pass request bodies up to `QUIRE_SERVER_CONVERT_MAX_BYTES` on
+`PUT /convert/v1/jobs/*/source` (nginx: `client_max_body_size`; Caddy has no
+limit by default). The server drops an upload that sends nothing for 60
+seconds; the proxy's read timeout should be at least that. The worker's
+memory and CPU limits go on its container; it needs no Service, ingress,
+Secret or network policy beyond denying all traffic.
+
+### `QUIRE_SERVER_CONVERT_ENABLED`
+
+- Type: `true` or `false`
+- Default: `false`
+- Example: `QUIRE_SERVER_CONVERT_ENABLED=true`
+
+Mounts `/convert/v1` and starts the server's clean-up pass. Off, every
+conversion route is a 404 and the apps do not show the option. The table
+`convert_jobs` exists either way, because account export and deletion read
+it. With conversion off nothing clears the job folder: deleting an account
+removes its job rows, but files from before (at most a day's worth) stay
+until conversion is on again or the folder is deleted.
+
+When to change it: to offer PDF conversion, together with running the
+worker.
+
+### `QUIRE_SERVER_CONVERT_DIR`
+
+- Type: folder path inside the container
+- Default: `/var/lib/quire-convert`
+- Example: `QUIRE_SERVER_CONVERT_DIR=/var/lib/quire-convert`
+
+The folder shared with the worker. The worker sees the same folder at
+`/jobs`. If the server cannot create its layout there, conversion stays off
+and the server logs why.
+
+When to change it: only to mount the shared volume elsewhere.
+
+### `QUIRE_SERVER_CONVERT_MAX_BYTES`
+
+- Type: whole number of bytes
+- Default: `104857600` (100 MiB)
+- Example: `QUIRE_SERVER_CONVERT_MAX_BYTES=209715200`
+
+The largest PDF the server accepts. The upload route alone is held to this
+instead of `QUIRE_SERVER_MAX_REQUEST_BYTES`, with or without a
+`Content-Length` header. A reverse proxy in front must allow bodies this
+large on that route. The EPUB a worker returns may be at most twice this
+size; a larger one fails the job with `invalid_result`.
+
+When to change it: for readers with larger scans, or to save disk space.
+
+### `QUIRE_SERVER_CONVERT_MAX_PAGES`
+
+- Type: whole number
+- Default: `1000`
+- Example: `QUIRE_SERVER_CONVERT_MAX_PAGES=2000`
+
+The most pages a PDF may have. The worker checks it before converting and
+fails the job with `too_many_pages`.
+
+When to change it: together with the time limit, for very long books.
+
+### `QUIRE_SERVER_CONVERT_TIME_LIMIT_S`
+
+- Type: whole number of seconds, at least 60
+- Default: `1200` (20 minutes)
+- Example: `QUIRE_SERVER_CONVERT_TIME_LIMIT_S=1800`
+
+How long one conversion may run. Past it the worker stops the conversion
+and the job fails with `timed_out`. A worker that goes silent for this long
+plus five minutes is presumed gone: the job runs once more, then fails with
+`worker_lost`.
+
+When to change it: when long books fail with `timed_out` on a slow machine.
+
+### `QUIRE_SERVER_CONVERT_MAX_ACTIVE_PER_OWNER`
+
+- Type: whole number, at least 1
+- Default: `2`
+- Example: `QUIRE_SERVER_CONVERT_MAX_ACTIVE_PER_OWNER=3`
+
+How many unfinished conversions (waiting for the PDF, queued or running) one
+account may have at once. One more gets `429 too_many_active_jobs`.
+
+When to change it: rarely; the worker converts one book at a time anyway.
+
+### `QUIRE_SERVER_CONVERT_DAILY_LIMIT`
+
+- Type: whole number, at least 1
+- Default: `10`
+- Example: `QUIRE_SERVER_CONVERT_DAILY_LIMIT=25`
+
+How many conversions one account may start in any 24 hours, cancelled and
+failed ones included. One more gets `429 daily_limit_reached` with the wait
+in `Retry-After`.
+
+When to change it: to share the worker more or less generously.
+
 ## Status page
 
 `/quire-admin` shows in one browser page what the checks in
@@ -1036,6 +1219,7 @@ the compose files. They are not server settings. `POSTGRES_PASSWORD` is under
 | `CADDY_HTTPS_PORT`, `CADDY_HTTP_PORT` | `docker-compose.full.yml` | `443`, `80` |
 | `PUID`, `PGID` | `docker-compose.full.yml`, for calibre-web | `1000` |
 | `TZ` | `docker-compose.full.yml` for calibre-web; the server, through `.env` | `UTC` |
+| `QUIRE_CONVERT_IMAGE` | both compose files, for the conversion worker | `ghcr.io/vitofico/quire-convert:latest` |
 
 ### `QUIRE_SERVER_PORT`
 
@@ -1114,6 +1298,19 @@ server does is in UTC, including when the AI budgets reset.
 
 When to change it: for calibre-web's sake. The server works the same either
 way.
+
+### `QUIRE_CONVERT_IMAGE`
+
+- Read by: `docker-compose.yml` and `docker-compose.full.yml`
+- Type: image reference
+- Default: `ghcr.io/vitofico/quire-convert:latest`
+- Example: `QUIRE_CONVERT_IMAGE=ghcr.io/vitofico/quire-convert@sha256:<digest>`
+
+The image of the PDF conversion worker, used only with `--profile convert`
+(see [PDF conversion](#pdf-conversion)). Every build on `main` that changes
+the converter is published under its commit sha and `latest`.
+
+When to change it: to pin a release by digest, like `QUIRE_SERVER_IMAGE`.
 
 ## Advanced
 
@@ -1221,7 +1418,9 @@ When to change it: practically never on a household server.
 - Example: `QUIRE_SERVER_MAX_REQUEST_BYTES=4194304`
 
 The largest request body the server accepts; larger ones get 413. GET, HEAD,
-OPTIONS and DELETE requests are not checked.
+OPTIONS and DELETE requests are not checked. The PDF upload of
+[PDF conversion](#pdf-conversion) has its own limit,
+`QUIRE_SERVER_CONVERT_MAX_BYTES`.
 
 When to change it: if a library sync from the app fails with 413.
 

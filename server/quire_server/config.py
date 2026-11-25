@@ -331,6 +331,18 @@ class Settings(BaseSettings):
     # Fetches in flight at once, all accounts together (each account: 4).
     catalog_proxy_max_concurrent: int = Field(8, ge=1)
 
+    # PDF to EPUB conversion (`/convert/v1/*`). The server takes the upload and
+    # keeps every job's state; a separate worker container runs the converter
+    # on a folder both of them mount. Off by default.
+    convert_enabled: bool = False
+    convert_dir: str = "/var/lib/quire-convert"
+    convert_max_bytes: int = Field(100 * 1024 * 1024, ge=1)
+    convert_max_pages: int = Field(1000, ge=1)
+    convert_time_limit_s: int = Field(1200, ge=60)
+    # Jobs per account not yet finished, and jobs per account per rolling day.
+    convert_max_active_per_owner: int = Field(2, ge=1)
+    convert_daily_limit: int = Field(10, ge=1)
+
     @field_validator("mcp_public_url")
     @classmethod
     def _mcp_public_origin(cls, value: str | None) -> str | None:

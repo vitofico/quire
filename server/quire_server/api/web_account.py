@@ -89,7 +89,9 @@ def install_web_account(app: FastAPI, settings: Settings, identity: IdentitySett
         if expected is None or not (
             path
             in {"/auth/v1/me", "/auth/v1/logout", "/auth/v1/account/export", "/quire/v1/session"}
-            or path.startswith(("/sync/v1/", "/library/v1/", "/ai/v1/", "/catalogs/v1/"))
+            or path.startswith(
+                ("/sync/v1/", "/library/v1/", "/ai/v1/", "/catalogs/v1/", "/convert/v1/")
+            )
         ):
             return await call_next(request)
         try:
