@@ -1187,8 +1187,11 @@ body is downloaded. The full set of accepted hints is:
 | `content_hash`    | canonical      | sha256 of the EPUB body. Optional since PR2.       |
 | `opds_dc_id`      | user-scoped    | `dc:identifier` from the catalog entry.            |
 | `isbn`            | global         | Same ISBN means the same book everywhere.          |
-| `calibre_book_id` | user-scoped    | calibre-web book id; not portable across servers.  |
 | `opds_href`       | user-scoped    | OPDS acquisition href; last-resort fallback.       |
+
+`calibre_book_id` (the calibre-web book number) is accepted and ignored: the
+same number names different books on different servers, and `opds_href`
+already identifies the catalog entry.
 
 At least one hint must be present. The server walks the hierarchy in the
 order above and resolves to a canonical via the `insight_identity_aliases`
