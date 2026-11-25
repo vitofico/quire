@@ -25,7 +25,7 @@ class OpdsClientTest {
         server = MockWebServer().apply { start() }
         val creds = AccountCredentials.Basic(server.url("/").toString().trimEnd('/'), "u", "p")
         val okHttp = OkHttpClient.Builder()
-            .accountAuth(AccountAuthRoute.CATALOG, { creds }) {}
+            .catalogAuth { session(creds) }
             .build()
         client = OpdsClient(okHttp)
         server.dispatcher = object : Dispatcher() {

@@ -4,9 +4,8 @@ import android.content.Context
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import io.theficos.ereader.auth.AccountCredentials
-import io.theficos.ereader.auth.catalogAccount
 import io.theficos.ereader.auth.CalibreCredentialStore
+import io.theficos.ereader.auth.SavedCatalog
 import io.theficos.ereader.core.identity.extractIdentity
 import io.theficos.ereader.core.metadata.readOpfBundle
 import io.theficos.ereader.core.metadata.validateEpubContainer
@@ -54,7 +53,22 @@ class CatalogViewModel(
     private val catalogInsightStash: CatalogInsightStash? = null,
     private val insightSyncRepository: InsightSyncRepository? = null,
     private val subjectProvider: () -> String? = { null },
+    /** Fetch the Quire account's catalog list, so a catalog added on another device shows up here. */
+    private val pullCatalogs: suspend () -> Unit = {},
 ) : ViewModel() {
+
+    /** Every saved catalog, for the switcher. */
+    val catalogs: StateFlow<List<SavedCatalog>> = credentialStore.catalogs
+
+    /** The catalog being browsed. */
+    val activeCatalog: StateFlow<SavedCatalog?> = credentialStore.activeCatalog
+
+    fun selectCatalog(id: String) = credentialStore.setActiveCatalog(id)
+
+    /** The catalog view came on screen. */
+    fun onOpened() {
+        viewModelScope.launch { pullCatalogs() }
+    }
 
     private val _state = MutableStateFlow<CatalogUiState>(CatalogUiState.Idle)
     val state: StateFlow<CatalogUiState> = _state.asStateFlow()
@@ -77,48 +91,41 @@ class CatalogViewModel(
         viewModelScope.launch {
             // Reload when the catalog or its authentication changes, including
             // a password correction at the same URL.
-            credentialStore.accountFlow
-                .map { it?.catalogAccount() }
+            credentialStore.activeCatalog
+                .map { it?.id to it?.catalog }
                 .distinctUntilChanged()
                 .collect { loadRoot() }
         }
     }
 
     fun loadRoot() {
-        val account = credentialStore.getAccount()?.catalogAccount()
+        val active = credentialStore.activeCatalog.value
+        val account = active?.catalog
         backStack.clear()
         failedSearch = null
         _isRefreshing.value = false
         if (account == null || account.baseUrl.isBlank()) {
-            _state.value = CatalogUiState.Error(uiText(R.string.quire_account_catalog_missing))
+            // A catalog the account lists but whose login this device can't read yet.
+            _state.value = CatalogUiState.Error(
+                if (active != null) uiText(R.string.catalog_needs_login, active.name)
+                else uiText(R.string.quire_account_catalog_missing),
+            )
             return
         }
         _state.value = CatalogUiState.Loading
-        load(rootUrlFor(account))
-    }
-
-    /**
-     * The feed URL to open for [account].
-     *
-     * calibre-web and quire-server accounts store a server ROOT, so the catalog
-     * lives at the well-known `/opds` beneath it. An OPDS-only account stores a
-     * COMPLETE catalog URL whose layout we cannot predict (Kavita's is
-     * `/api/opds/{api-key}`), so it is used exactly as entered. Appending
-     * anything to it is what issue #101 was filed about.
-     */
-    private fun rootUrlFor(account: AccountCredentials): String = when (account) {
-        is AccountCredentials.OpdsOnly -> account.baseUrl
-        else -> "${account.baseUrl.trimEnd('/')}/opds"
+        // A saved catalog's address is the complete feed URL (Kavita's is `/api/opds/{api-key}`),
+        // so it is used exactly as entered. Appending to it is what issue #101 was filed about.
+        load(account.baseUrl)
     }
 
     fun refresh() {
         failedSearch = null
         val current = _state.value as? CatalogUiState.Loaded ?: return loadRoot()
         _isRefreshing.value = true
-        val catalog = credentialStore.getAccount()?.catalogAccount()
+        val catalog = credentialStore.catalogAccount()
         viewModelScope.launch {
             val result = runCatching { client.fetch(current.url) }
-            if (catalog != credentialStore.getAccount()?.catalogAccount()) return@launch
+            if (catalog != credentialStore.catalogAccount()) return@launch
             result.onSuccess { feed ->
                     _state.value = CatalogUiState.Loaded(current.url, feed, canGoBack = backStack.isNotEmpty())
                 }
@@ -131,10 +138,10 @@ class CatalogViewModel(
         failedSearch = null
         val current = _state.value as? CatalogUiState.Loaded
         _state.value = CatalogUiState.Loading
-        val catalog = credentialStore.getAccount()?.catalogAccount()
+        val catalog = credentialStore.catalogAccount()
         viewModelScope.launch {
             val result = runCatching { client.fetch(url) }
-            if (catalog != credentialStore.getAccount()?.catalogAccount()) return@launch
+            if (catalog != credentialStore.catalogAccount()) return@launch
             result.onSuccess { feed ->
                     if (current != null) backStack.push(current.url to current.feed)
                     _state.value = CatalogUiState.Loaded(url, feed, canGoBack = backStack.isNotEmpty())
@@ -173,7 +180,7 @@ class CatalogViewModel(
         val link = current.feed.searchLink ?: return
         if (query.isBlank()) return
         _state.value = CatalogUiState.Loading
-        val catalog = credentialStore.getAccount()?.catalogAccount()
+        val catalog = credentialStore.catalogAccount()
         viewModelScope.launch {
             var retryUrl = current.url
             val result = runCatching {
@@ -181,7 +188,7 @@ class CatalogViewModel(
                 retryUrl = resolved
                 client.fetch(resolved) to resolved
             }
-            if (catalog != credentialStore.getAccount()?.catalogAccount()) return@launch
+            if (catalog != credentialStore.catalogAccount()) return@launch
             result.onSuccess { (feed, resolved) ->
                 failedSearch = null
                 if (retainParent) backStack.push(current.url to current.feed)
@@ -254,17 +261,15 @@ class CatalogViewModel(
 
     fun download(pub: OpdsPublication, context: Context) {
         val current = _state.value as? CatalogUiState.Loaded ?: return
-        // Reader-only accounts (issue #101) have no quire-server: enqueueing a
+        // Without a Quire login (issue #101) there is no quire-server: enqueueing a
         // sync or a mirror push would just log a failure per book. The clients
         // would refuse anyway; this keeps the work from being scheduled at all.
-        // Only the OPDS-only variant is gated off. An absent account keeps the
-        // old behaviour, so a credential cleared mid-download does not quietly
-        // change what the post-download hook does.
         val account = credentialStore.getAccount()
-        val catalog = account?.catalogAccount()
+        val catalog = credentialStore.catalogAccount()
+        val catalogId = credentialStore.activeCatalog.value?.id
         val subject = subjectProvider()
-        val hasQuireServer = account !is AccountCredentials.OpdsOnly
-        fun sameCatalog() = catalog == credentialStore.getAccount()?.catalogAccount()
+        val hasQuireServer = account != null
+        fun sameCatalog() = catalog == credentialStore.catalogAccount()
         fun sameServiceScope() = hasQuireServer && sameCatalog() && subject == subjectProvider()
         viewModelScope.launch {
             _state.value = current.copy(downloading = pub.epubDownloadHref, progress = 0f)
@@ -302,6 +307,7 @@ class CatalogViewModel(
                         downloadedAt = System.currentTimeMillis(),
                         seriesName = opf.seriesName,
                         seriesIndex = opf.seriesPosition?.toDouble(),
+                        catalogId = catalogId,
                     )
                     // Upload to /library/v1/items so the server can include
                     // this book in stats / aggregates. Lock #13: we capture

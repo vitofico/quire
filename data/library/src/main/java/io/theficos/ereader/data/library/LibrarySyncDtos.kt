@@ -1,5 +1,7 @@
 package io.theficos.ereader.data.library
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -62,6 +64,11 @@ data class LibrarySyncEntry(
     val language: String? = null,
     val subjects: List<String> = emptyList(),
     @SerialName("opds_href") val opdsHref: String? = null,
+    // Absent keeps the server's value, so null is never sent. Servers older than saved catalogs
+    // reject the field and with it the whole batch: send it only to a server that syncs catalogs.
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @SerialName("catalog_id") val catalogId: String? = null,
 )
 
 /**

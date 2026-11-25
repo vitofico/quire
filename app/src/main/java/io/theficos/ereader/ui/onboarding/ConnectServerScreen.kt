@@ -133,11 +133,9 @@ fun ConnectServerScreen(
 
             ResultPanel(
                 state = state,
-                onVerifyBasic = { base, u, p -> viewModel.verifyAndSaveBasic(base, u, p) },
-                onVerifyCalibreCatalog = { base, u, p -> viewModel.verifyAndSaveBasic(base, u, p, catalogOnly = true) },
+                onSaveCatalog = viewModel::saveCatalog,
                 onVerifyBearer = { base, e, p -> viewModel.verifyAndSaveBearer(base, e, p) },
                 onPairing = { base, ticket -> viewModel.verifyAndSavePairing(base, ticket) },
-                onVerifyOpds = { catalog, u, p -> viewModel.verifyAndSaveOpds(catalog, u, p) },
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -158,7 +156,7 @@ fun QuireSignInScreen(
     val verifying = state is ConnectServerViewModel.UiState.Verifying
     val reauth = viewModel.isReauthentication
     var serverUrl by rememberSaveable { mutableStateOf(viewModel.initialQuireUrl) }
-    val migrationOffered by viewModel.migrationOffered.collectAsState()
+    val migration by viewModel.legacyMigration.collectAsState()
 
     LaunchedEffect(Unit) { viewModel.claimLegacyAccount() }
     LaunchedEffect(state) {
@@ -188,7 +186,7 @@ fun QuireSignInScreen(
                 ),
                 modifier = Modifier.fillMaxWidth(),
             )
-            if (migrationOffered) {
+            if (migration == ConnectServerViewModel.LegacyMigration.OFFERED) {
                 MigrationCard(enabled = !verifying, onSubmit = viewModel::migrateLegacyAccount)
                 Text(stringResource(R.string.quire_migration_or_sign_in), style = MaterialTheme.typography.bodySmall)
             }
@@ -219,11 +217,9 @@ fun QuireSignInScreen(
 @Composable
 private fun ResultPanel(
     state: ConnectServerViewModel.UiState,
-    onVerifyBasic: (String, String, String) -> Unit,
+    onSaveCatalog: (ServerProbeResult, String?, String?) -> Unit,
     onVerifyBearer: (String, String, String) -> Unit,
     onPairing: (String, String) -> Unit = { _, _ -> },
-    onVerifyOpds: (String, String?, String?) -> Unit,
-    onVerifyCalibreCatalog: (String, String, String) -> Unit = onVerifyBasic,
 ) {
     when (state) {
         ConnectServerViewModel.UiState.Idle -> Unit
@@ -237,7 +233,7 @@ private fun ResultPanel(
                 is ServerProbeResult.Calibre -> BasicCredentialCard(
                     canonicalBaseUrl = probe.canonicalBaseUrl,
                     headline = stringResource(R.string.common_calibre_web_detected),
-                    onSubmit = onVerifyBasic,
+                    onSubmit = { u, p -> onSaveCatalog(probe, u, p) },
                 )
                 is ServerProbeResult.NativeAuth -> BearerCredentialCard(
                     canonicalBaseUrl = probe.canonicalBaseUrl,
@@ -247,14 +243,13 @@ private fun ResultPanel(
                 )
                 is ServerProbeResult.Both -> AmbiguousChoiceCard(
                     canonicalBaseUrl = probe.canonicalBaseUrl,
-                    onVerifyBasic = onVerifyCalibreCatalog,
+                    onSaveCatalog = { u, p -> onSaveCatalog(probe, u, p) },
                     onVerifyBearer = onVerifyBearer,
                     onPairing = onPairing,
                 )
                 is ServerProbeResult.GenericOpds -> GenericOpdsCard(
-                    canonicalCatalogUrl = probe.canonicalCatalogUrl,
                     requiresAuth = probe.requiresAuth,
-                    onSubmit = onVerifyOpds,
+                    onSubmit = { u, p -> onSaveCatalog(probe, u, p) },
                 )
                 is ServerProbeResult.Unknown -> QuireCard(modifier = Modifier.fillMaxWidth()) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -324,11 +319,12 @@ private fun ProbingRow(rawUrl: String) {
     }
 }
 
+/** A Calibre-Web catalog's login. It is saved as a catalog: Calibre-Web is no longer a sign-in. */
 @Composable
 private fun BasicCredentialCard(
     canonicalBaseUrl: String,
     headline: String,
-    onSubmit: (String, String, String) -> Unit,
+    onSubmit: (String, String) -> Unit,
 ) {
     var username by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
@@ -372,10 +368,10 @@ private fun BasicCredentialCard(
                     .localizedDescription(R.string.common_password),
             )
             Button(
-                onClick = { onSubmit(canonicalBaseUrl, username, password) },
+                onClick = { onSubmit(username, password) },
                 enabled = username.isNotBlank() && password.isNotBlank(),
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text(stringResource(R.string.common_sign_in)) }
+            ) { Text(stringResource(R.string.common_connect)) }
         }
     }
 }
@@ -511,9 +507,8 @@ private fun BearerCredentialCard(
 
 @Composable
 private fun GenericOpdsCard(
-    canonicalCatalogUrl: String,
     requiresAuth: Boolean,
-    onSubmit: (String, String?, String?) -> Unit,
+    onSubmit: (String?, String?) -> Unit,
 ) {
     var username by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
@@ -569,7 +564,6 @@ private fun GenericOpdsCard(
             Button(
                 onClick = {
                     onSubmit(
-                        canonicalCatalogUrl,
                         username.takeIf { it.isNotBlank() },
                         password.takeIf { it.isNotBlank() },
                     )
@@ -586,7 +580,7 @@ private fun GenericOpdsCard(
 @Composable
 private fun AmbiguousChoiceCard(
     canonicalBaseUrl: String,
-    onVerifyBasic: (String, String, String) -> Unit,
+    onSaveCatalog: (String, String) -> Unit,
     onVerifyBearer: (String, String, String) -> Unit,
     onPairing: (String, String) -> Unit = { _, _ -> },
 ) {
@@ -616,7 +610,7 @@ private fun AmbiguousChoiceCard(
                 AmbiguousChoice.Basic -> BasicCredentialCard(
                     canonicalBaseUrl = canonicalBaseUrl,
                     headline = stringResource(R.string.common_calibre_web),
-                    onSubmit = onVerifyBasic,
+                    onSubmit = onSaveCatalog,
                 )
                 AmbiguousChoice.Bearer -> BearerCredentialCard(
                     canonicalBaseUrl = canonicalBaseUrl,
@@ -663,7 +657,7 @@ private fun ConnectServerScreenCalibrePreview() {
                 BasicCredentialCard(
                     canonicalBaseUrl = "https://calibre.example.com",
                     headline = stringResource(R.string.common_calibre_web_detected),
-                    onSubmit = { _, _, _ -> },
+                    onSubmit = { _, _ -> },
                 )
             }
         }
@@ -693,9 +687,8 @@ private fun ConnectServerScreenGenericOpdsPreview() {
         Surface(modifier = Modifier.fillMaxSize()) {
             Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 GenericOpdsCard(
-                    canonicalCatalogUrl = "https://catalog.example.com/opds",
                     requiresAuth = false,
-                    onSubmit = { _, _, _ -> },
+                    onSubmit = { _, _ -> },
                 )
             }
         }

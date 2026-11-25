@@ -140,7 +140,8 @@ class LibraryMirrorPushWorker(
 
         var droppedChunks = 0
         for ((index, chunk) in chunks.withIndex()) {
-            val payload = LibrarySyncRequest(items = chunk.map { it.toSyncEntry(lastSeenAt) })
+            val sendCatalogIds = deps.sendCatalogIds()
+            val payload = LibrarySyncRequest(items = chunk.map { it.toSyncEntry(lastSeenAt, sendCatalogIds) })
             val chunkLabel = "chunk=${index + 1}/${chunks.size} size=${chunk.size}"
             try {
                 val summary = deps.client.syncBatch(payload)
@@ -203,7 +204,7 @@ class LibraryMirrorPushWorker(
         return Result.success()
     }
 
-    private fun DocumentEntity.toSyncEntry(lastSeenAt: String): LibrarySyncEntry =
+    private fun DocumentEntity.toSyncEntry(lastSeenAt: String, sendCatalogId: Boolean): LibrarySyncEntry =
         LibrarySyncEntry(
             identityHash = contentHash,
             identityHashVersion = identityHashVersion,
@@ -221,6 +222,7 @@ class LibraryMirrorPushWorker(
             language = null,
             subjects = emptyList(),
             opdsHref = downloadUrl,
+            catalogId = catalogId?.takeIf { sendCatalogId },
         )
 
     private companion object {
@@ -258,6 +260,8 @@ object LibraryMirrorPushDependencies {
         val client: LibraryClient,
         val dao: DocumentDao,
         val credentials: CredentialsProvider,
+        /** True when the server takes `catalog_id` in a batch; servers before saved catalogs reject it. */
+        val sendCatalogIds: () -> Boolean = { false },
     )
 }
 

@@ -41,7 +41,7 @@ import io.theficos.ereader.ui.components.SectionLabel
 import io.theficos.quire.R
 
 // Change this when a new entry becomes the lead story. Editing copy keeps its ID.
-internal const val WHATS_NEW_LATEST_ENTRY_ID = "reading-pause"
+internal const val WHATS_NEW_LATEST_ENTRY_ID = "saved-catalogs"
 
 @Composable
 internal fun WhatsNewSettingsRow(unread: Boolean, onOpen: () -> Unit) {
@@ -107,6 +107,16 @@ internal fun WhatsNewScreen(onBack: () -> Unit) {
             ) {
                 UpdateEntry(
                     group = stringResource(R.string.whats_new_latest),
+                    title = stringResource(R.string.whats_new_catalogs_title),
+                    description = stringResource(
+                        R.string.whats_new_catalogs_description,
+                        stringResource(R.string.common_settings),
+                        stringResource(R.string.catalogs_title),
+                    ),
+                )
+                HorizontalDivider()
+                UpdateEntry(
+                    group = stringResource(R.string.whats_new_earlier),
                     title = stringResource(R.string.whats_new_reading_pause_title),
                     description = stringResource(
                         R.string.whats_new_reading_pause_description,
@@ -114,9 +124,8 @@ internal fun WhatsNewScreen(onBack: () -> Unit) {
                         stringResource(R.string.reader_pause_title),
                     ),
                 )
-                HorizontalDivider()
                 UpdateEntry(
-                    group = stringResource(R.string.whats_new_earlier),
+                    group = null,
                     title = stringResource(R.string.whats_new_highlights_title),
                     description = stringResource(
                         R.string.whats_new_highlights_description,
@@ -130,9 +139,9 @@ internal fun WhatsNewScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun UpdateEntry(group: String, title: String, description: String) {
+private fun UpdateEntry(group: String?, title: String, description: String) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        SectionLabel(group, modifier = Modifier.semantics { heading() })
+        if (group != null) SectionLabel(group, modifier = Modifier.semantics { heading() })
         Text(title, style = MaterialTheme.typography.titleMedium)
         Text(description, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }

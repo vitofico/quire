@@ -8,6 +8,7 @@ import com.google.common.truth.Truth.assertThat
 import io.theficos.ereader.auth.AccountCredentials
 import io.theficos.ereader.core.model.DocumentIdentity
 import io.theficos.ereader.auth.CalibreCredentialStore
+import io.theficos.ereader.auth.SavedCatalog
 import io.theficos.ereader.data.ai.AiClient
 import io.theficos.ereader.data.ai.AiRepository
 import io.theficos.ereader.data.local.DocumentRepository
@@ -219,81 +220,14 @@ class SettingsViewModelTest {
         assertThat(vm.isConnected.value).isFalse()
     }
 
-    // ---------- issue #101 ----------
+    // ---------- catalogs ----------
 
-    @Test fun `an opds account is surfaced as the active account`() {
-        store.saveOpdsAccount("https://kavita.example/api/opds/KEY")
+    @Test fun `a device with only catalogs reports no sync credentials and cannot restore`() = runTest {
+        store.saveCatalog(catalogEntry("https://kavita.example/api/opds/KEY"))
         val vm = newViewModel()
-        assertThat(vm.opds.value.isActive).isTrue()
-        assertThat(vm.opds.value.catalogUrl).isEqualTo("https://kavita.example/api/opds/KEY")
-    }
-
-    @Test fun `an opds account reports no sync credentials`() {
-        store.saveOpdsAccount("https://kavita.example/api/opds/KEY")
-        val vm = newViewModel()
+        advanceUntilIdle()
         assertThat(vm.sync.value.hasCredentials).isFalse()
-    }
-
-    @Test fun `a calibre account is not surfaced as an opds account`() {
-        store.saveBasicAccount("https://calibre.example", "u", "p")
-        val vm = newViewModel()
-        assertThat(vm.opds.value.isActive).isFalse()
-        assertThat(vm.calibre.value.baseUrl).isEqualTo("https://calibre.example")
-    }
-
-    @Test fun `saving an opds account replaces the stored record`() = runTest {
-        val vm = newViewModel()
-        vm.onOpdsCatalogUrlChange("https://feed.example/opds")
-        vm.saveOpds()
-        advanceUntilIdle()
-
-        val saved = store.getAccount() as AccountCredentials.OpdsOnly
-        assertThat(saved.baseUrl).isEqualTo("https://feed.example/opds")
-    }
-
-    @Test fun `saving a scheme-less catalog url leaves the stored account untouched`() = runTest {
-        store.saveBasicAccount("https://calibre.example", "alice", "pw")
-        val vm = newViewModel()
-        vm.onOpdsCatalogUrlChange("feed.example/opds")
-        vm.saveOpds()
-        advanceUntilIdle()
-
-        // The calibre password survives: saveOpds bailed before persistAccount,
-        // which would otherwise have dropped it in the same transaction.
-        val saved = store.getAccount() as AccountCredentials.Basic
-        assertThat(saved.username).isEqualTo("alice")
-        assertThat(vm.opds.value.error).isNotNull()
-        assertThat(vm.opds.value.saved).isFalse()
-    }
-
-    @Test fun `editing the catalog url clears a previous validation error`() = runTest {
-        val vm = newViewModel()
-        vm.onOpdsCatalogUrlChange("not a url")
-        vm.saveOpds()
-        advanceUntilIdle()
-        assertThat(vm.opds.value.error).isNotNull()
-
-        vm.onOpdsCatalogUrlChange("https://feed.example/opds")
-        assertThat(vm.opds.value.error).isNull()
-    }
-
-    @Test fun `saving an opds account canonicalises the url before persisting it`() = runTest {
-        val vm = newViewModel()
-        vm.onOpdsCatalogUrlChange("  https://feed.example/opds  ")
-        vm.saveOpds()
-        advanceUntilIdle()
-
-        val saved = store.getAccount() as AccountCredentials.OpdsOnly
-        assertThat(saved.baseUrl).isEqualTo("https://feed.example/opds")
-        assertThat(vm.opds.value.catalogUrl).isEqualTo("https://feed.example/opds")
-    }
-
-    @Test fun `isConnected is false for an opds-only account`() = runTest {
-        store.saveOpdsAccount("https://feed.example/opds")
-        val vm = newViewModel()
-        advanceUntilIdle()
-        // Restore reads the quire-server library mirror, which an OPDS-only
-        // account has no way to reach.
+        // Restore reads the quire-server library mirror, which a catalog alone cannot reach.
         assertThat(vm.isConnected.value).isFalse()
     }
 
@@ -303,26 +237,59 @@ class SettingsViewModelTest {
         advanceUntilIdle()
         assertThat(vm.isConnected.value).isTrue()
     }
-    @Test fun `saving calibre web and disconnecting Quire preserves the active catalog`() = runTest {
+
+    @Test fun `the legacy sign-in form edits the legacy sign-in only`() = runTest {
+        store.saveBasicAccount("https://calibre.example", "alice", "pw")
+        val vm = newViewModel()
+        assertThat(vm.calibre.value.baseUrl).isEqualTo("https://calibre.example")
+        vm.onPasswordChange("new-password")
+        vm.onQuireServerUrlChange("not a url")
+        vm.saveCalibre()
+        assertThat(vm.calibre.value.error).isNotNull()
+        assertThat((store.getAccount() as AccountCredentials.Basic).password).isEqualTo("pw")
+
+        vm.onQuireServerUrlChange("")
+        vm.saveCalibre()
+        advanceUntilIdle()
+        assertThat((store.getAccount() as AccountCredentials.Basic).password).isEqualTo("new-password")
+        assertThat(store.catalogAccount()?.password).isEqualTo("new-password")
+    }
+
+    @Test fun `the legacy form cannot turn a Quire account into a Calibre-Web sign-in`() = runTest {
         store.saveBearerAccount("https://quire.example", "alice@example.com", "quire-token")
         val vm = newViewModel()
+        assertThat(vm.calibre.value.saved).isFalse()
         vm.onBaseUrlChange("https://books.example/calibre/")
         vm.onUsernameChange("reader")
         vm.onPasswordChange("catalog-password")
         vm.saveCalibre()
         advanceUntilIdle()
 
-        val signedIn = store.getAccount() as AccountCredentials.Bearer
-        assertThat(signedIn.token).isEqualTo("quire-token")
-        assertThat(signedIn.catalog?.baseUrl).isEqualTo("https://books.example/calibre/opds")
-        assertThat(vm.isConnected.value).isTrue()
-
-        vm.disconnectQuire()
-        advanceUntilIdle()
-
-        assertThat(store.getAccount()).isEqualTo(signedIn.catalog)
-        assertThat(vm.calibre.value.baseUrl).isEqualTo("https://books.example/calibre")
-        assertThat(vm.isConnected.value).isFalse()
+        assertThat(store.getAccount()).isInstanceOf(AccountCredentials.Bearer::class.java)
+        assertThat(store.catalogs.value).isEmpty()
     }
 
+    @Test fun `signing out keeps the catalogs or removes them`() = runTest {
+        store.saveBearerAccount("https://quire.example", "alice@example.com", "quire-token")
+        val kept = catalogEntry("https://feed.example/opds")
+        store.saveCatalog(kept)
+        val vm = newViewModel()
+        advanceUntilIdle()
+        assertThat(vm.isConnected.value).isTrue()
+
+        vm.signOut(keepCatalogs = true)
+        advanceUntilIdle()
+        assertThat(store.getAccount()).isNull()
+        assertThat(store.catalogs.value.map { it.id }).containsExactly(kept.id)
+        assertThat(vm.isConnected.value).isFalse()
+
+        store.saveBearerAccount("https://quire.example", "alice@example.com", "quire-token")
+        vm.signOut(keepCatalogs = false)
+        advanceUntilIdle()
+        assertThat(store.getAccount()).isNull()
+        assertThat(store.catalogs.value).isEmpty()
+    }
+
+    private fun catalogEntry(url: String) =
+        SavedCatalog(SavedCatalog.newId(), SavedCatalog.defaultName(url), AccountCredentials.OpdsOnly(url))
 }

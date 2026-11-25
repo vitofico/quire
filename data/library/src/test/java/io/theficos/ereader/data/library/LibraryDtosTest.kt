@@ -84,6 +84,19 @@ class LibraryDtosTest {
     }
 
     @Test
+    fun `catalog_id is sent when known and left out otherwise, even when defaults are encoded`() {
+        val encJson = Json { encodeDefaults = true }
+        val known = LibraryItemRequest(contentHash = "abc", title = "T", catalogId = "c1")
+        val unknown = LibraryItemRequest(contentHash = "abc", title = "T")
+        assertThat(encJson.encodeToString(LibraryItemRequest.serializer(), known)).contains("\"catalog_id\":\"c1\"")
+        assertThat(encJson.encodeToString(LibraryItemRequest.serializer(), unknown)).doesNotContain("catalog_id")
+        val body = """
+            {"content_hash":"h1","title":"T","catalog_id":"c2","created_at":"2026-01-01T00:00:00+00:00","updated_at":"2026-01-01T00:00:00+00:00"}
+        """.trimIndent()
+        assertThat(json.decodeFromString(LibraryItemResponse.serializer(), body).catalogId).isEqualTo("c2")
+    }
+
+    @Test
     fun `LibraryItemResponse decodes default 1 when server omits identity_hash_version`() {
         // Older server (pre-F-1) doesn't emit the field. Every existing
         // hash on the wire is v1, so the default `= 1` is correct.

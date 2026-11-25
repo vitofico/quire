@@ -9,4 +9,6 @@
     <string name="whats_new_reading_pause_description">Open %1$s → %2$s while reading to save your place with an optional note.</string>
     <string name="whats_new_highlights_title">Find your saved passages</string>
     <string name="whats_new_highlights_description">Open %1$s → %2$s in a book to return to passages you’ve highlighted.</string>
+    <string name="whats_new_catalogs_title">All your catalogs, on every device</string>
+    <string name="whats_new_catalogs_description">Save several catalogs in %1$s → %2$s and switch between them while browsing. Signed in to Quire, the list follows you to your other devices.</string>
 </resources>

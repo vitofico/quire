@@ -90,6 +90,7 @@ class DocumentRepository(private val dao: DocumentDao) {
         seriesName: String? = null,
         seriesIndex: Double? = null,
         identityHashVersion: Int = CURRENT_IDENTITY_HASH_VERSION,
+        catalogId: String? = null,
     ): Long = dao.insert(DocumentEntity(
         metadataId = identity.metadataId,
         contentHash = requireNotNull(identity.contentHash) {
@@ -104,6 +105,7 @@ class DocumentRepository(private val dao: DocumentDao) {
         seriesName = seriesName?.takeIf { it.isNotBlank() },
         seriesIndex = seriesIndex,
         identityHashVersion = identityHashVersion,
+        catalogId = catalogId,
     ))
 
     private fun DocumentEntity.toDomain(): Document = Document(

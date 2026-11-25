@@ -105,4 +105,8 @@ interface DocumentDao {
     /** Sets a cover on a row that has none. Returns 0 when the row is gone or already has one. */
     @Query("UPDATE documents SET coverPath = :coverPath WHERE id = :id AND coverPath IS NULL")
     suspend fun setCoverPathIfMissing(id: Long, coverPath: String): Int
+
+    /** Books from catalog [from] now come from [to]: the same catalog under the account's id. */
+    @Query("UPDATE documents SET catalogId = :to WHERE catalogId = :from")
+    suspend fun replaceCatalogId(from: String, to: String)
 }
