@@ -136,7 +136,7 @@ export default function Reader({
   const [panel, setPanel] = useState<Panel | null>(null)
   const [notice, setNotice] = useState('')
   const [external, setExternal] = useState<string | null>(null)
-  // `low`: the selection sits in the lower half of the page, so its bar is drawn over the top.
+  // `low`: the selection leaves more room above it than below, so the bars are drawn over the top.
   const [selected, setSelected] = useState<{ range: Range; quote: string; low: boolean } | null>(null)
   const [comment, setComment] = useState('')
   const [colour, setColour] = useState<ReaderColour>('YELLOW')
@@ -501,7 +501,8 @@ export default function Reader({
       const quote = selection?.toString() ?? ''
       if (selection && !selection.isCollapsed && selection.rangeCount === 1 && quote.trim()) {
         const range = selection.getRangeAt(0).cloneRange()
-        const low = range.getBoundingClientRect().top > doc.documentElement.clientHeight / 2
+        const box = range.getBoundingClientRect()
+        const low = box.top > doc.documentElement.clientHeight - box.bottom
         setSelected({ range, quote, low })
         setComment('')
       } else {
@@ -766,11 +767,6 @@ export default function Reader({
           onClick={() => void fullscreen()}><Icon name="expand" /></button>}
       </div>
     </header>
-    {notice && <p className="qr-notice" role="status">{notice} <button type="button" aria-label={t('Dismiss')} onClick={() => setNotice('')}>×</button></p>}
-    {external && <div className="qr-notice">
-      <a href={external} target="_blank" rel="noopener noreferrer">{t('Open external link')} · {new URL(external).hostname}</a>
-      <button type="button" onClick={() => setExternal(null)}>{t('Cancel')}</button>
-    </div>}
     <div className="qr-body">
       <iframe className="qr-frame" title={title} ref={frame} sandbox={readerSandbox} srcDoc={chapterShell}
         onLoad={() => setLoaded(true)} referrerPolicy="no-referrer" />
@@ -842,21 +838,29 @@ export default function Reader({
         </div>}
       </aside>}
     </div>
-    {selected && editing === null && <div className={`qr-selection qr-fields${selected.low ? ' qr-above' : ''}`} aria-label={t('Selected text')}>
-      <div className="qr-actions">
-        {colourControl}
-        <button type="button" className="primary" disabled={busy} onClick={() => void addHighlight()}>{t('Save highlight')}</button>
-        <button type="button" onClick={() => void copyQuote(selected.quote)}>{t('Copy quote')}</button>
-        <button type="button" aria-label={t('Dismiss')} onClick={() => {
-          active?.doc.getSelection()?.removeAllRanges()
-          setSelected(null)
-          frame.current?.focus()
-        }}>×</button>
-      </div>
-      <label>{t('Comment')} <input value={comment} onChange={event => setComment(event.target.value)} maxLength={4000} /></label>
+    {(notice || external || (selected && editing === null)) &&
+      <div className={`qr-overlay${selected?.low ? ' qr-above' : ''}`}>
+      {notice && <p className="qr-notice" role="status">{notice} <button type="button" aria-label={t('Dismiss')} onClick={() => setNotice('')}>×</button></p>}
+      {external && <div className="qr-notice">
+        <a href={external} target="_blank" rel="noopener noreferrer">{t('Open external link')} · {new URL(external).hostname}</a>
+        <button type="button" onClick={() => setExternal(null)}>{t('Cancel')}</button>
+      </div>}
+      {selected && editing === null && <div className="qr-selection qr-fields" role="group" aria-label={t('Selected text')}>
+        <div className="qr-actions">
+          {colourControl}
+          <button type="button" className="primary" disabled={busy} onClick={() => void addHighlight()}>{t('Save highlight')}</button>
+          <button type="button" onClick={() => void copyQuote(selected.quote)}>{t('Copy quote')}</button>
+          <button type="button" aria-label={t('Dismiss')} onClick={() => {
+            active?.doc.getSelection()?.removeAllRanges()
+            setSelected(null)
+            frame.current?.focus()
+          }}>×</button>
+        </div>
+        <label>{t('Comment')} <input value={comment} onChange={event => setComment(event.target.value)} maxLength={4000} /></label>
+      </div>}
     </div>}
     <footer className="qr-bar qr-footer">
-      {history.current.length > 0 && <button type="button" onClick={backFromLink}>{t('Back to previous position')}</button>}
+      {history.current.length > 0 && <button type="button" className="qr-return" title={t('Back to previous position')} onClick={backFromLink}>{t('Back to previous position')}</button>}
       <button type="button" className="qr-tool" aria-label={t('Previous')} title={t('Previous')} onClick={() => page(-1)}><Icon name="back" /></button>
       <input type="range" aria-label={t('Book position')} min="0" max="100" step="1" value={Math.round(progress * 100)} onChange={seek}
         title={`${Math.round(progress * 100)}%`} />
