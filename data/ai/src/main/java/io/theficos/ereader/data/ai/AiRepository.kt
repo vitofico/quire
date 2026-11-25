@@ -1,6 +1,7 @@
 package io.theficos.ereader.data.ai
 
 import io.theficos.ereader.core.metadata.MetadataBundle
+import io.theficos.ereader.core.model.Document
 import io.theficos.ereader.core.model.DocumentIdentity
 import io.theficos.ereader.data.local.db.InsightDao
 import io.theficos.ereader.data.local.db.InsightEntity
@@ -350,6 +351,10 @@ fun interface ProfilePreflightLibrary {
     /** Returns true on success; false signals a non-fatal failure (e.g. 401). */
     suspend fun runOnce(): Boolean
 }
+
+/** The identity a library book goes by on the AI surface; insights and book details both send it. */
+fun Document.aiIdentity(): DocumentIdentity =
+    DocumentIdentity(metadataId = identity.metadataId, contentHash = identity.contentHash)
 
 /** Best-effort ISO-8601 → epoch millis. Returns null on malformed input. */
 internal fun parseIsoMillis(iso: String?): Long? {

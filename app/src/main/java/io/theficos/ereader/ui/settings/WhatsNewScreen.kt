@@ -41,7 +41,7 @@ import io.theficos.ereader.ui.components.SectionLabel
 import io.theficos.quire.R
 
 // Change this when a new entry becomes the lead story. Editing copy keeps its ID.
-internal const val WHATS_NEW_LATEST_ENTRY_ID = "saved-catalogs"
+internal const val WHATS_NEW_LATEST_ENTRY_ID = "book-details"
 
 @Composable
 internal fun WhatsNewSettingsRow(unread: Boolean, onOpen: () -> Unit) {
@@ -107,6 +107,16 @@ internal fun WhatsNewScreen(onBack: () -> Unit) {
             ) {
                 UpdateEntry(
                     group = stringResource(R.string.whats_new_latest),
+                    title = stringResource(R.string.whats_new_book_details_title),
+                    description = stringResource(
+                        R.string.whats_new_book_details_description,
+                        stringResource(R.string.common_settings),
+                        stringResource(R.string.settings_tidy_book_details),
+                    ),
+                )
+                HorizontalDivider()
+                UpdateEntry(
+                    group = stringResource(R.string.whats_new_earlier),
                     title = stringResource(R.string.whats_new_catalogs_title),
                     description = stringResource(
                         R.string.whats_new_catalogs_description,
@@ -114,9 +124,8 @@ internal fun WhatsNewScreen(onBack: () -> Unit) {
                         stringResource(R.string.catalogs_title),
                     ),
                 )
-                HorizontalDivider()
                 UpdateEntry(
-                    group = stringResource(R.string.whats_new_earlier),
+                    group = null,
                     title = stringResource(R.string.whats_new_reading_pause_title),
                     description = stringResource(
                         R.string.whats_new_reading_pause_description,

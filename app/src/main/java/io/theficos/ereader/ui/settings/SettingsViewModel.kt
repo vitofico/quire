@@ -22,6 +22,7 @@ import io.theficos.ereader.reader.ReaderPreferences
 import io.theficos.ereader.reader.ReaderPreferencesStore
 import io.theficos.ereader.reader.ReaderTheme
 import io.theficos.ereader.ui.UiText
+import io.theficos.ereader.ui.library.LibraryPreferencesStore
 import io.theficos.ereader.ui.onboarding.ConnectServerViewModel
 import io.theficos.ereader.ui.onboarding.PairingCode
 import io.theficos.ereader.ui.onboarding.requestPairingCode
@@ -32,6 +33,7 @@ import io.theficos.ereader.ui.uiText
 import io.theficos.quire.R
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -40,6 +42,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -92,8 +95,20 @@ class SettingsViewModel(
     private val insightDao: InsightDao? = null,
     private val syncEnqueuer: (Context) -> Unit = { SyncEnqueuer.enqueue(it, expedited = true, replaceExisting = true) },
     private val restoreInProgress: (suspend ((Int, Int) -> Unit) -> RestoreSummary)? = null,
+    private val libraryPreferencesStore: LibraryPreferencesStore,
+    /** True while found book details are stored, so their switch shows even with AI off. */
+    hasStoredDetails: Flow<Boolean> = flowOf(false),
 ) : ViewModel() {
     val account = store.accountFlow
+
+    /** "Tidy up book details": the server may find and tidy details and covers for library books. */
+    val tidyDetails: StateFlow<Boolean> = libraryPreferencesStore.flow
+        .map { it.tidyDetails }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, libraryPreferencesStore.flow.value.tidyDetails)
+
+    val hasStoredDetails: StateFlow<Boolean> = hasStoredDetails.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun setTidyDetails(on: Boolean) = libraryPreferencesStore.updateTidyDetails(on)
 
     private val _pairing = MutableStateFlow<PairingState>(PairingState.Hidden)
 

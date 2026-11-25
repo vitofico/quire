@@ -20,6 +20,7 @@ import io.theficos.ereader.ui.theme.AppTheme
 import io.theficos.ereader.ui.theme.AppThemePreferencesStore
 import io.theficos.ereader.ui.theme.Palette
 import io.theficos.ereader.ui.theme.ThemeMode
+import io.theficos.ereader.ui.library.LibraryPreferencesStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -103,6 +104,7 @@ class SettingsViewModelTest {
             insightSyncRepository = null,
             insightDao = db.insightDao(),
             restoreInProgress = restoreInProgress,
+            libraryPreferencesStore = LibraryPreferencesStore(context),
         ).also { viewModels += it }
 
     /** A view model with no restore hook, for tests that don't exercise restore. */

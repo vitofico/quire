@@ -2,9 +2,12 @@ package io.theficos.ereader.data.ai
 
 import io.theficos.ereader.testing.awaitRequest
 import com.google.common.truth.Truth.assertThat
+import com.google.common.truth.Truth.assertWithMessage
 import io.theficos.ereader.core.metadata.MetadataBundle
 import io.theficos.ereader.core.model.DocumentIdentity
 import kotlinx.coroutines.Dispatchers
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
@@ -422,5 +425,69 @@ class AiClientTest {
         assertThat(e).isNotInstanceOf(AiProviderException::class.java)
         assertThat(e).isNotInstanceOf(AiQuotaException::class.java)
         assertThat((e as AiHttpException).code).isEqualTo(429)
+    }
+
+    private val detailsBody = DetailsLookupBody(
+        identity = DocumentIdentity(metadataId = "m", contentHash = "h"),
+        book = DetailsBook(title = "dune_frank_herbert"),
+        source = ORIGIN_FILE,
+        cover = null,
+    )
+
+    @Test
+    fun `book details are looked up with the insights identity and every field the server takes`() = runTest {
+        server.enqueue(MockResponse().setBody("""{"key":"k","book":{"title":"Dune"},"origins":{"title":"ai"},"tidy":"done"}"""))
+
+        val answer = client.lookupDetails(detailsBody)
+
+        val sent = server.awaitRequest()
+        assertThat(sent.path).isEqualTo("/details/v1/lookup")
+        val json = kotlinx.serialization.json.Json.parseToJsonElement(sent.body.readUtf8()).jsonObject
+        // The server forbids keys it does not know, so these must be exactly its fields.
+        assertThat(json.keys).containsExactly("identity", "book", "source", "cover")
+        assertThat(json["book"]!!.jsonObject.keys).containsExactly(
+            "title", "authors", "series_name", "series_index", "description", "subjects",
+            "language", "isbn", "year", "publisher",
+        )
+        assertThat(json["identity"]!!.jsonObject["metadata_id"]!!.jsonPrimitive.content).isEqualTo("m")
+        assertThat(json["identity"]!!.jsonObject["content_hash"]!!.jsonPrimitive.content).isEqualTo("h")
+        assertThat(json["source"]!!.jsonPrimitive.content).isEqualTo("file")
+        assertThat(answer.book.title).isEqualTo("Dune")
+    }
+
+    @Test
+    fun `a details 429 carries its Retry-After, quota body or not`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(429).setHeader("Retry-After", "30").setBody("""{"detail":"rate_limited"}"""))
+        server.enqueue(
+            MockResponse().setResponseCode(429).setHeader("Retry-After", "86400")
+                .setBody("""{"detail":{"used":5,"limit":5,"resets_at":"2026-12-01T00:00:00+00:00"}}"""),
+        )
+
+        val limited = runCatching { client.lookupDetails(detailsBody) }.exceptionOrNull() as AiHttpException
+        val spent = runCatching { client.tidyDetails(detailsBody) }.exceptionOrNull() as AiQuotaException
+
+        assertThat(limited.code).isEqualTo(429)
+        assertThat(limited.retryAfterSeconds).isEqualTo(30)
+        assertThat(spent.retryAfterSeconds).isEqualTo(86400)
+    }
+
+    @Test
+    fun `a generated cover comes only from the cover endpoint`() = runTest {
+        server.enqueue(MockResponse().setBody("png"))
+        val key = "0123456789abcdef".repeat(4)
+
+        assertThat(String(client.detailsCover("/details/v1/covers/$key?v=2"))).isEqualTo("png")
+        assertThat(server.awaitRequest().path).isEqualTo("/details/v1/covers/$key?v=2")
+        listOf(
+            "/ai/v1/profile",
+            "/details/v1/covers/../../../ai/v1/profile",
+            "/details/v1/covers/%2e%2e/%2e%2e/%2e%2e/ai/v1/profile",
+            "/details/v1/covers/k?v=2",
+            "@elsewhere.example/details/v1/covers/$key",
+        ).forEach { path ->
+            assertWithMessage(path).that(runCatching { client.detailsCover(path) }.exceptionOrNull())
+                .isInstanceOf(IllegalArgumentException::class.java)
+        }
+        assertThat(server.requestCount).isEqualTo(1)
     }
 }

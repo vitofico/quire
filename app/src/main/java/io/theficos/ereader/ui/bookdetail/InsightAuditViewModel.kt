@@ -6,6 +6,7 @@ import io.theficos.ereader.core.model.DocumentIdentity
 import io.theficos.ereader.data.ai.AiHttpException
 import io.theficos.ereader.data.ai.AiRepository
 import io.theficos.ereader.data.ai.AiStyle
+import io.theficos.ereader.data.ai.aiIdentity
 import io.theficos.ereader.data.ai.BookInsightResponse
 import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.ui.UiText
@@ -146,12 +147,7 @@ class AppInsightAuditSource(
     private val ai: AiRepository,
 ) : InsightAuditViewModel.Source {
     override suspend fun resolveIdentity(documentId: Long): DocumentIdentity? =
-        documents.findById(documentId)?.let { doc ->
-            DocumentIdentity(
-                metadataId = doc.identity.metadataId,
-                contentHash = doc.identity.contentHash,
-            )
-        }
+        documents.findById(documentId)?.aiIdentity()
 
     override suspend fun getCachedInsight(id: DocumentIdentity): BookInsightResponse? =
         ai.getCachedInsight(id)

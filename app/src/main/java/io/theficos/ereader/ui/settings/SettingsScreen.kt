@@ -421,6 +421,7 @@ fun SettingsScreen(
         }
 
         SectionLabel(stringResource(R.string.common_ai_features))
+        val hasStoredDetails by viewModel.hasStoredDetails.collectAsState()
         QuireCard(modifier = Modifier.fillMaxWidth()) {
             if (!isConnected || needsReauth || aiState.config?.configured != true) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -430,6 +431,10 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (hasStoredDetails) {
+                        Spacer(Modifier.height(12.dp))
+                        TidyDetailsSwitch(viewModel)
+                    }
                 }
             } else {
                 val cfg = aiState.config!!
@@ -509,6 +514,11 @@ fun SettingsScreen(
                                 Text(stringResource(R.string.settings_ai_provider_change_failed), color = MaterialTheme.colorScheme.error)
                             }
                         }
+                    }
+
+                    // Also with AI off while found details are stored, so they can be put away.
+                    if ((enabled && cfg.detailsSupported) || hasStoredDetails) {
+                        TidyDetailsSwitch(viewModel)
                     }
 
                     if (enabled) {
@@ -963,5 +973,26 @@ private fun ThemeSwatch(palette: Palette, selected: Boolean, enabled: Boolean, o
             fontWeight = if (selected) FontWeight.SemiBold else null,
             color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
         )
+    }
+}
+
+/** "Tidy up book details", on or off. */
+@Composable
+private fun TidyDetailsSwitch(viewModel: SettingsViewModel) {
+    val tidyDetails by viewModel.tidyDetails.collectAsState()
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+            Text(stringResource(R.string.settings_tidy_book_details), style = MaterialTheme.typography.titleMedium)
+            Text(
+                stringResource(R.string.settings_tidy_book_details_description),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(checked = tidyDetails, onCheckedChange = viewModel::setTidyDetails)
     }
 }

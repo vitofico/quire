@@ -4,12 +4,15 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.theficos.ereader.core.model.Document
+import io.theficos.ereader.data.ai.BookDetails
+import io.theficos.ereader.data.ai.shownWith
 import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.ProgressRepository
 import io.theficos.ereader.data.sync.SyncEnqueuer
 import io.theficos.ereader.data.sync.SyncOrchestrator
 import io.theficos.ereader.data.sync.SyncResult
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -41,6 +44,8 @@ class LibraryViewModel(
     private val syncEnqueuer: (Context) -> Unit = { SyncEnqueuer.enqueue(it, expedited = true, replaceExisting = true) },
     private val credentialStore: io.theficos.ereader.auth.CalibreCredentialStore? = null,
     private val restoreInProgress: (suspend ((Int, Int) -> Unit) -> io.theficos.ereader.domain.restore.RestoreSummary)? = null,
+    /** Found and tidied details by book id, shown on the shelf over the book's own. */
+    private val shownDetails: Flow<Map<Long, BookDetails>> = flowOf(emptyMap()),
 ) : ViewModel() {
 
     val sort: StateFlow<LibrarySort> = libraryPreferencesStore.flow
@@ -83,10 +88,11 @@ class LibraryViewModel(
                 if (docList.isEmpty()) flowOf(emptyList())
                 else combine(docList.map { d -> progress.observe(d.id).map { d to it } }) { it.toList() }
             }
-            .map { pairs ->
+            .combine(shownDetails) { pairs, details ->
                 pairs.map { (d, p) ->
                     LibraryRow(
                         document = d,
+                        found = details[d.id],
                         percent = p?.percent ?: 0.0,
                         progressUpdatedAt = p?.updatedAt ?: 0L,
                         finishedAt = p?.finishedAt,
@@ -118,9 +124,12 @@ class LibraryViewModel(
                 // searching for a title should always be able to find it.
                 val needle = q.trim().lowercase()
                 LibraryShelf(
+                    // The shown details and the book's own, so a book is found by either.
                     books = sorted.filter { row ->
-                        row.document.title.lowercase().contains(needle) ||
-                            (row.document.author?.lowercase()?.contains(needle) == true)
+                        listOf(row.shown, row.document).any { book ->
+                            book.title.lowercase().contains(needle) ||
+                                book.author?.lowercase()?.contains(needle) == true
+                        }
                     },
                     hiddenCount = 0,
                 )
@@ -144,6 +153,7 @@ class LibraryViewModel(
      */
     val seriesContinuationCandidates: StateFlow<List<Document>> =
         docs.observeSeriesContinuationCandidates()
+            .combine(shownDetails) { books, details -> books.map { it.shownWith(details[it.id]) } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _events = MutableSharedFlow<LibraryEvent>(extraBufferCapacity = 4)
@@ -251,13 +261,13 @@ class LibraryViewModel(
     private fun applySort(list: List<LibraryRow>, by: LibrarySort): List<LibraryRow> = when (by) {
         LibrarySort.RECENTLY_READ -> list.sortedWith(
             compareByDescending<LibraryRow> { it.progressUpdatedAt }
-                .thenBy { it.document.title.lowercase() }
+                .thenBy { it.shown.title.lowercase() }
         )
         LibrarySort.RECENTLY_ADDED -> list.sortedByDescending { it.document.id }
-        LibrarySort.TITLE -> list.sortedBy { it.document.title.lowercase() }
+        LibrarySort.TITLE -> list.sortedBy { it.shown.title.lowercase() }
         LibrarySort.AUTHOR -> list.sortedWith(
-            compareBy<LibraryRow> { it.document.author?.lowercase() ?: "￿" }
-                .thenBy { it.document.title.lowercase() }
+            compareBy<LibraryRow> { it.shown.author?.lowercase() ?: "￿" }
+                .thenBy { it.shown.title.lowercase() }
         )
     }
 }
@@ -272,10 +282,17 @@ data class LibraryShelf(
     val hiddenCount: Int,
 )
 
+/**
+ * [document] is the book as stored, for every action on it; [shown] is how the shelf draws it,
+ * with the [found] details and cover, if any, over the book's own.
+ */
 data class LibraryRow(
     val document: Document,
     val percent: Double,
     val progressUpdatedAt: Long,
     val finishedAt: Long? = null,
     val abandonedAt: Long? = null,
-)
+    val found: BookDetails? = null,
+) {
+    val shown: Document = document.shownWith(found)
+}

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="details_tidy">"Ordenar detalles"</string>
+    <string name="details_use_original">"Usar los detalles originales"</string>
+    <string name="details_use_found">"Usar los detalles encontrados"</string>
+    <string name="details_tidying">"Ordenando detalles…"</string>
+    <string name="details_tidied">"Detalles ordenados."</string>
+    <string name="details_nothing_to_tidy">"Estos detalles ya parecen correctos."</string>
+    <string name="details_allowance_used">"Has agotado tu cupo de IA por ahora."</string>
+    <string name="details_allowance_used_until">"Has agotado tu cupo de IA. Se renueva el %1$s."</string>
+    <string name="details_ai_not_available">"La IA no está disponible para tu cuenta en este momento. Revisa las funciones de IA en Ajustes."</string>
+    <string name="details_not_offered">"Este servidor no ordena los detalles de los libros en este momento."</string>
+    <string name="details_couldn_t_tidy">"No se pudieron ordenar los detalles. Inténtalo más tarde."</string>
+    <string name="details_busy">"El servidor está ocupado. Inténtalo de nuevo en un momento."</string>
+    <string name="details_from_open_library">"De Open Library"</string>
+    <string name="details_tidied_by_ai">"Ordenado por IA"</string>
+    <string name="details_written_by_ai">"Escrito por IA"</string>
+    <string name="details_generated_cover">"Portada generada"</string>
+    <string name="details_cover_from_open_library">"Portada de Open Library"</string>
+    <string name="details_view_on_open_library">"Ver en Open Library"</string>
+</resources>

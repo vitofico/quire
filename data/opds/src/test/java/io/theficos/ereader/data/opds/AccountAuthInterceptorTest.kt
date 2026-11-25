@@ -617,6 +617,17 @@ class AccountAuthInterceptorTest {
         assertThat(server.requestCount).isEqualTo(1)
     }
 
+    @Test fun `the Quire client signs book details and their covers`() {
+        val account = AccountCredentials.Bearer(server.url("/").toString(), "alice@example.com", "native-token")
+        val client = OkHttpClient.Builder().quireAuth({ account }) {}.build()
+
+        for (path in listOf("/details/v1/lookup", "/details/v1/covers/abc?v=1")) {
+            server.enqueue(MockResponse())
+            get(client, server.url(path))
+            assertThat(server.awaitRequest().getHeader("Authorization")).isEqualTo("Bearer native-token")
+        }
+    }
+
     @Test fun `a caller's own Authorization header never survives the catalog client`() {
         val catalog = AccountCredentials.OpdsOnly(server.url("/opds").toString())
         val client = OkHttpClient.Builder().catalogAuth { CatalogSession(listOf(catalog), catalog, null) }.build()

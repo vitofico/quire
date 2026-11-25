@@ -43,6 +43,8 @@ data class AiConfig(
     @SerialName("profile_timeout_s") val profileTimeoutS: Int? = null,
     val providers: List<AiProviderOption> = emptyList(),
     @SerialName("provider_id") val providerId: String = "default",
+    // True when the server offers book details and covers (`/details/v1`). Older servers omit it.
+    @SerialName("details_supported") val detailsSupported: Boolean = false,
 )
 
 @Serializable

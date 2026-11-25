@@ -25,4 +25,6 @@
     <string name="settings_provider_unreachable">"Anbieter: nicht erreichbar. %1$s%2$s"</string>
     <string name="settings_last_synced_sentence">"Zuletzt synchronisiert: %1$s."</string>
     <string name="settings_last_attempt_failed_sentence">"Letzter Versuch fehlgeschlagen: %1$s"</string>
+    <string name="settings_tidy_book_details">"Buchdetails aufräumen"</string>
+    <string name="settings_tidy_book_details_description">"Ergänzt fehlende Cover, Autoren und Beschreibungen aus Open Library. KI räumt Titel auf, die wie Dateinamen aussehen, auch wenn Open Library das Buch kennt, gestaltet ein schlichtes Cover, wenn kein echtes gefunden wird, und schreibt eine kurze Beschreibung, wo keine ist. Jedes Aufräumen zählt zu deinem KI-Kontingent. Bücher werden nur im WLAN geprüft, höchstens 25 am Tag. Jedes Buch behält seine eigenen Details, und über das Menü des Buchs kommst du zu ihnen zurück."</string>
 </resources>

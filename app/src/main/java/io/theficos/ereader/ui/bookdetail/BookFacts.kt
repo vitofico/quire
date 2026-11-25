@@ -56,7 +56,8 @@ internal fun readingStatus(progress: Progress?, formatDate: (Long) -> String): U
     return uiText(R.string.book_percent_read, (progress.percent * 100).toInt())
 }
 
-internal data class BookFact(@StringRes val label: Int, val value: String)
+/** [note]: where a found value came from, when it is not the book's own. */
+internal data class BookFact(@StringRes val label: Int, val value: String, @StringRes val note: Int? = null)
 
 internal fun bookFacts(
     metadata: MetadataBundle?,
@@ -67,16 +68,18 @@ internal fun bookFacts(
     formatRelative: (Long) -> String,
     formatSize: (Long) -> String,
     displayLocale: Locale = Locale.getDefault(),
+    /** Where found values came from, by their book details field name. */
+    origins: Map<String, String> = emptyMap(),
 ): List<BookFact> = buildList {
-    fun addFact(@StringRes label: Int, value: String?) {
-        value?.trim()?.takeIf { it.isNotEmpty() }?.let { add(BookFact(label, it)) }
+    fun addFact(@StringRes label: Int, value: String?, field: String? = null) {
+        value?.trim()?.takeIf { it.isNotEmpty() }?.let { add(BookFact(label, it, originNote(origins[field]))) }
     }
 
-    addFact(R.string.book_publisher, metadata?.publisher)
-    addFact(R.string.book_published, publishedYear(metadata?.publishDate))
-    addFact(R.string.common_language, languageName(metadata?.language, displayLocale))
-    addFact(R.string.book_subjects, subjectsLine(metadata?.subjects.orEmpty()))
-    addFact(R.string.book_isbn, metadata?.isbn)
+    addFact(R.string.book_publisher, metadata?.publisher, "publisher")
+    addFact(R.string.book_published, publishedYear(metadata?.publishDate), "year")
+    addFact(R.string.common_language, languageName(metadata?.language, displayLocale), "language")
+    addFact(R.string.book_subjects, subjectsLine(metadata?.subjects.orEmpty()), "subjects")
+    addFact(R.string.book_isbn, metadata?.isbn, "isbn")
     addFact(R.string.book_added, formatDate(document.downloadedAt))
     // Never alongside "Not started": a progress row can exist for a book still on its first page.
     addFact(

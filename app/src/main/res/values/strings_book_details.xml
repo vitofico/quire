@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="details_tidy">"Tidy details"</string>
+    <string name="details_use_original">"Use original details"</string>
+    <string name="details_use_found">"Use found details"</string>
+    <string name="details_tidying">"Tidying details…"</string>
+    <string name="details_tidied">"Details tidied."</string>
+    <string name="details_nothing_to_tidy">"These details already look right."</string>
+    <string name="details_allowance_used">"You’ve used up your AI allowance for now."</string>
+    <string name="details_allowance_used_until">"You’ve used up your AI allowance. It renews on %1$s."</string>
+    <string name="details_ai_not_available">"AI isn’t available for your account right now. Check AI features in Settings."</string>
+    <string name="details_not_offered">"This server doesn’t tidy book details right now."</string>
+    <string name="details_couldn_t_tidy">"Couldn’t tidy the details. Try again later."</string>
+    <string name="details_busy">"The server is busy. Try again in a moment."</string>
+    <string name="details_from_open_library">"From Open Library"</string>
+    <string name="details_tidied_by_ai">"Tidied by AI"</string>
+    <string name="details_written_by_ai">"Written by AI"</string>
+    <string name="details_generated_cover">"Generated cover"</string>
+    <string name="details_cover_from_open_library">"Cover from Open Library"</string>
+    <string name="details_view_on_open_library">"View on Open Library"</string>
+</resources>

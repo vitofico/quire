@@ -67,7 +67,10 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.theficos.ereader.auth.SavedCatalog
+import io.theficos.ereader.data.ai.BookDetails
 import io.theficos.ereader.data.opds.OpdsPublication
+import io.theficos.ereader.ui.bookdetail.coverNote
+import io.theficos.ereader.ui.bookdetail.withNote
 import io.theficos.ereader.ui.components.catalogCoverRequest
 import io.theficos.ereader.ui.components.CoverImage
 import io.theficos.ereader.ui.components.CoverInfoButton
@@ -85,6 +88,7 @@ fun CatalogScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val downloadedUrls by viewModel.downloadedUrls.collectAsState()
+    val storedCovers by viewModel.storedCovers.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val catalogs by viewModel.catalogs.collectAsState()
     val active by viewModel.activeCatalog.collectAsState()
@@ -124,6 +128,7 @@ fun CatalogScreen(
                         Loaded(
                             state = s,
                             downloadedUrls = downloadedUrls,
+                            storedCovers = storedCovers,
                             sort = sort,
                             onSort = viewModel::setSort,
                             onNavigate = viewModel::load,
@@ -205,6 +210,7 @@ internal fun CatalogError(
 private fun Loaded(
     state: CatalogUiState.Loaded,
     downloadedUrls: Set<String>,
+    storedCovers: Map<String, BookDetails>,
     sort: CatalogSort,
     onSort: (CatalogSort) -> Unit,
     onNavigate: (String) -> Unit,
@@ -268,13 +274,16 @@ private fun Loaded(
                     ),
                 ) {
                     Box {
+                        val catalogCover = catalogCoverRequest(pub.coverUrl)
+                        val found = storedCovers[pub.epubDownloadHref].takeIf { catalogCover == null }
                         CoverImage(
-                            source = catalogCoverRequest(pub.coverUrl),
+                            source = catalogCover ?: found?.coverPath,
                             title = pub.title,
                             author = pub.author,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .aspectRatio(2f / 3f),
+                            contentDescription = withNote(pub.title, found?.let(::coverNote)),
                         )
                         when {
                             downloading -> CircularProgressIndicator(

@@ -25,4 +25,6 @@
     <string name="settings_provider_unreachable">"Provider: non raggiungibile. %1$s%2$s"</string>
     <string name="settings_last_synced_sentence">"Ultima sincronizzazione: %1$s."</string>
     <string name="settings_last_attempt_failed_sentence">"Ultimo tentativo non riuscito: %1$s"</string>
+    <string name="settings_tidy_book_details">"Riordina i dettagli dei libri"</string>
+    <string name="settings_tidy_book_details_description">"Completa copertine, autori e descrizioni mancanti con Open Library. L’IA riordina i titoli che sembrano nomi di file, anche quando Open Library conosce il libro, crea una copertina semplice quando non ne trova una vera e scrive una breve descrizione dove manca. Ogni riordino usa la tua quota di IA. I libri vengono controllati solo in Wi-Fi, fino a 25 al giorno. Ogni libro conserva i propri dettagli e puoi tornarci dal menu del libro."</string>
 </resources>

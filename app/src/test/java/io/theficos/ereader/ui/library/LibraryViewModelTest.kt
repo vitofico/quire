@@ -8,6 +8,9 @@ import app.cash.turbine.test
 import com.google.common.truth.Truth.assertThat
 import io.theficos.ereader.core.model.Document
 import io.theficos.ereader.core.model.DocumentIdentity
+import io.theficos.ereader.data.ai.BookDetails
+import io.theficos.ereader.data.ai.DetailsBook
+import io.theficos.ereader.data.ai.DetailsResponse
 import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.ProgressRepository
 import io.theficos.ereader.data.local.db.DocumentEntity
@@ -270,6 +273,41 @@ class LibraryViewModelTest {
         vm.setQuery("bra")
         val final = vm.books().first { it.size == 1 && it.first().document.title == "BRAVO" }
         assertThat(final.map { it.document.title }).containsExactly("BRAVO")
+    }
+
+    @Test fun `the shelf draws, sorts and searches found details, and acts on the book as stored`() = runTest {
+        val tidiedId = seed("h1", "zzz_dune_frank_herbert", null)
+        seed("h2", "Bravo", null)
+        val found = BookDetails(
+            DetailsResponse(key = "k", book = DetailsBook(title = "Dune", authors = listOf("Frank Herbert")), tidy = "done"),
+            coverPath = "/covers/dune.cover",
+            useOriginal = false,
+        )
+        val tidiedVm = track(LibraryViewModel(
+            docs = docs,
+            progress = progress,
+            syncOrchestrator = orchestrator,
+            booksDir = File("/dev/null"),
+            libraryPreferencesStore = LibraryPreferencesStore(ApplicationProvider.getApplicationContext()),
+            shownDetails = kotlinx.coroutines.flow.flowOf(mapOf(tidiedId to found)),
+        ))
+        tidiedVm.setSort(LibrarySort.TITLE)
+
+        val rows = tidiedVm.books().first { it.size >= 2 }
+        assertThat(rows.map { it.shown.title }).containsExactly("Bravo", "Dune").inOrder()
+        val tidied = rows.last()
+        assertThat(tidied.shown.author).isEqualTo("Frank Herbert")
+        assertThat(tidied.shown.coverPath).isEqualTo("/covers/dune.cover")
+        assertThat(tidied.document.title).isEqualTo("zzz_dune_frank_herbert")
+        assertThat(tidied.document.coverPath).isNull()
+
+        tidiedVm.setQuery("herbert")
+        assertThat(tidiedVm.books().first { it.size == 1 }.single().document.id).isEqualTo(tidiedId)
+        tidiedVm.setQuery("")
+        tidiedVm.books().first { it.size >= 2 }
+        // The book's own title still finds it.
+        tidiedVm.setQuery("zzz_dune")
+        assertThat(tidiedVm.books().first { it.size == 1 }.single().document.id).isEqualTo(tidiedId)
     }
 
     @Test fun `query filters by author`() = runTest {

@@ -42,6 +42,8 @@ fun CoverImage(
     title: String,
     author: String?,
     modifier: Modifier = Modifier,
+    /** What a screen reader says for the cover: the title, plus any note on where it came from. */
+    contentDescription: String = title,
 ) {
     val initials = remember(title, author) { computeInitials(title, author) }
     val palette = remember(title) {
@@ -56,7 +58,7 @@ fun CoverImage(
         if (source != null) {
             SubcomposeAsyncImage(
                 model = source,
-                contentDescription = title,
+                contentDescription = contentDescription,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
                 loading = { Fallback(initials, palette) },
