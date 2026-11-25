@@ -901,7 +901,7 @@ dialog.ask .actions {
   display: block;
   padding: 0;
 }
-.book-entry .cover {
+.book-entry .cover:not(.with-image) {
   padding: 10%;
 }
 .library-grid.compact {
