@@ -31,7 +31,7 @@ function valueOf(field: TidiedField, book: { title: string; authors?: string[]; 
 }
 
 /** The fields whose proposed value differs from what the reader sees now. */
-function changesOf(book: ShelfBook, answer: DetailsAnswer) {
+export function changesOf(book: ShelfBook, answer: DetailsAnswer) {
   const shown = withDetails(book)
   return fields.filter((field) => valueOf(field, shown) !== valueOf(field, answer.book))
 }
@@ -40,6 +40,34 @@ function changesOf(book: ShelfBook, answer: DetailsAnswer) {
 const coverOf = (book: ShelfBook, answer: DetailsAnswer) =>
   answer.cover.url ?? (book.cover instanceof Blob && (answer.cover.source === 'file' || answer.cover.source === 'catalog') ? 'own' : 'none')
 const coverNow = (book: ShelfBook) => foundCover(book) ?? (book.cover instanceof Blob ? 'own' : 'none')
+
+/** Whether a tidy's answer is worth a preview: it changes something shown, or the reader may pick a cover. */
+export const worthPreview = (book: ShelfBook, answer: DetailsAnswer, coverChoice?: boolean) =>
+  !!coverChoice || !!changesOf(book, answer).length || coverOf(book, answer) !== coverNow(book)
+
+/** The improvements kept: every field the answer leaves as shown, and the changes the reader ticked. */
+export const acceptedOf = (changes: TidiedField[], ticked: Set<TidiedField>) =>
+  fields.filter((field) => !changes.includes(field) || ticked.has(field))
+
+/** The cover choice the preview starts on: the reader's last one, when this server still offers it. */
+export function initialChoice(book: ShelfBook, coverChoice?: boolean, painting?: boolean): CoverChoice {
+  const last = (coverChoice && book.details?.cover_choice) || 'keep'
+  if (last === 'paint' && !painting) return 'draw'
+  // Without a cover of its own, "keep" already finds one.
+  return last === 'find' && !(book.cover instanceof Blob) ? 'keep' : last
+}
+
+const shownFields = ['title', 'authors', 'series_name', 'series_index', 'description', 'subjects', 'language', 'isbn', 'publisher'] as const
+
+/** Whether the reader sees anything other than the book's own details and cover, so "Use original" would change it. */
+export function differsFromOriginal(book: ShelfBook): boolean {
+  if (!book.details?.answer) return false
+  const improved = { ...book, details: { ...book.details, original: false } }
+  const shown = withDetails(improved)
+  // An empty list and no list look the same.
+  const seen = (value: unknown) => JSON.stringify(Array.isArray(value) && !value.length ? null : value ?? null)
+  return !!foundCover(improved) || shownFields.some((field) => seen(shown[field]) !== seen(book[field]))
+}
 
 /** "Improve details" on request, with a preview to accept or reject each change, and the switch to the book's own details. */
 export function TidyDetails({ book, store, request, loadCover, coverChoice, painting, t }: Props) {
@@ -62,9 +90,7 @@ export function TidyDetails({ book, store, request, loadCover, coverChoice, pain
     opener.current?.focus()
   }, [returning])
   const record = book.details
-  const changed = Object.values(record?.answer?.origins ?? {}).some(
-    (origin) => origin !== 'file' && origin !== 'catalog',
-  ) || !!(record?.cover_choice && record.cover_url)
+  const changed = differsFromOriginal(book)
   if (!store || (!request && !changed)) return null
   const improve = () => {
     setSaid(undefined)
@@ -72,8 +98,7 @@ export function TidyDetails({ book, store, request, loadCover, coverChoice, pain
     void run(async (signal) => {
       const next = await proposeDetails(store, request!, book, signal)
       if (!alive.current) return next.close()
-      const nothing = !changesOf(book, next.answer).length && coverOf(book, next.answer) === coverNow(book)
-      if (nothing && !coverChoice) {
+      if (!worthPreview(book, next.answer, coverChoice)) {
         next.close()
         setSaid(t('These details already look right.'))
       } else setProposal(next)
@@ -127,6 +152,7 @@ type PreviewProps = {
 }
 
 type Loaded = { preview?: CoverPreview; failed?: string }
+const loading = (loaded?: Loaded) => !loaded?.preview && !loaded?.failed
 
 /** The changes a tidy proposes, side by side with what the book shows now. */
 function Preview({ book, proposal, loadCover, coverChoice, painting, t, done }: PreviewProps) {
@@ -136,10 +162,7 @@ function Preview({ book, proposal, loadCover, coverChoice, painting, t, done }: 
   const shown = withDetails(book)
   const [ticked, setTicked] = useState(() => new Set(changes))
   const [expanded, setExpanded] = useState(false)
-  const initial = (coverChoice && book.details?.cover_choice) || 'keep'
-  const [choice, setChoice] = useState<CoverChoice>(
-    initial === 'paint' && !painting ? 'draw' : initial === 'find' && !own ? 'keep' : initial,
-  )
+  const [choice, setChoice] = useState(() => initialChoice(book, coverChoice, painting))
   const [covers, setCovers] = useState<Partial<Record<CoverChoice, Loaded>>>({})
   const [keepCover, setKeepCover] = useState(true)
   const [applying, setApplying] = useState(false)
@@ -170,10 +193,12 @@ function Preview({ book, proposal, loadCover, coverChoice, painting, t, done }: 
   const apply = async () => {
     setApplying(true)
     setFailed(undefined)
-    const accepted = fields.filter((field) => !changes.includes(field) || ticked.has(field))
-    const cover = coverChoice ? loaded!.preview! : keepCover ? covers.keep?.preview ?? null : null
+    const accepted = acceptedOf(changes, ticked)
+    // A cover that failed to download leaves the cover as it is; the text changes still apply.
+    const chosen = coverChoice ? loaded?.preview : keepCover ? covers.keep?.preview : undefined
+    const now = coverChoice ? book.details?.cover_choice ?? 'keep' : 'keep'
     try {
-      const details = await proposal.apply(accepted, coverChoice ? choice : 'keep', cover)
+      const details = await proposal.apply(accepted, chosen ? (coverChoice ? choice : 'keep') : now, chosen ?? null)
       if (!details) return done()
       const kept = changes.filter((field) => ticked.has(field)).map((field) => t(field))
       const parts = []
@@ -182,7 +207,7 @@ function Preview({ book, proposal, loadCover, coverChoice, painting, t, done }: 
         parts.push(t('Updated: {fields}.').replace('{fields}', list))
       }
       if (coverNow({ ...book, details }) !== coverNow(book)) parts.push(t('New cover.'))
-      if (choice === 'paint' && coverChoice) {
+      if (choice === 'paint' && coverChoice && chosen) {
         parts.push(t(details.answer?.cover.painting ? 'A painted cover is on its way.' : details.answer?.cover.painted ? 'New cover.' : 'No painting today: the drawn cover stays.'))
       }
       done([...new Set(parts)].join(' ') || t('Nothing changed.'))
@@ -275,7 +300,7 @@ function Preview({ book, proposal, loadCover, coverChoice, painting, t, done }: 
           <button disabled={applying} onClick={cancel}>{t('Cancel')}</button>
           <button
             className="primary"
-            disabled={applying || (coverChoice ? !loaded?.preview : !!(keepCover && newCover && !covers.keep?.preview))}
+            disabled={applying || (coverChoice ? loading(loaded) : keepCover && newCover && loading(covers.keep))}
             onClick={() => void apply()}
           >
             {t('Apply')}

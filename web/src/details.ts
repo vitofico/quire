@@ -100,6 +100,9 @@ const day = 86_400_000
 const waitOf = (error: unknown) => error instanceof DiscoveryHttpError && error.retryAfter ? error.retryAfter * 1000 : day
 /** A painted cover was asked for and this server no longer paints. */
 const noPainting = (error: unknown) => error instanceof DiscoveryHttpError && error.detail === 'cover_art_unavailable'
+/** A cover choice sent to a server that takes none, which rejects the body. */
+const noChoice = (error: unknown, body: { cover_choice?: CoverChoice }) =>
+  !!body.cover_choice && error instanceof DiscoveryHttpError && error.status === 422
 /** One that refused: 409, as when the reader is no longer opted in to AI. */
 const refused = (error: unknown) => error instanceof DiscoveryHttpError && error.status === 409 && !noPainting(error)
 /** An answer whose tidy was due but did not happen: asked again after a day. */
@@ -122,20 +125,23 @@ function turnOf(store: DetailsStore, key: string): Turn {
 }
 
 /** What a reader chose, kept across later answers for the same book. */
-const choices = (record?: BookDetails) =>
-  record ? { original: record.original, accepted: record.accepted, cover_choice: record.cover_choice } : {}
+const choices = (record?: BookDetails) => record
+  ? { original: record.original, accepted: record.accepted, cover_choice: record.cover_choice, declined: record.declined }
+  : {}
 
 /**
  * Looks a book up and keeps the answer and its cover in this browser.
  * `/lookup` spends a generation only when the book calls for one. A tidy the
  * reader asked for wins: a lookup that ends while a tidy or its preview is
- * open, or after one started, is dropped. Answers `undefined` when dropped.
+ * open, or after one started, is dropped; `since` is the tidy count when the
+ * lookup was queued, so one queued before a tidy is dropped too. Answers
+ * `undefined` when dropped.
  */
 export async function fetchDetails(
-  store: DetailsStore, request: DiscoveryRequest, book: ShelfBook, signal?: AbortSignal,
+  store: DetailsStore, request: DiscoveryRequest, book: ShelfBook, signal?: AbortSignal, since?: number,
 ): Promise<BookDetails | undefined> {
   const turn = turnOf(store, book.key)
-  const mine = turn.tidies
+  const mine = since ?? turn.tidies
   const stale = () => turn.tidies !== mine || turn.tidying > 0
   const previous = book.details
   const body = detailsBody(book)
@@ -161,8 +167,12 @@ export async function fetchDetails(
       }
     }
     if (stale()) return undefined
-    const basis = coverOnly(book) ? previous?.basis : body.book
-    const details = { ...choices(previous), attempted_at, retry_at, answer, cover_url, painting_checks, basis }
+    // The same record again keeps the fields it was asked for, so a field the book changed since still shows.
+    const again = coverOnly(book) || (answer.cached && answer.key === previous?.answer?.key)
+    const basis = again ? previous?.basis : body.book
+    // A record the reader rejected shows none of its improvements.
+    const declined = answer.key === previous?.declined ? { accepted: [] } : {}
+    const details = { ...choices(previous), attempted_at, retry_at, answer, cover_url, painting_checks, basis, ...declined }
     await store.setDetails(book.key, details, cover)
     return details
   } catch (error) {
@@ -170,6 +180,8 @@ export async function fetchDetails(
     const attempted_at = Date.now()
     // The server stopped painting: keep the drawn cover already shown and ask for no more paintings.
     if (noPainting(error)) await store.setDetails(book.key, { ...previous, attempted_at, retry_at: undefined, cover_choice: 'draw' })
+    // The server takes no cover choice: keep what is shown and stop sending one.
+    else if (noChoice(error, body)) await store.setDetails(book.key, { ...previous, attempted_at, retry_at: undefined, cover_choice: undefined })
     // A lookup that failed waits before it is tried again.
     else if (!refused(error)) await store.setDetails(book.key, { ...previous, attempted_at, retry_at: attempted_at + waitOf(error) })
     throw error
@@ -187,8 +199,6 @@ export type CoverPreview = {
 /** A tidy waiting for the reader to accept or reject what it proposes. */
 export type Proposal = {
   answer: DetailsAnswer
-  /** The fields the tidy was asked for. */
-  basis: DetailsFields
   /** The cover a choice gives, from the record the tidy stored, so it costs no generation. */
   cover(choice: CoverChoice, signal?: AbortSignal): Promise<CoverPreview>
   /**
@@ -197,7 +207,7 @@ export type Proposal = {
    * `undefined` when a later tidy of the same book overtook this one.
    */
   apply(accepted: TidiedField[], choice: CoverChoice, cover: CoverPreview | null): Promise<BookDetails | undefined>
-  /** Ends the preview without keeping anything. */
+  /** Ends the preview, rejecting the answer: a later lookup served the same record shows none of it. */
   close(): void
 }
 
@@ -213,13 +223,16 @@ export async function proposeDetails(
   turn.tidies++
   turn.tidying++
   const mine = turn.tidies
+  // A lookup of the book already queued would answer for the fields before the reader's choice.
+  queues.get(store)?.waiting.delete(book.key)
   let open = true
-  const close = () => {
-    if (!open) return
+  const end = () => {
+    if (!open) return false
     open = false
     turn.tidying--
     const queue = queues.get(store)
     if (queue) pump(store, queue)
+    return true
   }
   const previous = book.details
   const preview = async (answer: DetailsAnswer, signal?: AbortSignal): Promise<CoverPreview> => {
@@ -236,12 +249,18 @@ export async function proposeDetails(
     basis = body.book
     answer = await discoveryJson<DetailsAnswer>(request, '/details/v1/tidy', jsonBody('POST', body, signal))
   } catch (error) {
-    close()
+    end()
     throw error
   }
   const kept = answer
+  // The tidy moved the reader's pointer to this record: remember it was rejected.
+  const close = () => {
+    if (!end() || turn.tidies !== mine) return
+    const declined: BookDetails = previous ? { ...previous, declined: kept.key } : { attempted_at: Date.now(), retry_at: 0, declined: kept.key }
+    void store.setDetails(book.key, declined).catch(() => undefined)
+  }
   return {
-    answer, basis, close,
+    answer, close,
     // The tidy itself answered for `keep`; a painting is shown as the drawn cover it will be painted on.
     cover: async (choice, signal) => preview(choice === 'keep' ? kept : await lookup(choice === 'paint' ? 'draw' : choice, signal), signal),
     async apply(accepted, choice, cover) {
@@ -269,7 +288,7 @@ export async function proposeDetails(
         await store.setDetails(book.key, details, chosen.image)
         return details
       } finally {
-        close()
+        end()
       }
     },
   }
@@ -284,7 +303,8 @@ type Count = { date: string; count: number }
 type Queue = {
   request: DiscoveryRequest
   /** In order; an open book goes first. */
-  waiting: Map<string, { book: ShelfBook; opened: boolean }>
+  /** `since`: the book's tidy count when it was queued. */
+  waiting: Map<string, { book: ShelfBook; opened: boolean; since: number }>
   running: Set<string>
   pausedUntil: number
   today: Count
@@ -313,7 +333,7 @@ function pump(store: DetailsStore, queue: Queue) {
   if ([...turns.get(store)?.values() ?? []].some((turn) => turn.tidying)) return
   const date = new Date().toDateString()
   if (queue.today.date !== date) queue.today = { date, count: 0 }
-  for (const [key, { book, opened }] of queue.waiting) {
+  for (const [key, { book, opened, since }] of queue.waiting) {
     if (queue.running.size >= concurrency) break
     const counted = !opened && !free(book)
     if (counted && queue.today.count >= dailyLookups) continue
@@ -323,7 +343,7 @@ function pump(store: DetailsStore, queue: Queue) {
       queue.today = { date, count: queue.today.count + 1 }
       store.setPreference(countKey, queue.today).catch(() => undefined)
     }
-    void fetchDetails(store, queue.request, book)
+    void fetchDetails(store, queue.request, book, undefined, since)
       .then((details) => {
         // The allowance is spent: try the shelf again tomorrow.
         if (details?.answer?.tidy === 'quota_exceeded') pause(store, queue, Date.now() + day)
@@ -371,7 +391,7 @@ export function fillDetails(store: DetailsStore, request: DiscoveryRequest, book
     const queued = queue.waiting.get(book.key)
     queue.waiting.delete(book.key)
     if (!wantsLookup(book, now) || queue.running.has(book.key)) continue
-    const entry = { book, opened: opened || !!queued?.opened }
+    const entry = { book, opened: opened || !!queued?.opened, since: turnOf(store, book.key).tidies }
     if (opened) queue.waiting = new Map([[book.key, entry], ...queue.waiting])
     else queue.waiting.set(book.key, entry)
   }

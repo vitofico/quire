@@ -480,8 +480,8 @@ describe('improving details on request', () => {
     })
     const request = vi.fn(async () => Response.json(proposed))
     const proposal = await proposeDetails(store, request, messy)
-    expect(proposal.basis).toEqual(detailsBody(messy).book)
     const details = (await proposal.apply(['title', 'description'], 'keep', await proposal.cover('keep')))!
+    expect(details.basis).toEqual(detailsBody(messy).book)
     const book = { ...messy, details }
     expect(withDetails(book)).toMatchObject({ title: 'Dune', authors: ['Herbert, Frank'], description: 'A desert planet.' })
     expect(originLabel(book, 'title', t)).toBe('Tidied by AI')
@@ -562,6 +562,82 @@ describe('improving details on request', () => {
     expect(store.saved.size).toBe(0)
     proposal.close()
     await vi.waitFor(() => expect(store.saved.has('other')).toBe(true))
-    expect(store.saved.has('hash-1')).toBe(false)
+    // Only the rejection is remembered, and a book with no answer yet is still looked up.
+    const rejected = store.saved.get('hash-1')!
+    expect(rejected).toMatchObject({ declined: 'k'.repeat(64) })
+    expect(rejected.answer).toBeUndefined()
+    expect(wantsLookup({ ...messy, details: rejected }, Date.now())).toBe(true)
+  })
+
+  it('a cover left unticked keeps the cover shown now, the book\'s own or the one found before', async () => {
+    const found: BookDetails = { attempted_at: 0, answer: answer(), cover_url: drawnUrl }
+    for (const book of [complete, { ...complete, details: found }, { ...messy, details: found }]) {
+      const store = memoryStore()
+      const request = vi.fn(async () => Response.json(answer({ cover: { source: 'generated', url: `${drawnUrl}2`, generated: true } })))
+      const details = (await (await proposeDetails(store, request, book)).apply(['title'], 'keep', null))!
+      expect(foundCover({ ...book, details })).toBe(book.cover ? undefined : drawnUrl)
+      expect(withDetails({ ...book, details }).title).toBe('Dune')
+    }
+  })
+
+  it('a rejected record served again by a later lookup shows none of its improvements', async () => {
+    const store = memoryStore()
+    const request = vi.fn(async (path: string) => Response.json(answer({ cover: noCover, cached: path.endsWith('lookup') })))
+    const proposal = await proposeDetails(store, request, messy)
+    proposal.close()
+    await vi.waitFor(() => expect(store.saved.get('hash-1')?.declined).toBeDefined())
+    const details = (await fetchDetails(store, request, { ...messy, details: store.saved.get('hash-1') }))!
+    expect(details.accepted).toEqual([])
+    expect(withDetails({ ...messy, details })).toMatchObject({ title: messy.title, authors: messy.authors })
+    expect(originLabel({ ...messy, details }, 'title', t)).toBeNull()
+  })
+
+  it('a lookup queued before the preview opened neither overwrites what the reader applied nor brings back what they rejected', async () => {
+    for (const reader of ['applies', 'rejects'] as const) {
+      const store = memoryStore()
+      const held: (() => void)[] = []
+      const request = vi.fn(async (path: string) => {
+        if (path !== '/details/v1/lookup') return Response.json(answer({ cover: noCover }))
+        // A busy shelf: the first two lookups wait, so the open book stays queued.
+        if (held.length < 2) await new Promise<void>((resolve) => held.push(resolve))
+        return Response.json(answer({ cover: noCover, cached: true }))
+      })
+      fillDetails(store, request, shelf('o', 2))
+      await vi.waitFor(() => expect(held).toHaveLength(2))
+      fillDetails(store, request, [messy], true)
+      await settle()
+      const proposal = await proposeDetails(store, request, messy)
+      held.forEach((open) => open())
+      if (reader === 'applies') await proposal.apply([], 'keep', await proposal.cover('keep'))
+      else proposal.close()
+      await vi.waitFor(() => expect(store.saved.has('o1')).toBe(true))
+      await settle()
+      const after = store.saved.get('hash-1')!
+      expect(after.answer && after.accepted).toEqual(reader === 'applies' ? [] : undefined)
+      expect(withDetails({ ...messy, details: after }).title).toBe(messy.title)
+      expect(request.mock.calls.filter(([path]) => path === '/details/v1/lookup')).toHaveLength(2)
+    }
+  })
+
+  it('a record served again keeps the fields it was asked for, so a catalog edit still shows', async () => {
+    const store = memoryStore()
+    const first = (await fetchDetails(store, vi.fn(async () => Response.json(answer({ cover: noCover }))), messy))!
+    const renamed = { ...messy, title: 'Dune (Deluxe Edition)', details: first }
+    const again = (await fetchDetails(store, vi.fn(async () => Response.json(answer({ cover: noCover, cached: true }))), renamed))!
+    expect(again.basis).toEqual(first.basis)
+    expect(withDetails({ ...renamed, details: again }).title).toBe('Dune (Deluxe Edition)')
+  })
+
+  it('a server that takes no cover choice gets the choice once, then never again', async () => {
+    const store = memoryStore()
+    const request = vi.fn(async () => Response.json({ detail: [{ msg: 'extra' }] }, { status: 422 }))
+    // A painting being checked again: a real lookup, with the choice.
+    const painting = answer({ cover: { source: 'generated', url: drawnUrl, generated: true, painting: true } })
+    const chosen: BookDetails = { attempted_at: 0, retry_at: 1, answer: painting, cover_url: drawnUrl, painting_checks: 1, cover_choice: 'paint' }
+    await expect(fetchDetails(store, request, { ...complete, details: chosen })).rejects.toThrow()
+    const after = store.saved.get('hash-2')!
+    expect(after).toMatchObject({ cover_url: drawnUrl, retry_at: undefined })
+    expect(after.cover_choice).toBeUndefined()
+    expect(detailsBody({ ...complete, details: after })).not.toHaveProperty('cover_choice')
   })
 })

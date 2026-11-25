@@ -36,6 +36,8 @@ type Server = {
   config?: Record<string, unknown>
   lookup?: (body: Record<string, unknown>) => unknown
   tidy?: (body: Record<string, unknown>) => unknown
+  /** The status a drawn cover's image answers with. */
+  coverStatus?: number
 }
 
 async function connect(page: Page, server: Server = {}) {
@@ -75,6 +77,7 @@ async function connect(page: Page, server: Server = {}) {
       }
       return route.fulfill({ json: answer('Dune, tidied again') })
     }
+    if (server.coverStatus) return route.fulfill({ status: server.coverStatus, json: { detail: 'unavailable' } })
     return route.fulfill({ contentType: 'image/png', headers: { 'X-Quire-Cover': 'generated' }, body: png })
   })
   return calls
@@ -304,4 +307,30 @@ test('a painted cover is asked for only on apply and the preview fits a phone', 
   await page.keyboard.press('Escape')
   await expect(sheet).toHaveCount(0)
   await expect(improve).toBeFocused()
+})
+
+test('a cover that fails to download does not hold back the text changes', async ({ page }) => {
+  const calls = await connect(page, {
+    config: { cover_choice_supported: true },
+    lookup: body => improvement(body),
+    tidy: body => improvement(body, { description: 'A desert planet.' }),
+    coverStatus: 500,
+  })
+  await page.goto('/quire/')
+  await page.locator('input[type=file]').setInputFiles(coveredBook())
+  await expect.poll(() => calls.filter(call => call.path === '/details/v1/lookup').length).toBe(1)
+  await page.getByRole('button', { name: 'Improve details' }).click()
+  const sheet = page.getByRole('dialog', { name: 'Improve details' })
+  await sheet.getByRole('radio', { name: 'Quire’s drawn cover' }).check()
+  await expect(sheet.getByRole('alert')).toBeVisible()
+  await sheet.getByRole('button', { name: 'Apply' }).click()
+  await expect(sheet).toHaveCount(0)
+  await expect(page.getByRole('status')).toHaveText('Updated: description.')
+  await expect(page.getByText('A desert planet.')).toBeVisible()
+  // The book's own cover stays, and the drawn one is not asked for again.
+  await expect(page.locator('.detail-cover img')).toHaveCount(1)
+  await expect(page.locator('.detail-cover').getByText('Generated cover')).toHaveCount(0)
+  await page.reload()
+  await expect(page.getByText('A desert planet.')).toBeVisible()
+  expect(calls.filter(call => call.body?.cover_choice).map(call => call.body?.cover_choice)).toEqual(['draw'])
 })

@@ -102,6 +102,8 @@ export interface BookDetails {
   accepted?: TidiedField[]
   /** The cover the reader chose in the preview; without it, `keep`. */
   cover_choice?: CoverChoice
+  /** The key of a record the reader rejected in the preview: served again, it shows none of its improvements. */
+  declined?: string
 }
 
 /** What `cover_choice` asks the server for: the book's own cover, Open Library's, Quire's drawn one or a painted one. */
