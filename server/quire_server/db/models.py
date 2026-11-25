@@ -717,3 +717,43 @@ class AccountCatalog(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class ConvertJob(Base):
+    """A PDF to EPUB conversion started from an app (``/convert/v1``).
+
+    The PDF and the EPUB live in the conversion folder (``core.convert``), never
+    here. ``failure_code`` is set when ``state`` is ``failed``; ``summary`` holds
+    what the owner is shown (review pages, issue counts, a short reason).
+    """
+
+    __tablename__ = "convert_jobs"
+    __table_args__ = (
+        UniqueConstraint("user_id", "idempotency_key", name="uq_convert_jobs_user_key"),
+        CheckConstraint(
+            "state IN ('created', 'queued', 'running', 'ready', 'review', 'failed', "
+            "'cancelled', 'acknowledged', 'expired')",
+            name="ck_convert_jobs_state",
+        ),
+        Index("ix_convert_jobs_user_created", "user_id", "created_at"),
+        Index("ix_convert_jobs_state", "state"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    # The owner's storage user id, as in every other user-scoped table.
+    user_id: Mapped[str] = mapped_column(String, nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    mode: Mapped[str] = mapped_column(String, nullable=False)
+    source_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    engine_revision: Mapped[str | None] = mapped_column(String, nullable=True)
+    state: Mapped[str] = mapped_column(String, nullable=False)
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False)
+    failure_code: Mapped[str | None] = mapped_column(String, nullable=True)
+    result_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    result_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    summary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

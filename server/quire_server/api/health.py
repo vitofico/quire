@@ -94,11 +94,13 @@ def _required_heads(script, progress_enabled: bool, ai_enabled: bool) -> set[str
     # regardless of the configured backend) so it is required whenever the
     # label is present, on a par with ``core``. The actual selection of a
     # backend is a config-only flip — schema must be there either way.
-    # ``catalogs`` (synced catalogs) belongs to accounts too, so likewise.
+    # ``catalogs`` (synced catalogs) and ``convert`` (PDF conversions) belong
+    # to accounts too, so likewise.
     candidates = [
         (True, "core"),
         (True, "auth"),
         (True, "catalogs"),
+        (True, "convert"),
         (progress_enabled, "progress"),
         (ai_enabled, "ai"),
     ]

@@ -611,6 +611,9 @@ class ConfigResponse(BaseModel):
     # True when /details/v1 is mounted: book details and designed covers.
     # Older servers omit it.
     details_supported: bool = False
+    # True when /convert/v1 is mounted: PDF to EPUB conversion. Works without
+    # AI too; `GET /convert/v1/capabilities` is the full answer.
+    conversion_supported: bool = False
 
 
 class PreferencesResponse(BaseModel):
