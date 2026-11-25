@@ -25,6 +25,8 @@ DESIGN = {
     "layout": "band",
     "typeface": "sans",
 }
+# Painted artwork is off in these tests.
+UNPAINTED = {"painted": False, "painting": False}
 DUNE = OpenLibraryBook(
     url="https://openlibrary.org/works/OL893415W",
     title="Dune",
@@ -205,7 +207,7 @@ async def test_extra_fact_keys_in_the_answer_store_nothing(client_factory, app, 
     assert len(calls) >= 2  # the answer was refused, then retried
     assert data["tidy"] == "failed"
     assert data["book"]["year"] is None and data["book"]["publisher"] is None
-    assert data["cover"] == {"source": None, "url": None, "generated": False}
+    assert data["cover"] == {"source": None, "url": None, "generated": False, **UNPAINTED}
     assert (await session.execute(select(BookDetails))).scalars().all() == []
     assert forced.status_code == 502
     assert forced.json()["detail"]["code"] == "provider_invalid_output"
@@ -307,7 +309,12 @@ async def test_nothing_due_means_no_model_call(client_factory, app, session):
 
     assert calls == []
     assert data["tidy"] == "not_needed"
-    assert data["cover"] == {"source": "openlibrary", "url": found.cover_url, "generated": False}
+    assert data["cover"] == {
+        "source": "openlibrary",
+        "url": found.cover_url,
+        "generated": False,
+        **UNPAINTED,
+    }
     assert data["book"]["description"] == DUNE.description
     assert (await session.execute(select(AIUsageDaily))).scalars().all() == []
 
@@ -528,7 +535,7 @@ async def test_another_device_of_the_same_reader_is_served_the_same_record(
     assert data["key"] == phone["key"]
     assert data["book"]["title"] == "Dune"
     # The device that shows its own cover keeps it.
-    assert data["cover"] == {"source": "catalog", "url": None, "generated": False}
+    assert data["cover"] == {"source": "catalog", "url": None, "generated": False, **UNPAINTED}
     assert phone["cover"]["generated"] is True
     assert bob["key"] != phone["key"] and bob["cached"] is False
     assert moved["key"] == bob["key"] != phone["key"]

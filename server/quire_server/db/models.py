@@ -14,6 +14,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     Numeric,
     String,
     UniqueConstraint,
@@ -254,6 +255,39 @@ class BookDetails(Base):
     )
 
 
+class BookCoverArt(Base):
+    """The painted background of a designed cover, one per shared details
+    record, and the single attempt that made it (ai_013). No user column:
+    like the record it is shared by every reader of the same book."""
+
+    __tablename__ = "book_cover_art"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'painted', 'failed')", name="ck_book_cover_art_status"
+        ),
+        CheckConstraint(
+            "(status = 'painted') = (image IS NOT NULL AND digest IS NOT NULL)",
+            name="ck_book_cover_art_image",
+        ),
+        CheckConstraint(
+            "image IS NULL OR octet_length(image) <= 524288", name="ck_book_cover_art_size"
+        ),
+    )
+
+    key: Mapped[str] = mapped_column(
+        String(64), ForeignKey("book_details.key", ondelete="CASCADE"), primary_key=True
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    # JPEG, 600 x 900, the title band left to the renderer.
+    image: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True, deferred=True)
+    digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    model_id: Mapped[str] = mapped_column(String, nullable=False)
+    error_class: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    attempted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class BookDetailsReader(Base):
     """Which shared record a reader was last given for a book, so another
     device that sends different fields for the same book is answered with it
@@ -301,9 +335,11 @@ class AIGenerationLog(Base):
                   book_insight_id NOT NULL (points at the copied row at the
                   ``to`` identity). weight=0 against the daily quota.
       'details': one tidy of a book's details (ai_012); book_insight_id NULL.
+      'cover_art': one painting of a cover's artwork (ai_013); book_insight_id
+                  NULL. Never charged to the reader.
 
     Cross-field invariant enforced by ``ck_ai_generation_log_kind_fk``:
-    profile and details rows MUST have book_insight_id NULL; insight/promote
+    profile, details and cover_art rows MUST have book_insight_id NULL; insight/promote
     rows MUST have it non-null. ``_log_generation()`` raises ValueError BEFORE the DB
     round-trip if a caller violates this.
 
@@ -320,11 +356,11 @@ class AIGenerationLog(Base):
             name="ck_ai_generation_log_status",
         ),
         CheckConstraint(
-            "kind IN ('insight', 'profile', 'promote', 'details')",
+            "kind IN ('insight', 'profile', 'promote', 'details', 'cover_art')",
             name="ck_ai_generation_log_kind",
         ),
         CheckConstraint(
-            "(kind IN ('profile', 'details') AND book_insight_id IS NULL) "
+            "(kind IN ('profile', 'details', 'cover_art') AND book_insight_id IS NULL) "
             "OR (kind IN ('insight', 'promote') AND book_insight_id IS NOT NULL)",
             name="ck_ai_generation_log_kind_fk",
         ),

@@ -168,7 +168,7 @@ the operator migrates. Plan cutover within the two-minor-release window.
 | `DELETE` | `/ai/v1/profile` | yes | Wipe the caller's reader profile row |
 | `POST` | `/details/v1/lookup` | yes | Fill a book's missing details from Open Library; tidy them when due |
 | `POST` | `/details/v1/tidy` | yes | Tidy a book's details now, replacing the stored record (budgeted) |
-| `GET` | `/details/v1/covers/{key}` | yes | The designed cover of a tidied record, as PNG |
+| `GET` | `/details/v1/covers/{key}` | yes | The designed cover of a tidied record, as PNG (JPEG on painted artwork) |
 
 `/sync/v1/documents/alias` and `/sync/v1/bookmarks` are designed but not
 shipped. Everything else above is on `main`.
@@ -1820,7 +1820,10 @@ Response:
   Library's, then a generated one. `source` is `null` when there is none
   (no tidy ran). For a generated cover, `url` is a server path such as
   `/details/v1/covers/<key>?v=<etag>` and `generated` is true, so the
-  client can label it.
+  client can label it. Two more flags, both false unless the server paints
+  cover artwork ([below](#painted-cover-artwork)): `painted` when the
+  cover is drawn on painted artwork, and `painting` when artwork for it is
+  on its way, so a later lookup will answer with a new `url`.
 - `tidy`: `"done"` when the answer includes a tidy, `"not_needed"` when
   nothing called for one, and on a lookup `"quota_exceeded"` or
   `"failed"` when one was due but the allowance was spent or the model
@@ -1866,22 +1869,54 @@ a generation.
 
 ### `GET /details/v1/covers/{key}`
 
-The designed cover of the record with this `key`, as a 600 x 900 PNG. It
-is drawn on request from the stored design, title and authors, so the same
-record always gives the same image. Use the `url` from the lookup
-response: it carries the current `ETag` as `?v=`, so a changed cover has a
-new address.
+The designed cover of the record with this `key`, as a 600 x 900 PNG, or
+a JPEG when it is drawn on painted artwork. It is drawn on request from
+the stored design, title and authors (and artwork), so the same record
+always gives the same image. Use the `url` from the lookup response: it
+carries the current `ETag` as `?v=`, so a changed cover has a new address.
+Once artwork is painted, both the drawn cover's address and the painted
+one's are served, each with its own picture, so an address a client
+already holds keeps working.
 
-Response headers: `Content-Type: image/png`, `ETag`,
+Response headers: `Content-Type: image/png` (or `image/jpeg`), `ETag`,
 `Cache-Control: private, max-age=31536000, immutable`, and
 `X-Quire-Cover: generated`, which marks the image as drawn by the server
 rather than a real cover.
 
 | Status | When |
 |---|---|
-| 200 | The PNG. |
+| 200 | The PNG or JPEG. |
 | 304 | `If-None-Match` matches the current `ETag`. |
 | 401 | Not authenticated. |
 | 404 | `{"detail": "cover_not_found"}`: no record has this key, or `?v=` names a cover since redrawn (look the book up again for the new address). Also when the feature or AI is off. |
 | 409 | `{"detail": "ai_not_opted_in"}`: the reader has not opted in to AI. |
 | 429 | `{"detail": "cover_rate_limited"}` with `Retry-After`: the reader fetched more than `QUIRE_SERVER_DETAILS_COVER_RATE_PER_MIN` covers in the last minute (counted per server process; a `304` does not count). |
+
+### Painted cover artwork
+
+Off by default (`QUIRE_SERVER_COVER_ART_ENABLED`, see
+[configuration](configuration.md#quire_server_cover_art_enabled)). When an
+operator turns it on, an image model paints a background for generated
+covers: an illustration with no text, made from the record's title,
+subjects and a trimmed description. The server still sets the title and
+author itself, on a solid band over the lower part of the artwork, so the
+type keeps the design's contrast whatever the painting looks like.
+
+Painting never happens on a request. A lookup or tidy that answers with a
+generated cover queues a painting and answers at once with the drawn cover
+and `cover.painting: true`. When the artwork is stored, the next lookup of
+that book answers with a new `url` (a new `?v=`) and `cover.painted: true`;
+that lookup is served from the stored record, so it costs nothing. Each
+book is painted once and the artwork is shared by every reader of the
+record, like the record itself.
+
+A painting that fails (the provider refused, timed out or answered with no
+usable image) is not retried on every lookup: after a timeout or a busy or
+unavailable provider a later lookup may try again a day later, otherwise
+after 30 days. The server paints at most `QUIRE_SERVER_COVER_ART_DAILY_BUDGET`
+covers a day in all. None of this is charged to the reader's allowance.
+
+A client that keeps the first cover it was given and does not look the book
+up again keeps showing the drawn cover. To pick up the artwork, a client
+that sees `painting: true` looks the book up again later (an hour is
+plenty) and fetches the new `url` when it changed.

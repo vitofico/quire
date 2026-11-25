@@ -27,6 +27,7 @@ import pytest
 from sqlalchemy import inspect
 
 from quire_server.db.models import (
+    BookCoverArt,
     BookDetails,
     BookDetailsReader,
     BookInsight,
@@ -53,6 +54,7 @@ SHARED_CACHE_TABLES = [
     pytest.param(ExternalSourceCacheEntry, id="external_source_cache"),
     pytest.param(BookTheme, id="book_themes"),  # PR3 (2026-05-17)
     pytest.param(BookDetails, id="book_details"),  # ai_012
+    pytest.param(BookCoverArt, id="book_cover_art"),  # ai_013
 ]
 
 # Tables where `user_id` is INTENTIONAL cache-key scoping, NOT a tenant-leak.

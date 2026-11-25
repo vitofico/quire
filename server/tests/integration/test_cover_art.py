@@ -1,0 +1,194 @@
+"""Painted cover artwork end to end: queued off the request, stored once,
+shared, budgeted and never charged, against Postgres and a stubbed image
+provider."""
+
+import asyncio
+import base64
+import io
+import json
+
+import httpx
+import pytest
+from PIL import Image
+from sqlalchemy import select
+
+from quire_server.core.cover_art import ImageProvider
+from quire_server.db.models import AIGenerationLog, AIUsageDaily, BookCoverArt, BookDetails
+
+from .test_book_details import AI_ENV, body, creds, install, opt_in, tidy_answer
+
+pytestmark = pytest.mark.requires_ai
+
+ART_ENV = {
+    **AI_ENV,
+    "cover_art_enabled": True,
+    "cover_art_base_url": "https://art.example.test/v1",
+    "cover_art_model": "art-model",
+}
+
+
+def png(colour=(30, 90, 160)) -> bytes:
+    out = io.BytesIO()
+    Image.new("RGB", (1024, 1536), colour).save(out, format="PNG")
+    return out.getvalue()
+
+
+async def paint_with(app, answer=None, *, gate: asyncio.Event | None = None) -> list[dict]:
+    """Point the app's artist at a stub provider; returns the requests made."""
+    calls: list[dict] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(json.loads(request.content))
+        if gate is not None:
+            await gate.wait()
+        if answer is not None:
+            return answer
+        return httpx.Response(200, json={"data": [{"b64_json": base64.b64encode(png()).decode()}]})
+
+    artist = app.state.cover_artist
+    await artist.provider.aclose()
+    artist.provider = ImageProvider(
+        base_url="https://art.example.test/v1",
+        api_key="test-key",
+        model="art-model",
+        transport=httpx.MockTransport(handler),
+    )
+    return calls
+
+
+async def lookup(client, user="alice", **kw):
+    r = await client.post("/details/v1/lookup", headers=creds(user), json=body(**kw))
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+async def test_artwork_is_painted_off_the_request_and_then_offered(client_factory, app, session):
+    gate = asyncio.Event()
+    async with client_factory(**ART_ENV) as client:
+        install(app, tidy_answer())
+        calls = await paint_with(app, gate=gate)
+        await opt_in(client, "alice", "bob")
+        first = await lookup(client)
+        # The answer came back while the provider was still painting.
+        assert first["cover"]["painting"] is True and first["cover"]["painted"] is False
+        drawn_url = first["cover"]["url"]
+        usage_before = (await session.execute(select(AIUsageDaily.count))).scalars().all()
+        gate.set()
+        await app.state.cover_artist.drain()
+
+        second = await lookup(client)
+        shared = await lookup(client, "bob")
+        painted = await client.get(second["cover"]["url"], headers=creds("alice"))
+        still_drawn = await client.get(drawn_url, headers=creds("alice"))
+        latest = await client.get(drawn_url.split("?")[0], headers=creds("alice"))
+        await app.state.cover_artist.drain()
+
+    assert len(calls) == 1
+    # Only the book reaches the provider: no reader, no account.
+    assert set(calls[0]) == {"model", "prompt", "n", "size"}
+    assert "alice" not in json.dumps(calls[0]) and "Dune" in calls[0]["prompt"]
+
+    assert second["cover"]["painted"] is True and second["cover"]["painting"] is False
+    assert second["cover"]["generated"] is True and second["cover"]["source"] == "generated"
+    assert second["cover"]["url"] != drawn_url
+    assert shared["cover"]["url"] == second["cover"]["url"]
+
+    assert painted.status_code == 200 and painted.headers["content-type"] == "image/jpeg"
+    assert second["cover"]["url"].endswith("?v=" + painted.headers["ETag"].strip('"'))
+    assert Image.open(io.BytesIO(painted.content)).size == (600, 900)
+    # An address a client already held keeps its picture.
+    assert still_drawn.status_code == 200 and still_drawn.headers["content-type"] == "image/png"
+    assert latest.headers["content-type"] == "image/jpeg"
+
+    status, image = (await session.execute(select(BookCoverArt.status, BookCoverArt.image))).one()
+    assert status == "painted" and len(image) <= 400_000
+    log = (
+        (await session.execute(select(AIGenerationLog).where(AIGenerationLog.kind == "cover_art")))
+        .scalars()
+        .one()
+    )
+    assert (log.status, log.subject, log.model_id) == ("miss", "alice", "art-model")
+    # The painting is not charged to the reader.
+    usage_after = (await session.execute(select(AIUsageDaily.count))).scalars().all()
+    assert usage_after == usage_before
+
+
+async def test_a_refusal_is_remembered_and_not_retried(client_factory, app, session):
+    async with client_factory(**ART_ENV) as client:
+        install(app, tidy_answer())
+        refusal = httpx.Response(400, json={"error": {"code": "moderation_blocked"}})
+        calls = await paint_with(app, refusal)
+        await opt_in(client, "alice")
+        await lookup(client)
+        await app.state.cover_artist.drain()
+        again = await lookup(client)
+        forced = await client.post("/details/v1/tidy", headers=creds("alice"), json=body())
+        await app.state.cover_artist.drain()
+
+    assert len(calls) == 1
+    assert again["cover"]["painted"] is False and again["cover"]["painting"] is False
+    assert forced.json()["cover"]["painting"] is False
+    art = (
+        await session.execute(
+            select(BookCoverArt.status, BookCoverArt.error_class, BookCoverArt.image)
+        )
+    ).one()
+    assert tuple(art) == ("failed", "refused", None)
+    log = (
+        (await session.execute(select(AIGenerationLog).where(AIGenerationLog.kind == "cover_art")))
+        .scalars()
+        .one()
+    )
+    assert (log.status, log.error_class) == ("error", "refused")
+
+
+async def test_the_daily_budget_stops_paintings(client_factory, app, session):
+    async with client_factory(**ART_ENV, cover_art_daily_budget=1) as client:
+        install(app, tidy_answer())
+        calls = await paint_with(app)
+        await opt_in(client, "alice")
+        await lookup(client)
+        await app.state.cover_artist.drain()
+        await lookup(client, title="another_book_(retail)")
+        await app.state.cover_artist.drain()
+        third = await lookup(client, title="a_third_book_(retail)")
+        await app.state.cover_artist.drain()
+
+    assert len(calls) == 1
+    # Once the server knows the budget is spent it says nothing is coming.
+    assert third["cover"]["painting"] is False
+    rows = (await session.execute(select(BookCoverArt))).scalars().all()
+    assert [r.status for r in rows] == ["painted"]
+
+
+async def test_off_by_default_nothing_changes(client_factory, app, session):
+    async with client_factory(**AI_ENV) as client:
+        install(app, tidy_answer())
+        await opt_in(client, "alice")
+        first = await lookup(client)
+        # Artwork stored while the feature was on is no longer offered.
+        row = (await session.execute(select(BookDetails))).scalars().one()
+        session.add(
+            BookCoverArt(
+                key=row.key, status="painted", image=b"x", digest="0" * 64, model_id="art-model"
+            )
+        )
+        await session.commit()
+        second = await lookup(client)
+        cover = await client.get(second["cover"]["url"].split("?")[0], headers=creds("alice"))
+
+    assert app.state.cover_artist is None
+    assert first["cover"] == second["cover"]
+    assert (first["cover"]["painted"], first["cover"]["painting"]) == (False, False)
+    assert cover.headers["content-type"] == "image/png"
+
+
+async def test_enabled_without_a_provider_paints_nothing(client_factory, app, session):
+    async with client_factory(**AI_ENV, cover_art_enabled=True) as client:
+        install(app, tidy_answer())
+        await opt_in(client, "alice")
+        answer = await lookup(client)
+
+    assert app.state.cover_artist is None
+    assert answer["cover"]["painting"] is False
+    assert any("Cover artwork is enabled without" in w for w in app.state.config_warnings)
