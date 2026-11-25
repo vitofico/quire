@@ -686,6 +686,29 @@ def create_app() -> FastAPI:
             app.state.details_lookup_limit = RateLimit()
             app.state.details_covers = CoverCache()
             app.state.details_failures = RecentFailures()
+            app.state.cover_artist = None
+            if (
+                settings.cover_art_enabled
+                and settings.cover_art_base_url
+                and settings.cover_art_model
+            ):
+                from quire_server.core.cover_art import CoverArtist, ImageProvider
+
+                key = settings.cover_art_api_key
+                artist = CoverArtist(
+                    ImageProvider(
+                        base_url=settings.cover_art_base_url,
+                        api_key=key.get_secret_value() if key else None,
+                        model=settings.cover_art_model,
+                        size=settings.cover_art_size,
+                        quality=settings.cover_art_quality,
+                        timeout_s=settings.cover_art_timeout_s,
+                    ),
+                    session_factory,
+                    daily_budget=settings.cover_art_daily_budget,
+                )
+                app.state.cover_artist = artist
+                resources.push_async_callback(artist.aclose)
             app.include_router(details_router, prefix="/details/v1", dependencies=ai_router_deps)
 
     if settings.convert_enabled:

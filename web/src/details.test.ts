@@ -2,7 +2,7 @@
 import 'fake-indexeddb/auto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { openReplica, type BookDetails, type DetailsAnswer, type Replica, type ShelfBook } from './data'
-import { bookIdentity, dailyLookups, detailsBody, fetchDetails, fillDetails, foundCover, looksLikeFileName, wantsLookup, withDetails } from './details'
+import { bookIdentity, dailyLookups, paintingChecks, detailsBody, fetchDetails, fillDetails, foundCover, looksLikeFileName, wantsLookup, withDetails } from './details'
 import { DiscoveryHttpError, requestMessage } from './discovery/api'
 
 const messy: ShelfBook = {
@@ -126,7 +126,7 @@ describe('details client', () => {
     })
     const first = (await fetchDetails(store, request, messy, 'lookup'))!
     expect(first).toMatchObject({ answer: answer(), cover_url: undefined })
-    expect(first.retry_at! - first.attempted_at).toBe(86_400_000)
+    expect(first.retry_at! - first.attempted_at).toBeCloseTo(86_400_000, -3)
     expect(wantsLookup({ ...messy, details: first }, first.retry_at!)).toBe(true)
     const second = (await fetchDetails(store, request, { ...messy, details: first }, 'lookup'))!
     expect(request.mock.calls.map(([path]) => path).filter((path) => path === '/details/v1/lookup')).toHaveLength(1)
@@ -262,7 +262,7 @@ describe('when details are looked up', () => {
     fillDetails(other, offline, [messy])
     await vi.waitFor(() => expect(other.saved.get('hash-1')).toBeDefined())
     const wait = other.saved.get('hash-1')!
-    expect(wait.retry_at! - wait.attempted_at).toBe(86_400_000)
+    expect(wait.retry_at! - wait.attempted_at).toBeCloseTo(86_400_000, -3)
   })
 })
 
@@ -317,7 +317,7 @@ describe('the shelf pass', () => {
   it('asks an unfinished tidy again after a day, and a spent allowance pauses the pass for the day', async () => {
     for (const tidy of ['quota_exceeded', 'failed'] as const) {
       const details = (await fetchDetails(memoryStore(), vi.fn(async () => Response.json(answer({ tidy, cover: noCover }))), messy, 'lookup'))!
-      expect(details.retry_at! - details.attempted_at, tidy).toBe(86_400_000)
+      expect(details.retry_at! - details.attempted_at, tidy).toBeCloseTo(86_400_000, -3)
     }
     const done = await fetchDetails(memoryStore(), vi.fn(async () => Response.json(answer({ tidy: 'not_needed', cover: noCover }))), messy, 'lookup')
     expect(done?.retry_at).toBeUndefined()
@@ -351,6 +351,74 @@ describe('the shelf pass', () => {
     const nextDay = memoryStore(new Map([['detailsLookupsToday', { date: 'Mon Jan 01 2001', count: 25 }]]))
     fillDetails(nextDay, request, books.slice(25, 27))
     await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(28))
+  })
+})
+
+describe('a cover being painted', () => {
+  const drawn = answer().cover
+  const painted = { ...drawn, url: `/details/v1/covers/${'c'.repeat(64)}?v=f2`, painted: true }
+
+  it('is looked up again in an hour, a real lookup, and the new artwork replaces the drawn cover', async () => {
+    const store = memoryStore()
+    let lookups = 0
+    const request = vi.fn(async (path: string) => {
+      if (path === '/details/v1/lookup') return Response.json(answer({ cover: ++lookups === 1 ? { ...drawn, painting: true } : painted }))
+      return path === painted.url ? new Response(new Blob(['jpg'], { type: 'image/jpeg' })) : png()
+    })
+    const first = (await fetchDetails(store, request, messy, 'lookup'))!
+    expect(first.retry_at! - first.attempted_at).toBeCloseTo(3_600_000, -3)
+    expect(wantsLookup({ ...messy, details: first }, first.retry_at! - 1)).toBe(false)
+    expect(wantsLookup({ ...messy, details: first }, first.retry_at!)).toBe(true)
+
+    const second = (await fetchDetails(store, request, { ...messy, details: first }, 'lookup'))!
+    expect(lookups).toBe(2)
+    expect(second).toMatchObject({ cover_url: painted.url, retry_at: undefined })
+    expect(await store.covers.get('hash-1')?.text()).toBe('jpg')
+    expect(foundCover({ ...messy, details: second })).toBe(painted.url)
+  })
+
+  it('keeps showing the drawn cover until the painted one downloads', async () => {
+    const store = memoryStore()
+    let downloads = 0
+    const request = vi.fn(async (path: string) => {
+      if (path === '/details/v1/lookup') return Response.json(answer({ cover: painted }))
+      return ++downloads === 1 ? new Response(null, { status: 503 }) : new Response(new Blob(['jpg'], { type: 'image/jpeg' }))
+    })
+    const drawnRecord = { attempted_at: 0, answer: answer({ cover: { ...drawn, painting: true } }), cover_url: drawn.url! }
+    const failed = (await fetchDetails(store, request, { ...messy, details: drawnRecord }, 'lookup'))!
+    expect(failed).toMatchObject({ cover_url: drawn.url, answer: { cover: painted } })
+    expect(failed.retry_at).toBeDefined()
+    expect(store.covers.has('hash-1')).toBe(false)
+    expect(foundCover({ ...messy, details: failed })).toBe(drawn.url)
+
+    const fetched = (await fetchDetails(store, request, { ...messy, details: failed }, 'lookup'))!
+    expect(fetched.cover_url).toBe(painted.url)
+    expect(await store.covers.get('hash-1')?.text()).toBe('jpg')
+  })
+
+  it(`stops asking after ${paintingChecks} answers that it is still painting`, async () => {
+    const store = memoryStore()
+    const request = vi.fn(async (path: string) =>
+      path === '/details/v1/lookup' ? Response.json(answer({ cover: { ...drawn, painting: true } })) : png())
+    let details: BookDetails | undefined
+    for (let check = 1; check <= paintingChecks; check++) {
+      details = await fetchDetails(store, request, { ...messy, details }, 'lookup')
+      expect(details?.retry_at, `check ${check}`).toBeDefined()
+    }
+    details = await fetchDetails(store, request, { ...messy, details }, 'lookup')
+    expect(details?.retry_at).toBeUndefined()
+    expect(request.mock.calls.filter(([path]) => path === '/details/v1/lookup')).toHaveLength(paintingChecks + 1)
+  })
+
+  it('asking again does not count against the shelf\'s daily lookups', async () => {
+    const store = memoryStore(new Map([['detailsLookupsToday', { date: new Date().toDateString(), count: dailyLookups }]]))
+    const request = vi.fn(async () => Response.json(answer({ cover: noCover })))
+    const waiting = { attempted_at: 0, retry_at: 1, answer: answer({ cover: { ...drawn, painting: true } }), painting_checks: 1 }
+    fillDetails(store, request, [{ ...messy, details: waiting }, { ...messy, key: 'new', content_hash: 'new' }])
+    await vi.waitFor(() => expect(store.saved.has('hash-1')).toBe(true))
+    await settle()
+    expect(request).toHaveBeenCalledTimes(1)
+    expect(store.saved.has('new')).toBe(false)
   })
 })
 

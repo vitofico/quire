@@ -803,3 +803,81 @@ def cover_png(design: dict, title: str, authors: list[str]) -> bytes:
     out = io.BytesIO()
     draw_cover(design, title, authors).save(out, format="PNG", optimize=True)
     return out.getvalue()
+
+
+# Where the title band of a painted cover starts and how far above it the
+# band fades into the artwork, as shares of the height.
+_BAND_TOP = 0.58
+_FEATHER = 0.07
+
+
+def draw_painted_cover(
+    design: dict, title: str, authors: list[str], art: Image.Image
+) -> Image.Image:
+    """A cover on painted artwork: the artwork fills it and a band in the
+    design's background colour carries the title and author. The band is
+    solid wherever there is text, so the type keeps the contrast the design
+    guarantees whatever the artwork looks like; above that it fades in."""
+    seed = int.from_bytes(hashlib.sha256(f"{title}|{authors}".encode()).digest()[:8], "big")
+    bg, accent, ink, _ = _colours(design, seed)
+    face_name, title_weight, author_weight = _FACES.get(design.get("typeface"), _FACES["serif"])
+    title = _capped(title, _TITLE_CAP)
+    author = _capped(_author_line(authors), _AUTHOR_CAP)
+
+    image = art.convert("RGB").resize((_W, _H), Image.Resampling.LANCZOS)
+    top, feather = int(_H * _BAND_TOP), int(_H * _FEATHER)
+    band = Image.new("RGB", (_W, _H - top + feather), bg)
+    fade = Image.new("L", band.size, 255)
+    f = ImageDraw.Draw(fade)
+    for y in range(feather):
+        f.line([(0, y), (_W, y)], fill=round(255 * y / feather))
+    image.paste(band, (0, top - feather), fade)
+
+    d = ImageDraw.Draw(image)
+    m = 64 * _SCALE
+    d.rectangle((m, top + 24 * _SCALE, m + 70 * _SCALE, top + 30 * _SCALE), fill=accent)
+    bottom = _H - m
+    if author:
+        face, lines = _fit(
+            face_name,
+            author_weight,
+            author,
+            _W - 2 * m,
+            80 * _SCALE,
+            largest=30,
+            smallest=18,
+            max_lines=2,
+        )
+        _set(
+            d,
+            face,
+            lines,
+            (m, bottom - 80 * _SCALE, _W - m, bottom),
+            ink,
+            align="left",
+            valign="bottom",
+        )
+        bottom -= 96 * _SCALE
+    box = (m, top + 56 * _SCALE, _W - m, bottom)
+    face, lines = _fit(
+        face_name,
+        title_weight,
+        title,
+        box[2] - box[0],
+        box[3] - box[1],
+        largest=72,
+        smallest=26,
+        max_lines=4,
+    )
+    _set(d, face, lines, box, ink, align="left", valign="top")
+    return image.resize((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
+
+
+def painted_cover_jpeg(design: dict, title: str, authors: list[str], art: bytes) -> bytes:
+    """``draw_painted_cover`` on stored artwork, as JPEG: a painting
+    compresses far better that way than as PNG."""
+    with Image.open(io.BytesIO(art)) as picture:
+        cover = draw_painted_cover(design, title, authors, picture)
+    out = io.BytesIO()
+    cover.save(out, format="JPEG", quality=88, optimize=True, progressive=True)
+    return out.getvalue()

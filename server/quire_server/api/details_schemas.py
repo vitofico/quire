@@ -103,11 +103,16 @@ class DetailsCover(BaseModel):
 
     ``url`` is absolute for Open Library and a server path for a generated
     cover; it is null for the client's own cover and when there is none.
+    A generated cover may be drawn on painted artwork (``painted``), or have
+    artwork on its way (``painting``): a later lookup then answers with a
+    new ``url``.
     """
 
     source: Literal["file", "catalog", "openlibrary", "generated"] | None
     url: str | None = None
     generated: bool = False
+    painted: bool = False
+    painting: bool = False
 
 
 class DetailsResponse(BaseModel):

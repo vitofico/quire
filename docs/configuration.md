@@ -667,6 +667,118 @@ Both ceilings are counted in each server process, in memory: with several
 workers or replicas a reader can reach the limit once per process, and a
 restart starts the count afresh.
 
+### Painted cover artwork
+
+Generated covers can be drawn on a painted background from an image model.
+It is off by default and needs both
+[`QUIRE_SERVER_AI_ENABLED`](#quire_server_ai_enabled) and
+[`QUIRE_SERVER_DETAILS_ENABLED`](#quire_server_details_enabled). The image
+provider is set separately from the chat provider: any service with an
+OpenAI-compatible `POST {base}/images/generations` endpoint that answers
+with base64 image data (`b64_json`), as the GPT image models do. An answer
+that gives an image address instead is recorded as a failed painting: the
+server never fetches an address a provider points it at. The server
+paints in the background, one cover at a time, only for books a signed-in
+reader who opted in to AI looked up, and once per book; the title and
+author are still set by the server, never by the model. How clients see
+it is in [the API reference](sync-api.md#painted-cover-artwork).
+
+What leaves the server: each painting sends the book's title, up to eight
+subjects and the first 600 characters or so of its description to the
+image provider, inside a prompt asking for an illustration with no text.
+Nothing about the reader is sent: no account, name or address. Tell your
+readers if your privacy notice lists where book data goes.
+
+Cost: at most [`QUIRE_SERVER_COVER_ART_DAILY_BUDGET`](#quire_server_cover_art_daily_budget)
+paintings a day (UTC) across the whole server, counting failures and
+paintings still in progress. The budget is shared, not per reader, so one
+reader opening many books without covers can use up the day's budget. They
+are logged in `ai_generation_log` with kind `cover_art` and are not
+charged to any reader's allowance. Artwork is stored in the database (one
+JPEG of at most about 400 KB per book) for as long as the book's details
+record exists, and goes with it.
+
+#### `QUIRE_SERVER_COVER_ART_ENABLED`
+
+- Type: `true` or `false`
+- Default: `false`
+- Example: `QUIRE_SERVER_COVER_ART_ENABLED=true`
+
+Turns on painted artwork for generated covers. With `false`, or when the
+provider below is not set, covers are drawn exactly as without the feature.
+Artwork painted earlier stays stored but is no longer offered.
+
+When to change it: set `true`, with the three settings below, to give
+generated covers a painted background.
+
+#### `QUIRE_SERVER_COVER_ART_BASE_URL`
+
+- Type: URL
+- Default: none
+- Example: `QUIRE_SERVER_COVER_ART_BASE_URL=https://api.openai.com/v1`
+
+The image provider's base address; the server calls
+`{base}/images/generations`. Required for the feature.
+
+#### `QUIRE_SERVER_COVER_ART_API_KEY`
+
+- Type: secret
+- Default: none
+- Example: `QUIRE_SERVER_COVER_ART_API_KEY=sk-...`
+
+Sent as `Authorization: Bearer <key>` to the image provider only. Leave it
+unset for a provider that needs no key.
+
+#### `QUIRE_SERVER_COVER_ART_MODEL`
+
+- Type: text
+- Default: none
+- Example: `QUIRE_SERVER_COVER_ART_MODEL=gpt-image-1`
+
+The image model to ask for. Required for the feature.
+
+#### `QUIRE_SERVER_COVER_ART_SIZE`
+
+- Type: `WIDTHxHEIGHT` or `auto`
+- Default: `1024x1536`
+- Example: `QUIRE_SERVER_COVER_ART_SIZE=1024x1024`
+
+The size to request. Covers are portrait, so pick the provider's portrait
+size; whatever comes back is cropped to the cover's 2:3 shape. With `auto`
+no size is sent.
+
+#### `QUIRE_SERVER_COVER_ART_QUALITY`
+
+- Type: lowercase word
+- Default: none (the provider's default)
+- Example: `QUIRE_SERVER_COVER_ART_QUALITY=low`
+
+Passed through as the request's `quality`. A lower quality is cheaper and
+is usually enough under a title band.
+
+#### `QUIRE_SERVER_COVER_ART_DAILY_BUDGET`
+
+- Type: whole number, 0 or more
+- Default: `20`
+- Example: `QUIRE_SERVER_COVER_ART_DAILY_BUDGET=100`
+
+How many paintings the server attempts per UTC day, across all readers.
+Books looked up after it is spent keep their drawn covers and may be painted
+on a later day. `0` paints nothing.
+
+When to change it: raise it once you know what a painting costs with your
+provider.
+
+#### `QUIRE_SERVER_COVER_ART_TIMEOUT_S`
+
+- Type: seconds, more than 0 and at most 600
+- Default: `120`
+- Example: `QUIRE_SERVER_COVER_ART_TIMEOUT_S=60`
+
+How long one painting may take. Image models are slow, and the painting
+never holds up a request, so the default is generous. A painting that
+times out may be tried again a day later.
+
 ### What has no setting
 
 These are fixed in the code today, so there is no variable to look for:
