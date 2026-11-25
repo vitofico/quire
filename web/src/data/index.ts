@@ -11,7 +11,6 @@ export * from './types'
 type StoredBlob = { bytes: ArrayBuffer; type: string }
 type StoredBook = Omit<LocalBook, 'cover'> & { cover?: LocalBook['cover'] | StoredBlob }
 type LocalRecord = { book: StoredBook; localOnly: boolean }
-type StoredDetails = Omit<BookDetails, 'cover'> & { cover?: StoredBlob }
 
 async function encodeBlob(blob: Blob): Promise<StoredBlob> {
   return { bytes: await blob.arrayBuffer(), type: blob.type }
@@ -128,7 +127,7 @@ export class Replica {
           result(store('settings').getAllKeys(catalogCovers)),
           result<StoredBlob[]>(store('settings').getAll(catalogCovers)),
           result(store('settings').getAllKeys(bookDetails)),
-          result<StoredDetails[]>(store('settings').getAll(bookDetails)),
+          result<BookDetails[]>(store('settings').getAll(bookDetails)),
           result<LocalRecord[]>(store('books').getAll()),
           result(store('epubs').getAllKeys()),
           result<LibraryRow[]>(store('library').getAll()),
@@ -185,9 +184,9 @@ export class Replica {
       const book = books.get(key)
       if (book && !(book.cover instanceof Blob)) book.cover = decodeBlob(cover)
     }
-    for (const [key, { cover, ...details }] of data.details) {
+    for (const [key, details] of data.details) {
       const book = books.get(key)
-      if (book) book.details = { ...details, cover: cover && decodeBlob(cover) }
+      if (book) book.details = details
     }
     return {
       books: [...books.values()],
@@ -312,6 +311,7 @@ export class Replica {
       await Promise.all([
         result(store('books').delete(key)), result(store('epubs').delete(key)),
         result(store('settings').delete(`bookmark:${key}`)), result(store('settings').delete(`details:${key}`)),
+        result(store('settings').delete(`foundCover:${key}`)),
       ])
     })
   }
@@ -366,9 +366,24 @@ export class Replica {
     return this.setSetting(`cover:${key}`, await encodeBlob(cover))
   }
 
-  /** Found and tidied details of a book. Local only, like every cover. */
-  async setDetails(key: string, { cover, ...details }: BookDetails): Promise<void> {
-    return this.setSetting(`details:${key}`, { ...details, cover: cover && await encodeBlob(cover) } satisfies StoredDetails)
+  /**
+   * Found and tidied details of a book, and `cover`, the image behind
+   * `details.cover_url`. Local only, like every cover. The image is kept apart
+   * so a snapshot does not load every one.
+   */
+  async setDetails(key: string, details: BookDetails, cover?: Blob): Promise<void> {
+    const image = cover && await encodeBlob(cover)
+    await this.write(['settings'], async (store) => {
+      await result(store('settings').put(details, `details:${key}`))
+      if (image) await result(store('settings').put(image, `foundCover:${key}`))
+      else if (!details.cover_url) await result(store('settings').delete(`foundCover:${key}`))
+    })
+  }
+
+  /** The image `setDetails` kept for a book. */
+  async getFoundCover(key: string): Promise<Blob | undefined> {
+    const stored = await this.read(['settings'], (store) => result<StoredBlob | undefined>(store('settings').get(`foundCover:${key}`)))
+    return stored && decodeBlob(stored)
   }
 
   getBookmark<T>(key: string): Promise<T | undefined> {

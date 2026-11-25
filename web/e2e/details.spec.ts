@@ -121,6 +121,8 @@ test('a messy book gets found details once, labelled, kept offline, and the read
   await page.getByRole('link', { name: 'Back to library' }).click()
   const entry = page.getByRole('button', { name: /Dune, tidied again/ })
   await expect(entry.locator('img')).toBeVisible()
+  // The tile says, quietly, that its cover was drawn and its title tidied.
+  await expect(entry).toHaveAccessibleName(/Generated cover, Tidied by AI/)
 })
 
 test('details labels and controls stay readable, focusable and inside a phone screen', async ({ page, browserName }) => {

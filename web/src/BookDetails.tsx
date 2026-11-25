@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react'
 import type { DetailsFields, ShelfBook, Progress } from './data'
-import { Cover, authors } from './Shelf'
-import { withDetails } from './details'
-import { publicLink } from './discovery/api'
+import { Cover, type LoadCover, authors } from './Shelf'
+import { foundCover, originLabel, withDetails } from './details'
 type Props = {
   book: ShelfBook
+  loadCover?: LoadCover
   progress?: Progress
   t: (key: string) => string
   actions: ReactNode
@@ -25,6 +25,16 @@ function languageName(code?: string | null) {
     return code
   }
 }
+/** Open Library's own page for the book, and no other address. */
+function libraryLink(value?: string | null) {
+  try {
+    const url = new URL(value ?? '')
+    const host = url.hostname
+    return url.protocol === 'https:' && (host === 'openlibrary.org' || host.endsWith('.openlibrary.org')) ? url.href : undefined
+  } catch {
+    return undefined
+  }
+}
 function fileSize(bytes: number) {
   const unit = bytes < 1_000_000 ? 'kilobyte' : 'megabyte'
   return new Intl.NumberFormat(document.documentElement.lang, {
@@ -41,26 +51,24 @@ export function BookDetails({
   back,
   conflict,
   tidy,
+  loadCover,
 }: Props) {
   const own = book
   book = withDetails(own)
   const answer = own.details?.original ? undefined : own.details?.answer
   // Say where a value came from when it is not the book's own.
   const origin = (field: keyof DetailsFields | 'cover') => {
-    const source = answer?.origins[field]
-    // A value this client does not know is still not the book's own: label it as AI-made.
-    const label = !source || source === 'file' || source === 'catalog' ? null
-      : source === 'openlibrary' ? t('From Open Library')
-        : t(source === 'ai_written' ? 'Written by AI' : 'Tidied by AI')
+    const label = originLabel(own, field, t)
     return label && <small className="origin">{label}</small>
   }
+  const openLibrary = libraryLink(answer?.openlibrary_url)
   const rows: [string, ReactNode, ReactNode?][] = [
     [
       t('Series'),
       [book.series_name, book.series_index]
         .filter((x) => x != null)
         .join(' · '),
-      origin('series_name'),
+      origin('series_name') || origin('series_index'),
     ],
     [t('First published'), answer?.book.year, origin('year')],
     [t('Publisher'), book.publisher, origin('publisher')],
@@ -83,8 +91,8 @@ export function BookDetails({
       <article className="book-detail">
         <div className="book-intro">
           <div className="detail-cover">
-            <Cover book={book} />
-            {book.cover !== own.cover &&
+            <Cover book={book} load={loadCover} />
+            {foundCover(own) &&
               (answer?.cover.generated ? <small className="origin">{t('Generated cover')}</small> : origin('cover'))}
           </div>
           <div>
@@ -125,9 +133,9 @@ export function BookDetails({
           </ul>
         )}
         {!!book.subjects?.length && origin('subjects')}
-        {publicLink(answer?.openlibrary_url) && (
+        {openLibrary && (
           <p className="hint">
-            <a href={publicLink(answer?.openlibrary_url)} target="_blank" rel="noreferrer">
+            <a href={openLibrary} target="_blank" rel="noreferrer">
               {t('View on Open Library')}
             </a>
           </p>

@@ -30,7 +30,8 @@ export function TidyDetails({ book, store, request, t }: Props) {
             disabled={busy}
             onClick={() => {
               setDone(false)
-              void run((signal) => fetchDetails(store, request, book, 'tidy', signal), () => setDone(true))
+              // A tidy spends a generation: leaving the page does not abort it.
+              void run((signal) => fetchDetails(store, request, book, 'tidy', signal), () => setDone(true), {})
             }}
           >
             {t('Tidy details')}

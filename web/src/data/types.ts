@@ -80,11 +80,11 @@ export interface DetailsAnswer {
 export interface BookDetails {
   /** When the last lookup was tried, in ms. */
   attempted_at: number
-  /** A failed lookup is tried again only after this, in ms. */
+  /** A failed lookup, an unfinished tidy or a cover not yet downloaded is tried again only after this, in ms. */
   retry_at?: number
   answer?: DetailsAnswer
-  /** The image behind `answer.cover.url`, so it shows offline. */
-  cover?: Blob
+  /** The `answer.cover.url` whose image is kept in this browser, so it shows offline. */
+  cover_url?: string
   /** The reader chose to see the book's own details instead. */
   original?: boolean
 }

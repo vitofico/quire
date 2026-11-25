@@ -130,6 +130,7 @@ export function requestMessage(error: unknown): RequestMessage {
   if (error instanceof DiscoveryHttpError) {
     const { status, detail } = error;
     if (status === 401 || status === 403) return { message: "This feature needs a supported account and AI permission." };
+    if (status === 429 && detail === "details_rate_limited") return { message: "Busy right now. Try again in a minute." };
     if (status === 429) {
       const reset = (detail as { resets_at?: string } | null)?.resets_at;
       return reset

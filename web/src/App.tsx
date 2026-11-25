@@ -310,6 +310,7 @@ function Workspace({
   const [drag, setDrag] = useState(false)
   // Books synced from another device carry no cover. Ask the catalog once per visit and keep the answer.
   const coverless = useRef(new Set<string>())
+  const [catalogChecked, setCatalogChecked] = useState(0)
   const awaitsCatalogCover = (b: ShelfBook) =>
     !!catalogUrl &&
     !!b.opds_href &&
@@ -333,6 +334,8 @@ function Workspace({
           return
         }
       }
+      // Books the catalog has no cover for can now be looked up.
+      setCatalogChecked((n) => n + 1)
     })()
     return () => stop.abort()
   }, [replica, snapshot.books, catalogUrl, active.catalogRequest])
@@ -358,10 +361,21 @@ function Workspace({
   const detailsFor =
     route.view === 'book' ? (book ? [book] : []) : route.view === 'library' ? snapshot.books : []
   useEffect(() => {
+    if (!replica || !detailsRequest) return
     // Wait for a catalog's own cover before asking for one to be found or drawn.
-    if (replica && detailsRequest)
-      fillDetails(replica, detailsRequest, detailsFor.filter((b) => !awaitsCatalogCover(b)))
-  }, [replica, detailsRequest, snapshot.books, route.view, route.id])
+    const fill = () =>
+      fillDetails(replica, detailsRequest, detailsFor.filter((b) => !awaitsCatalogCover(b)), route.view === 'book')
+    const stop = fill()
+    window.addEventListener('online', fill)
+    return () => {
+      stop()
+      window.removeEventListener('online', fill)
+    }
+  }, [replica, detailsRequest, snapshot.books, route.view, route.id, catalogChecked])
+  const loadCover = useCallback(
+    async (key: string) => replica?.getFoundCover(key),
+    [replica],
+  )
   const passages = snapshot.highlights.filter((h) => !h.deleted_at)
   useEffect(() => {
     alive.current = true
@@ -713,6 +727,7 @@ function Workspace({
       <>
         <BookDetails
           book={book}
+          loadCover={loadCover}
           progress={current}
           t={t}
           conflict={
@@ -1148,6 +1163,7 @@ function Workspace({
           art={art === 'on'}
           t={t}
           data={snapshot}
+          loadCover={loadCover}
           choose={() => choose()}
           read={read}
           details={details}

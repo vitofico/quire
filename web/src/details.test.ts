@@ -2,7 +2,8 @@
 import 'fake-indexeddb/auto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { openReplica, type BookDetails, type DetailsAnswer, type Replica, type ShelfBook } from './data'
-import { bookIdentity, detailsBody, fetchDetails, fillDetails, looksLikeFileName, wantsLookup, withDetails } from './details'
+import { bookIdentity, dailyLookups, detailsBody, fetchDetails, fillDetails, foundCover, looksLikeFileName, wantsLookup, withDetails } from './details'
+import { DiscoveryHttpError, requestMessage } from './discovery/api'
 
 const messy: ShelfBook = {
   key: 'hash-1', content_hash: 'hash-1', metadata_id: 'urn:uuid:dune', title: 'dune_frank_herbert_(retail)',
@@ -21,7 +22,7 @@ function answer(overrides: Partial<DetailsAnswer> = {}): DetailsAnswer {
       subjects: ['Science fiction'], language: null, isbn: '9780441013593', year: 1965, publisher: null,
     },
     origins: { title: 'ai', authors: 'ai', description: 'ai', subjects: 'openlibrary', isbn: 'file', year: 'openlibrary', cover: 'ai' },
-    cover: { source: 'generated', url: `/details/v1/covers/${'k'.repeat(64)}?v=e1`, generated: true },
+    cover: { source: 'generated', url: `/details/v1/covers/${'c'.repeat(64)}?v=e1`, generated: true },
     tidy: 'done', cached: false, openlibrary_url: 'https://openlibrary.org/works/OL893415W',
     ...overrides,
   }
@@ -29,9 +30,26 @@ function answer(overrides: Partial<DetailsAnswer> = {}): DetailsAnswer {
 
 const png = () => new Response(new Blob(['png'], { type: 'image/png' }))
 
-function memoryStore() {
-  const saved = new Map<string, BookDetails>()
-  return { saved, setDetails: vi.fn(async (key: string, value: BookDetails) => { saved.set(key, value) }) }
+function memoryStore(prefs = new Map<string, unknown>()) {
+  const saved = new Map<string, BookDetails>(), covers = new Map<string, Blob>()
+  return {
+    saved, covers, prefs,
+    setDetails: vi.fn(async (key: string, value: BookDetails, cover?: Blob) => {
+      saved.set(key, value)
+      if (cover) covers.set(key, cover)
+    }),
+    getPreference: async <T>(key: string) => prefs.get(key) as T | undefined,
+    setPreference: async <T>(key: string, value: T) => { prefs.set(key, value) },
+  }
+}
+
+const noCover = { source: null, generated: false } as const
+const shelf = (prefix: string, length: number) =>
+  Array.from({ length }, (_, i) => ({ ...messy, key: `${prefix}${i}`, content_hash: `${prefix}${i}` }))
+const settle = () => new Promise((resolve) => setTimeout(resolve, 30))
+function gate() {
+  let open!: () => void
+  return { wait: new Promise<void>((resolve) => { open = resolve }), open: () => open() }
 }
 
 const replicas: Replica[] = []
@@ -64,19 +82,25 @@ describe('details client', () => {
       return png()
     })
     const details = (await fetchDetails(store, request, messy, 'lookup'))!
-    expect(request.mock.calls.map(([path]) => path)).toEqual(['/details/v1/lookup', `/details/v1/covers/${'k'.repeat(64)}?v=e1`])
+    expect(request.mock.calls.map(([path]) => path)).toEqual(['/details/v1/lookup', `/details/v1/covers/${'c'.repeat(64)}?v=e1`])
     expect(details.answer?.tidy).toBe('done')
-    expect(await details.cover?.text()).toBe('png')
+    expect(details.cover_url).toBe(answer().cover.url)
+    expect(await store.covers.get('hash-1')?.text()).toBe('png')
     expect(store.saved.get('hash-1')).toBe(details)
 
     const foreign = vi.fn(async (path: string) => path.startsWith('/details/v1/lookup')
       ? Response.json(answer({ cover: { source: 'generated', url: 'https://elsewhere.test/cover.png', generated: true } }))
       : png())
     vi.stubGlobal('fetch', vi.fn())
-    expect((await fetchDetails(store, foreign, messy, 'lookup'))!.cover).toBeUndefined()
+    expect((await fetchDetails(store, foreign, messy, 'lookup'))!.cover_url).toBeUndefined()
     expect(foreign).toHaveBeenCalledTimes(1)
+    const escaping = vi.fn(async (path: string) => path.startsWith('/details/v1/lookup')
+      ? Response.json(answer({ cover: { source: 'generated', url: `/details/v1/covers/${'c'.repeat(64)}/../../../sync/v1/pull?v=e1`, generated: true } }))
+      : png())
+    expect((await fetchDetails(store, escaping, messy, 'lookup'))!.cover_url).toBeUndefined()
+    expect(escaping).toHaveBeenCalledTimes(1)
     const lookalike = vi.fn(async () => Response.json(answer({ cover: { source: 'openlibrary', url: 'https://covers.openlibrary.org.evil.test/b.jpg', generated: false } })))
-    expect((await fetchDetails(store, lookalike, messy, 'lookup'))!.cover).toBeUndefined()
+    expect((await fetchDetails(store, lookalike, messy, 'lookup'))!.cover_url).toBeUndefined()
     expect(fetch).not.toHaveBeenCalled()
   })
 
@@ -93,6 +117,28 @@ describe('details client', () => {
     expect(download).toHaveBeenCalledTimes(1)
   })
 
+  it('keeps the answer when its cover fails to download, and later fetches only the cover', async () => {
+    const store = memoryStore()
+    let covers = 0
+    const request = vi.fn(async (path: string) => {
+      if (path === '/details/v1/lookup') return Response.json(answer())
+      return ++covers === 1 ? new Response(null, { status: 503 }) : png()
+    })
+    const first = (await fetchDetails(store, request, messy, 'lookup'))!
+    expect(first).toMatchObject({ answer: answer(), cover_url: undefined })
+    expect(first.retry_at! - first.attempted_at).toBe(86_400_000)
+    expect(wantsLookup({ ...messy, details: first }, first.retry_at!)).toBe(true)
+    const second = (await fetchDetails(store, request, { ...messy, details: first }, 'lookup'))!
+    expect(request.mock.calls.map(([path]) => path).filter((path) => path === '/details/v1/lookup')).toHaveLength(1)
+    expect(second).toMatchObject({ cover_url: answer().cover.url, retry_at: undefined })
+    expect(await store.covers.get('hash-1')?.text()).toBe('png')
+  })
+
+  it('says a busy server is busy, not that the allowance is spent', () => {
+    expect(requestMessage(new DiscoveryHttpError(429, 'details_rate_limited', 30)).message).toBe('Busy right now. Try again in a minute.')
+    expect(requestMessage(new DiscoveryHttpError(429, 'monthly_ai_quota_exhausted')).message).toBe('AI limit reached. Try again after the quota resets.')
+  })
+
   it('a tidy on request shows the tidied details again after the reader chose the original', async () => {
     const store = memoryStore()
     const request = vi.fn(async (path: string) => path === '/details/v1/tidy' ? Response.json(answer()) : png())
@@ -102,11 +148,6 @@ describe('details client', () => {
 })
 
 describe('a lookup and a tidy of the same book', () => {
-  function gate() {
-    let open!: () => void
-    return { wait: new Promise<void>((resolve) => { open = resolve }), open: () => open() }
-  }
-
   it('the tidy wins: a lookup ending after a tidy started is dropped, its failure too', async () => {
     const store = memoryStore()
     const slow = gate()
@@ -178,9 +219,7 @@ describe('when details are looked up', () => {
     expect(wantsLookup({ ...complete, description: null }, 0)).toBe(true)
     expect(wantsLookup({ ...complete, authors: [] }, 0)).toBe(true)
     expect(wantsLookup({ ...complete, title: 'dune_(retail)' }, 0)).toBe(true)
-    for (const tidy of ['quota_exceeded', 'failed', 'not_needed'] as const) {
-      expect(wantsLookup({ ...messy, details: { attempted_at: 0, answer: answer({ tidy }) } }, 10 ** 13)).toBe(false)
-    }
+    expect(wantsLookup({ ...messy, details: { attempted_at: 0, answer: answer({ tidy: 'not_needed' }) } }, 10 ** 13)).toBe(false)
     const failed = { ...messy, details: { attempted_at: 0, retry_at: 1000 } }
     expect(wantsLookup(failed, 999)).toBe(false)
     expect(wantsLookup(failed, 1000)).toBe(true)
@@ -215,6 +254,7 @@ describe('when details are looked up', () => {
     expect(retry_at! - attempted_at).toBe(30_000)
     expect(request).toHaveBeenCalledTimes(2)
     fillDetails(store, request, books)
+    await settle()
     expect(request).toHaveBeenCalledTimes(2)
 
     const other = memoryStore()
@@ -226,6 +266,94 @@ describe('when details are looked up', () => {
   })
 })
 
+describe('the shelf pass', () => {
+  it('starts again by itself when a 429 pause ends, and a reload honours the pause', async () => {
+    const store = memoryStore()
+    let calls = 0
+    const request = vi.fn(async () => ++calls <= 2
+      ? Response.json({ detail: 'details_rate_limited' }, { status: 429, headers: { 'Retry-After': '1' } })
+      : Response.json(answer({ cover: noCover })))
+    fillDetails(store, request, shelf('p', 3))
+    await vi.waitFor(() => expect(store.saved.size).toBe(2))
+    expect(store.prefs.get('detailsPausedUntil')).toBeGreaterThan(Date.now())
+
+    const reloaded = memoryStore(store.prefs)
+    const after = vi.fn(async () => Response.json(answer({ cover: noCover })))
+    fillDetails(reloaded, after, shelf('q', 1))
+    await settle()
+    expect(request).toHaveBeenCalledTimes(2)
+    expect(after).not.toHaveBeenCalled()
+
+    await vi.waitFor(() => expect(store.saved.get('p2')?.answer).toBeDefined(), { timeout: 3000 })
+    await vi.waitFor(() => expect(reloaded.saved.get('q0')?.answer).toBeDefined(), { timeout: 3000 })
+  })
+
+  it('stops when cancelled, and a 409 stops it without marking any book', async () => {
+    const store = memoryStore()
+    const slow = gate()
+    const request = vi.fn(async () => {
+      await slow.wait
+      return Response.json(answer({ cover: noCover }))
+    })
+    const stop = fillDetails(store, request, shelf('c', 5))
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2))
+    stop()
+    slow.open()
+    await vi.waitFor(() => expect(store.saved.size).toBe(2))
+    await settle()
+    expect(request).toHaveBeenCalledTimes(2)
+
+    const other = memoryStore()
+    const refusing = vi.fn(async () => Response.json({ detail: 'ai_not_opted_in' }, { status: 409 }))
+    fillDetails(other, refusing, shelf('n', 5))
+    await vi.waitFor(() => expect(refusing).toHaveBeenCalledTimes(2))
+    await settle()
+    fillDetails(other, refusing, shelf('n', 5))
+    await settle()
+    expect(refusing).toHaveBeenCalledTimes(2)
+    expect(other.setDetails).not.toHaveBeenCalled()
+  })
+
+  it('asks an unfinished tidy again after a day, and a spent allowance pauses the pass for the day', async () => {
+    for (const tidy of ['quota_exceeded', 'failed'] as const) {
+      const details = (await fetchDetails(memoryStore(), vi.fn(async () => Response.json(answer({ tidy, cover: noCover }))), messy, 'lookup'))!
+      expect(details.retry_at! - details.attempted_at, tidy).toBe(86_400_000)
+    }
+    const done = await fetchDetails(memoryStore(), vi.fn(async () => Response.json(answer({ tidy: 'not_needed', cover: noCover }))), messy, 'lookup')
+    expect(done?.retry_at).toBeUndefined()
+
+    const store = memoryStore()
+    const spent = vi.fn(async () => Response.json(answer({ tidy: 'quota_exceeded', cover: noCover })))
+    fillDetails(store, spent, shelf('s', 4))
+    await vi.waitFor(() => expect(store.saved.size).toBe(2))
+    await settle()
+    expect(spent).toHaveBeenCalledTimes(2)
+    expect(store.prefs.get('detailsPausedUntil')).toBeGreaterThan(Date.now() + 86_000_000)
+  })
+
+  it(`looks up at most ${dailyLookups} books a day on its own, not counting the open book`, async () => {
+    const store = memoryStore()
+    const request = vi.fn(async () => Response.json(answer({ cover: noCover })))
+    const books = shelf('d', 30)
+    fillDetails(store, request, books)
+    await vi.waitFor(() => expect(store.saved.size).toBe(25))
+    await settle()
+    expect(request).toHaveBeenCalledTimes(25)
+    expect(store.prefs.get('detailsLookupsToday')).toEqual({ date: new Date().toDateString(), count: 25 })
+
+    fillDetails(store, request, [books[29]], true)
+    await vi.waitFor(() => expect(store.saved.has('d29')).toBe(true))
+
+    const reloaded = memoryStore(store.prefs)
+    fillDetails(reloaded, request, books.slice(25, 27))
+    await settle()
+    expect(request).toHaveBeenCalledTimes(26)
+    const nextDay = memoryStore(new Map([['detailsLookupsToday', { date: 'Mon Jan 01 2001', count: 25 }]]))
+    fillDetails(nextDay, request, books.slice(25, 27))
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(28))
+  })
+})
+
 describe('stored details', () => {
   it('keep the answer and cover offline, drop them with the book, and never replace its own cover', async () => {
     const replica = await openReplica(crypto.randomUUID())
@@ -233,20 +361,29 @@ describe('stored details', () => {
     await replica.putBook({ key: 'own', title: 'dune_(retail)', cover: new Blob(['own'], { type: 'image/jpeg' }) })
     await replica.putBook({ key: 'bare', title: 'dune_(retail)' })
     const drawn = new Blob(['png'], { type: 'image/png' })
-    await replica.setDetails('own', { attempted_at: 1, answer: answer(), cover: drawn })
-    await replica.setDetails('bare', { attempted_at: 1, answer: answer(), cover: drawn })
+    const record = { attempted_at: 1, answer: answer(), cover_url: answer().cover.url! }
+    await replica.setDetails('own', record, drawn)
+    await replica.setDetails('bare', record, drawn)
     const books = (await replica.snapshot()).books
     const own = books.find((book) => book.key === 'own')!
     const bare = books.find((book) => book.key === 'bare')!
-    expect(bare.details?.answer?.key).toBe('k'.repeat(64))
-    expect(await bare.details?.cover?.text()).toBe('png')
-    expect(withDetails(bare)).toMatchObject({ title: 'Dune', authors: ['Frank Herbert'], description: 'A desert planet.' })
-    expect(await (withDetails(bare).cover as Blob).text()).toBe('png')
-    expect(await (withDetails(own).cover as Blob).text()).toBe('own')
-    expect(withDetails({ ...bare, details: { ...bare.details!, original: true } })).toMatchObject({ title: 'dune_(retail)', cover: undefined })
+    expect(bare.details).toEqual(record)
+    expect(await (await replica.getFoundCover('bare'))?.text()).toBe('png')
+    expect(withDetails(bare)).toMatchObject({ title: 'Dune', authors: ['Frank Herbert'], description: 'A desert planet.', cover: undefined })
+    expect(foundCover(bare)).toBe(record.cover_url)
+    expect(foundCover(own)).toBeUndefined()
+    expect(foundCover({ ...bare, details: { ...record, original: true } })).toBeUndefined()
+    expect(withDetails({ ...bare, details: { ...record, original: true } })).toMatchObject({ title: 'dune_(retail)' })
+
+    // Choosing the original keeps the image; a record without a cover drops it.
+    await replica.setDetails('bare', { ...record, original: true })
+    expect(await replica.getFoundCover('bare')).toBeDefined()
+    await replica.setDetails('own', { attempted_at: 2 })
+    expect(await replica.getFoundCover('own')).toBeUndefined()
 
     await replica.removeBook('bare')
     await replica.putBook({ key: 'bare', title: 'dune_(retail)' })
     expect((await replica.snapshot()).books.find((book) => book.key === 'bare')?.details).toBeUndefined()
+    expect(await replica.getFoundCover('bare')).toBeUndefined()
   })
 })
