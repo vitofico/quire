@@ -16,6 +16,7 @@ import {
   bookDocument,
   type Highlight,
   type LocalBook,
+  type Replica,
   type ShelfBook,
 } from './data'
 import { openEpub, type Epub } from './books/epub'
@@ -426,6 +427,13 @@ function Workspace({
       if (alive.current) setWorking(false)
     }
   }
+  // A book dropped in while the browser is still opening its storage waits for it.
+  const awaitingStorage = useRef<((replica: Replica) => void)[]>([])
+  useEffect(() => {
+    if (replica) awaitingStorage.current.splice(0).forEach((resume) => resume(replica))
+  }, [replica])
+  const storage = () =>
+    replica ?? new Promise<Replica>((resume) => awaitingStorage.current.push(resume))
   function choose(match?: string) {
     if (!replica) {
       report('Storage is unavailable.')
@@ -444,7 +452,7 @@ function Workspace({
     catalogCover?: Blob,
     catalogId: string | null = null,
   ) {
-    if (!replica) throw new Error('Storage is unavailable.')
+    const replica = await storage()
     const parsed = await openEpub(blob),
       m = parsed.metadata
     const cover = m.coverHref && parsed.bytes(m.coverHref)
