@@ -231,6 +231,46 @@ class ExternalSourceCacheEntry(Base):
     )
 
 
+# Cache-integrity invariant: shared cache, MUST NOT carry tenant columns.
+# See the comment above BookInsight for the full rule. One row is the tidied
+# record of one book as one set of fields describes it: `key` hashes the
+# canonical identity together with those fields (see core/ai/details.py), so a
+# reader who sends false fields only ever writes a row nobody else reads.
+# Migration `ai_012`.
+class BookDetails(Base):
+    __tablename__ = "book_details"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    # "metadata_id:..." or "content_hash:...", kept to trace a row to its book.
+    identity: Mapped[str] = mapped_column(String, nullable=False)
+    # The tidied title, authors and description a reader sent, guarded; no
+    # account id is stored, so the row is shared like ``book_insights``.
+    record: Mapped[dict] = mapped_column(JSON, nullable=False)
+    design: Mapped[dict] = mapped_column(JSON, nullable=False)
+    model_id: Mapped[str] = mapped_column(String, nullable=False)
+    prompt_version: Mapped[str] = mapped_column(String, nullable=False)
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class BookDetailsReader(Base):
+    """Which shared record a reader was last given for a book, so another
+    device that sends different fields for the same book is answered with it
+    instead of a second tidy. Private to the reader: it only ever chooses
+    among records for that reader's own lookups."""
+
+    __tablename__ = "book_details_reader"
+
+    user_id: Mapped[str] = mapped_column(String, primary_key=True)
+    # SHA-256 of the canonical identity ("metadata_id:..." or "content_hash:...").
+    identity_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    key: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class AIUsageDaily(Base):
     __tablename__ = "ai_usage_daily"
 
@@ -260,10 +300,11 @@ class AIGenerationLog(Base):
       'promote' — catalog→EPUB identity copy (PR-ζ, wired in pr-β);
                   book_insight_id NOT NULL (points at the copied row at the
                   ``to`` identity). weight=0 against the daily quota.
+      'details': one tidy of a book's details (ai_012); book_insight_id NULL.
 
     Cross-field invariant enforced by ``ck_ai_generation_log_kind_fk``:
-    profile rows MUST have book_insight_id NULL; insight/promote rows MUST
-    have it non-null. ``_log_generation()`` raises ValueError BEFORE the DB
+    profile and details rows MUST have book_insight_id NULL; insight/promote
+    rows MUST have it non-null. ``_log_generation()`` raises ValueError BEFORE the DB
     round-trip if a caller violates this.
 
     ``status`` is permissive ('hit' | 'miss' | 'error'):
@@ -279,11 +320,11 @@ class AIGenerationLog(Base):
             name="ck_ai_generation_log_status",
         ),
         CheckConstraint(
-            "kind IN ('insight', 'profile', 'promote')",
+            "kind IN ('insight', 'profile', 'promote', 'details')",
             name="ck_ai_generation_log_kind",
         ),
         CheckConstraint(
-            "(kind = 'profile' AND book_insight_id IS NULL) "
+            "(kind IN ('profile', 'details') AND book_insight_id IS NULL) "
             "OR (kind IN ('insight', 'promote') AND book_insight_id IS NOT NULL)",
             name="ck_ai_generation_log_kind_fk",
         ),

@@ -607,6 +607,65 @@ limit off.
 When to change it: raise it while you try out models; lower it on a paid
 provider to cap what each reader can spend.
 
+### Book details and covers
+
+When a book has no cover, no description or a title that is really a file
+name, the server can look it up on Open Library, tidy its details with one
+model call and draw a plain typographic cover for it
+(`/details/v1/*`, see [the API reference](sync-api.md#book-details-and-covers-details-v1)).
+A tidy counts as one generation against
+[`QUIRE_SERVER_AI_DAILY_BUDGET`](#quire_server_ai_daily_budget); a book
+tidied once is served from the database to every reader with the same
+details. The Open Library lookup makes no model call and costs nothing.
+
+#### `QUIRE_SERVER_DETAILS_ENABLED`
+
+- Type: `true` or `false`
+- Default: `true`
+- Example: `QUIRE_SERVER_DETAILS_ENABLED=false`
+
+Switches the book details endpoints. They are part of AI, so they exist only
+when [`QUIRE_SERVER_AI_ENABLED`](#quire_server_ai_enabled) is `true` too.
+With `false`, every `/details/v1` address answers 404 and `/ai/v1/config`
+reports `details_supported: false`, so the apps hide the feature.
+
+When to change it: set `false` to keep AI insights without spending model
+calls on book details.
+
+#### `QUIRE_SERVER_DETAILS_COVER_RATE_PER_MIN`
+
+- Type: whole number, 1 or more
+- Default: `30`
+- Example: `QUIRE_SERVER_DETAILS_COVER_RATE_PER_MIN=120`
+
+How many drawn covers each reader may fetch per minute. Drawing one takes
+the server a fraction of a second, and the apps keep every cover they get,
+so a reader only reaches this when a whole library without covers loads at
+once. Over it, the server answers 429 with a `Retry-After` header.
+
+When to change it: raise it if the apps show missing covers on a first
+sync of a large library.
+
+#### `QUIRE_SERVER_DETAILS_LOOKUP_RATE_PER_MIN`
+
+- Type: whole number, 1 or more
+- Default: `30`
+- Example: `QUIRE_SERVER_DETAILS_LOOKUP_RATE_PER_MIN=60`
+
+How many book details requests (`/details/v1/lookup` and
+`/details/v1/tidy` together) each reader may make per minute. Each one can
+reach Open Library, and a tidy spends a generation, so the ceiling is
+checked before either. The apps ask for the details of one book at a time,
+as it is opened or imported. Over it, the server answers 429 with a
+`Retry-After` header.
+
+When to change it: raise it if a first sync of a large library is slow to
+fill in details.
+
+Both ceilings are counted in each server process, in memory: with several
+workers or replicas a reader can reach the limit once per process, and a
+restart starts the count afresh.
+
 ### What has no setting
 
 These are fixed in the code today, so there is no variable to look for:
