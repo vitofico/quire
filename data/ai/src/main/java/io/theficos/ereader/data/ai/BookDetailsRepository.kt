@@ -315,7 +315,8 @@ class BookDetailsRepository(
                 return null
             }
             save(row)
-            current?.coverPath?.takeIf { it != coverPath }?.let { File(it).delete() }
+            // A replaced cover is left for the sweep, so a shelf still holding its path can draw it meanwhile.
+            current?.coverPath?.takeIf { it != coverPath }?.let { File(it).setLastModified(clock()) }
         }
         return retryAt
     }
@@ -400,7 +401,7 @@ class BookDetailsRepository(
     private fun coverFiles(): List<File> =
         coversDir.listFiles { file -> file.name.startsWith(COVER_PREFIX) }.orEmpty().toList()
 
-    /** Removes cover copies no row points at any more, such as those of deleted books. */
+    /** Removes cover copies no row has pointed at for half an hour, such as those of deleted books or replaced covers. */
     private suspend fun sweepCovers(live: Set<String>) = withContext(Dispatchers.IO) {
         val cutoff = clock() - PAUSE_S * 1000L
         coverFiles().filter { it.absolutePath !in live && it.lastModified() < cutoff }.forEach { it.delete() }
