@@ -207,6 +207,7 @@ fun AppNavGraph(
                             libraryPreferencesStore = container.libraryPreferencesStore,
                             credentialStore = container.credentialStore,
                             restoreInProgress = { onProgress -> container.runRestoreInProgress(onProgress) },
+                            shownDetails = container.bookDetailsRepository.observeShown(),
                         )
                     }
                 },
@@ -229,6 +230,7 @@ fun AppNavGraph(
                             insightSyncRepository = container.insightSyncRepository,
                             subjectProvider = container::catalogInsightScope,
                             pullCatalogs = { container.catalogSyncRepository.pull() },
+                            shownDetails = container.bookDetailsRepository.observeShown(),
                         )
                     }
                 },
@@ -247,6 +249,7 @@ fun AppNavGraph(
                             insightSyncRepository = container.insightSyncRepository,
                             insightDao = container.insightDao,
                             restoreInProgress = { onProgress -> container.runRestoreInProgress(onProgress) },
+                            libraryPreferencesStore = container.libraryPreferencesStore,
                         )
                     }
                 },

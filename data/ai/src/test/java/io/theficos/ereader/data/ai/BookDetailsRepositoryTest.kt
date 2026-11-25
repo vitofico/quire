@@ -1,0 +1,402 @@
+package io.theficos.ereader.data.ai
+
+import androidx.room.Room
+import androidx.test.core.app.ApplicationProvider
+import com.google.common.truth.Truth.assertThat
+import com.google.common.truth.Truth.assertWithMessage
+import io.theficos.ereader.core.model.Document
+import io.theficos.ereader.core.model.DocumentIdentity
+import io.theficos.ereader.core.model.SIDELOAD_URL_PREFIX
+import io.theficos.ereader.data.local.DocumentRepository
+import io.theficos.ereader.data.local.db.EReaderDatabase
+import java.io.File
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.OkHttpClient
+import okhttp3.mockwebserver.Dispatcher
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
+import okio.Buffer
+import org.junit.After
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [33])
+class BookDetailsRepositoryTest {
+    private lateinit var db: EReaderDatabase
+    private lateinit var documents: DocumentRepository
+    private lateinit var server: MockWebServer
+    private lateinit var openLibrary: MockWebServer
+    private lateinit var dir: File
+    private lateinit var ai: AiRepository
+    private lateinit var repo: BookDetailsRepository
+    private val showTidied = MutableStateFlow(true)
+    private var now = 1_000_000L
+
+    /** Responses by request path, taken in order; anything else answers 404. */
+    private val responses = ConcurrentHashMap<String, ConcurrentLinkedQueue<MockResponse>>()
+    private val received = ConcurrentLinkedQueue<RecordedRequest>()
+    private var holdLookup: CountDownLatch? = null
+
+    @Before fun setUp() {
+        db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), EReaderDatabase::class.java)
+            .allowMainThreadQueries().build()
+        db.openHelper.writableDatabase
+        documents = DocumentRepository(db.documentDao())
+        dir = kotlin.io.path.createTempDirectory("book-details").toFile()
+        server = MockWebServer().apply { dispatcher = routes(); start() }
+        openLibrary = MockWebServer().apply { dispatcher = routes(); start() }
+        val http = OkHttpClient.Builder().callTimeout(5, TimeUnit.SECONDS).build()
+        val client = AiClient({ server.url("").toString().trimEnd('/') }, http)
+        ai = AiRepository(client, db.insightDao())
+        answer("/ai/v1/config", """{"configured":true,"details_supported":true}""")
+        answer("/ai/v1/preferences", """{"ai_enabled":true,"style":{"tone":"neutral","language":"auto"}}""")
+        runBlocking { ai.refresh() }
+        received.clear()
+        repo = BookDetailsRepository(
+            client = client,
+            ai = ai,
+            documents = documents,
+            dao = db.bookDetailsDao(),
+            coversDir = dir,
+            openLibraryHttp = http,
+            showTidied = showTidied,
+            clock = { now },
+        )
+    }
+
+    @After fun tearDown() {
+        holdLookup?.countDown()
+        runCatching { server.shutdown() }
+        runCatching { openLibrary.shutdown() }
+        db.close()
+        dir.deleteRecursively()
+    }
+
+    private fun routes() = object : Dispatcher() {
+        override fun dispatch(request: RecordedRequest): MockResponse {
+            received += request
+            if (request.path == "/details/v1/lookup") holdLookup?.await(10, TimeUnit.SECONDS)
+            val path = request.path!!.substringBefore('?').let { if (request.path!!.startsWith("/details/v1/covers/")) request.path!! else it }
+            return responses[path]?.poll() ?: MockResponse().setResponseCode(404)
+        }
+    }
+
+    private fun answer(path: String, body: String, code: Int = 200, retryAfter: String? = null) {
+        val response = MockResponse().setResponseCode(code).setBody(body)
+        retryAfter?.let { response.setHeader("Retry-After", it) }
+        responses.getOrPut(path) { ConcurrentLinkedQueue() } += response
+    }
+
+    private fun details(
+        title: String = "Dune",
+        authors: String = """["Frank Herbert"]""",
+        origins: String = """{"title":"ai","authors":"openlibrary"}""",
+        cover: String = """{"source":null,"url":null,"generated":false}""",
+        tidy: String = "done",
+        description: String? = null,
+    ) = """{"key":"k1","book":{"title":"$title","authors":$authors""" +
+        (description?.let { ""","description":"$it"""" } ?: "") +
+        """},"origins":$origins,"cover":$cover,"tidy":"$tidy","cached":false}"""
+
+    private fun lookups() = received.filter { it.path == "/details/v1/lookup" }
+
+    private suspend fun book(
+        title: String = "dune_frank_herbert",
+        author: String? = null,
+        cover: String? = null,
+        file: File = File(dir, "$title.epub"),
+        url: String = "${SIDELOAD_URL_PREFIX}v1/hash-$title",
+    ): Document {
+        val id = documents.insert(DocumentIdentity(metadataId = "m-$title", contentHash = "hash-$title"), title, author, url, file.path, cover, 0L)
+        return checkNotNull(documents.findById(id))
+    }
+
+    @Test fun `a book with a file name for a title is asked about once, and its answer shows offline`() = runBlocking {
+        val doc = book()
+        answer("/details/v1/lookup", details())
+
+        repo.runAutoPass()
+
+        val sent = Json.parseToJsonElement(lookups().single().body.readUtf8()).jsonObject
+        assertThat(sent["identity"]!!.jsonObject["content_hash"]!!.jsonPrimitive.content).isEqualTo("hash-dune_frank_herbert")
+        assertThat(sent["identity"]!!.jsonObject["metadata_id"]!!.jsonPrimitive.content).isEqualTo("m-dune_frank_herbert")
+        assertThat(sent["book"]!!.jsonObject["title"]!!.jsonPrimitive.content).isEqualTo("dune_frank_herbert")
+        assertThat(sent["source"]!!.jsonPrimitive.content).isEqualTo("file")
+        assertThat(sent["cover"]!!.jsonPrimitive.content).isEqualTo("null")
+
+        server.shutdown()
+        repo.runAutoPass()
+        assertThat(lookups()).hasSize(1)
+        val shown = repo.observeShown().first()
+        assertThat(doc.shownWith(shown[doc.id]).title).isEqualTo("Dune")
+        assertThat(doc.shownWith(shown[doc.id]).author).isEqualTo("Frank Herbert")
+        assertThat(documents.findById(doc.id)!!.title).isEqualTo("dune_frank_herbert")
+    }
+
+    @Test fun `a book that has everything is never sent`() = runBlocking {
+        val epub = File(dir, "dune.epub").also { writeEpub(it, "Dune", "Frank Herbert", "A desert planet.") }
+        val cover = File(dir, "dune.jpg").apply { writeText("jpg") }
+        book(title = "Dune", author = "Frank Herbert", cover = cover.path, file = epub)
+
+        repo.runAutoPass()
+        repo.runAutoPass()
+
+        assertThat(lookups()).isEmpty()
+    }
+
+    @Test fun `a 429 pauses the whole pass for as long as Retry-After says`() = runBlocking {
+        book("first_book")
+        book("second_book")
+        answer("/details/v1/lookup", """{"detail":"rate_limited"}""", code = 429, retryAfter = "120")
+
+        repo.runAutoPass()
+        assertThat(lookups()).hasSize(1)
+        assertThat(db.bookDetailsDao().all()).isEmpty()
+
+        now += 119_000
+        repo.runAutoPass()
+        assertThat(lookups()).hasSize(1)
+
+        now += 2_000
+        answer("/details/v1/lookup", details())
+        answer("/details/v1/lookup", details(title = "Second"))
+        repo.runAutoPass()
+        assertThat(lookups()).hasSize(3)
+    }
+
+    @Test fun `a 429 without Retry-After, or a spent allowance, pauses the pass for a day`() = runBlocking {
+        book("first_book")
+        answer("/details/v1/lookup", """{"detail":{"used":5,"limit":5,"resets_at":"2026-12-01T00:00:00Z"}}""", code = 429)
+
+        repo.runAutoPass()
+        now += 23 * 3_600_000L
+        repo.runAutoPass()
+        assertThat(lookups()).hasSize(1)
+
+        now += 3_600_000L
+        repo.runAutoPass()
+        assertThat(lookups()).hasSize(2)
+    }
+
+    @Test fun `offline, feature off and opted out each pause the pass and keep nothing`() = runBlocking {
+        book("first_book")
+        book("second_book")
+        for (code in listOf(404, 409)) {
+            answer("/details/v1/lookup", """{"detail":"nope"}""", code = code)
+            val before = lookups().size
+            repo.runAutoPass()
+            assertThat(lookups()).hasSize(before + 1)
+            repo.runAutoPass()
+            assertThat(lookups()).hasSize(before + 1)
+            now += 31 * 60_000L
+        }
+        server.shutdown()
+        repo.runAutoPass()
+        assertThat(db.bookDetailsDao().all()).isEmpty()
+    }
+
+    @Test fun `a spent allowance in the answer is kept, stops the pass, and the book is asked again a day later`() = runBlocking {
+        val first = book("first_book")
+        book("second_book")
+        answer("/details/v1/lookup", details(tidy = "quota_exceeded", origins = """{"title":"file","authors":"openlibrary"}""", title = "first_book"))
+
+        repo.runAutoPass()
+        assertThat(lookups()).hasSize(1)
+        assertThat(repo.observe(first.id).first()!!.response.book.authors).containsExactly("Frank Herbert")
+
+        now += 24 * 3_600_000L + 1
+        answer("/details/v1/lookup", details(title = "First"))
+        answer("/details/v1/lookup", details(title = "Second"))
+        repo.runAutoPass()
+        assertThat(lookups()).hasSize(3)
+        assertThat(repo.observe(first.id).first()!!.response.tidy).isEqualTo("done")
+    }
+
+    @Test fun `an answer for different details than were sent is kept as it comes`() = runBlocking {
+        val doc = book("dune_frank_herbert")
+        answer("/details/v1/lookup", details(title = "Dune Messiah").replace("\"cached\":false", "\"cached\":true"))
+
+        repo.runAutoPass()
+
+        assertThat(doc.shownWith(repo.observeShown().first()[doc.id]).title).isEqualTo("Dune Messiah")
+    }
+
+    @Test fun `a generated cover is fetched from the server and shows where the book has none`() = runBlocking {
+        val doc = book()
+        answer("/details/v1/lookup", details(cover = """{"source":"generated","url":"/details/v1/covers/k1?v=7","generated":true}"""))
+        answer("/details/v1/covers/k1?v=7", "png-bytes")
+
+        repo.runAutoPass()
+
+        assertThat(received.map { it.path }).contains("/details/v1/covers/k1?v=7")
+        val path = doc.shownWith(repo.observeShown().first()[doc.id]).coverPath!!
+        assertThat(File(path).readText()).isEqualTo("png-bytes")
+    }
+
+    @Test fun `an Open Library cover comes from Open Library, not the account's server`() = runBlocking {
+        val doc = book()
+        val url = openLibrary.url("/b/id/1-L.jpg").toString()
+        answer("/details/v1/lookup", details(cover = """{"source":"openlibrary","url":"$url","generated":false}"""))
+        responses.getOrPut("/b/id/1-L.jpg") { ConcurrentLinkedQueue() } +=
+            MockResponse().setHeader("Content-Type", "image/jpeg").setBody(Buffer().write(byteArrayOf(1, 2, 3)))
+
+        repo.runAutoPass()
+
+        assertThat(openLibrary.takeRequest(5, TimeUnit.SECONDS)!!.getHeader("Authorization")).isNull()
+        assertThat(File(repo.observe(doc.id).first()!!.coverPath!!).readBytes()).isEqualTo(byteArrayOf(1, 2, 3))
+    }
+
+    @Test fun `a book with its own cover never gets another`() = runBlocking {
+        val cover = File(dir, "own.jpg").apply { writeText("own") }
+        val doc = book(cover = cover.path, url = "https://catalog.example/book.epub")
+        answer("/details/v1/lookup", details(cover = """{"source":"generated","url":"/details/v1/covers/k1?v=7","generated":true}"""))
+
+        repo.runAutoPass()
+
+        val sent = Json.parseToJsonElement(lookups().single().body.readUtf8()).jsonObject
+        assertThat(sent["source"]!!.jsonPrimitive.content).isEqualTo("catalog")
+        assertThat(sent["cover"]!!.jsonPrimitive.content).isEqualTo("catalog")
+        assertThat(received.map { it.path }).doesNotContain("/details/v1/covers/k1?v=7")
+        assertThat(repo.observe(doc.id).first()!!.coverPath).isNull()
+        assertThat(doc.shownWith(repo.observeShown().first()[doc.id]).coverPath).isEqualTo(cover.path)
+    }
+
+    @Test fun `an explicit tidy wins over a background lookup still under way`() = runBlocking {
+        val doc = book()
+        holdLookup = CountDownLatch(1)
+        answer("/details/v1/lookup", details(title = "From the background"))
+        answer("/details/v1/tidy", details(title = "From the tidy"))
+
+        val pass = async(Dispatchers.IO) { repo.runAutoPass() }
+        while (lookups().isEmpty()) Thread.yield()
+        repo.tidy(doc.id)
+        holdLookup!!.countDown()
+        pass.await()
+
+        assertThat(repo.observe(doc.id).first()!!.response.book.title).isEqualTo("From the tidy")
+    }
+
+    @Test fun `a tidy refused with 429 pauses the background pass too`() = runBlocking {
+        val doc = book()
+        answer("/details/v1/tidy", """{"detail":"monthly_ai_quota_exhausted"}""", code = 429, retryAfter = "600")
+
+        val error = runCatching { repo.tidy(doc.id) }.exceptionOrNull()
+        repo.runAutoPass()
+
+        assertThat((error as AiHttpException).code).isEqualTo(429)
+        assertThat(lookups()).isEmpty()
+    }
+
+    @Test fun `use original hides the found details from the shelf and is remembered`() = runBlocking {
+        val doc = book()
+        answer("/details/v1/lookup", details())
+        repo.runAutoPass()
+
+        repo.setUseOriginal(doc.id, true)
+
+        assertThat(repo.observeShown().first()).isEmpty()
+        assertThat(repo.observe(doc.id).first()!!.useOriginal).isTrue()
+    }
+
+    @Test fun `with the setting off nothing is sent and nothing shows`() = runBlocking {
+        val doc = book()
+        answer("/details/v1/lookup", details())
+        repo.runAutoPass()
+
+        showTidied.value = false
+        book("another_book")
+        repo.runAutoPass()
+
+        assertThat(lookups()).hasSize(1)
+        assertThat(repo.observeShown().first()).isEmpty()
+        assertThat(repo.observe(doc.id).first()).isNull()
+        assertThat(repo.available.first()).isFalse()
+    }
+
+    @Test fun `deleting a book drops its details`() = runBlocking {
+        val doc = book()
+        answer("/details/v1/lookup", details())
+        repo.runAutoPass()
+
+        documents.delete(doc)
+
+        assertThat(db.bookDetailsDao().all()).isEmpty()
+    }
+
+    @Test fun `the request carries the library's details and the file's, cut to the server's limits`() {
+        val doc = Document(
+            id = 1, identity = DocumentIdentity(metadataId = "m", contentHash = "h"), title = " Dune ",
+            author = "Frank Herbert", downloadUrl = "https://catalog.example/1.epub", localPath = "/nowhere",
+            coverPath = null, downloadedAt = 0, seriesName = "Dune", seriesIndex = 1.0,
+        )
+        val opf = io.theficos.ereader.core.metadata.MetadataBundle(
+            title = "Dune", author = "Someone Else", description = "x".repeat(9000), publishDate = "1965-08-01",
+            subjects = listOf("Science fiction", "Science fiction", " "), language = "en",
+        )
+
+        val body = detailsRequest(doc, opf)
+
+        assertThat(body.identity).isEqualTo(DocumentIdentity(metadataId = "m", contentHash = "h"))
+        assertThat(body.book.title).isEqualTo("Dune")
+        assertThat(body.book.authors).containsExactly("Frank Herbert")
+        assertThat(body.book.seriesName).isEqualTo("Dune")
+        assertThat(body.book.description).hasLength(8192)
+        assertThat(body.book.year).isEqualTo(1965)
+        assertThat(body.book.subjects).containsExactly("Science fiction")
+        assertThat(body.source).isEqualTo("catalog")
+        assertThat(body.cover).isNull()
+    }
+
+    @Test fun `titles that look like file names`() {
+        listOf(
+            "dune_frank_herbert", "Dune.epub", "Dune (retail)", "Dune [epub]", "Herbert-Dune-1965",
+            "dune frank herbert",
+        ).forEach { assertWithMessage(it).that(looksLikeFileName(it)).isTrue() }
+        listOf("Dune", "The Lord of the Rings", "Dune Messiah", "1984", "Les Misérables", "百年の孤独")
+            .forEach { assertWithMessage(it).that(looksLikeFileName(it)).isFalse() }
+    }
+
+    @Test fun `a book needs details when it lacks a cover, an author or a description`() {
+        val doc = Document(1, DocumentIdentity(contentHash = "h"), "Dune", "Frank Herbert", "u", "/p", "/cover", 0)
+        val book = DetailsBook(title = "Dune", authors = listOf("Frank Herbert"), description = "A desert planet.")
+        assertThat(needsDetails(doc, book)).isFalse()
+        assertThat(needsDetails(doc.copy(coverPath = null), book)).isTrue()
+        assertThat(needsDetails(doc, book.copy(authors = emptyList()))).isTrue()
+        assertThat(needsDetails(doc, book.copy(description = null))).isTrue()
+        assertThat(needsDetails(doc, book.copy(title = "dune_frank_herbert"))).isTrue()
+    }
+
+    private fun writeEpub(file: File, title: String, author: String, description: String) {
+        ZipOutputStream(file.outputStream()).use { zip ->
+            zip.putNextEntry(ZipEntry("META-INF/container.xml"))
+            zip.write(
+                """<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+                  <rootfiles><rootfile full-path="content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>""".toByteArray(),
+            )
+            zip.putNextEntry(ZipEntry("content.opf"))
+            zip.write(
+                """<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+                  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>$title</dc:title>
+                  <dc:creator>$author</dc:creator><dc:description>$description</dc:description></metadata></package>""".toByteArray(),
+            )
+        }
+    }
+}

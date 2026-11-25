@@ -22,6 +22,7 @@ import io.theficos.ereader.reader.ReaderPreferences
 import io.theficos.ereader.reader.ReaderPreferencesStore
 import io.theficos.ereader.reader.ReaderTheme
 import io.theficos.ereader.ui.UiText
+import io.theficos.ereader.ui.library.LibraryPreferencesStore
 import io.theficos.ereader.ui.onboarding.ConnectServerViewModel
 import io.theficos.ereader.ui.onboarding.PairingCode
 import io.theficos.ereader.ui.onboarding.requestPairingCode
@@ -92,8 +93,16 @@ class SettingsViewModel(
     private val insightDao: InsightDao? = null,
     private val syncEnqueuer: (Context) -> Unit = { SyncEnqueuer.enqueue(it, expedited = true, replaceExisting = true) },
     private val restoreInProgress: (suspend ((Int, Int) -> Unit) -> RestoreSummary)? = null,
+    private val libraryPreferencesStore: LibraryPreferencesStore,
 ) : ViewModel() {
     val account = store.accountFlow
+
+    /** "Tidy up book details": the server may find and tidy details and covers for library books. */
+    val tidyDetails: StateFlow<Boolean> = libraryPreferencesStore.flow
+        .map { it.tidyDetails }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, libraryPreferencesStore.flow.value.tidyDetails)
+
+    fun setTidyDetails(on: Boolean) = libraryPreferencesStore.updateTidyDetails(on)
 
     private val _pairing = MutableStateFlow<PairingState>(PairingState.Hidden)
 

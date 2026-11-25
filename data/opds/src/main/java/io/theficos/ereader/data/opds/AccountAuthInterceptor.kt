@@ -146,7 +146,7 @@ private fun HttpUrl.hasAmbiguousPath(): Boolean =
     pathSegments.dropLast(1).any { it.isEmpty() } ||
         pathSegments.any { '/' in it || '\\' in it || '%' in it || it == "." || it == ".." }
 
-private val quireApiNamespaces = setOf("ai", "auth", "catalogs", "library", "sync")
+private val quireApiNamespaces = setOf("ai", "auth", "catalogs", "details", "library", "sync")
 private val quireWebRoutes = setOf("quire", "cloud")
 private val quireEdgeRoutes = quireApiNamespaces + quireWebRoutes + setOf(
     "agent", "mcp", "quire-admin", "health", "healthz", "readyz",

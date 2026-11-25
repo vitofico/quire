@@ -540,6 +540,25 @@ fun SettingsScreen(
                             }
                         }
 
+                        if (cfg.detailsSupported) {
+                            val tidyDetails by viewModel.tidyDetails.collectAsState()
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.Top,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+                                    Text(stringResource(R.string.settings_tidy_book_details), style = MaterialTheme.typography.titleMedium)
+                                    Text(
+                                        stringResource(R.string.settings_tidy_book_details_description),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                Switch(checked = tidyDetails, onCheckedChange = viewModel::setTidyDetails)
+                            }
+                        }
+
                         // PR-η: user-initiated bulk sync of /ai/v1/insights/sync.
                         Column {
                             Text(stringResource(R.string.common_refresh_insights), style = MaterialTheme.typography.titleMedium)

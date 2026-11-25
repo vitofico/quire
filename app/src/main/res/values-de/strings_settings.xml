@@ -25,4 +25,6 @@
     <string name="settings_provider_unreachable">"Anbieter: nicht erreichbar. %1$s%2$s"</string>
     <string name="settings_last_synced_sentence">"Zuletzt synchronisiert: %1$s."</string>
     <string name="settings_last_attempt_failed_sentence">"Letzter Versuch fehlgeschlagen: %1$s"</string>
+    <string name="settings_tidy_book_details">"Buchdetails aufräumen"</string>
+    <string name="settings_tidy_book_details_description">"Ergänzt fehlende Cover, Autoren und Beschreibungen aus Open Library. Wo es dort nichts gibt, räumt KI Titel auf, die wie Dateinamen aussehen, schreibt eine kurze Beschreibung oder gestaltet ein schlichtes Cover. Jedes Buch behält seine eigenen Details, und über das Menü des Buchs kommst du zu ihnen zurück."</string>
 </resources>

@@ -34,6 +34,17 @@ class LibraryPreferencesStoreTest {
         assertThat(store2.flow.value.showFinished).isFalse()
     }
 
+    @Test fun `tidy details is on by default and round-trips through update and reload`() {
+        val ctx = ApplicationProvider.getApplicationContext<android.content.Context>()
+        ctx.getSharedPreferences("library_prefs", android.content.Context.MODE_PRIVATE).edit().clear().commit()
+        val store1 = LibraryPreferencesStore(ctx)
+        assertThat(store1.flow.value.tidyDetails).isTrue()
+
+        store1.updateTidyDetails(false)
+        assertThat(store1.flow.value.tidyDetails).isFalse()
+        assertThat(LibraryPreferencesStore(ctx).flow.value.tidyDetails).isFalse()
+    }
+
     @Test fun `sort round-trips through update and reload`() {
         val store1 = fresh()
         store1.updateSort(LibrarySort.AUTHOR)

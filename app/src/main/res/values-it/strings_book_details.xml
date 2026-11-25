@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="details_tidy">"Riordina i dettagli"</string>
+    <string name="details_use_original">"Usa i dettagli originali"</string>
+    <string name="details_use_found">"Usa i dettagli trovati"</string>
+    <string name="details_tidying">"Riordino dei dettagli…"</string>
+    <string name="details_tidied">"Dettagli riordinati."</string>
+    <string name="details_nothing_to_tidy">"Questi dettagli sembrano già corretti."</string>
+    <string name="details_allowance_used">"Hai esaurito la tua quota di IA per ora."</string>
+    <string name="details_allowance_used_until">"Hai esaurito la tua quota di IA. Si rinnova il %1$s."</string>
+    <string name="details_ai_not_available">"L’IA non è disponibile per il tuo account in questo momento. Controlla le funzioni IA nelle Impostazioni."</string>
+    <string name="details_not_offered">"Questo server al momento non riordina i dettagli dei libri."</string>
+    <string name="details_couldn_t_tidy">"Impossibile riordinare i dettagli. Riprova più tardi."</string>
+    <string name="details_from_open_library">"Da Open Library"</string>
+    <string name="details_tidied_by_ai">"Riordinato dall’IA"</string>
+    <string name="details_written_by_ai">"Scritto dall’IA"</string>
+    <string name="details_generated_cover">"Copertina generata"</string>
+    <string name="details_cover_from_open_library">"Copertina da Open Library"</string>
+</resources>

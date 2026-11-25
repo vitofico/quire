@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="details_tidy">"Details aufräumen"</string>
+    <string name="details_use_original">"Originaldetails verwenden"</string>
+    <string name="details_use_found">"Gefundene Details verwenden"</string>
+    <string name="details_tidying">"Details werden aufgeräumt…"</string>
+    <string name="details_tidied">"Details aufgeräumt."</string>
+    <string name="details_nothing_to_tidy">"Diese Details sehen schon richtig aus."</string>
+    <string name="details_allowance_used">"Dein KI-Kontingent ist vorerst aufgebraucht."</string>
+    <string name="details_allowance_used_until">"Dein KI-Kontingent ist aufgebraucht. Es wird am %1$s erneuert."</string>
+    <string name="details_ai_not_available">"KI ist für dein Konto gerade nicht verfügbar. Prüfe die KI-Funktionen in den Einstellungen."</string>
+    <string name="details_not_offered">"Dieser Server räumt Buchdetails gerade nicht auf."</string>
+    <string name="details_couldn_t_tidy">"Die Details konnten nicht aufgeräumt werden. Versuche es später noch einmal."</string>
+    <string name="details_from_open_library">"Von Open Library"</string>
+    <string name="details_tidied_by_ai">"Von KI aufgeräumt"</string>
+    <string name="details_written_by_ai">"Von KI geschrieben"</string>
+    <string name="details_generated_cover">"Erzeugtes Cover"</string>
+    <string name="details_cover_from_open_library">"Cover von Open Library"</string>
+</resources>

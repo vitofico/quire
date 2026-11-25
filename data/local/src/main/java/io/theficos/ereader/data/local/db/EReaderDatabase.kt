@@ -15,8 +15,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         InsightEntity::class,
         HighlightEntity::class,
         MemoryBookmark::class,
+        BookDetailsEntity::class,
     ],
-    version = 14,
+    version = 15,
     exportSchema = true,
 )
 abstract class EReaderDatabase : RoomDatabase() {
@@ -27,6 +28,7 @@ abstract class EReaderDatabase : RoomDatabase() {
     abstract fun memoryBookmarkDao(): MemoryBookmarkDao
     abstract fun highlightDao(): HighlightDao
     abstract fun highlightSyncDao(): HighlightSyncDao
+    abstract fun bookDetailsDao(): BookDetailsDao
 
     companion object {
         internal val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -256,6 +258,23 @@ abstract class EReaderDatabase : RoomDatabase() {
             }
         }
 
+        /** Found and tidied details per book, beside the book's own; nothing existing changes. */
+        internal val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS book_details (
+                        documentId INTEGER NOT NULL,
+                        responseJson TEXT,
+                        coverPath TEXT,
+                        useOriginal INTEGER NOT NULL,
+                        retryAt INTEGER,
+                        PRIMARY KEY(documentId),
+                        FOREIGN KEY(documentId) REFERENCES documents(id) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                """.trimIndent())
+            }
+        }
+
         fun build(context: Context): EReaderDatabase =
             Room.databaseBuilder(context, EReaderDatabase::class.java, "ereader.db")
                 .addMigrations(
@@ -272,6 +291,7 @@ abstract class EReaderDatabase : RoomDatabase() {
                     MIGRATION_11_12,
                     MIGRATION_12_13,
                     MIGRATION_13_14,
+                    MIGRATION_14_15,
                 )
                 .build()
     }

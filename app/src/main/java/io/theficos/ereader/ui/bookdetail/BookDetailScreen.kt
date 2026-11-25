@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -36,12 +38,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.theficos.ereader.data.ai.shownWith
 import io.theficos.ereader.ui.components.BookDescription
 import io.theficos.ereader.ui.components.BookHeader
 import io.theficos.ereader.ui.components.QuireCard
@@ -75,7 +79,10 @@ fun BookDetailScreen(
                     }
                 },
                 actions = {
-                    if (state.insight !is InsightUiState.Hidden) {
+                    val details = state.details
+                    val hasInsight = state.insight !is InsightUiState.Hidden
+                    val stored = details.stored
+                    if (hasInsight || details.available || stored != null) {
                         IconButton(onClick = { menuExpanded = true }) {
                             Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.common_more))
                         }
@@ -83,14 +90,42 @@ fun BookDetailScreen(
                             expanded = menuExpanded,
                             onDismissRequest = { menuExpanded = false },
                         ) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.common_inspect_insight)) },
-                                enabled = doc != null,
-                                onClick = {
-                                    menuExpanded = false
-                                    doc?.let { onInspectInsight(it.id) }
-                                },
-                            )
+                            if (hasInsight) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.common_inspect_insight)) },
+                                    enabled = doc != null,
+                                    onClick = {
+                                        menuExpanded = false
+                                        doc?.let { onInspectInsight(it.id) }
+                                    },
+                                )
+                            }
+                            if (details.available) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.details_tidy)) },
+                                    enabled = doc != null && !details.tidying,
+                                    onClick = {
+                                        menuExpanded = false
+                                        viewModel.tidyDetails()
+                                    },
+                                )
+                            }
+                            // Offered even with AI off, so found details can always be put away.
+                            if (stored != null) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            stringResource(
+                                                if (stored.useOriginal) R.string.details_use_found else R.string.details_use_original,
+                                            ),
+                                        )
+                                    },
+                                    onClick = {
+                                        menuExpanded = false
+                                        viewModel.useOriginalDetails(!stored.useOriginal)
+                                    },
+                                )
+                            }
                         }
                     }
                 },
@@ -118,8 +153,11 @@ fun BookDetailContent(
     onRetryInsight: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val document = state.document ?: return
-    val metadata = state.metadata
+    val own = state.document ?: return
+    val found = state.details.shown
+    // The found details over the book's own, when the reader kept them.
+    val document = own.shownWith(found)
+    val metadata = found?.let { foundMetadata(state.metadata, own, it) } ?: state.metadata
     val progress = state.progress
     val context = LocalContext.current
     val locale = LocalConfiguration.current.locales[0]
@@ -139,6 +177,7 @@ fun BookDetailContent(
         },
         formatSize = { Formatter.formatShortFileSize(context, it) },
         displayLocale = locale,
+        origins = found?.response?.origins.orEmpty(),
     )
 
     Column(modifier = modifier) {
@@ -150,7 +189,25 @@ fun BookDetailContent(
                 document.seriesName?.takeIf { it.isNotBlank() } ?: metadata?.seriesName,
                 document.seriesIndex ?: metadata?.seriesPosition?.toDouble(),
             )?.asString(),
+            notes = found?.let { headerNotes(own, it) }.orEmpty().map { stringResource(it) },
         )
+
+        if (state.details.tidying) {
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.details_tidying), style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        state.details.outcome?.let { outcome ->
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = outcome.asString(),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
         Spacer(Modifier.height(16.dp))
         if (progress != null && progress.percent > 0 &&
@@ -189,6 +246,16 @@ fun BookDetailContent(
 
         if (!metadata?.description.isNullOrBlank()) {
             Spacer(Modifier.height(24.dp))
+            if (metadata?.description != state.metadata?.description) {
+                found?.response?.origins?.get("description")?.let(::originNote)?.let { note ->
+                    Text(
+                        text = stringResource(note),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                }
+            }
             BookDescription(metadata?.description)
         }
 
@@ -205,14 +272,22 @@ fun BookDetailContent(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.width(96.dp),
                         )
-                        Text(
-                            text = fact.value,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.weight(1f),
-                            maxLines = if (fact.label == R.string.book_subjects) 3 else Int.MAX_VALUE,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = fact.value,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = if (fact.label == R.string.book_subjects) 3 else Int.MAX_VALUE,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            fact.note?.let { note ->
+                                Text(
+                                    text = stringResource(note),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        }
                     }
                 }
             }

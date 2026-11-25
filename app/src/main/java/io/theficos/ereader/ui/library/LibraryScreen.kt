@@ -71,7 +71,6 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import io.theficos.ereader.core.model.Document
 import io.theficos.ereader.data.sync.SyncEnqueuer
 import io.theficos.ereader.sideload.SideloadFailure
 import io.theficos.ereader.sideload.SideloadImporter
@@ -126,8 +125,8 @@ fun LibraryScreen(
     val showAbandoned by viewModel.showAbandoned.collectAsState()
     val showFinished by viewModel.showFinished.collectAsState()
     var menuFor by remember { mutableStateOf<LibraryRow?>(null) }
-    var pendingDelete by remember { mutableStateOf<Document?>(null) }
-    var pendingRestart by remember { mutableStateOf<Document?>(null) }
+    var pendingDelete by remember { mutableStateOf<LibraryRow?>(null) }
+    var pendingRestart by remember { mutableStateOf<LibraryRow?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var searchActive by rememberSaveable { mutableStateOf(false) }
@@ -382,9 +381,9 @@ fun LibraryScreen(
                 ) {
                     Box(modifier = Modifier.fillMaxWidth()) {
                         CoverImage(
-                            source = row.document.coverPath,
-                            title = row.document.title,
-                            author = row.document.author,
+                            source = row.shown.coverPath,
+                            title = row.shown.title,
+                            author = row.shown.author,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .aspectRatio(2f / 3f),
@@ -436,7 +435,7 @@ fun LibraryScreen(
                         }
                     }
                     Text(
-                        text = row.document.title,
+                        text = row.shown.title,
                         style = MaterialTheme.typography.titleMedium,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
@@ -480,7 +479,7 @@ fun LibraryScreen(
         ) {
             Column(modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
                 Text(
-                    text = doc.title,
+                    text = row.shown.title,
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -497,7 +496,7 @@ fun LibraryScreen(
                 }
                 TextButton(
                     onClick = {
-                        pendingRestart = doc
+                        pendingRestart = row
                         menuFor = null
                     },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -548,7 +547,7 @@ fun LibraryScreen(
                 }
                 TextButton(
                     onClick = {
-                        pendingDelete = doc
+                        pendingDelete = row
                         menuFor = null
                     },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -563,14 +562,14 @@ fun LibraryScreen(
         }
     }
 
-    pendingRestart?.let { doc ->
+    pendingRestart?.let { row ->
         var alsoDelete by remember { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { pendingRestart = null },
             title = { Text(stringResource(R.string.common_restart_book_2)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(stringResource(R.string.library_will_be_marked_as_unread_and_synced, doc.title))
+                    Text(stringResource(R.string.library_will_be_marked_as_unread_and_synced, row.shown.title))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = alsoDelete, onCheckedChange = { alsoDelete = it })
                         Text(stringResource(R.string.library_also_delete_the_downloaded_copy), modifier = Modifier.padding(start = 8.dp))
@@ -579,7 +578,7 @@ fun LibraryScreen(
             },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.restartFromUi(doc, alsoDelete, context)
+                    viewModel.restartFromUi(row.document, alsoDelete, context)
                     pendingRestart = null
                 }) { Text(stringResource(R.string.common_restart)) }
             },
@@ -589,14 +588,14 @@ fun LibraryScreen(
         )
     }
 
-    pendingDelete?.let { doc ->
+    pendingDelete?.let { row ->
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
             title = { Text(stringResource(R.string.common_delete_book)) },
-            text = { Text(stringResource(R.string.library_will_be_removed_from_your_library_and, doc.title)) },
+            text = { Text(stringResource(R.string.library_will_be_removed_from_your_library_and, row.shown.title)) },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.delete(doc)
+                    viewModel.delete(row.document)
                     pendingDelete = null
                 }) { Text(stringResource(R.string.common_delete)) }
             },

@@ -11,6 +11,7 @@ import io.theficos.ereader.core.metadata.readOpfBundle
 import io.theficos.ereader.core.metadata.validateEpubContainer
 import io.theficos.ereader.core.model.DocumentIdentity
 import io.theficos.ereader.data.ai.AiRepository
+import io.theficos.ereader.data.ai.BookDetails
 import io.theficos.ereader.data.ai.CatalogInsightStash
 import io.theficos.ereader.data.ai.InsightSyncRepository
 import io.theficos.ereader.data.library.LibraryUploader
@@ -29,11 +30,14 @@ import io.theficos.ereader.ui.uiText
 import io.theficos.quire.R
 import java.util.ArrayDeque
 import java.util.UUID
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -55,6 +59,8 @@ class CatalogViewModel(
     private val subjectProvider: () -> String? = { null },
     /** Fetch the Quire account's catalog list, so a catalog added on another device shows up here. */
     private val pullCatalogs: suspend () -> Unit = {},
+    /** Found and tidied details by library book id; only their covers show here. */
+    private val shownDetails: Flow<Map<Long, BookDetails>> = flowOf(emptyMap()),
 ) : ViewModel() {
 
     /** Every saved catalog, for the switcher. */
@@ -86,6 +92,15 @@ class CatalogViewModel(
     val downloadedUrls: StateFlow<Set<String>> = docs.observeLibrary()
         .map { list -> list.map { it.downloadUrl }.toSet() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+
+    /** The found cover of each downloaded book that has none of its own, by download address. */
+    val storedCovers: StateFlow<Map<String, String>> = docs.observeLibrary()
+        .combine(shownDetails) { list, details ->
+            list.mapNotNull { doc ->
+                details[doc.id]?.coverPath?.takeIf { doc.coverPath == null }?.let { doc.downloadUrl to it }
+            }.toMap()
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     init {
         viewModelScope.launch {

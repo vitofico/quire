@@ -11,6 +11,7 @@ import io.theficos.ereader.core.metadata.readOpfBundle
 import io.theficos.ereader.core.metadata.validateEpubContainer
 import io.theficos.ereader.core.model.CURRENT_IDENTITY_HASH_VERSION
 import io.theficos.ereader.core.model.DocumentIdentity
+import io.theficos.ereader.core.model.SIDELOAD_URL_PREFIX
 import io.theficos.ereader.data.library.LibraryUploader
 import io.theficos.ereader.data.local.DocumentRepository
 import kotlinx.coroutines.CoroutineScope
@@ -150,7 +151,7 @@ class SideloadImporter(
                     // distinguishable from real OPDS hrefs. Stable across
                     // re-imports of the same bytes — useful if we ever want
                     // a "this is a sideload" filter without a schema column.
-                    downloadUrl = "sideload://v1/${identity.contentHash}",
+                    downloadUrl = "${SIDELOAD_URL_PREFIX}v1/${identity.contentHash}",
                     localPath = finalFile.absolutePath,
                     coverPath = coverFile?.absolutePath,
                     downloadedAt = nowMillis(),
@@ -233,7 +234,6 @@ class SideloadImporter(
 
     companion object {
         private const val TAG = "SideloadImporter"
-        private const val SIDELOAD_URL_PREFIX = "sideload://"
         private const val KEY_COVER_BACKFILL_DONE = "sideload.cover_backfill_done"
 
         /**

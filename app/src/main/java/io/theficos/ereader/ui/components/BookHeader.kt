@@ -24,6 +24,8 @@ fun BookHeader(
     author: String?,
     series: String?,
     modifier: Modifier = Modifier,
+    /** Where shown details came from, such as "From Open Library". */
+    notes: List<String> = emptyList(),
 ) {
     Row(modifier = modifier.fillMaxWidth()) {
         Box(modifier = Modifier.width(120.dp).aspectRatio(2f / 3f)) {
@@ -58,6 +60,14 @@ fun BookHeader(
                     text = it,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            notes.forEach {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
                 )
             }
         }

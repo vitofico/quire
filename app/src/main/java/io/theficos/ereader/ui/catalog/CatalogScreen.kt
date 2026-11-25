@@ -85,6 +85,7 @@ fun CatalogScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val downloadedUrls by viewModel.downloadedUrls.collectAsState()
+    val storedCovers by viewModel.storedCovers.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val catalogs by viewModel.catalogs.collectAsState()
     val active by viewModel.activeCatalog.collectAsState()
@@ -124,6 +125,7 @@ fun CatalogScreen(
                         Loaded(
                             state = s,
                             downloadedUrls = downloadedUrls,
+                            storedCovers = storedCovers,
                             sort = sort,
                             onSort = viewModel::setSort,
                             onNavigate = viewModel::load,
@@ -205,6 +207,7 @@ internal fun CatalogError(
 private fun Loaded(
     state: CatalogUiState.Loaded,
     downloadedUrls: Set<String>,
+    storedCovers: Map<String, String>,
     sort: CatalogSort,
     onSort: (CatalogSort) -> Unit,
     onNavigate: (String) -> Unit,
@@ -269,7 +272,7 @@ private fun Loaded(
                 ) {
                     Box {
                         CoverImage(
-                            source = catalogCoverRequest(pub.coverUrl),
+                            source = catalogCoverRequest(pub.coverUrl) ?: storedCovers[pub.epubDownloadHref],
                             title = pub.title,
                             author = pub.author,
                             modifier = Modifier

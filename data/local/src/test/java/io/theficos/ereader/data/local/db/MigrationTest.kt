@@ -41,7 +41,7 @@ class MigrationTest {
             } catch (e: IllegalStateException) {
                 throw AssertionError("The production Room builder must open existing version-two data", e)
             }
-            assertThat(sqlite.version).isEqualTo(14)
+            assertThat(sqlite.version).isEqualTo(15)
             assertThat(db.documentDao().findById(1)?.title).isEqualTo("Book")
             val progress = checkNotNull(db.progressDao().findByDocument(1))
             assertThat(progress.locator).isEqualTo("loc")
@@ -367,7 +367,7 @@ class MigrationTest {
         val db = EReaderDatabase.build(context)
         try {
             val sqlite = db.openHelper.writableDatabase
-            assertThat(sqlite.version).isEqualTo(14)
+            assertThat(sqlite.version).isEqualTo(15)
             sqlite.query("SELECT identityHashVersion FROM book_insights").use { rows ->
                 assertThat(rows.count).isEqualTo(0)
             }
@@ -405,6 +405,31 @@ class MigrationTest {
             db.query("SELECT catalogId FROM documents WHERE id=4").use { c ->
                 assertThat(c.moveToFirst()).isTrue()
                 assertThat(c.getString(0)).isEqualTo("c0ffee00-0000-4000-8000-000000000001")
+            }
+        }
+    }
+
+    @Test fun `migrate 14 to 15 adds book details beside every book, untouched`() {
+        helper.createDatabase(DB, 14).use { db ->
+            db.execSQL(
+                "INSERT INTO documents (id, metadataId, contentHash, title, author, downloadUrl, localPath, coverPath, downloadedAt, identityHashVersion) " +
+                    "VALUES (5, 'm5', 'h5', 'dune_frank_herbert', NULL, 'u', 'p', NULL, 50, 1)"
+            )
+        }
+
+        helper.runMigrationsAndValidate(DB, 15, true, EReaderDatabase.MIGRATION_14_15).use { db ->
+            db.query("SELECT COUNT(*) FROM book_details").use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.getInt(0)).isEqualTo(0)
+            }
+            db.execSQL(
+                "INSERT INTO book_details (documentId, responseJson, coverPath, useOriginal, retryAt) " +
+                    "VALUES (5, '{}', NULL, 0, NULL)"
+            )
+            db.query("SELECT d.title, b.responseJson FROM documents d JOIN book_details b ON b.documentId = d.id").use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.getString(0)).isEqualTo("dune_frank_herbert")
+                assertThat(c.getString(1)).isEqualTo("{}")
             }
         }
     }

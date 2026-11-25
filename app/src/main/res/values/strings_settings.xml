@@ -25,4 +25,6 @@
     <string name="settings_provider_unreachable">"Provider: unreachable — %1$s%2$s"</string>
     <string name="settings_last_synced_sentence">"Last synced %1$s."</string>
     <string name="settings_last_attempt_failed_sentence">"Last attempt failed: %1$s"</string>
+    <string name="settings_tidy_book_details">"Tidy up book details"</string>
+    <string name="settings_tidy_book_details_description">"Fill in missing covers, authors and descriptions from Open Library. Where it has nothing, AI tidies titles that look like file names, writes a short description or makes a plain cover. Each book keeps its own details, and you can go back to them from the book’s menu."</string>
 </resources>

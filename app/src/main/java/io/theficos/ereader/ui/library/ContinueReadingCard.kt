@@ -41,19 +41,19 @@ fun ContinueReadingCard(row: LibraryRow, onClick: () -> Unit) {
                 verticalAlignment = Alignment.Bottom,
             ) {
                 CoverImage(
-                    source = row.document.coverPath,
-                    title = row.document.title,
-                    author = row.document.author,
+                    source = row.shown.coverPath,
+                    title = row.shown.title,
+                    author = row.shown.author,
                     modifier = Modifier.size(width = 64.dp, height = 96.dp),
                 )
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Text(
-                        text = row.document.title,
+                        text = row.shown.title,
                         style = MaterialTheme.typography.titleMedium,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    row.document.author?.let { author ->
+                    row.shown.author?.let { author ->
                         Text(
                             text = author,
                             style = MaterialTheme.typography.bodySmall,

@@ -11,4 +11,6 @@
     <string name="whats_new_highlights_description">Öffne in einem Buch %1$s → %2$s, um zu deinen markierten Passagen zurückzukehren.</string>
     <string name="whats_new_catalogs_title">Alle deine Kataloge auf jedem Gerät</string>
     <string name="whats_new_catalogs_description">Speichere mehrere Kataloge unter %1$s → %2$s und wechsle beim Stöbern zwischen ihnen. Wenn du bei Quire angemeldet bist, folgt dir die Liste auf deine anderen Geräte.</string>
+    <string name="whats_new_book_details_title">Aufgeräumte Buchdetails</string>
+    <string name="whats_new_book_details_description">Bücher mit einem Dateinamen als Titel oder ohne Cover, Autor oder Beschreibung bekommen ihre Details jetzt aus Open Library oder von KI aufgeräumt, mit einem Hinweis, woher sie stammen. Abschalten kannst du das unter %1$s → %2$s, und über das Menü eines Buchs kommst du zu seinen Originaldetails zurück.</string>
 </resources>

@@ -152,6 +152,32 @@ class AiClient(
         }
     }
 
+    /**
+     * Find a book's missing details, tidying them when something calls for it. A tidy runs a
+     * model, so the call gets the same budget as an insight generation.
+     */
+    suspend fun lookupDetails(body: DetailsLookupBody): DetailsResponse =
+        post("/details/v1/lookup", body, client = longCallHttp(generationTimeoutS))
+
+    /** Tidy a book's details now, at the reader's request. 429 when the allowance is spent. */
+    suspend fun tidyDetails(body: DetailsLookupBody): DetailsResponse =
+        post("/details/v1/tidy", body, client = longCallHttp(generationTimeoutS))
+
+    /**
+     * The image behind a generated cover's [path], the server path a details answer gives
+     * (`/details/v1/covers/{key}?v={etag}`). Refuses any other path, so the account's login
+     * only ever goes to the cover endpoint.
+     */
+    suspend fun detailsCover(path: String): ByteArray = withContext(Dispatchers.IO) {
+        require(path.startsWith("/details/v1/covers/")) { "not a details cover path" }
+        http.newCall(Request.Builder().url("${resolveBaseUrl()}$path").get().build()).await().use { resp ->
+            if (!resp.isSuccessful) {
+                throw makeError(resp.code, resp.body?.string().orEmpty(), resp.header("Retry-After"))
+            }
+            resp.body?.bytes() ?: ByteArray(0)
+        }
+    }
+
     suspend fun invalidateInsight(identity: DocumentIdentity) {
         postUnit("/ai/v1/insights/invalidate", InsightGetBody(identity))
     }
@@ -257,7 +283,7 @@ class AiClient(
             client.newCall(builder.build()).await().use { resp ->
                 val body = resp.body?.string().orEmpty()
                 if (!resp.isSuccessful) {
-                    throw makeError(resp.code, body)
+                    throw makeError(resp.code, body, resp.header("Retry-After"))
                 }
                 json.decodeFromString<Resp>(body)
             }
@@ -324,7 +350,8 @@ class AiClient(
      * a non-429 status with a `detail` object carrying `code` (issue #102) -> [AiProviderException];
      * anything else -> [AiHttpException].
      */
-    private fun makeError(code: Int, body: String): RuntimeException {
+    private fun makeError(code: Int, body: String, retryAfter: String? = null): RuntimeException {
+        val retryAfterSeconds = retryAfter?.trim()?.toLongOrNull()
         val detail = try {
             (json.parseToJsonElement(body) as? JsonObject)?.get("detail")
         } catch (ignored: Exception) {
@@ -333,7 +360,7 @@ class AiClient(
         if (code == 429 && detail != null) {
             // 429 body shape from server: {detail: {used, limit, resets_at}}
             try {
-                return AiQuotaException(json.decodeFromString(QuotaInfo.serializer(), detail.toString()))
+                return AiQuotaException(json.decodeFromString(QuotaInfo.serializer(), detail.toString()), retryAfterSeconds)
             } catch (ignored: Exception) {
                 // fall through
             }
@@ -353,7 +380,7 @@ class AiClient(
                 // fall through to the generic exception
             }
         }
-        return AiHttpException(code, body)
+        return AiHttpException(code, body, retryAfterSeconds)
     }
 
     companion object {
@@ -370,7 +397,8 @@ class AiClient(
     }
 }
 
-open class AiHttpException(val code: Int, val body: String) :
+/** [retryAfterSeconds] is the server's `Retry-After`, when it sent one in seconds. */
+open class AiHttpException(val code: Int, val body: String, val retryAfterSeconds: Long? = null) :
     RuntimeException("AI request failed: $code body=${body.take(200)}")
 
 /**
@@ -389,5 +417,6 @@ class AiProviderException(
 
 class InsightNotCachedException : RuntimeException("insight not cached")
 
-class AiQuotaException(val info: QuotaInfo) :
+/** [retryAfterSeconds] as on [AiHttpException]. */
+class AiQuotaException(val info: QuotaInfo, val retryAfterSeconds: Long? = null) :
     RuntimeException("AI quota exhausted: ${info.used}/${info.limit}, resets at ${info.resetsAt}")
