@@ -88,6 +88,10 @@ export type AiConfig = {
   configured: boolean;
   progress_supported?: boolean;
   details_supported?: boolean;
+  /** `/details/v1` takes `cover_choice`. */
+  cover_choice_supported?: boolean;
+  /** `cover_choice: "paint"` is served: the server paints cover artwork. */
+  cover_painting_supported?: boolean;
   providers: { id: string; label: string; base_url_host: string; model_id: string }[];
   sources_enabled: string[];
   daily_budget: number;

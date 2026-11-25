@@ -37,6 +37,10 @@ Motif = Literal[
 Layout = Literal["classic", "band", "frame", "stack"]
 Typeface = Literal["serif", "elegant", "sans"]
 MOTIFS: tuple[str, ...] = get_args(Motif)
+# The cover a reader asks for: "keep" the book's own (else a found or drawn
+# one), "find" Open Library's (else a drawn one), "draw" the server's design,
+# or "paint" that design on painted artwork.
+CoverChoice = Literal["keep", "find", "draw", "paint"]
 
 
 def _collapse(value: str | None) -> str | None:
@@ -93,9 +97,10 @@ class DetailsLookupBody(BaseModel):
     book: BookFields
     # Where the client's fields come from: the book file or its catalog entry.
     source: Literal["file", "catalog"]
-    # The real cover the client already has, if any. A generated cover never
-    # replaces one.
+    # The real cover the client already has, if any. Only a reader's
+    # ``cover_choice`` other than "keep" puts another cover in its place.
     cover: Literal["file", "catalog"] | None = None
+    cover_choice: CoverChoice = "keep"
 
 
 class DetailsCover(BaseModel):

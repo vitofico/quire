@@ -28,8 +28,10 @@ export function Cover({ book, load }: { book: ShelfBook; load?: LoadCover }) {
       setUrl(source)
     }
     setUrl('')
-    if (book.cover instanceof Blob) show(book.cover)
-    else if (found) load(book.key).then(show, () => undefined)
+    const own = book.cover instanceof Blob ? book.cover : undefined
+    // A cover the reader chose replaces the book's own; without its image the own one shows.
+    if (found) load(book.key).then((blob) => show(blob ?? own), () => show(own))
+    else show(own)
     return () => {
       live = false
       if (source) URL.revokeObjectURL(source)
@@ -94,6 +96,8 @@ export function Shelf({ ready, local, art, data, loadCover, t, choose, details, 
     () =>
       data.books.map((book) => ({
         book: withDetails(book),
+        // Labels compare the shown values with the book's own.
+        own: book,
         p: findProgress(book, data.progress),
       })),
     [data],
@@ -252,7 +256,7 @@ export function Shelf({ ready, local, art, data, loadCover, t, choose, details, 
             ))}
           </div>
           <div className={'library-grid' + (compact ? ' compact' : '')}>
-            {matches.map(({ book, p }) => (
+            {matches.map(({ book, own, p }) => (
               <button
                 className="book-entry"
                 key={book.key}
@@ -262,7 +266,7 @@ export function Shelf({ ready, local, art, data, loadCover, t, choose, details, 
                 <span className="who">
                   <strong>{book.title}</strong>
                   <small>{authors(book)}</small>
-                  <Marks book={book} t={t} />
+                  <Marks book={own} t={t} />
                 </span>
                 {p?.finished_at ? (
                   <small>{t('Finished')}</small>

@@ -778,7 +778,12 @@ function Workspace({
             )
           }
           back={back}
-          tidy={<TidyDetails key={book.key} book={book} store={replica} request={detailsRequest} t={t} />}
+          tidy={
+            <TidyDetails
+              key={book.key} book={book} store={replica} request={detailsRequest} loadCover={loadCover} t={t}
+              coverChoice={ai?.config.cover_choice_supported} painting={ai?.config.cover_painting_supported}
+            />
+          }
           actions={
             <div className="actions">
               {book.hasDownload ? (
