@@ -443,6 +443,25 @@ select.quiet:hover {
   padding: 1.5rem 1rem 1rem;
   background: var(--surface);
 }
+/* A faint wash of the ink artwork at the foot of the rail, behind the account chip. */
+.artwork .rail {
+  isolation: isolate;
+  overflow: hidden;
+}
+.artwork .rail::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0;
+  height: 16rem;
+  z-index: -1;
+  background: url(../../branding/background-ink.webp) right bottom / 34rem auto no-repeat;
+  opacity: 0.35;
+  mask-image: linear-gradient(transparent, #000 70%);
+  pointer-events: none;
+}
+:root:is([data-theme='ink'], [data-theme='midnight']) .artwork .rail::after {
+  opacity: 0.6;
+}
 .rail .brand {
   padding: 0 0.5rem;
 }
@@ -1104,7 +1123,8 @@ dialog.ask .actions {
     box-shadow: 0 -1px 0 var(--line);
   }
   .rail .brand,
-  .account-chip {
+  .account-chip,
+  .artwork .rail::after {
     display: none;
   }
   .rail nav {

@@ -983,7 +983,7 @@ function Workspace({
   return (
     <div
       className={
-        route.view === 'read' ? '' : 'shell'
+        route.view === 'read' ? '' : 'shell' + (art === 'on' ? ' artwork' : '')
       }
     >
       <a
