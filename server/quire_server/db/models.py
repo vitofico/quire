@@ -328,17 +328,16 @@ class AIGenerationLog(Base):
 # Scoped alias table (PR2, 2026-05-16)
 # ----------------------------------------------------------------------------
 # `insight_identity_aliases` maps non-canonical identity hints (`opds_href`,
-# `opds_dc_id`, `calibre_book_id`, `isbn`) to canonical schemes
-# (`metadata_id`, `content_hash`). The resolver runs BEFORE every cache
-# lookup, generation-lock acquisition, regenerate, and invalidate.
+# `opds_dc_id`, `isbn`) to canonical schemes (`metadata_id`,
+# `content_hash`). The resolver runs BEFORE every cache lookup,
+# generation-lock acquisition, regenerate, and invalidate.
 #
 # `user_id` is INTENTIONAL cache-key scoping, NOT a tenant-leak:
 #   - Global aliases (user_id IS NULL): `metadata_id`, `content_hash`,
 #     `isbn`. These are universally stable across instances.
 #   - User-scoped aliases (user_id = <calibre-web user>): `opds_href`,
-#     `opds_dc_id`, `calibre_book_id`. The same OPDS string can mean
-#     different books on different calibre-web instances, so they must
-#     not cross-contaminate.
+#     `opds_dc_id`. The same OPDS string can mean different books on
+#     different calibre-web instances, so they must not cross-contaminate.
 #
 # Cache-key audit test split (PR2 §4): this table appears in
 # `SCOPED_ALIAS_TABLES`, NOT `SHARED_CACHE_TABLES`. The `user_id` column

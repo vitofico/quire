@@ -215,6 +215,9 @@ class DocumentIdentity(BaseModel):
     in identity-hierarchy order and resolves to a canonical via the
     `insight_identity_aliases` table; the API layer raises 422 if no hint
     can be resolved on a write path.
+
+    Unknown keys are ignored. Apps still send `calibre_book_id`, a Calibre-Web
+    book number that is not unique across servers, so it must stay ignored.
     """
 
     # Canonicals (at least one of these OR a resolvable alias must be set)
@@ -230,7 +233,6 @@ class DocumentIdentity(BaseModel):
     # canonical via insight_identity_aliases when present.
     opds_href: str | None = None
     opds_dc_id: str | None = None
-    calibre_book_id: str | None = None
     isbn: str | None = None
 
     def alias_dict(self) -> dict[str, str]:
@@ -241,7 +243,6 @@ class DocumentIdentity(BaseModel):
             "content_hash",
             "opds_dc_id",
             "isbn",
-            "calibre_book_id",
             "opds_href",
         ):
             v = getattr(self, k, None)

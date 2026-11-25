@@ -188,15 +188,18 @@ API in `server/quire_server/core/ai/identity.py`.
 3. **`opds_dc_id`** — alias. `dc:identifier` from the catalog entry.
    Pre-download.
 4. **`isbn`** — alias. Global (a given ISBN means the same book everywhere).
-5. **`calibre_book_id`** — alias. Pre-download. User-scoped (book #42 in one
-   calibre-web is not book #42 in another).
-6. **`opds_href`** — alias. Last-resort fallback. User-scoped.
+5. **`opds_href`** — alias. Last-resort fallback. User-scoped.
+
+Clients also send **`calibre_book_id`**, the bare book number from a
+Calibre-Web download link. The server accepts and ignores it: book #42 in one
+calibre-web is not book #42 in another, and `opds_href` already names the
+catalog entry with its host.
 
 Scope policy (`SCOPE_BY_SCHEME` in `core/ai/identity.py`): `metadata_id`,
 `content_hash`, `isbn` are GLOBAL aliases (`user_id IS NULL` in the alias
-row). `opds_href`, `opds_dc_id`, `calibre_book_id` are USER-SCOPED — the same
-OPDS string can mean different books on different calibre-web instances and
-must not cross-contaminate.
+row). `opds_href`, `opds_dc_id` are USER-SCOPED — the same OPDS string can
+mean different books on different calibre-web instances and must not
+cross-contaminate.
 
 `InsightLookupBody.identity.content_hash` is now optional (PR2) so catalog-
 preview requests can resolve via any alias hint. The orchestrator's
@@ -216,7 +219,7 @@ Two distinct surfaces today:
   bookmarks.
 - **AI (`insight_identity_aliases`, shipped PR2 2026-05-16).** The AI
   surface accepts any of `metadata_id`, `content_hash`, `opds_dc_id`,
-  `isbn`, `calibre_book_id`, `opds_href` and resolves to a canonical via
+  `isbn`, `opds_href` and resolves to a canonical via
   the alias table before touching the shared cache. See
   `server/quire_server/core/ai/identity.py` for the resolver + register +
   reconcile API. Per-user OPDS aliases stay user-scoped; global hints like
@@ -766,8 +769,9 @@ catalog row by combining `metadata_id="opds-href:<sha256(href)>"`
 with all weaker hints the catalog entry provided: an `opds_href`
 alias, a `calibre_book_id` parsed from the download URL, and an
 `opds_dc_id` when the OPDS entry carries a `dc:identifier`. The
-server's identity-alias table (PR2) resolves all of those onto one
-canonical cache row.
+server's identity-alias table (PR2) resolves the `opds_href` and
+`opds_dc_id` hints onto one canonical cache row; it ignores
+`calibre_book_id`, which is not unique across servers.
 
 **Important: the `opds-href:<sha>` identity does NOT converge with
 the post-download EPUB identity.** Once a user downloads the book,
