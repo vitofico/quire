@@ -441,34 +441,6 @@ class CalibreCredentialStoreTest {
         assertThat(saved.host).isEqualTo("https://kavita.example")
     }
 
-    @Test fun `setCatalog adds the first catalog and then edits the active one`() {
-        val store = freshStore()
-        store.setCatalog(AccountCredentials.OpdsOnly("https://feed.example/opds", "alice", "one"))
-        val first = store.activeCatalog.value!!
-        assertThat(first.name).isEqualTo("feed.example")
-        store.setCatalog(AccountCredentials.OpdsOnly("https://other.example/opds", "alice", "two"))
-        assertThat(store.catalogs.value).hasSize(1)
-        assertThat(store.activeCatalog.value?.id).isEqualTo(first.id)
-        assertThat(store.activeCatalog.value?.name).isEqualTo("other.example")
-        assertThat(store.catalogAccount()?.password).isEqualTo("two")
-
-        store.setCatalog(null)
-        assertThat(store.catalogs.value).isEmpty()
-    }
-
-    @Test fun `setCatalog never edits a catalog on the account`() {
-        val store = freshStore()
-        store.saveBearerAccount("https://quire.example", "a@b.c", "tok")
-        val native = store.getAccount() as AccountCredentials.Bearer
-        val synced = entry("https://books.example/opds").copy(remoteUpdatedAt = "t1")
-        store.applyAccountCatalogs(native, "rev") { listOf(synced) }
-
-        store.setCatalog(AccountCredentials.OpdsOnly("https://books.example/opds", "alice", "pw"))
-        assertThat(store.catalogs.value.map { it.id }).hasSize(2)
-        assertThat(store.catalogs.value.first().catalog?.username).isNull()
-        assertThat(store.activeCatalog.value?.onAccount).isFalse()
-    }
-
     @Test fun `catalog validation rejects a blank address, half a login and a bad name`() {
         val store = freshStore()
         for (bad in listOf(
@@ -516,11 +488,7 @@ class CalibreCredentialStoreTest {
         assertThat(store.activeCatalog.value).isEqualTo(pinned)
         assertThat(runCatching { store.saveCatalog(pinned.copy(name = "x")) }.isFailure).isTrue()
         store.removeCatalog(pinned.id)
-        store.setCatalog(null)
         assertThat(store.catalogs.value.first()).isEqualTo(pinned)
-        // Editing from the old single-catalog form adds a catalog instead.
-        store.setCatalog(AccountCredentials.OpdsOnly("https://feed.example/opds"))
-        assertThat(store.catalogs.value).hasSize(3)
 
         // A password change keeps the same row.
         store.saveBasicAccount("https://books.example", "reader", "new")
@@ -543,7 +511,7 @@ class CalibreCredentialStoreTest {
         assertThat(reread.catalogAccount()?.password).isEqualTo("catalog-password")
 
         reread.notifyUnauthorized(reread.getAccount() as AccountCredentials.Bearer)
-        reread.setCatalog(kept.catalog!!.copy(password = "second-password"))
+        reread.saveCatalog(kept.copy(catalog = kept.catalog!!.copy(password = "second-password")))
         assertThat(reread.needsReauth.value).isTrue()
 
         reread.signOut(keepCatalogs = true)

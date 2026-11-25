@@ -291,37 +291,6 @@ class CalibreCredentialStore(context: Context) {
     }
 
     /**
-     * The single-catalog form the Settings and onboarding screens still use. Changes the active
-     * catalog's address and login, or adds a catalog when there is none. A catalog on the Quire
-     * account and the pinned sign-in row are never edited from here: a new device catalog is added
-     * and made active instead, so the account's copy cannot silently diverge. Null forgets the
-     * active catalog on this device.
-     */
-    fun setCatalog(catalog: AccountCredentials.OpdsOnly?) {
-        synchronized(mutationLock) {
-            val active = _activeCatalog.value
-            if (catalog == null) {
-                if (active != null && !active.pinned) removeCatalog(active.id)
-                return
-            }
-            if (active == null || active.pinned || active.onAccount) {
-                val entry = SavedCatalog(SavedCatalog.newId(), defaultName(catalog.baseUrl), catalog).validated()
-                persistCatalogs(catalogState.copy(saved = catalogState.saved + entry, activeId = entry.id))
-            } else {
-                // A name the reader never chose follows the address.
-                val named = active.catalog != null && active.name != defaultName(active.catalog.baseUrl)
-                saveCatalog(
-                    active.copy(
-                        catalog = catalog,
-                        needsLogin = false,
-                        name = if (named) active.name else defaultName(catalog.baseUrl),
-                    ),
-                )
-            }
-        }
-    }
-
-    /**
      * Sign out of the Quire account or the legacy sign-in. With [keepCatalogs] every catalog stays
      * on this device and keeps working for reading, now held by the device alone; without it the
      * device forgets them all. Catalogs on the Quire account stay there either way. A session that

@@ -4,15 +4,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.theficos.ereader.auth.AccountCredentials
 import io.theficos.ereader.auth.CalibreCredentialStore
-import io.theficos.ereader.data.opds.CLEARTEXT_BLOCKED_MESSAGE
+import io.theficos.ereader.auth.SavedCatalog
+import io.theficos.ereader.data.opds.CatalogResult
+import io.theficos.ereader.data.opds.CatalogSyncRepository
 import io.theficos.ereader.data.opds.ProbeError
 import io.theficos.ereader.data.opds.ServerProbe
 import io.theficos.ereader.data.opds.ServerProbeResult
 import io.theficos.ereader.data.opds.cleartextBlockedMessage
-import io.theficos.ereader.data.opds.isAcquisitionRel
-import io.theficos.ereader.data.opds.isEpubMediaType
 import io.theficos.ereader.data.opds.normalizeCatalogUrl
-import io.theficos.ereader.data.opds.parseXmlOrNull
 import io.theficos.ereader.ui.UiText
 import io.theficos.ereader.ui.uiText
 import io.theficos.quire.R
@@ -45,11 +44,11 @@ import okhttp3.RequestBody.Companion.toRequestBody
  * Lifecycle of a flow:
  *   1. User types a URL → [onUrlChange].
  *   2. User taps Probe → [probe] → [UiState.Probing] → [UiState.Result].
- *   3. On `Calibre` or `NativeAuth` (or once they pick after `Both`), user
- *      fills credentials and submits → [verifyAndSaveBasic] /
- *      [verifyAndSaveBearer]. The verification call hits the plain
- *      onboarding HTTP client (no `AccountAuthInterceptor`), and we only
- *      persist to [CalibreCredentialStore] on success.
+ *   3. A catalog (Calibre-Web or any OPDS feed) is tested and saved to the
+ *      catalog list through [saveCatalog]; a Quire server signs in through
+ *      [verifyAndSaveBearer]. Verification uses the plain onboarding HTTP
+ *      client (no `AccountAuthInterceptor`), and nothing is persisted unless
+ *      it succeeds. Calibre-Web is no longer offered as a sign-in here.
  *   4. On persist success, [UiState.Completed] is emitted and the screen
  *      navigates the caller to Library.
  *
@@ -59,8 +58,10 @@ import okhttp3.RequestBody.Companion.toRequestBody
  */
 class ConnectServerViewModel(
     private val credentialStore: CalibreCredentialStore,
+    private val catalogs: CatalogSyncRepository,
     private val probe: ServerProbe = ServerProbe(),
     private val onboardingClient: OkHttpClient = defaultOnboardingClient(),
+    private val catalogCheck: CatalogCheck = CatalogCheck(probe, onboardingClient),
     /**
      * Where the blocking probe and verification calls run. Defaults to
      * [Dispatchers.IO] in production; tests hand in the same test dispatcher
@@ -89,10 +90,10 @@ class ConnectServerViewModel(
     val isReauthentication = credentialStore.needsReauth.value && nativeAccount != null
     private val legacyAccount = account as? AccountCredentials.Basic
 
-    private val _migrationOffered = MutableStateFlow(false)
+    private val _legacyMigration = MutableStateFlow(LegacyMigration.UNKNOWN)
 
-    /** True once the server says this legacy reader may create their own Quire account. */
-    val migrationOffered: StateFlow<Boolean> = _migrationOffered.asStateFlow()
+    /** Whether this legacy reader's server lets them create their own Quire account, once [claimLegacyAccount] knows. */
+    val legacyMigration: StateFlow<LegacyMigration> = _legacyMigration.asStateFlow()
 
     /** Reset any in-flight result, ready for a fresh URL. */
     fun resetToIdle() {
@@ -112,28 +113,23 @@ class ConnectServerViewModel(
     }
 
     /**
-     * Verify Basic credentials by issuing a GET to `${base}/opds` with an
-     * `Authorization: Basic ...` header. Persist iff the response is 200.
+     * Test the catalog a probe found with the optional login, then add it to the catalog list.
+     * A Calibre-Web address becomes a catalog like any other: signing in with it is being retired.
      */
-    fun verifyAndSaveBasic(canonicalBaseUrl: String, username: String, password: String, catalogOnly: Boolean = false) {
+    fun saveCatalog(found: ServerProbeResult, username: String?, password: String?) {
         verifyJob?.cancel()
         _state.value = UiState.Verifying
         verifyJob = viewModelScope.launch {
-            val result = withContext(ioDispatcher) {
-                runBasicVerification(canonicalBaseUrl, username, password)
-            }
+            val result = withContext(ioDispatcher) { catalogCheck.verify(found, username, password) }
             _state.value = when (result) {
-                is VerificationOutcome.OkBasic -> {
-                    if (catalogOnly || credentialStore.getAccount() is AccountCredentials.Bearer) {
-                        credentialStore.setCatalog(AccountCredentials.OpdsOnly("$canonicalBaseUrl/opds", username, password, calibre = true))
-                    } else {
-                        credentialStore.saveBasicAccount(canonicalBaseUrl, username, password)
+                is CatalogCheck.Result.Failed -> UiState.VerificationFailed(result.message)
+                is CatalogCheck.Result.Found -> {
+                    val entry = SavedCatalog(SavedCatalog.newId(), SavedCatalog.defaultName(result.catalog.baseUrl), result.catalog)
+                    when (val saved = catalogs.save(entry)) {
+                        CatalogResult.Done -> UiState.Completed
+                        is CatalogResult.Failed -> UiState.VerificationFailed(catalogFailureMessage(saved.reason))
                     }
-                    UiState.Completed
                 }
-                is VerificationOutcome.OkBearer -> error("unreachable in basic flow")
-                is VerificationOutcome.OkOpds -> error("unreachable in basic flow")
-                is VerificationOutcome.Failure -> UiState.VerificationFailed(result.message)
             }
         }
     }
@@ -171,8 +167,7 @@ class ConnectServerViewModel(
             when (result) {
                 is VerificationOutcome.OkBearer ->
                     if (saveNativeAccount(serverUrl, "", result) == UiState.Completed) _state.value = UiState.Completed
-                is VerificationOutcome.Failure -> if (result.canMigrate) _migrationOffered.value = true
-                else -> Unit
+                is VerificationOutcome.Failure -> result.migration?.let { _legacyMigration.value = it }
             }
         }
     }
@@ -194,7 +189,6 @@ class ConnectServerViewModel(
             _state.value = when (result) {
                 is VerificationOutcome.OkBearer -> saveNativeAccount(serverUrl, email, result)
                 is VerificationOutcome.Failure -> UiState.VerificationFailed(result.message)
-                else -> error("unreachable in migration flow")
             }
         }
     }
@@ -220,8 +214,6 @@ class ConnectServerViewModel(
                 is VerificationOutcome.OkBearer -> {
                     saveNativeAccount(serverUrl, email, result)
                 }
-                is VerificationOutcome.OkBasic -> error("unreachable in bearer flow")
-                is VerificationOutcome.OkOpds -> error("unreachable in bearer flow")
                 is VerificationOutcome.Failure -> UiState.VerificationFailed(result.message)
             }
         }
@@ -281,153 +273,6 @@ class ConnectServerViewModel(
             previousHighlightScope = legacyHighlightScopeFor(previous, candidate, identity?.legacyCalibreUserId),
         )
         return UiState.Completed
-    }
-
-    /**
-     * Verify a generic OPDS catalog (issue #101) and persist it on success.
-     *
-     * Accepts the feed when it parses as Atom AND carries at least one
-     * navigation link or one EPUB acquisition link. The navigation half of that
-     * test is load-bearing: Kavita's root feed is pure navigation, so requiring
-     * a book at the root would reject the very server this was built for.
-     *
-     * The URL may embed an API key, so no failure message may quote it.
-     */
-    fun verifyAndSaveOpds(catalogUrl: String, username: String?, password: String?) {
-        verifyJob?.cancel()
-        _state.value = UiState.Verifying
-        verifyJob = viewModelScope.launch {
-            val result = withContext(ioDispatcher) {
-                runOpdsVerification(catalogUrl, username, password)
-            }
-            _state.value = when (result) {
-                is VerificationOutcome.OkOpds -> {
-                    credentialStore.setCatalog(AccountCredentials.OpdsOnly(catalogUrl, username, password))
-                    UiState.Completed
-                }
-                is VerificationOutcome.Failure -> UiState.VerificationFailed(result.message)
-                else -> UiState.VerificationFailed(uiText(R.string.onboarding_unexpected_verification_result))
-            }
-        }
-    }
-
-    private fun runOpdsVerification(
-        catalogUrl: String,
-        username: String?,
-        password: String?,
-    ): VerificationOutcome {
-        val builder = Request.Builder()
-            .url(catalogUrl)
-            .header("Accept", "application/atom+xml, application/xml;q=0.9, */*;q=0.8")
-            .header("User-Agent", ServerProbe.USER_AGENT)
-            .get()
-        if (username != null && password != null) {
-            val token = Base64.getEncoder()
-                .encodeToString("$username:$password".toByteArray())
-            builder.header("Authorization", "Basic $token")
-        }
-        return try {
-            onboardingClient.newCall(builder.build()).execute().use { resp ->
-                when (resp.code) {
-                    200 -> {
-                        val body = resp.body?.string().orEmpty()
-                        if (isUsableOpdsFeed(body)) {
-                            VerificationOutcome.OkOpds
-                        } else {
-                            VerificationOutcome.Failure(
-                                uiText(R.string.onboarding_that_url_answered_but_it_isn_t),
-                            )
-                        }
-                    }
-                    401 -> VerificationOutcome.Failure(
-                        uiText(R.string.onboarding_the_catalog_rejected_those_credentials),
-                    )
-                    in 500..599 -> VerificationOutcome.Failure(
-                        uiText(R.string.onboarding_server_error_try_again_later, resp.code),
-                    )
-                    else -> VerificationOutcome.Failure(
-                        uiText(R.string.onboarding_unexpected_response_from_the_catalog, resp.code),
-                    )
-                }
-            }
-        } catch (e: IOException) {
-            VerificationOutcome.Failure(
-                if (cleartextBlockedMessage(e) != null) uiText(R.string.error_cleartext_blocked)
-                else e.localizedMessage?.let(UiText::Dynamic) ?: uiText(R.string.common_network_error),
-            )
-        }
-    }
-
-    /**
-     * True when [body] is an Atom feed carrying at least one navigation link or
-     * one EPUB acquisition link. Either alone is a usable catalog: a navigation
-     * root leads to books, and an acquisition feed is books.
-     */
-    private fun isUsableOpdsFeed(body: String): Boolean = runCatching {
-        // Shared hardened parser. An inline DocumentBuilderFactory with Apache
-        // feature names throws on Android and would make every catalog look
-        // invalid on device while the JVM tests stayed green (issue #101).
-        val doc = parseXmlOrNull(body.toByteArray()) ?: return false
-        val root = doc.documentElement ?: return false
-        if (root.localName != "feed" || root.namespaceURI != ATOM_NS) return false
-
-        val links = doc.getElementsByTagNameNS(ATOM_NS, "link")
-        for (i in 0 until links.length) {
-            val el = links.item(i) as org.w3c.dom.Element
-            val rel = el.getAttribute("rel")
-            val type = el.getAttribute("type")
-            // Share the browser's own rules rather than restating them: a
-            // stricter test here would reject at onboarding a feed the catalog
-            // screen then renders fine. Flibusta emits bare `application/epub`
-            // on a minority of entries (issue #101).
-            val isAcquisition =
-                isAcquisitionRel(rel) && isEpubMediaType(type)
-            val isNavigation = rel == "subsection" ||
-                type.startsWith("application/atom+xml;profile=opds-catalog")
-            if (isAcquisition || isNavigation) return true
-        }
-        false
-    }.getOrDefault(false)
-
-    private fun runBasicVerification(
-        canonicalBaseUrl: String,
-        username: String,
-        password: String,
-    ): VerificationOutcome {
-        val token = Base64.getEncoder().encodeToString("$username:$password".toByteArray())
-        val req = Request.Builder()
-            .url("$canonicalBaseUrl/opds")
-            .header("Authorization", "Basic $token")
-            .header("Accept", "application/atom+xml")
-            .header("User-Agent", ServerProbe.USER_AGENT)
-            .get()
-            .build()
-        return try {
-            onboardingClient.newCall(req).execute().use { resp ->
-                when (resp.code) {
-                    200 -> VerificationOutcome.OkBasic
-                    401 -> VerificationOutcome.Failure(uiText(R.string.onboarding_username_or_password_rejected_by_the_server))
-                    in 500..599 -> VerificationOutcome.Failure(
-                        uiText(R.string.onboarding_server_error_try_again_later, resp.code),
-                    )
-                    // A server that demands Basic auth everywhere (Komga does)
-                    // satisfies the calibre probe's 401-with-challenge test, then
-                    // 404s here because its catalog lives elsewhere. Say so,
-                    // rather than leaving the user at "unexpected response".
-                    404 -> VerificationOutcome.Failure(
-                        uiText(R.string.onboarding_this_server_asked_for_a_username_and),
-                    )
-                    else -> VerificationOutcome.Failure(
-                        uiText(R.string.onboarding_unexpected_response_from_opds, resp.code),
-                    )
-                }
-            }
-        } catch (e: IOException) {
-            VerificationOutcome.Failure(
-                if (cleartextBlockedMessage(e) != null) uiText(R.string.error_cleartext_blocked)
-                else e.localizedMessage?.let(UiText::Dynamic) ?: uiText(R.string.common_network_error),
-            )
-        }
     }
 
     private fun runBearerVerification(
@@ -523,7 +368,7 @@ class ConnectServerViewModel(
         }.getOrNull()
         return when {
             code == 409 && detail == "not_migrated" ->
-                VerificationOutcome.Failure(uiText(R.string.quire_migration_unavailable), canMigrate = true)
+                VerificationOutcome.Failure(uiText(R.string.quire_migration_unavailable), LegacyMigration.OFFERED)
             code == 409 && detail == "email_unavailable" ->
                 VerificationOutcome.Failure(uiText(R.string.quire_migration_email_unavailable))
             code == 409 && detail == "invalid_email" ->
@@ -534,6 +379,9 @@ class ConnectServerViewModel(
                 VerificationOutcome.Failure(uiText(R.string.quire_migration_sign_in_instead))
             code == 401 -> VerificationOutcome.Failure(uiText(R.string.quire_migration_calibre_rejected))
             code in 500..599 -> VerificationOutcome.Failure(uiText(R.string.onboarding_server_error_try_again_later, code))
+            // No migration route at all: the server has self-service migration turned off.
+            code == 404 || code == 405 ->
+                VerificationOutcome.Failure(uiText(R.string.quire_migration_unavailable), LegacyMigration.UNAVAILABLE)
             else -> VerificationOutcome.Failure(uiText(R.string.quire_migration_unavailable))
         }
     }
@@ -597,11 +445,14 @@ class ConnectServerViewModel(
     }
 
     private sealed class VerificationOutcome {
-        object OkBasic : VerificationOutcome()
-        object OkOpds : VerificationOutcome()
         data class OkBearer(val token: String, val expiresAtEpochMs: Long?, val accountId: String? = null, val accountSubject: String? = null) : VerificationOutcome()
-        data class Failure(val message: UiText, val canMigrate: Boolean = false) : VerificationOutcome()
+
+        /** [migration] is what a legacy claim learned about self-service migration, when it learned anything. */
+        data class Failure(val message: UiText, val migration: LegacyMigration? = null) : VerificationOutcome()
     }
+
+    /** Whether a legacy Calibre-Web reader can create their own Quire account from the app. */
+    enum class LegacyMigration { UNKNOWN, OFFERED, UNAVAILABLE }
 
     companion object {
         /** Atom namespace, the only one an OPDS 1.x feed root may carry. */

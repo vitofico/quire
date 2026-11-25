@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="catalogs_title">Catalogs</string>
+    <string name="catalogs_status_synced">Saved to your Quire account</string>
+    <string name="catalogs_status_device">Saved on this device only</string>
+    <string name="catalogs_status_not_supported">This server does not sync catalogs</string>
+    <string name="catalogs_status_checking">Checking your Quire account…</string>
+    <string name="catalogs_empty">No catalogs yet. Add one to browse and download books.</string>
+    <string name="catalogs_add">Add catalog</string>
+    <string name="catalogs_edit">Edit catalog</string>
+    <string name="catalogs_address">Catalog address</string>
+    <string name="catalogs_address_help">A Calibre-Web address or any OPDS catalog address. It can contain an account key, so it stays hidden.</string>
+    <string name="catalogs_name">Name</string>
+    <string name="catalogs_checking">Testing the connection…</string>
+    <string name="catalogs_row_needs_login">Needs login</string>
+    <string name="catalogs_row_device_only">This device only</string>
+    <string name="catalogs_row_sign_in">Calibre-Web sign-in</string>
+    <string name="catalogs_move_up">Move %1$s up</string>
+    <string name="catalogs_move_down">Move %1$s down</string>
+    <string name="catalogs_remove">Remove</string>
+    <string name="catalogs_remove_title">Remove %1$s?</string>
+    <string name="catalogs_remove_account">It is also removed from your Quire account and your other devices. Downloaded books stay.</string>
+    <string name="catalogs_remove_device">It is removed from this device. Downloaded books stay.</string>
+    <string name="catalogs_save_to_account">Save to account</string>
+    <string name="catalogs_keep_device_only">Keep on this device only</string>
+    <string name="catalogs_quire_server">This address is a Quire server, not a catalog. Sign in to it under Quire account.</string>
+    <string name="catalogs_needs_login">Your Quire server can no longer read this catalog’s saved address and login. Enter them again.</string>
+    <string name="catalogs_failed_limit">Your Quire account holds up to 20 catalogs. Remove one, or keep this one on this device only.</string>
+    <string name="catalogs_failed_name">Give the catalog a name of up to 60 characters.</string>
+    <string name="catalogs_failed_url">That address does not look right. Check it and try again.</string>
+    <string name="catalogs_failed_https">Your Quire server only accepts catalogs on https addresses.</string>
+    <string name="catalogs_failed_credentials_in_url">Put the username and password in their own fields, not in the address.</string>
+    <string name="catalogs_failed_login_incomplete">Enter both a username and a password, or neither.</string>
+    <string name="catalogs_failed_order">The list changed on another device. Try again.</string>
+    <string name="catalogs_failed_sign_in">Sign in to Quire again to change catalogs saved to your account.</string>
+    <string name="catalogs_failed_offline">Couldn’t reach your Quire server. Check your connection and try again.</string>
+    <string name="catalogs_failed_rejected">Your Quire server didn’t accept this change.</string>
+    <string name="catalogs_upload_title">Save your catalogs?</string>
+    <plurals name="catalogs_upload_question">
+        <item quantity="one">Save %1$d catalog to your Quire account so your other devices get it?</item>
+        <item quantity="other">Save your %1$d catalogs to your Quire account so your other devices get them?</item>
+    </plurals>
+    <string name="catalogs_upload_hint">Logins are saved with them. Catalogs you untick stay on this device only.</string>
+    <string name="catalogs_keep">Keep catalogs</string>
+    <string name="catalogs_remove_all">Remove catalogs</string>
+    <string name="quire_account_sign_out_catalogs">Signing out pauses Quire sync and AI features. Keep your catalogs on this device, or remove them? Downloaded books stay either way.</string>
+    <string name="quire_account_legacy_retiring_create">Calibre-Web sign-in is being retired. Create your Quire account to keep syncing.</string>
+    <string name="quire_account_legacy_retiring_admin">Calibre-Web sign-in is being retired. Ask your administrator to enable Quire accounts.</string>
+    <string name="quire_account_legacy_sign_in">Calibre-Web sign-in</string>
+    <string name="catalog_needs_login">%1$s needs its address and login entered again in Settings → Catalogs.</string>
+</resources>

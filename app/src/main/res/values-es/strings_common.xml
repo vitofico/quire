@@ -196,8 +196,6 @@
     <string name="common_same_as_calibre_web_url">"La misma que la URL de calibre-web"</string>
     <string name="common_saved">"Guardado"</string>
     <string name="common_save">"Guardar"</string>
-    <string name="common_opds_catalog">"Catálogo OPDS"</string>
-    <string name="common_catalog_url">"URL del catálogo"</string>
     <string name="common_show">"Mostrar"</string>
     <string name="common_reader_defaults">"Valores predeterminados del lector"</string>
     <string name="common_sync">"Sincronización"</string>

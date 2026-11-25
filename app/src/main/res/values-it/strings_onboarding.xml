@@ -13,7 +13,6 @@
     <string name="onboarding_this_url_looks_like_both_a_calibre">"Questo URL sembra essere sia un server calibre-web sia un server Quire. Quale account vuoi usare?"</string>
     <string name="onboarding_calibre_web_username_password">"calibre-web (nome utente + password)"</string>
     <string name="onboarding_quire_server_email_password">"Server Quire (email + password)"</string>
-    <string name="onboarding_unexpected_verification_result">"Risultato di verifica imprevisto."</string>
     <string name="onboarding_that_url_answered_but_it_isn_t">"Questo URL risponde, ma non è un catalogo OPDS con contenuti che Quire possa mostrare."</string>
     <string name="onboarding_the_catalog_rejected_those_credentials">"Il catalogo ha rifiutato le credenziali."</string>
     <string name="onboarding_server_error_try_again_later">"Errore del server %1$s. Riprova più tardi."</string>

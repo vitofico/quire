@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="catalogs_title">Kataloge</string>
+    <string name="catalogs_status_synced">In deinem Quire-Konto gespeichert</string>
+    <string name="catalogs_status_device">Nur auf diesem Gerät gespeichert</string>
+    <string name="catalogs_status_not_supported">Dieser Server synchronisiert keine Kataloge</string>
+    <string name="catalogs_status_checking">Dein Quire-Konto wird geprüft…</string>
+    <string name="catalogs_empty">Noch keine Kataloge. Füge einen hinzu, um Bücher zu durchsuchen und herunterzuladen.</string>
+    <string name="catalogs_add">Katalog hinzufügen</string>
+    <string name="catalogs_edit">Katalog bearbeiten</string>
+    <string name="catalogs_address">Katalogadresse</string>
+    <string name="catalogs_address_help">Eine Calibre-Web-Adresse oder die Adresse eines beliebigen OPDS-Katalogs. Sie kann einen Kontoschlüssel enthalten und bleibt deshalb verborgen.</string>
+    <string name="catalogs_name">Name</string>
+    <string name="catalogs_checking">Verbindung wird getestet…</string>
+    <string name="catalogs_row_needs_login">Anmeldung nötig</string>
+    <string name="catalogs_row_device_only">Nur dieses Gerät</string>
+    <string name="catalogs_row_sign_in">Calibre-Web-Anmeldung</string>
+    <string name="catalogs_move_up">%1$s nach oben verschieben</string>
+    <string name="catalogs_move_down">%1$s nach unten verschieben</string>
+    <string name="catalogs_remove">Entfernen</string>
+    <string name="catalogs_remove_title">%1$s entfernen?</string>
+    <string name="catalogs_remove_account">Er wird auch aus deinem Quire-Konto und von deinen anderen Geräten entfernt. Heruntergeladene Bücher bleiben erhalten.</string>
+    <string name="catalogs_remove_device">Er wird von diesem Gerät entfernt. Heruntergeladene Bücher bleiben erhalten.</string>
+    <string name="catalogs_save_to_account">Im Konto speichern</string>
+    <string name="catalogs_keep_device_only">Nur auf diesem Gerät behalten</string>
+    <string name="catalogs_quire_server">Diese Adresse ist ein Quire-Server, kein Katalog. Melde dich unter Quire-Konto dort an.</string>
+    <string name="catalogs_needs_login">Dein Quire-Server kann die gespeicherte Adresse und die Anmeldedaten dieses Katalogs nicht mehr lesen. Gib sie erneut ein.</string>
+    <string name="catalogs_failed_limit">Dein Quire-Konto fasst bis zu 20 Kataloge. Entferne einen oder behalte diesen nur auf diesem Gerät.</string>
+    <string name="catalogs_failed_name">Gib dem Katalog einen Namen mit höchstens 60 Zeichen.</string>
+    <string name="catalogs_failed_url">Diese Adresse sieht nicht richtig aus. Prüfe sie und versuche es erneut.</string>
+    <string name="catalogs_failed_https">Dein Quire-Server akzeptiert nur Kataloge mit https-Adressen.</string>
+    <string name="catalogs_failed_credentials_in_url">Trage Benutzername und Passwort in ihre eigenen Felder ein, nicht in die Adresse.</string>
+    <string name="catalogs_failed_login_incomplete">Gib Benutzername und Passwort ein oder keins von beiden.</string>
+    <string name="catalogs_failed_order">Die Liste wurde auf einem anderen Gerät geändert. Versuche es erneut.</string>
+    <string name="catalogs_failed_sign_in">Melde dich erneut bei Quire an, um die Kataloge in deinem Konto zu ändern.</string>
+    <string name="catalogs_failed_offline">Dein Quire-Server ist nicht erreichbar. Prüfe deine Verbindung und versuche es erneut.</string>
+    <string name="catalogs_failed_rejected">Dein Quire-Server hat diese Änderung nicht angenommen.</string>
+    <string name="catalogs_upload_title">Kataloge speichern?</string>
+    <plurals name="catalogs_upload_question">
+        <item quantity="one">%1$d Katalog in deinem Quire-Konto speichern, damit deine anderen Geräte ihn bekommen?</item>
+        <item quantity="other">Deine %1$d Kataloge in deinem Quire-Konto speichern, damit deine anderen Geräte sie bekommen?</item>
+    </plurals>
+    <string name="catalogs_upload_hint">Die Anmeldedaten werden mitgespeichert. Kataloge ohne Häkchen bleiben nur auf diesem Gerät.</string>
+    <string name="catalogs_keep">Kataloge behalten</string>
+    <string name="catalogs_remove_all">Kataloge entfernen</string>
+    <string name="quire_account_sign_out_catalogs">Wenn du die Verbindung trennst, pausieren die Synchronisierung und die KI-Funktionen. Möchtest du deine Kataloge auf diesem Gerät behalten oder entfernen? Heruntergeladene Bücher bleiben in jedem Fall erhalten.</string>
+    <string name="quire_account_legacy_retiring_create">Die Calibre-Web-Anmeldung wird eingestellt. Erstelle dein Quire-Konto, um weiter zu synchronisieren.</string>
+    <string name="quire_account_legacy_retiring_admin">Die Calibre-Web-Anmeldung wird eingestellt. Bitte deinen Administrator, Quire-Konten zu aktivieren.</string>
+    <string name="quire_account_legacy_sign_in">Calibre-Web-Anmeldung</string>
+    <string name="catalog_needs_login">Gib die Adresse und die Anmeldedaten von %1$s unter Einstellungen → Kataloge erneut ein.</string>
+</resources>

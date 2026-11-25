@@ -18,6 +18,7 @@ import io.theficos.ereader.data.sync.SyncClient
 import io.theficos.ereader.data.sync.SyncOrchestrator
 import io.theficos.ereader.domain.restore.RestoreSummary
 import io.theficos.ereader.ui.catalog.FakeAndroidKeyStore
+import io.theficos.ereader.ui.catalog.useCatalog
 import io.theficos.ereader.core.model.Progress as DomainProgress
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -406,7 +407,7 @@ class LibraryViewModelTest {
 
     @Test fun `canRestore is false for an opds-only account even if library empty`() = runTest {
         val store = CalibreCredentialStore(ApplicationProvider.getApplicationContext())
-        store.setCatalog(AccountCredentials.OpdsOnly("https://feed.example/opds"))
+        store.useCatalog(AccountCredentials.OpdsOnly("https://feed.example/opds"))
         val restoreVm = vmWith(store)
         restoreVm.canRestore.test {
             // An OPDS catalog has no quire-server behind it, so the restore

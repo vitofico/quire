@@ -9,4 +9,6 @@
     <string name="whats_new_reading_pause_description">Durante la lettura, apri %1$s → %2$s per salvare il punto in cui sei arrivato con una nota facoltativa.</string>
     <string name="whats_new_highlights_title">Ritrova i passaggi salvati</string>
     <string name="whats_new_highlights_description">In un libro, apri %1$s → %2$s per tornare ai passaggi che hai evidenziato.</string>
+    <string name="whats_new_catalogs_title">Tutti i tuoi cataloghi, su ogni dispositivo</string>
+    <string name="whats_new_catalogs_description">Salva più cataloghi in %1$s → %2$s e passa dall’uno all’altro mentre sfogli. Con l’accesso a Quire, l’elenco ti segue sugli altri dispositivi.</string>
 </resources>

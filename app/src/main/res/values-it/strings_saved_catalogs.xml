@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="catalogs_title">Cataloghi</string>
+    <string name="catalogs_status_synced">Salvati nel tuo account Quire</string>
+    <string name="catalogs_status_device">Salvati solo su questo dispositivo</string>
+    <string name="catalogs_status_not_supported">Questo server non sincronizza i cataloghi</string>
+    <string name="catalogs_status_checking">Controllo del tuo account Quire…</string>
+    <string name="catalogs_empty">Nessun catalogo per ora. Aggiungine uno per sfogliare e scaricare libri.</string>
+    <string name="catalogs_add">Aggiungi catalogo</string>
+    <string name="catalogs_edit">Modifica catalogo</string>
+    <string name="catalogs_address">Indirizzo del catalogo</string>
+    <string name="catalogs_address_help">Un indirizzo Calibre-Web o di qualsiasi catalogo OPDS. Può contenere una chiave dell’account, per questo resta nascosto.</string>
+    <string name="catalogs_name">Nome</string>
+    <string name="catalogs_checking">Verifica della connessione…</string>
+    <string name="catalogs_row_needs_login">Accesso richiesto</string>
+    <string name="catalogs_row_device_only">Solo questo dispositivo</string>
+    <string name="catalogs_row_sign_in">Accesso Calibre-Web</string>
+    <string name="catalogs_move_up">Sposta %1$s in alto</string>
+    <string name="catalogs_move_down">Sposta %1$s in basso</string>
+    <string name="catalogs_remove">Rimuovi</string>
+    <string name="catalogs_remove_title">Rimuovere %1$s?</string>
+    <string name="catalogs_remove_account">Verrà rimosso anche dal tuo account Quire e dagli altri dispositivi. I libri scaricati restano.</string>
+    <string name="catalogs_remove_device">Verrà rimosso da questo dispositivo. I libri scaricati restano.</string>
+    <string name="catalogs_save_to_account">Salva nell’account</string>
+    <string name="catalogs_keep_device_only">Tieni solo su questo dispositivo</string>
+    <string name="catalogs_quire_server">Questo indirizzo è un server Quire, non un catalogo. Accedi da Account Quire.</string>
+    <string name="catalogs_needs_login">Il tuo server Quire non riesce più a leggere l’indirizzo e i dati di accesso salvati di questo catalogo. Inseriscili di nuovo.</string>
+    <string name="catalogs_failed_limit">Il tuo account Quire contiene fino a 20 cataloghi. Rimuovine uno, oppure tieni questo solo su questo dispositivo.</string>
+    <string name="catalogs_failed_name">Dai al catalogo un nome di massimo 60 caratteri.</string>
+    <string name="catalogs_failed_url">Questo indirizzo non sembra corretto. Controllalo e riprova.</string>
+    <string name="catalogs_failed_https">Il tuo server Quire accetta solo cataloghi con indirizzi https.</string>
+    <string name="catalogs_failed_credentials_in_url">Inserisci nome utente e password nei rispettivi campi, non nell’indirizzo.</string>
+    <string name="catalogs_failed_login_incomplete">Inserisci sia nome utente sia password, oppure nessuno dei due.</string>
+    <string name="catalogs_failed_order">L’elenco è cambiato su un altro dispositivo. Riprova.</string>
+    <string name="catalogs_failed_sign_in">Accedi di nuovo a Quire per modificare i cataloghi salvati nel tuo account.</string>
+    <string name="catalogs_failed_offline">Impossibile raggiungere il tuo server Quire. Controlla la connessione e riprova.</string>
+    <string name="catalogs_failed_rejected">Il tuo server Quire non ha accettato questa modifica.</string>
+    <string name="catalogs_upload_title">Salvare i tuoi cataloghi?</string>
+    <plurals name="catalogs_upload_question">
+        <item quantity="one">Salvare %1$d catalogo nel tuo account Quire così gli altri dispositivi lo ricevono?</item>
+        <item quantity="many">Salvare i tuoi %1$d cataloghi nel tuo account Quire così gli altri dispositivi li ricevono?</item>
+        <item quantity="other">Salvare i tuoi %1$d cataloghi nel tuo account Quire così gli altri dispositivi li ricevono?</item>
+    </plurals>
+    <string name="catalogs_upload_hint">I dati di accesso vengono salvati insieme ai cataloghi. Quelli senza spunta restano solo su questo dispositivo.</string>
+    <string name="catalogs_keep">Tieni i cataloghi</string>
+    <string name="catalogs_remove_all">Rimuovi i cataloghi</string>
+    <string name="quire_account_sign_out_catalogs">Disconnettendo Quire, la sincronizzazione e le funzioni di IA verranno sospese. Vuoi tenere i cataloghi su questo dispositivo o rimuoverli? I libri scaricati restano in ogni caso.</string>
+    <string name="quire_account_legacy_retiring_create">L’accesso con Calibre-Web sta per essere ritirato. Crea il tuo account Quire per continuare a sincronizzare.</string>
+    <string name="quire_account_legacy_retiring_admin">L’accesso con Calibre-Web sta per essere ritirato. Chiedi al tuo amministratore di attivare gli account Quire.</string>
+    <string name="quire_account_legacy_sign_in">Accesso Calibre-Web</string>
+    <string name="catalog_needs_login">Inserisci di nuovo l’indirizzo e i dati di accesso di %1$s in Impostazioni → Cataloghi.</string>
+</resources>

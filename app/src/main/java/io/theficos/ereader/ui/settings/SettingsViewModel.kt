@@ -40,7 +40,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -119,10 +118,9 @@ class SettingsViewModel(
     val needsReauth = store.needsReauth
 
     private val _calibre = MutableStateFlow(loadInitialCalibre())
-    val calibre: StateFlow<CalibreUiState> = _calibre.asStateFlow()
 
-    private val _opds = MutableStateFlow(loadInitialOpds())
-    val opds: StateFlow<OpdsUiState> = _opds.asStateFlow()
+    /** The legacy Calibre-Web sign-in's own form. Empty unless the device is signed in that way. */
+    val calibre: StateFlow<CalibreUiState> = _calibre.asStateFlow()
 
     val readerPreferences: StateFlow<ReaderPreferences> = readerStore.flow
     val appTheme: StateFlow<AppTheme> = appThemeStore.flow
@@ -207,20 +205,12 @@ class SettingsViewModel(
                 val previousSession = previous?.quireSession()
                 previous = current
                 _calibre.value = loadInitialCalibre(current)
-                _opds.value = loadInitialOpds(current)
                 val session = current?.quireSession()
                 _sync.value = _sync.value.copy(hasCredentials = session != null)
                 if (session != previousSession) {
                     _aiHealth.value = null
                     if (session != null) refreshAiHealth()
                 }
-            }
-        }
-        viewModelScope.launch {
-            // The catalog forms show the catalog being browsed.
-            store.activeCatalog.drop(1).collect {
-                _calibre.value = loadInitialCalibre()
-                _opds.value = loadInitialOpds()
             }
         }
         viewModelScope.launch {
@@ -247,14 +237,12 @@ class SettingsViewModel(
 
     private fun loadInitialCalibre(current: AccountCredentials? = account.value): CalibreUiState {
         val legacy = current as? AccountCredentials.Basic
-        val catalog = store.catalogAccount()?.takeIf { it.calibre }
         return CalibreUiState(
-            baseUrl = legacy?.baseUrl ?: catalog?.baseUrl?.removeSuffix("/opds").orEmpty(),
-            username = legacy?.username ?: catalog?.username.orEmpty(),
-            password = legacy?.password ?: catalog?.password.orEmpty(),
+            baseUrl = legacy?.baseUrl.orEmpty(),
+            username = legacy?.username.orEmpty(),
+            password = legacy?.password.orEmpty(),
             quireServerUrl = legacy?.quireServerUrl.orEmpty(),
-            saved = legacy != null || catalog != null,
-            isActive = legacy != null || catalog != null,
+            saved = legacy != null,
         )
     }
 
@@ -265,8 +253,10 @@ class SettingsViewModel(
         _calibre.value = _calibre.value.copy(quireServerUrl = value, saved = false, error = null)
     }
 
+    /** Save the legacy sign-in's form. Calibre-Web is no longer a sign-in for anyone else. */
     fun saveCalibre() {
         val form = _calibre.value
+        if (account.value !is AccountCredentials.Basic) return
         if (form.username.isBlank() || form.password.isBlank()) return
         val baseUrl = normalizeCatalogUrl(form.baseUrl)?.takeUnless { '?' in it }?.trimEnd('/')
         val quireUrl = normalizeCatalogUrl(form.quireServerUrl)?.takeUnless { '?' in it }?.trimEnd('/')
@@ -274,75 +264,16 @@ class SettingsViewModel(
             _calibre.value = form.copy(error = uiText(R.string.onboarding_invalid_quire_url))
             return
         }
-        if (account.value is AccountCredentials.Basic) {
-            store.saveBasicAccount(baseUrl, form.username, form.password, quireUrl)
-        } else {
-            store.setCatalog(AccountCredentials.OpdsOnly("$baseUrl/opds", form.username, form.password, calibre = true))
-        }
+        store.saveBasicAccount(baseUrl, form.username, form.password, quireUrl)
         _calibre.value = loadInitialCalibre()
     }
 
-    private fun loadInitialOpds(current: AccountCredentials? = account.value): OpdsUiState {
-        val catalog = store.catalogAccount()?.takeUnless { it.calibre }
-        return OpdsUiState(
-            catalogUrl = catalog?.baseUrl.orEmpty(),
-            username = catalog?.username.orEmpty(),
-            password = catalog?.password.orEmpty(),
-            isActive = catalog != null,
-            saved = catalog != null,
-        )
-    }
-
-    /** Forgets the catalog being browsed. The legacy sign-in's own catalog goes only with the sign-in. */
-    fun disconnectCatalog() {
-        store.setCatalog(null)
-    }
-
-    fun disconnectQuire() {
-        store.signOut(keepCatalogs = true)
-    }
-
-    fun onOpdsCatalogUrlChange(value: String) {
-        _opds.value = _opds.value.copy(catalogUrl = value, saved = false, error = null)
-    }
-
-    fun onOpdsUsernameChange(value: String) {
-        _opds.value = _opds.value.copy(username = value, saved = false)
-    }
-
-    fun onOpdsPasswordChange(value: String) {
-        _opds.value = _opds.value.copy(password = value, saved = false)
-    }
-
     /**
-     * Persist the OPDS catalog account. Username and password are optional but
-     * go together: exactly one of the two would produce an account that sends
-     * no `Authorization` header and then fails with an unexplained 401, so the
-     * half-filled form is refused here as well as in the credential store.
+     * Sign out of the Quire account or the legacy sign-in. With [keepCatalogs] the catalogs stay on
+     * this device for reading; without it the device forgets them. The Quire account keeps its copy.
      */
-    fun saveOpds() {
-        val s = _opds.value
-        if (s.catalogUrl.isBlank()) return
-        if (s.username.isBlank() != s.password.isBlank()) return
-        val canonical = normalizeCatalogUrl(s.catalogUrl)
-        if (canonical == null) {
-            _opds.value = s.copy(
-                error = uiText(R.string.settings_enter_a_full_catalog_url_starting_with),
-                saved = false,
-            )
-            return
-        }
-        if (account.value is AccountCredentials.Basic) return
-        viewModelScope.launch {
-            store.setCatalog(
-                AccountCredentials.OpdsOnly(
-                    baseUrl = canonical,
-                    username = s.username.takeIf { it.isNotBlank() },
-                    password = s.password.takeIf { it.isNotBlank() },
-                ),
-            )
-            _opds.value = s.copy(catalogUrl = canonical, isActive = true, saved = true, error = null)
-        }
+    fun signOut(keepCatalogs: Boolean) {
+        store.signOut(keepCatalogs)
     }
 
     fun setAppTheme(theme: AppTheme) { appThemeStore.update(theme) }
@@ -478,13 +409,6 @@ class SettingsViewModel(
     }
 }
 
-/**
- * Settings state for a generic OPDS catalog account, issue #101.
- *
- * [catalogUrl] is the complete catalog URL used verbatim, not a server root.
- * It may itself be a credential (some catalogs embed a full-account API key as
- * a path segment), which is why the screen masks it behind a reveal toggle.
- */
 sealed interface PairingState {
     data object Hidden : PairingState
     data object Loading : PairingState
@@ -492,22 +416,11 @@ sealed interface PairingState {
     data class Ready(val code: PairingCode) : PairingState
 }
 
-data class OpdsUiState(
-    val catalogUrl: String,
-    val username: String,
-    val password: String,
-    val isActive: Boolean,
-    val saved: Boolean,
-    /** Validation message for the catalog URL, or null when it looks usable. */
-    val error: UiText? = null,
-)
-
 data class CalibreUiState(
     val baseUrl: String,
     val username: String,
     val password: String,
     val quireServerUrl: String,
     val saved: Boolean,
-    val isActive: Boolean = false,
     val error: UiText? = null,
 )

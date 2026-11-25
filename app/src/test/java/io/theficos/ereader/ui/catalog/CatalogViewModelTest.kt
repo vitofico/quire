@@ -9,6 +9,7 @@ import coil.request.CachePolicy
 import com.google.common.truth.Truth.assertThat
 import io.theficos.ereader.auth.AccountCredentials
 import io.theficos.ereader.auth.CalibreCredentialStore
+import io.theficos.ereader.auth.SavedCatalog
 import io.theficos.ereader.data.library.LibraryClient
 import io.theficos.ereader.data.library.LibraryUploader
 import io.theficos.ereader.data.local.DocumentRepository
@@ -21,6 +22,7 @@ import io.theficos.ereader.data.opds.OpdsClient
 import io.theficos.ereader.ui.components.uncachedCatalogCover
 import io.theficos.ereader.ui.englishContext
 import io.theficos.ereader.sideload.writeTestEpub
+import io.theficos.quire.R
 import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
@@ -326,6 +328,7 @@ class CatalogViewModelTest {
         syncEnqueuer: (Context) -> Unit = { enqueueCount++ },
         libraryUploader: LibraryUploader? = null,
         client: OpdsClient = opdsClient,
+        pullCatalogs: suspend () -> Unit = {},
     ) = track(
         CatalogViewModel(
             client = client,
@@ -336,6 +339,7 @@ class CatalogViewModelTest {
             catalogPreferencesStore = CatalogPreferencesStore(context),
             libraryUploader = libraryUploader,
             syncEnqueuer = syncEnqueuer,
+            pullCatalogs = pullCatalogs,
         )
     )
 
@@ -348,7 +352,7 @@ class CatalogViewModelTest {
 
     @Test fun `opds account loads the catalog url verbatim`() = runTest {
         serveFeedAtEveryPath()
-        credentialStore.setCatalog(AccountCredentials.OpdsOnly(server.url("/api/opds/TEST-KEY").toString()))
+        credentialStore.useCatalog(AccountCredentials.OpdsOnly(server.url("/api/opds/TEST-KEY").toString()))
         newViewModel().loadRoot()
 
         assertThat(firstRequestPath()).isEqualTo("/api/opds/TEST-KEY")
@@ -356,10 +360,49 @@ class CatalogViewModelTest {
 
     @Test fun `opds account does not append the catalog suffix`() = runTest {
         serveFeedAtEveryPath()
-        credentialStore.setCatalog(AccountCredentials.OpdsOnly(server.url("/api/opds/TEST-KEY").toString()))
+        credentialStore.useCatalog(AccountCredentials.OpdsOnly(server.url("/api/opds/TEST-KEY").toString()))
         newViewModel().loadRoot()
 
         assertThat(firstRequestPath()).doesNotContain("/api/opds/TEST-KEY/opds")
+    }
+
+    @Test fun `choosing another catalog loads it`() = runTest {
+        serveFeedAtEveryPath()
+        val first = SavedCatalog(SavedCatalog.newId(), "First", AccountCredentials.OpdsOnly(server.url("/first").toString()))
+        val second = SavedCatalog(SavedCatalog.newId(), "Second", AccountCredentials.OpdsOnly(server.url("/second").toString()))
+        credentialStore.saveCatalog(first)
+        credentialStore.saveCatalog(second)
+        credentialStore.setActiveCatalog(first.id)
+        var pulls = 0
+        val vm = newViewModel(pullCatalogs = { pulls++ })
+        assertThat(firstRequestPath()).isEqualTo("/first")
+        assertThat(awaitLoaded(vm).url).isEqualTo(server.url("/first").toString())
+        assertThat(vm.catalogs.value.map { it.id }).containsExactly(first.id, second.id).inOrder()
+
+        vm.onOpened()
+        vm.selectCatalog(second.id)
+
+        assertThat(firstRequestPath()).isEqualTo("/second")
+        assertThat(vm.state.first { it is CatalogUiState.Loaded && it.url == server.url("/second").toString() })
+            .isNotNull()
+        assertThat(vm.activeCatalog.value?.id).isEqualTo(second.id)
+        assertThat(pulls).isEqualTo(1)
+    }
+
+    @Test fun `a catalog whose login the server could not read says where to enter it`() = runTest {
+        credentialStore.saveBearerAccount(server.url("/").toString(), "a@b.c", "tok")
+        val owner = credentialStore.getAccount() as AccountCredentials.Bearer
+        val locked = SavedCatalog(SavedCatalog.newId(), "Locked", null, remoteUpdatedAt = "t1", needsLogin = true)
+        credentialStore.applyAccountCatalogs(owner, "1") { listOf(locked) }
+        credentialStore.setActiveCatalog(locked.id)
+
+        val vm = newViewModel()
+        vm.loadRoot()
+        val error = vm.state.first { it is CatalogUiState.Error } as CatalogUiState.Error
+        assertThat(error.message.asString(englishContext())).isEqualTo(
+            englishContext().getString(R.string.catalog_needs_login, "Locked"),
+        )
+        assertThat(server.takeRequest(250, TimeUnit.MILLISECONDS)).isNull()
     }
 
     @Test fun `calibre account still appends the opds suffix`() = runTest {
@@ -389,13 +432,13 @@ class CatalogViewModelTest {
                 }
         }
         val authenticatedClient = OpdsClient(OpdsHttpClient(credentialStore).okHttp)
-        credentialStore.setCatalog(AccountCredentials.OpdsOnly(catalogUrl, initialUsername, initialPassword))
+        credentialStore.useCatalog(AccountCredentials.OpdsOnly(catalogUrl, initialUsername, initialPassword))
         val vm = newViewModel(client = authenticatedClient)
         val error = vm.state.first { it is CatalogUiState.Error } as CatalogUiState.Error
         assertThat(error.message.asString(englishContext())).contains("401")
         assertThat(firstRequestPath()).isEqualTo("/catalog")
 
-        credentialStore.setCatalog(AccountCredentials.OpdsOnly(catalogUrl, "reader", "correct-password"))
+        credentialStore.useCatalog(AccountCredentials.OpdsOnly(catalogUrl, "reader", "correct-password"))
 
         val retry = server.takeRequest(10, TimeUnit.SECONDS)
             ?: error("changing OPDS credentials did not reload the catalog")
@@ -406,7 +449,7 @@ class CatalogViewModelTest {
 
         // StateFlow compares the full account, so saving identical credentials
         // must keep the loaded feed and avoid another request.
-        credentialStore.setCatalog(AccountCredentials.OpdsOnly(catalogUrl, "reader", "correct-password"))
+        credentialStore.useCatalog(AccountCredentials.OpdsOnly(catalogUrl, "reader", "correct-password"))
         assertThat(vm.state.value).isInstanceOf(CatalogUiState.Loaded::class.java)
         assertThat(server.takeRequest(250, TimeUnit.MILLISECONDS)).isNull()
         assertThat(server.requestCount).isEqualTo(2)
@@ -596,7 +639,7 @@ class CatalogViewModelTest {
 
     @Test fun `download from an opds catalog does not enqueue sync or a mirror push`() = runTest {
         serveCatalogAndLibrary()
-        credentialStore.setCatalog(AccountCredentials.OpdsOnly(server.url("/api/opds/TEST-KEY").toString()))
+        credentialStore.useCatalog(AccountCredentials.OpdsOnly(server.url("/api/opds/TEST-KEY").toString()))
         val uploaderScope = CoroutineScope(Dispatchers.IO)
         try {
             downloadFirstPublication(newViewModel(libraryUploader = libraryUploaderOn(uploaderScope)))
@@ -610,7 +653,7 @@ class CatalogViewModelTest {
 
     @Test fun `a successful HTTP response containing HTML is rejected and removed from disk`() = runTest {
         serveCatalogAndLibrary("<html><body>Sign in</body></html>".toByteArray())
-        credentialStore.setCatalog(AccountCredentials.OpdsOnly(server.url("/catalog").toString()))
+        credentialStore.useCatalog(AccountCredentials.OpdsOnly(server.url("/catalog").toString()))
         val vm = newViewModel()
         vm.download(awaitLoaded(vm).feed.publications.single(), context)
         val finished = vm.state.first {

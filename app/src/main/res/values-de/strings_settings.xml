@@ -3,9 +3,7 @@
     <string name="settings_couldn_t_delete_reader_profile">"Leseprofil konnte nicht gelöscht werden: %1$s"</string>
     <string name="settings_quire_server_url_optional">"Quire-Server-URL (optional)"</string>
     <string name="settings_only_set_this_if_sync_ai_run">"Nur angeben, wenn Synchronisierung oder KI unter einer anderen Adresse als deine Bücher laufen."</string>
-    <string name="settings_connect_to_any_opds_catalog_such_as">"Verbinde dich mit einem beliebigen OPDS-Katalog, etwa Kavita. Fülle diesen Bereich anstelle des calibre-web-Bereichs oben aus, nicht beide."</string>
     <string name="settings_connected_to_an_opds_catalog_your_place">"Mit einem OPDS-Katalog verbunden. Deine Leseposition wird nur auf diesem Gerät gespeichert und die KI-Funktionen sind deaktiviert. Beides erfordert einen Quire-Server."</string>
-    <string name="settings_this_opds_catalog_has_no_quire_server">"Hinter diesem OPDS-Katalog steht kein Quire-Server, mit dem synchronisiert werden könnte."</string>
     <string name="settings_configure_a_server_above_to_enable_sync">"Richte oben einen Server ein, um die Synchronisierung zu aktivieren."</string>
     <string name="settings_re_pull_everything_on_the_next_sync">"Bei der nächsten Synchronisierung alle Daten erneut abrufen. Deine Bücher und dein Lesefortschritt bleiben erhalten."</string>
     <string name="settings_remove_all_downloaded_books">"Alle heruntergeladenen Bücher entfernen"</string>
@@ -25,7 +23,6 @@
     <string name="settings_provider_not_yet_checked">"Anbieter: noch nicht geprüft"</string>
     <string name="settings_provider_reachable">"Anbieter: erreichbar%1$s%2$s"</string>
     <string name="settings_provider_unreachable">"Anbieter: nicht erreichbar. %1$s%2$s"</string>
-    <string name="settings_enter_a_full_catalog_url_starting_with">"Gib eine vollständige Katalog-URL ein, die mit http:// oder https:// beginnt"</string>
     <string name="settings_last_synced_sentence">"Zuletzt synchronisiert: %1$s."</string>
     <string name="settings_last_attempt_failed_sentence">"Letzter Versuch fehlgeschlagen: %1$s"</string>
 </resources>

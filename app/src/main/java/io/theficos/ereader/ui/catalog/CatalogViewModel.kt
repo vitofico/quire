@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.theficos.ereader.auth.CalibreCredentialStore
+import io.theficos.ereader.auth.SavedCatalog
 import io.theficos.ereader.core.identity.extractIdentity
 import io.theficos.ereader.core.metadata.readOpfBundle
 import io.theficos.ereader.core.metadata.validateEpubContainer
@@ -52,7 +53,22 @@ class CatalogViewModel(
     private val catalogInsightStash: CatalogInsightStash? = null,
     private val insightSyncRepository: InsightSyncRepository? = null,
     private val subjectProvider: () -> String? = { null },
+    /** Fetch the Quire account's catalog list, so a catalog added on another device shows up here. */
+    private val pullCatalogs: suspend () -> Unit = {},
 ) : ViewModel() {
+
+    /** Every saved catalog, for the switcher. */
+    val catalogs: StateFlow<List<SavedCatalog>> = credentialStore.catalogs
+
+    /** The catalog being browsed. */
+    val activeCatalog: StateFlow<SavedCatalog?> = credentialStore.activeCatalog
+
+    fun selectCatalog(id: String) = credentialStore.setActiveCatalog(id)
+
+    /** The catalog view came on screen. */
+    fun onOpened() {
+        viewModelScope.launch { pullCatalogs() }
+    }
 
     private val _state = MutableStateFlow<CatalogUiState>(CatalogUiState.Idle)
     val state: StateFlow<CatalogUiState> = _state.asStateFlow()
@@ -76,19 +92,24 @@ class CatalogViewModel(
             // Reload when the catalog or its authentication changes, including
             // a password correction at the same URL.
             credentialStore.activeCatalog
-                .map { it?.catalog }
+                .map { it?.id to it?.catalog }
                 .distinctUntilChanged()
                 .collect { loadRoot() }
         }
     }
 
     fun loadRoot() {
-        val account = credentialStore.catalogAccount()
+        val active = credentialStore.activeCatalog.value
+        val account = active?.catalog
         backStack.clear()
         failedSearch = null
         _isRefreshing.value = false
         if (account == null || account.baseUrl.isBlank()) {
-            _state.value = CatalogUiState.Error(uiText(R.string.quire_account_catalog_missing))
+            // A catalog the account lists but whose login this device can't read yet.
+            _state.value = CatalogUiState.Error(
+                if (active != null) uiText(R.string.catalog_needs_login, active.name)
+                else uiText(R.string.quire_account_catalog_missing),
+            )
             return
         }
         _state.value = CatalogUiState.Loading
