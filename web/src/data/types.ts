@@ -70,7 +70,14 @@ export interface DetailsAnswer {
   key: string
   book: DetailsFields
   origins: Partial<Record<keyof DetailsFields | 'cover', DetailsOrigin>>
-  cover: { source: 'file' | 'catalog' | 'openlibrary' | 'generated' | null; url?: string | null; generated: boolean }
+  cover: {
+    source: 'file' | 'catalog' | 'openlibrary' | 'generated' | null
+    url?: string | null
+    generated: boolean
+    /** Artwork for this drawn cover is being painted: a later lookup answers with a new `url`. */
+    painting?: boolean
+    painted?: boolean
+  }
   tidy: 'done' | 'not_needed' | 'quota_exceeded' | 'failed'
   cached: boolean
   openlibrary_url?: string | null
@@ -85,6 +92,8 @@ export interface BookDetails {
   answer?: DetailsAnswer
   /** The `answer.cover.url` whose image is kept in this browser, so it shows offline. */
   cover_url?: string
+  /** Answers in a row that said the cover was still being painted. */
+  painting_checks?: number
   /** The reader chose to see the book's own details instead. */
   original?: boolean
 }

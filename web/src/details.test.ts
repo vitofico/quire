@@ -2,7 +2,7 @@
 import 'fake-indexeddb/auto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { openReplica, type BookDetails, type DetailsAnswer, type Replica, type ShelfBook } from './data'
-import { bookIdentity, dailyLookups, detailsBody, fetchDetails, fillDetails, foundCover, looksLikeFileName, wantsLookup, withDetails } from './details'
+import { bookIdentity, dailyLookups, paintingChecks, detailsBody, fetchDetails, fillDetails, foundCover, looksLikeFileName, wantsLookup, withDetails } from './details'
 import { DiscoveryHttpError, requestMessage } from './discovery/api'
 
 const messy: ShelfBook = {
@@ -351,6 +351,55 @@ describe('the shelf pass', () => {
     const nextDay = memoryStore(new Map([['detailsLookupsToday', { date: 'Mon Jan 01 2001', count: 25 }]]))
     fillDetails(nextDay, request, books.slice(25, 27))
     await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(28))
+  })
+})
+
+describe('a cover being painted', () => {
+  const drawn = answer().cover
+  const painted = { ...drawn, url: `/details/v1/covers/${'c'.repeat(64)}?v=f2`, painted: true }
+
+  it('is looked up again in an hour, a real lookup, and the new artwork replaces the drawn cover', async () => {
+    const store = memoryStore()
+    let lookups = 0
+    const request = vi.fn(async (path: string) => {
+      if (path === '/details/v1/lookup') return Response.json(answer({ cover: ++lookups === 1 ? { ...drawn, painting: true } : painted }))
+      return path === painted.url ? new Response(new Blob(['jpg'], { type: 'image/jpeg' })) : png()
+    })
+    const first = (await fetchDetails(store, request, messy, 'lookup'))!
+    expect(first.retry_at! - first.attempted_at).toBe(3_600_000)
+    expect(wantsLookup({ ...messy, details: first }, first.retry_at! - 1)).toBe(false)
+    expect(wantsLookup({ ...messy, details: first }, first.retry_at!)).toBe(true)
+
+    const second = (await fetchDetails(store, request, { ...messy, details: first }, 'lookup'))!
+    expect(lookups).toBe(2)
+    expect(second).toMatchObject({ cover_url: painted.url, retry_at: undefined })
+    expect(await store.covers.get('hash-1')?.text()).toBe('jpg')
+    expect(foundCover({ ...messy, details: second })).toBe(painted.url)
+  })
+
+  it(`stops asking after ${paintingChecks} answers that it is still painting`, async () => {
+    const store = memoryStore()
+    const request = vi.fn(async (path: string) =>
+      path === '/details/v1/lookup' ? Response.json(answer({ cover: { ...drawn, painting: true } })) : png())
+    let details: BookDetails | undefined
+    for (let check = 1; check <= paintingChecks; check++) {
+      details = await fetchDetails(store, request, { ...messy, details }, 'lookup')
+      expect(details?.retry_at, `check ${check}`).toBeDefined()
+    }
+    details = await fetchDetails(store, request, { ...messy, details }, 'lookup')
+    expect(details?.retry_at).toBeUndefined()
+    expect(request.mock.calls.filter(([path]) => path === '/details/v1/lookup')).toHaveLength(paintingChecks + 1)
+  })
+
+  it('asking again does not count against the shelf\'s daily lookups', async () => {
+    const store = memoryStore(new Map([['detailsLookupsToday', { date: new Date().toDateString(), count: dailyLookups }]]))
+    const request = vi.fn(async () => Response.json(answer({ cover: noCover })))
+    const waiting = { attempted_at: 0, retry_at: 1, answer: answer({ cover: { ...drawn, painting: true } }), painting_checks: 1 }
+    fillDetails(store, request, [{ ...messy, details: waiting }, { ...messy, key: 'new', content_hash: 'new' }])
+    await vi.waitFor(() => expect(store.saved.has('hash-1')).toBe(true))
+    await settle()
+    expect(request).toHaveBeenCalledTimes(1)
+    expect(store.saved.has('new')).toBe(false)
   })
 })
 

@@ -100,7 +100,13 @@ const refused = (error: unknown) => error instanceof DiscoveryHttpError && error
 /** An answer whose tidy was due but did not happen: asked again after a day. */
 const unfinished = (answer: DetailsAnswer) => answer.tidy === 'quota_exceeded' || answer.tidy === 'failed'
 /** Only the found cover is missing: a lookup then fetches the image, not the answer. */
-const coverOnly = (book: ShelfBook) => !!book.details?.answer && !unfinished(book.details.answer)
+const coverOnly = (book: ShelfBook) =>
+  !!book.details?.answer && !unfinished(book.details.answer) && !book.details.answer.cover.painting
+/** Asking again after a painting costs nothing: the server answers from the stored record. */
+const free = (book: ShelfBook) => !!book.details?.answer && !unfinished(book.details.answer)
+const hour = 3_600_000
+/** How many times a book is asked again while its cover is being painted. */
+export const paintingChecks = 4
 
 /**
  * Asks the server for a book's details and keeps the answer and its cover in
@@ -130,6 +136,9 @@ export async function fetchDetails(
     )
     const attempted_at = Date.now()
     let retry_at = unfinished(answer) ? attempted_at + day : undefined
+    // Painted artwork arrives under a new address: ask again in an hour, a few times at most.
+    const painting_checks = answer.cover.painting ? (previous?.answer?.cover.painting ? previous.painting_checks ?? 0 : 0) + 1 : undefined
+    if (painting_checks && painting_checks <= paintingChecks) retry_at = Math.min(retry_at ?? Infinity, attempted_at + hour)
     let cover: Blob | undefined
     let cover_url = answer.cover.url && previous?.cover_url === answer.cover.url ? answer.cover.url : undefined
     if (answer.cover.url && !cover_url) {
@@ -143,7 +152,7 @@ export async function fetchDetails(
     }
     if (stale()) return undefined
     // Asking for a tidy means wanting to see it, even after choosing the original.
-    const details = { attempted_at, retry_at, answer, cover_url, original: action === 'tidy' ? false : previous?.original }
+    const details = { attempted_at, retry_at, answer, cover_url, painting_checks, original: action === 'tidy' ? false : previous?.original }
     await store.setDetails(book.key, details, cover)
     return details
   } catch (error) {
@@ -202,7 +211,7 @@ function pump(store: DetailsStore, queue: Queue) {
   if (queue.today.date !== date) queue.today = { date, count: 0 }
   for (const [key, { book, opened }] of queue.waiting) {
     if (queue.running.size >= concurrency) break
-    const counted = !opened && !coverOnly(book)
+    const counted = !opened && !free(book)
     if (counted && queue.today.count >= dailyLookups) continue
     queue.waiting.delete(key)
     queue.running.add(key)
