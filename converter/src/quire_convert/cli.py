@@ -65,9 +65,13 @@ def build_parser() -> _Parser:
     evaluate.add_argument("--freeze", action="store_true", help="freeze gates and holdout hash")
     evaluate.add_argument("--record-machine", action="store_true", help="write machine.json")
 
-    worker = sub.add_parser("worker", help="convert the jobs Quire Server queues in a folder")
+    worker = sub.add_parser(
+        "worker", help="convert one job Quire Server queues in a folder, then exit"
+    )
     worker.add_argument("--jobs", type=Path, required=True, help="folder shared with the server")
-    worker.add_argument("--once", action="store_true", help="convert at most one job, then exit")
+    worker.add_argument(
+        "--once", action="store_true", help="exit when nothing is queued instead of waiting"
+    )
     worker.add_argument("--poll-seconds", type=float, default=2.0, help="idle wait between scans")
 
     from .deliver.command import add_arguments as add_deliver_arguments

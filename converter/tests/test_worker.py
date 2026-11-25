@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import subprocess
 import sys
 import time
 import zipfile
@@ -168,6 +169,17 @@ def test_a_runner_failure_becomes_a_failed_result(tmp_path, code, detail):
     assert sorted(p.name for p in (root / "done" / name).iterdir()) == ["result.json"]
 
 
+def test_the_worker_exits_after_each_job(tmp_path):
+    # So a conversion that took over the process cannot stay for the next job.
+    root = make_root(tmp_path)
+    first = queue_job(root, attempt=1)
+    second = queue_job(root, attempt=2)
+    runner = fake_runner(READY)
+    assert worker.Worker(root, engine="e", runner=runner, poll_s=0.01).run() == 0
+    assert runner.calls == [first]
+    assert (root / "queue" / second).exists() and not (root / "running" / second).exists()
+
+
 def test_missing_folders_stop_the_worker(tmp_path):
     assert worker.Worker(tmp_path, engine="e").run(once=True) == 1
 
@@ -222,6 +234,65 @@ def test_kill_tree_reaches_a_grandchild_in_its_own_session(tmp_path):
         else "gone"
     )
     assert state in ("gone", "Z")
+
+
+def gone(pid: int) -> bool:
+    """Dead, or a zombie nobody has collected yet."""
+    for _ in range(50):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        stat = Path(f"/proc/{pid}/stat")
+        if stat.exists() and stat.read_text().rsplit(")", 1)[1].split()[0] == "Z":
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def test_a_child_that_exits_cleanly_takes_its_group_with_it(tmp_path):
+    pidfile = tmp_path / "left.pid"
+    script = (
+        "import subprocess, sys\n"
+        "p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+        f"open({str(pidfile)!r}, 'w').write(str(p.pid))\n"
+    )
+    code = worker.supervise(
+        [sys.executable, "-c", script], tmp_path, 60, lambda: False, lambda: None
+    )
+    assert code is None
+    assert gone(int(pidfile.read_text()))
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="PR_SET_CHILD_SUBREAPER")
+def test_a_process_that_detached_itself_dies_with_the_job(tmp_path):
+    # A PDF that took over the child forks twice and starts its own session.
+    pidfile = tmp_path / "left.pid"
+    child = (
+        "import os, sys, time\n"
+        "if os.fork() == 0:\n"
+        "    os.setsid()\n"
+        "    if os.fork() == 0:\n"
+        f"        open({str(pidfile)!r}, 'w').write(str(os.getpid())); time.sleep(60)\n"
+        "    os._exit(0)\n"
+        "time.sleep(0.5)\n"
+    )
+    parent = (
+        "import sys\n"
+        "from pathlib import Path\n"
+        "from quire_convert import worker\n"
+        "assert worker.become_subreaper()\n"
+        f"code = worker.supervise([sys.executable, '-c', {child!r}], Path({str(tmp_path)!r}),"
+        " 60, lambda: False, lambda: None)\n"
+        "pid = int(Path(" + repr(str(pidfile)) + ").read_text())\n"
+        "import os\n"
+        "try:\n"
+        "    os.kill(pid, 0); print('alive')\n"
+        "except ProcessLookupError:\n"
+        "    print('gone')\n"
+    )
+    out = subprocess.run([sys.executable, "-c", parent], capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "gone", out.stderr
 
 
 # ---------------------------------------------------------------------- the child

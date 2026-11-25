@@ -20,7 +20,12 @@ stops that conversion. The claim folder stays until the server reconciles, so th
 same attempt is never claimed twice.
 
 Each conversion runs in a child process (``python -m quire_convert.worker``) with the
-job's time limit; on timeout or cancellation the whole process tree is killed.
+job's time limit. When it ends, however it ends, the whole process tree is killed; on
+Linux the worker is a child subreaper, so even a process that detached itself is
+found. The worker then exits: it waits for one job, converts it and stops, and the
+container restarts it. A PDF that took over Calibre therefore cannot stay behind to
+watch later jobs. It can still see the jobs queued while it runs, because they share
+the folder; only a container or a user per job would close that.
 """
 
 from __future__ import annotations
@@ -104,7 +109,8 @@ class Worker:
     # ------------------------------------------------------------------ loop
 
     def run(self, *, once: bool = False) -> int:
-        """Claim and convert jobs until stopped; with ``once``, at most one job."""
+        """Wait for a job, convert it and return; with ``once``, return at once
+        when nothing is queued."""
         for name in DIRS:
             if not (self.root / name).is_dir():
                 log.error("job folder %s/ is missing; is the server's folder mounted?", name)
@@ -114,12 +120,10 @@ class Worker:
             claim = self.claim()
             if claim is not None:
                 self.process(claim)
-                if once:
-                    return 0
-            elif once:
                 return 0
-            else:
-                time.sleep(self.poll_s)
+            if once:
+                return 0
+            time.sleep(self.poll_s)
         return 0
 
     def heartbeat(self, *, force: bool = False) -> None:
@@ -318,37 +322,72 @@ def supervise(
             start_new_session=True,
         )
     deadline = time.monotonic() + time_limit_s
-    while True:
-        try:
-            code = proc.wait(timeout=1.0)
-            break
-        except subprocess.TimeoutExpired:
-            pass
-        tick()
-        if withdrawn():
-            kill_tree(proc)
-            return "cancelled"
-        if time.monotonic() > deadline:
-            kill_tree(proc)
-            return "timed_out"
-    return None if code == 0 else "worker_error"
+    try:
+        while True:
+            try:
+                code = proc.wait(timeout=1.0)
+                break
+            except subprocess.TimeoutExpired:
+                pass
+            tick()
+            if withdrawn():
+                return "cancelled"
+            if time.monotonic() > deadline:
+                return "timed_out"
+        return None if code == 0 else "worker_error"
+    finally:
+        # Whatever the child left running goes with it, also after a clean exit.
+        kill_tree(proc)
 
 
 def kill_tree(proc: subprocess.Popen) -> None:
     """SIGKILL the child, its process group, and on Linux every descendant: Calibre
-    starts its own session, so a group kill alone would leave it running."""
+    starts its own session, so a group kill alone would leave it running. As a
+    subreaper (``become_subreaper``) the worker also adopts what detached itself
+    from the child, so those are its own descendants until they are collected."""
     pids = _descendants(proc.pid)
-    for kill in (lambda: os.killpg(proc.pid, signal.SIGKILL), proc.kill):
-        try:
-            kill()
-        except ProcessLookupError:
-            pass
-    for pid in pids:
-        try:
-            os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+    proc.kill()
     proc.wait()
+    for _ in range(100):
+        for pid in pids:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        _reap()
+        pids = _descendants(os.getpid())
+        if not pids:
+            return
+        time.sleep(0.05)
+    log.warning("event=convert.processes_left count=%s", len(pids))
+
+
+def _reap() -> None:
+    """Collect the adopted processes that have died, so none lingers as a zombie."""
+    while True:
+        try:
+            pid, _ = os.waitpid(-1, os.WNOHANG)
+        except ChildProcessError:
+            return
+        if pid == 0:
+            return
+
+
+def become_subreaper() -> bool:
+    """On Linux, adopt every orphan the conversion leaves (PR_SET_CHILD_SUBREAPER),
+    so ``kill_tree`` finds processes that detached from the child."""
+    if not sys.platform.startswith("linux"):
+        return False
+    import ctypes
+
+    try:
+        return ctypes.CDLL(None, use_errno=True).prctl(36, 1, 0, 0, 0) == 0
+    except (OSError, AttributeError):
+        return False
 
 
 def _descendants(root: int) -> list[int]:
@@ -452,6 +491,8 @@ def main(jobs: Path, *, once: bool, poll_s: float) -> int:
     from .tools import find_tools
 
     os.umask(0o002)
+    if not become_subreaper():
+        log.info("event=convert.no_subreaper")
     tools = find_tools()
     tools.require("ebook_convert", "java", "epubcheck_jar", "pdfinfo")
     worker = Worker(jobs, engine=engine_revision(tools.versions()), poll_s=poll_s)
