@@ -1,0 +1,94 @@
+{
+  "catalogs": [
+    {
+      "id": "gutenberg",
+      "name": "Project Gutenberg",
+      "url": "https://www.gutenberg.org/ebooks.opds/",
+      "languages": ["en"],
+      "offers": "public_domain",
+      "home": "https://www.gutenberg.org/",
+      "description": {
+        "en": "More than 70,000 free classics in the public domain, most of them in English.",
+        "de": "Über 70.000 kostenlose gemeinfreie Klassiker, die meisten auf Englisch.",
+        "es": "Más de 70.000 clásicos gratuitos de dominio público, la mayoría en inglés.",
+        "fr": "Plus de 70 000 classiques gratuits du domaine public, pour la plupart en anglais.",
+        "it": "Oltre 70.000 classici gratuiti di pubblico dominio, per lo più in inglese."
+      }
+    },
+    {
+      "id": "gutenberg-de",
+      "name": "Project Gutenberg: Deutsch",
+      "url": "https://www.gutenberg.org/ebooks/search.opds/?query=l.de",
+      "languages": ["de"],
+      "offers": "public_domain",
+      "home": "https://www.gutenberg.org/",
+      "description": {
+        "en": "The German books of Project Gutenberg, free and in the public domain.",
+        "de": "Die deutschen Bücher von Project Gutenberg, kostenlos und gemeinfrei.",
+        "es": "Los libros en alemán de Project Gutenberg, gratuitos y de dominio público.",
+        "fr": "Les livres en allemand de Project Gutenberg, gratuits et du domaine public.",
+        "it": "I libri in tedesco di Project Gutenberg, gratuiti e di pubblico dominio."
+      }
+    },
+    {
+      "id": "gutenberg-it",
+      "name": "Project Gutenberg: Italiano",
+      "url": "https://www.gutenberg.org/ebooks/search.opds/?query=l.it",
+      "languages": ["it"],
+      "offers": "public_domain",
+      "home": "https://www.gutenberg.org/",
+      "description": {
+        "en": "The Italian books of Project Gutenberg, free and in the public domain.",
+        "de": "Die italienischen Bücher von Project Gutenberg, kostenlos und gemeinfrei.",
+        "es": "Los libros en italiano de Project Gutenberg, gratuitos y de dominio público.",
+        "fr": "Les livres en italien de Project Gutenberg, gratuits et du domaine public.",
+        "it": "I libri in italiano di Project Gutenberg, gratuiti e di pubblico dominio."
+      }
+    },
+    {
+      "id": "textos-info",
+      "name": "textos.info",
+      "url": "https://www.textos.info/catalogo.atom",
+      "languages": ["es"],
+      "offers": "public_domain",
+      "home": "https://www.textos.info/",
+      "description": {
+        "en": "A free digital library of Spanish-language classics in the public domain.",
+        "de": "Eine kostenlose digitale Bibliothek gemeinfreier Klassiker auf Spanisch.",
+        "es": "Biblioteca digital gratuita de clásicos en español de dominio público.",
+        "fr": "Une bibliothèque numérique gratuite de classiques en espagnol du domaine public.",
+        "it": "Una biblioteca digitale gratuita di classici in spagnolo di pubblico dominio."
+      }
+    },
+    {
+      "id": "ebooks-libres-et-gratuits",
+      "name": "Ebooks libres et gratuits",
+      "url": "https://www.ebooksgratuits.com/opds/",
+      "languages": ["fr"],
+      "offers": "public_domain",
+      "home": "https://www.ebooksgratuits.com/",
+      "description": {
+        "en": "French classics in the public domain, proofread and published by volunteers.",
+        "de": "Gemeinfreie französische Klassiker, von Freiwilligen korrigiert und veröffentlicht.",
+        "es": "Clásicos franceses de dominio público, corregidos y publicados por voluntarios.",
+        "fr": "Des classiques français du domaine public, relus et publiés par des bénévoles.",
+        "it": "Classici francesi di pubblico dominio, corretti e pubblicati da volontari."
+      }
+    },
+    {
+      "id": "bibliotheque-numerique-romande",
+      "name": "Bibliothèque numérique romande",
+      "url": "https://ebooks-bnr.com/opds/",
+      "languages": ["fr"],
+      "offers": "public_domain",
+      "home": "https://ebooks-bnr.com/",
+      "description": {
+        "en": "A Swiss library of free French-language classics in the public domain.",
+        "de": "Eine Schweizer Bibliothek mit kostenlosen gemeinfreien Klassikern auf Französisch.",
+        "es": "Una biblioteca suiza de clásicos gratuitos en francés de dominio público.",
+        "fr": "Une bibliothèque suisse de classiques gratuits en français, du domaine public.",
+        "it": "Una biblioteca svizzera di classici gratuiti in francese di pubblico dominio."
+      }
+    }
+  ]
+}

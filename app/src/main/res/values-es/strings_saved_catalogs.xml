@@ -50,4 +50,12 @@
     <string name="quire_account_legacy_retiring_admin">El inicio de sesión con Calibre-Web se va a retirar. Pide a tu administrador que active las cuentas de Quire.</string>
     <string name="quire_account_legacy_sign_in">Inicio de sesión de Calibre-Web</string>
     <string name="catalog_needs_login">Vuelve a introducir la dirección y los datos de acceso de %1$s en Ajustes → Catálogos.</string>
+    <string name="open_catalogs_title">Catálogos abiertos</string>
+    <string name="open_catalogs_privacy">Libros gratuitos y legales para empezar. Al añadir uno, este dispositivo se conecta directamente con el sitio de ese catálogo.</string>
+    <string name="open_catalogs_add">Añadir</string>
+    <string name="open_catalogs_add_named">Añadir %1$s</string>
+    <string name="open_catalogs_added">Añadido</string>
+    <string name="open_catalogs_public_domain">Dominio público</string>
+    <string name="open_catalogs_open_licence">Licencia abierta</string>
+    <string name="open_catalogs_no_catalog">Todavía no hay ningún catálogo. Añade uno de estos catálogos gratuitos para encontrar libros, o el tuyo en Ajustes → Catálogos.</string>
 </resources>

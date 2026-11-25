@@ -47,6 +47,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.theficos.ereader.auth.SavedCatalog
 import io.theficos.ereader.data.opds.CatalogSyncStatus
+import io.theficos.ereader.ui.catalog.OpenCatalogsSection
 import io.theficos.ereader.ui.components.QuireCard
 import io.theficos.ereader.ui.components.SectionLabel
 import io.theficos.quire.R
@@ -92,6 +93,9 @@ internal fun CatalogsSettings(viewModel: CatalogsViewModel) {
                 Button(onClick = viewModel::add) { Text(stringResource(R.string.catalogs_add)) }
             }
         }
+    }
+    if (form == null && viewModel.openCatalogs.isNotEmpty()) {
+        QuireCard(modifier = Modifier.fillMaxWidth()) { OpenCatalogsSection(viewModel) }
     }
 }
 

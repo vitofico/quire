@@ -112,6 +112,8 @@ android {
     buildFeatures { compose = true }
     androidResources { generateLocaleConfig = true }
     testOptions { unitTests.isIncludeAndroidResources = true }
+    // The open catalogs Quire suggests, shared with Quire Web: one file at the repository root.
+    sourceSets["main"].assets.srcDir(rootProject.file("catalogs"))
     // Don't embed dependency-metadata in the APK / bundle. AGP 8.x writes
     // this into the v3 signing block; F-Droid's `check apk` rejects it as
     // a privacy leak (it exposes the build's dep graph to scrapers).

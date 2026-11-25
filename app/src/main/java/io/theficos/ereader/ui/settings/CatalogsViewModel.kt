@@ -2,6 +2,7 @@ package io.theficos.ereader.ui.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import io.theficos.ereader.auth.AccountCredentials
 import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.auth.SavedCatalog
 import io.theficos.ereader.data.opds.CatalogFailure
@@ -9,6 +10,7 @@ import io.theficos.ereader.data.opds.CatalogResult
 import io.theficos.ereader.data.opds.CatalogSyncRepository
 import io.theficos.ereader.data.opds.CatalogSyncStatus
 import io.theficos.ereader.ui.UiText
+import io.theficos.ereader.ui.catalog.OpenCatalog
 import io.theficos.ereader.ui.onboarding.CatalogCheck
 import io.theficos.ereader.ui.onboarding.catalogFailureMessage
 import io.theficos.ereader.ui.uiText
@@ -45,6 +47,9 @@ data class CatalogForm(
         "CatalogForm(id=$id, isNew=$isNew, address=***, username=$username, password=***, name=$name, busy=$busy)"
 }
 
+/** An open catalog being added ([busy]) or that could not be, and why. */
+data class OpenCatalogAdding(val id: String, val busy: Boolean, val error: UiText? = null)
+
 /**
  * The catalog list in Settings and the sign-in question about uploading it. Every change goes
  * through [CatalogSyncRepository], which keeps the Quire account in step where there is one.
@@ -54,8 +59,13 @@ class CatalogsViewModel(
     private val repository: CatalogSyncRepository,
     private val check: CatalogCheck = CatalogCheck(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    /** The free catalogs offered for adding with one tap. */
+    val openCatalogs: List<OpenCatalog> = emptyList(),
 ) : ViewModel() {
     val catalogs: StateFlow<List<SavedCatalog>> = store.catalogs
+
+    private val _openAdding = MutableStateFlow<OpenCatalogAdding?>(null)
+    val openAdding: StateFlow<OpenCatalogAdding?> = _openAdding.asStateFlow()
 
     val status: StateFlow<CatalogSyncStatus> =
         repository.status.stateIn(viewModelScope, SharingStarted.Eagerly, CatalogSyncStatus.DEVICE_ONLY)
@@ -158,6 +168,28 @@ class CatalogsViewModel(
                     error = catalogFailureMessage(saved.reason),
                     offerDeviceOnly = saved.reason == CatalogFailure.LIMIT_REACHED && existing?.onAccount != true,
                 )
+            }
+        }
+    }
+
+    /**
+     * Add [open] as if its address had been typed into a new catalog form: tested first, then
+     * saved to the Quire account when there is one.
+     */
+    fun addOpen(open: OpenCatalog) {
+        if (_openAdding.value?.busy == true) return
+        if (store.catalogs.value.any { it.catalog?.baseUrl == open.url }) return
+        _openAdding.value = OpenCatalogAdding(open.id, busy = true)
+        viewModelScope.launch {
+            val tested = withContext(ioDispatcher) { check.feed(AccountCredentials.OpdsOnly(open.url)) }
+            if (tested is CatalogCheck.Result.Failed) {
+                _openAdding.value = OpenCatalogAdding(open.id, busy = false, error = tested.message)
+                return@launch
+            }
+            val entry = SavedCatalog(SavedCatalog.newId(), open.name, (tested as CatalogCheck.Result.Found).catalog)
+            _openAdding.value = when (val saved = repository.save(entry, toAccount = true)) {
+                CatalogResult.Done -> null
+                is CatalogResult.Failed -> OpenCatalogAdding(open.id, busy = false, error = catalogFailureMessage(saved.reason))
             }
         }
     }

@@ -53,6 +53,8 @@ import io.theficos.ereader.ui.bookdetail.AppInsightAuditSource
 import io.theficos.ereader.ui.bookdetail.BookDetailViewModel
 import io.theficos.ereader.ui.bookdetail.InsightAuditViewModel
 import io.theficos.ereader.ui.catalog.CatalogPreferencesStore
+import io.theficos.ereader.ui.catalog.OpenCatalog
+import io.theficos.ereader.ui.catalog.OpenCatalogs
 import io.theficos.ereader.ui.catalogdetail.AiRepositoryAdapter
 import io.theficos.ereader.ui.catalogdetail.CatalogAiPort
 import io.theficos.ereader.ui.catalogdetail.CatalogDetailRegistry
@@ -217,6 +219,9 @@ class AppContainer internal constructor(context: Context, private val db: EReade
         ),
         onCatalogMerged = { from, into -> db.documentDao().replaceCatalogId(from, into) },
     )
+
+    /** The free catalogs offered when adding one, from the packaged `open-catalogs.json`. */
+    val openCatalogs: List<OpenCatalog> by lazy { OpenCatalogs.load(appContext) }
 
     val libraryClient: LibraryClient = LibraryClient(
         baseUrlProvider = { credentialStore.getAccount()?.quireServerUrlOrNull() },
