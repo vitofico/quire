@@ -32,7 +32,8 @@ async def assert_partial_schema(url: str, *, enabled: str, disabled: str) -> lis
 
     script = ScriptDirectory.from_config(Config("alembic.ini"))
     expected = sorted(
-        script.get_revision(f"{label}@head").revision for label in ("auth", "catalogs", enabled)
+        script.get_revision(f"{label}@head").revision
+        for label in ("auth", "catalogs", "convert", enabled)
     )
     assert applied == expected
     return expected

@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import warnings
 from contextlib import AsyncExitStack
 from datetime import timedelta
@@ -200,6 +201,42 @@ def _build_ai_authenticator(settings: Settings, validator, auth_backend, session
     )
 
 
+CONVERT_UPLOAD = re.compile(r"/convert/v1/jobs/[0-9a-fA-F-]{32,36}/source")
+
+
+def _install_convert(app: FastAPI, settings, session_factory) -> None:
+    """Mount ``/convert/v1`` and its sweep, unless the job folder cannot be used."""
+    from quire_server.core import convert
+
+    folder = convert.Folder(settings.convert_dir)
+    try:
+        folder.prepare()
+    except OSError as exc:
+        message = (
+            "PDF conversion is off: QUIRE_SERVER_CONVERT_DIR cannot be prepared "
+            f"({type(exc).__name__}); mount a writable folder there"
+        )
+        logger.error(message)
+        app.state.config_warnings.append(message)
+        return
+    from quire_server.api.convert import router as convert_router
+
+    app.state.convert_folder = folder
+    app.state.hosting_capabilities["pdf_conversion"] = True
+    app.include_router(convert_router, prefix="/convert/v1")
+    tasks: list[asyncio.Task] = []
+
+    async def start() -> None:
+        tasks.append(asyncio.create_task(convert.run_sweeps(session_factory, folder, settings)))
+
+    async def stop() -> None:
+        for task in tasks:
+            task.cancel()
+
+    app.router.add_event_handler("startup", start)
+    app.router.add_event_handler("shutdown", stop)
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     from quire_server.core.ai.monthly_policy import MonthlyPolicy, PolicySettings
@@ -275,6 +312,7 @@ def create_app() -> FastAPI:
         "book_details": settings.ai_enabled and settings.details_enabled,
         "browser_pairing": bool(identity_settings.public_url),
         "identity_provider_onboarding": bool(identity_settings.oidc_issuer),
+        "pdf_conversion": False,
     }
 
     httpx_client = httpx.AsyncClient(timeout=settings.cwa_probe_timeout_s)
@@ -401,10 +439,14 @@ def create_app() -> FastAPI:
                 and request.url.path.startswith("/catalogs/v1/catalogs/")
                 and request.url.path.endswith("/fetch")
             )
+            # A PDF upload can take minutes; the route reads its row, lets the
+            # connection go while the body arrives, then checks the row again.
+            convert_upload = request.method == "PUT" and CONVERT_UPLOAD.fullmatch(request.url.path)
             if (
                 issuance
                 or legacy_ai
                 or catalog_fetch
+                or convert_upload
                 or request.url.path in {"/", "/quire"}
                 or (
                     request.url.path.startswith("/quire/")
@@ -646,11 +688,19 @@ def create_app() -> FastAPI:
             app.state.details_failures = RecentFailures()
             app.include_router(details_router, prefix="/details/v1", dependencies=ai_router_deps)
 
+    if settings.convert_enabled:
+        _install_convert(app, settings, session_factory)
+
     # Middleware: registered LAST is OUTERMOST in ASGI execution order.
     # We want RequestID outermost so it can attach X-Request-ID to ANY
     # response (including 413s from RequestSize). So add RequestSize first,
     # then RequestID.
-    app.add_middleware(RequestSizeMiddleware, max_bytes=settings.max_request_bytes)
+    app.add_middleware(
+        RequestSizeMiddleware,
+        max_bytes=settings.max_request_bytes,
+        # The PDF upload is the one body allowed past the global limit.
+        routes=[("PUT", CONVERT_UPLOAD, settings.convert_max_bytes)],
+    )
     app.add_middleware(RequestIDMiddleware)
 
     from quire_server.web import install_web

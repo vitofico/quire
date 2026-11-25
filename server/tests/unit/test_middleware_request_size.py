@@ -82,3 +82,37 @@ async def test_delete_bypasses_check():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         r = await c.delete("/get")
     assert r.status_code == 200
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("chunked", [False, True], ids=["content-length", "chunked"])
+async def test_a_named_route_has_its_own_ceiling(chunked):
+    import re
+
+    app = Starlette(routes=[Route("/upload/{n}", _echo, methods=["PUT", "POST"])])
+    app.add_middleware(
+        RequestSizeMiddleware, max_bytes=10, routes=[("PUT", re.compile(r"/upload/[0-9]+"), 30)]
+    )
+
+    def body(size):
+        if not chunked:
+            return b"x" * size
+
+        async def chunks():
+            yield b"a" * (size // 2)
+            yield b"b" * (size - size // 2)
+
+        return chunks()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        assert (await c.put("/upload/1", content=body(30))).json() == {"got": 30}
+        over = await c.put("/upload/1", content=body(31))
+        assert over.status_code == 413
+        assert over.json() == {"detail": "request body exceeds 30 bytes"}
+        # Only that method and path: everything else keeps the global limit.
+        assert (await c.post("/upload/1", content=body(11))).status_code == 413
+        assert (await c.put("/upload/1/x", content=body(11))).status_code in (404, 413)
+
+
+async def _echo(request):
+    return JSONResponse({"got": len(await request.body())})

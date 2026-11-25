@@ -345,6 +345,7 @@ async def get_config(
             math.ceil(runtime.get("ai_profile_timeout_s")) if settings.ai_enabled else None
         ),
         details_supported=bool(settings.ai_enabled and settings.details_enabled),
+        conversion_supported=request.app.state.hosting_capabilities["pdf_conversion"],
     )
 
 
