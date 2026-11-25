@@ -118,7 +118,7 @@ _NUMBER = re.compile(r"\d+(?:[-\s]\d+)*")
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 _EBOOK_EXTENSION = re.compile(r"\.(?:epub|pdf|mobi|azw3?|fb2|cbz|cbr|djvu|txt|docx?)$", re.I)
 _RELEASE_TAG = re.compile(
-    r"[(\[{]\s?(?:retail|epub|mobi|pdf|azw3?|v\d+(?:\.\d+)*|z-?lib[^)\]}]*|scan\w*|ocr|ebook)\s?[)\]}]",
+    r"[(\[{]\s?(?:retail|epub|mobi|pdf|azw3?|v\d+(?:\.\d+)*|z-?lib[^()\[\]{}]*|scan\w*|ocr|ebook)\s?[)\]}]",
     re.IGNORECASE,
 )
 _GLUED_WORDS = re.compile(r"[A-Za-z][._-][A-Za-z]")
