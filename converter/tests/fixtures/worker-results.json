@@ -1,0 +1,93 @@
+{
+  "failed": {
+    "attempt": 1,
+    "code": "unsupported",
+    "detail": "the PDF is a scanned book",
+    "engine": "quire-convert 0.1.0; calibre 9.19.0",
+    "epub": null,
+    "format": 1,
+    "job": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "outcome": "failed",
+    "retryable": false,
+    "seconds": 0.0
+  },
+  "ready": {
+    "affected_pages": [],
+    "attempt": 1,
+    "code": null,
+    "detail": "all checks passed",
+    "engine": "quire-convert 0.1.0; calibre 9.19.0",
+    "epub": {
+      "bytes": 8,
+      "rendition_id": "urn:uuid:3b577c49-546d-5119-964c-70942c593c8b",
+      "sha256": "2feb0b19d7b5676a0813f3aa2f7ab35a957686eaa84a7d34c4972334e077ce36"
+    },
+    "format": 1,
+    "issue_counts": {
+      "critical": 0,
+      "info": 1,
+      "major": 0,
+      "minor": 0
+    },
+    "issues": [],
+    "job": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "outcome": "ready",
+    "retryable": false,
+    "seconds": 0.0
+  },
+  "review": {
+    "affected_pages": [
+      {
+        "label": null,
+        "page": 1
+      },
+      {
+        "label": "iii",
+        "page": 5
+      }
+    ],
+    "attempt": 1,
+    "code": null,
+    "detail": "3 issues need review",
+    "engine": "quire-convert 0.1.0; calibre 9.19.0",
+    "epub": {
+      "bytes": 8,
+      "rendition_id": "urn:uuid:3b577c49-546d-5119-964c-70942c593c8b",
+      "sha256": "2feb0b19d7b5676a0813f3aa2f7ab35a957686eaa84a7d34c4972334e077ce36"
+    },
+    "format": 1,
+    "issue_counts": {
+      "critical": 0,
+      "info": 0,
+      "major": 3,
+      "minor": 1
+    },
+    "issues": [
+      {
+        "code": "figure.facsimile_page",
+        "message": "kept as an image",
+        "page": 1,
+        "page_label": null,
+        "severity": "major"
+      },
+      {
+        "code": "figure.lost",
+        "message": "figure not found",
+        "page": 5,
+        "page_label": "iii",
+        "severity": "major"
+      },
+      {
+        "code": "meta.missing_title",
+        "message": "no source names the title",
+        "page": null,
+        "page_label": null,
+        "severity": "major"
+      }
+    ],
+    "job": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "outcome": "review",
+    "retryable": false,
+    "seconds": 0.0
+  }
+}
