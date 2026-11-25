@@ -132,6 +132,8 @@ class Found:
 
     book: OpenLibraryBook | None
     language: str | None
+    # Open Library was asked: a book that lacked nothing was not.
+    asked: bool = True
 
 
 def details_key(identity: str, fields: BookFields) -> str:
@@ -220,7 +222,7 @@ async def find(
         or fields.year is None
     )
     if not missing or "openlibrary" not in orch.sources_enabled:
-        return Found(book=None, language=None)
+        return Found(book=None, language=None, asked=False)
     retriever = orch.retriever_factory(session)
     book = None
     language = None
@@ -469,7 +471,16 @@ def _stored_found(row: BookDetails) -> Found | None:
         book = OpenLibraryBook(**stored["book"]) if stored.get("book") else None
     except TypeError:
         return None
-    return Found(book=book, language=stored.get("language"))
+    # A record from before `asked` was kept counts as not asked.
+    return Found(book=book, language=stored.get("language"), asked=stored.get("asked", False))
+
+
+def _found_record(found: Found) -> dict:
+    return {
+        "book": asdict(found.book) if found.book else None,
+        "language": found.language,
+        "asked": found.asked,
+    }
 
 
 async def _point(session: AsyncSession, *, user_id: str, identity: str, key: str) -> None:
@@ -538,10 +549,7 @@ async def tidy(
         # A file-name title hid the book from the first look; the tidied one may not.
         retry = fields.model_copy(update={"title": record["title"], "authors": record["authors"]})
         found = await find(orch, session, retry, cover=cover)
-    record["found"] = {
-        "book": asdict(found.book) if found.book else None,
-        "language": found.language,
-    }
+    record["found"] = _found_record(found)
     values = {
         "identity": identity,
         "record": record,
@@ -649,9 +657,9 @@ async def lookup(
 
     found = await find(orch, session, fields, cover=cover)
     if not force:
-        # A drawn cover the reader asked for needs the tidy's design.
-        drawn = body.cover_choice in ("draw", "paint")
-        if not drawn and not needs_tidy(fields, found, cover=cover):
+        # The cover choice never causes a tidy: an automatic lookup costs
+        # what it would with "keep", and the choice falls back without one.
+        if not needs_tidy(fields, found, cover=body.cover):
             return assemble(body, key, None, found, tidy="not_needed", cached=False)
         if failures is not None and failures.recent(key):
             return assemble(body, key, None, found, tidy="failed", cached=False)
@@ -711,12 +719,13 @@ async def _serve(
     await _log_hit(orch, session, user_id=user_id, tenant_id=tenant_id)
     cover = kept_cover(body)
     found = _stored_found(row) or found or await find(orch, session, body.book, cover=cover)
-    if body.cover_choice == "find" and found.book is None:
-        # The record was made while the book's own cover stood, so Open
-        # Library was not asked: ask now, still without a model call.
-        again = await find(orch, session, body.book, cover=None)
-        if again.book is not None:
-            found = again
+    if body.cover_choice == "find" and not found.asked:
+        # The record was made while the book lacked nothing, so Open Library
+        # was not asked: ask once, still without a model call, and keep it.
+        found = await find(orch, session, body.book, cover=None)
+        if found.asked:
+            row.record = {**row.record, "found": _found_record(found)}
+            await session.commit()
     return assemble(body, row.key, row, found, tidy="done", cached=True)
 
 

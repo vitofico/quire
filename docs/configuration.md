@@ -678,10 +678,9 @@ OpenAI-compatible `POST {base}/images/generations` endpoint that answers
 with base64 image data (`b64_json`), as the GPT image models do. An answer
 that gives an image address instead is recorded as a failed painting: the
 server never fetches an address a provider points it at. The server
-paints in the background, one cover at a time, only for books a signed-in
-reader who opted in to AI asked to have a painted cover for, and once per
-book; the title and
-author are still set by the server, never by the model. How clients see
+paints in the background, one cover at a time and once per book, and
+only when a signed-in reader who opted in to AI asks for a painted cover.
+The title and author are still set by the server, never by the model. How clients see
 it is in [the API reference](sync-api.md#painted-cover-artwork).
 
 What leaves the server: each painting sends the book's title, up to eight

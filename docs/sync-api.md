@@ -1715,16 +1715,16 @@ and no stored record exists for the same input:
   dashes, no capital letter at all, or the author's surname inside a title
   of several words;
 - the book has no cover, from the client or from Open Library, so the tidy
-  is needed to design one (a book whose `cover_choice` is not `"keep"`
-  counts as having none of its own);
-- the reader asked for a drawn cover (`cover_choice` `"draw"` or
-  `"paint"`), which needs the tidy's design;
+  is needed to design one;
 - Open Library matched but the client sent no authors, or neither the
   client nor Open Library has a description.
 
 Otherwise the answer is the client's fields plus what the find added, with
-`tidy: "not_needed"`. `POST /details/v1/tidy` always tidies, for a reader
-who asks.
+`tidy: "not_needed"`. `cover_choice` never causes a tidy: a lookup with any
+choice spends a generation exactly when the same lookup with `"keep"`
+would, so a client may send a stored choice on its automatic lookups
+without making them cost more. `POST /details/v1/tidy` always tidies, for
+a reader who asks.
 
 A stored record is served with the Open Library result found when it was
 tidied, so serving it makes no Open Library request. When a tidy fails
@@ -1805,8 +1805,10 @@ Body:
     generated one. This is the behaviour of servers without the field.
   - `"find"`: Open Library's cover, even when the client has its own; when
     Open Library has none, a generated one. The server asks Open Library
-    even if the book lacks nothing else, and asks again when it serves a
-    stored record that was made without asking (no model call either way).
+    even if the book lacks nothing else. A stored record that was made
+    without asking Open Library is asked about once, the first time it is
+    served for `"find"`, and the answer is kept with the record (no model
+    call either way).
   - `"draw"`: the generated cover, drawn by the server from the tidy's
     design, even when the client or Open Library has a cover.
   - `"paint"`: the generated cover on painted artwork
@@ -1816,8 +1818,9 @@ Body:
 
   A choice that cannot be served falls back in the order generated cover,
   then the client's own: `"find"`, `"draw"` or `"paint"` on a `/lookup`
-  whose tidy could not run (`tidy` `"quota_exceeded"` or `"failed"`)
-  answer with the client's own cover, or `source: null` without one. The
+  that has no record to serve and did not tidy (`tidy` `"not_needed"`,
+  `"quota_exceeded"` or `"failed"`) answer with the client's own cover, or
+  `source: null` without one. The
   cover choice is not part of the record key: every choice of the same
   book is served from the same record, so trying choices one after another
   with `/lookup` after a `/tidy` costs no generation.
@@ -1896,6 +1899,14 @@ Response:
   answers with what the find gave.
 - `cached`: true when the tidy was served from the shared store, at no
   cost, including a record found through the reader's pointer.
+
+A client that shows a `/tidy` answer as a preview, for the reader to
+accept or reject, must remember a rejected answer's `key` on the device.
+The `/tidy` has already moved the reader's pointer to that record, and the
+pointer is per reader, not per device, so every later `/lookup` of the
+book is served that record. When a lookup answers with a remembered
+rejected `key`, the client keeps showing the book's own title, authors,
+series and description. The Web app does this.
 - `openlibrary_url`: the matched Open Library work, for attribution;
   `null` when nothing matched.
 
@@ -1978,7 +1989,8 @@ lookup of that book answers with a new `url` (a new `?v=`) and
 `cover.painted: true`; that lookup is served from the stored record, so it
 costs nothing. Each book is painted once and the artwork is shared by
 every reader who asks for a painted cover of the record, like the record
-itself.
+itself. A client that never sends `cover_choice`, as clients from before
+the field do, never receives a painted cover.
 
 The artwork is keyed by the shared record, so a painting may already exist
 when a reader did not ask for one. Such a reader (`"keep"` with no cover of

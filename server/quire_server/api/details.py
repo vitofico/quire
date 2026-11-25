@@ -140,8 +140,8 @@ async def _with_art(
     """For a reader who asked for a painted cover: the generated cover on
     its painted artwork when there is some, or with a painting queued when
     one is due. Any other reader of the record gets the drawn cover."""
-    artist: cover_art.CoverArtist | None = getattr(request.app.state, "cover_artist", None)
-    if artist is None or answer.cover.source != "generated":
+    artist: cover_art.CoverArtist = request.app.state.cover_artist
+    if answer.cover.source != "generated":
         return answer
     row = await session.get(BookDetails, answer.key)
     if row is None:

@@ -643,14 +643,45 @@ async def test_a_cover_choice_on_lookup_is_served_from_the_stored_record(
         from_library = (
             await client.post("/details/v1/lookup", headers=creds("alice"), json=clean("find"))
         ).json()
+        # The answer is kept with the record, so Open Library is asked once.
+        again = (
+            await client.post("/details/v1/lookup", headers=creds("alice"), json=clean("find"))
+        ).json()
         kept = (
             await client.post("/details/v1/lookup", headers=creds("alice"), json=clean())
         ).json()
 
     assert len(calls) == 1 and found.lookups == 1
+    assert again["cover"] == from_library["cover"]
     assert drawn["cached"] is True and drawn["cover"]["source"] == "generated"
     assert from_library["cached"] is True and from_library["cover"]["source"] == "openlibrary"
     assert kept["cover"]["source"] == "file"
+
+
+async def test_a_cover_choice_alone_never_tidies(client_factory, app, session):
+    async with client_factory(**AI_ENV) as client:
+        calls = install(app, tidy_answer(description="A desert planet."))
+        await opt_in(client, "alice")
+        r = await client.post("/details/v1/lookup", headers=creds("alice"), json=clean("draw"))
+
+    assert r.status_code == 200, r.text
+    assert calls == []
+    # Nothing to draw from without a tidy: the book's own cover.
+    assert r.json()["tidy"] == "not_needed" and r.json()["cover"]["source"] == "file"
+
+
+async def test_a_description_from_open_library_is_a_change(client_factory, app, session):
+    async with client_factory(**AI_ENV) as client:
+        install(app, tidy_answer(), retriever=StubRetriever(DUNE))
+        await opt_in(client, "alice")
+        r = await client.post(
+            "/details/v1/tidy", headers=creds("alice"), json=clean(description=None)
+        )
+
+    data = r.json()
+    assert data["tidy"] == "done"
+    assert data["book"]["description"] == DUNE.description
+    assert data["origins"]["description"] == "openlibrary"
 
 
 async def test_painting_needs_the_cover_artist(client_factory, app, session):

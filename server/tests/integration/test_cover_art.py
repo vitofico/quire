@@ -158,17 +158,19 @@ async def test_the_daily_budget_stops_paintings(client_factory, app, session):
     async with client_factory(**ART_ENV, cover_art_daily_budget=1) as client:
         install(app, tidy_answer())
         calls = await paint_with(app)
-        await opt_in(client, "alice")
+        # Other readers, so no reader's pointer serves them the first record.
+        await opt_in(client, "alice", "bob", "carol")
         await lookup(client)
         await app.state.cover_artist.drain()
-        await lookup(client, title="another_book_(retail)")
+        await lookup(client, "bob", title="another_book_(retail)")
         await app.state.cover_artist.drain()
-        third = await lookup(client, title="a_third_book_(retail)")
+        third = await lookup(client, "carol", title="a_third_book_(retail)")
         await app.state.cover_artist.drain()
 
     assert len(calls) == 1
     # Once the server knows the budget is spent it says nothing is coming.
-    assert third["cover"]["painting"] is False
+    assert third["cover"]["painting"] is False and third["cover"]["painted"] is False
+    assert third["cover"]["source"] == "generated"
     rows = (await session.execute(select(BookCoverArt))).scalars().all()
     assert [r.status for r in rows] == ["painted"]
 
@@ -255,14 +257,14 @@ async def test_a_painting_in_flight_or_lost_counts_against_the_budget(client_fac
     async with client_factory(**ART_ENV, cover_art_daily_budget=1) as client:
         install(app, tidy_answer())
         calls = await paint_with(app)
-        await opt_in(client, "alice")
+        await opt_in(client, "alice", "bob")
         artist = app.state.cover_artist
         await lookup(client, choice="draw")
         # A server that crashed mid-painting left this row today.
         row = (await session.execute(select(BookDetails))).scalars().one()
         session.add(BookCoverArt(key=row.key, status="pending", model_id="art-model"))
         await session.commit()
-        await lookup(client, title="another_book_(retail)")
+        await lookup(client, "bob", title="another_book_(retail)")
         await artist.drain()
 
     assert calls == []
