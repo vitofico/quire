@@ -17,6 +17,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -127,6 +128,50 @@ class AppContainerRestoreTest {
             SyncDependencies.holder = previousSync
             LibraryMirrorPushDependencies.holder = previousLibrary
             db.close()
+        }
+    }
+
+    @Test fun `the AI config is fetched at start and for each account, never the last account's`() = runBlocking {
+        FakeAndroidKeyStore.setup()
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        val db = Room.inMemoryDatabaseBuilder(context, EReaderDatabase::class.java)
+            .allowMainThreadQueries().build()
+        db.openHelper.writableDatabase
+        val previousSync = SyncDependencies.holder
+        val previousLibrary = LibraryMirrorPushDependencies.holder
+        fun server(config: MockResponse) = MockWebServer().apply {
+            dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse = when (request.requestUrl?.encodedPath) {
+                    "/ai/v1/config" -> config
+                    "/ai/v1/preferences" -> MockResponse().setBody("""{"ai_enabled":true}""")
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+            start()
+        }
+        val first = server(MockResponse().setBody("""{"configured":true,"details_supported":true}"""))
+        val second = server(MockResponse().setResponseCode(503))
+        // Signed in before the app starts.
+        CalibreCredentialStore(context).apply { clear() }.saveBearerAccount(first.url("/").toString().trimEnd('/'), "a@b.c", "tok")
+        val container = AppContainer(context, db)
+        try {
+            withTimeout(10_000) { container.aiRepository.config.first { it?.detailsSupported == true } }
+
+            // Another account whose server can't answer: the first account's config no longer applies.
+            container.credentialStore.saveBearerAccount(second.url("/").toString().trimEnd('/'), "d@e.f", "tok2")
+            withTimeout(10_000) { container.aiRepository.config.first { it == null } }
+            val asked = generateSequence { second.takeRequest(10, java.util.concurrent.TimeUnit.SECONDS) }
+                .map { it.requestUrl?.encodedPath }
+            assertThat(asked.take(10).any { it == "/ai/v1/config" }).isTrue()
+            assertThat(container.aiRepository.preferences.value).isNull()
+        } finally {
+            container.libraryUploaderScope.coroutineContext[Job]?.cancelAndJoin()
+            container.credentialStore.clear()
+            SyncDependencies.holder = previousSync
+            LibraryMirrorPushDependencies.holder = previousLibrary
+            db.close()
+            runCatching { first.shutdown() }
+            runCatching { second.shutdown() }
         }
     }
 }
