@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -59,6 +60,7 @@ fun LibraryInsightsScreen(
     onOpenBook: (DocumentIdentity) -> Unit,
     onOpenWeb: (String) -> Unit,
     onOpenSettings: () -> Unit,
+    onShowReadingStats: () -> Unit = {},
 ) {
     LaunchedEffect(Unit) { viewModel.reload() }
     val state by viewModel.state.collectAsState()
@@ -69,6 +71,7 @@ fun LibraryInsightsScreen(
         onOpenWeb = onOpenWeb,
         onOpenSettings = onOpenSettings,
         onRefresh = { viewModel.refresh() },
+        onShowReadingStats = onShowReadingStats,
     )
 }
 
@@ -88,6 +91,7 @@ internal fun LibraryInsightsScreenContent(
     onOpenWeb: (String) -> Unit,
     onOpenSettings: () -> Unit,
     onRefresh: () -> Unit,
+    onShowReadingStats: () -> Unit = {},
 ) {
     Scaffold(
         topBar = {
@@ -96,6 +100,12 @@ internal fun LibraryInsightsScreenContent(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
+                    }
+                },
+                // The reader profile is about what you read; statistics, how you read it.
+                actions = {
+                    IconButton(onClick = onShowReadingStats) {
+                        Icon(Icons.Outlined.BarChart, contentDescription = stringResource(R.string.stats_title))
                     }
                 },
             )

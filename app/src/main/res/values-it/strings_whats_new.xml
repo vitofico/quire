@@ -17,4 +17,6 @@
     <string name="whats_new_pdf_conversion_description">Condividi un PDF con Quire, o aggiungilo con + nella libreria, e il tuo server Quire lo converte in un EPUB nella tua libreria. La conversione avviene sul tuo server e il file non viene inviato altrove. Seguila in %1$s → %2$s nella libreria.</string>
     <string name="whats_new_open_catalogs_title">Libri gratuiti per iniziare</string>
     <string name="whats_new_open_catalogs_description">Aggiungi con un tocco un catalogo gratuito e legale di classici in %1$s → %2$s, oppure dalla scheda Catalogo finché non ne hai uno. Quelli nella tua lingua vengono prima.</string>
+    <string name="whats_new_reading_stats_title">Scopri come leggi</string>
+    <string name="whats_new_reading_stats_description">Quire ora conta quanto, quando e a che velocità leggi. I dati restano su questo dispositivo e nel backup del telefono, e non vengono mai inviati al server di Quire né all’IA. Trovi le tue serie, la tua velocità e quanto manca alla fine di un libro nella biblioteca, in %1$s → %2$s. Puoi disattivarlo nelle impostazioni.</string>
 </resources>

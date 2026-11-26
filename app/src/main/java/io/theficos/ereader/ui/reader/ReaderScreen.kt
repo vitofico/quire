@@ -158,12 +158,19 @@ private fun ReaderScreenContent(
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_PAUSE) {
-                SyncEnqueuer.enqueue(context, expedited = true)
+            when (event) {
+                Lifecycle.Event.ON_PAUSE -> SyncEnqueuer.enqueue(context, expedited = true)
+                // Reading time counts only while the book is in front of the reader.
+                Lifecycle.Event.ON_START -> viewModel.onReaderStarted()
+                Lifecycle.Event.ON_STOP -> viewModel.onReaderStopped()
+                else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            viewModel.onReaderStopped()
+        }
     }
 
     val activity = LocalContext.current as Activity
