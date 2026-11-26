@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeCatalogClient } from './opds'
-import { listSavedCatalogs, savedCatalogHome, savedCatalogRequest, type SavedCatalog } from './saved'
+import { listSavedCatalogs, removeSavedCatalog, savedCatalogHome, savedCatalogRequest, type SavedCatalog } from './saved'
 
 const catalog: SavedCatalog = {
   id: '6f1c',
@@ -27,6 +27,13 @@ function server(answer: (path: string) => Response) {
 }
 
 describe('saved catalogs', () => {
+  it('counts a catalog another device already removed as removed', async () => {
+    const answer = (status: number) => vi.fn(async () => new Response(null, { status }))
+    await expect(removeSavedCatalog(answer(204), 'a')).resolves.toBeUndefined()
+    await expect(removeSavedCatalog(answer(404), 'a')).resolves.toBeUndefined()
+    await expect(removeSavedCatalog(answer(500), 'a')).rejects.toThrow('Quire could not remove this catalog.')
+  })
+
   it('browses through the server, which answers with the address it fetched', async () => {
     const request = server(path => path.includes('download')
       ? new Response(new Uint8Array([80, 75, 3, 4]))

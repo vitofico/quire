@@ -134,6 +134,22 @@ test('an address the account already holds is opened, not saved twice', async ({
   expect(server.fetches.every(url => url.includes('/held/'))).toBe(true)
 })
 
+test('a saved catalog that is not in the open list can be removed where it opens', async ({ page }) => {
+  const held = {
+    item: { id: 'shelf', name: 'Old shelf', kind: 'opds', host: 'https://shelf.example', has_login: false, needs_login: false, position: 0, updated_at: '2026-11-25T10:00:00Z' },
+    url: 'https://shelf.example/opds/',
+  }
+  const server = await connect(page, { held })
+  await page.goto('/quire/#/catalog')
+  await expect(page.getByRole('heading', { name: 'Livres libres' })).toBeVisible()
+  await page.getByRole('button', { name: 'Remove Old shelf' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Remove' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Old shelf removed.' })).toBeVisible()
+  expect(server.deletes).toEqual(['shelf'])
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Connect a catalog' })).toBeVisible()
+})
+
 test('the reader’s language comes first', async ({ page }) => {
   await connect(page)
   await page.addInitScript(() => localStorage.setItem('quire-ui:language', 'fr'))

@@ -223,13 +223,13 @@ class CatalogsViewModel(
     /** Remove the saved catalog [open] became, from the Quire account too when it is there. */
     fun removeOpen(open: OpenCatalog) {
         if (_openAdding.value?.busy == true) return
-        val entry = store.catalogs.value.firstOrNull { it.catalog?.baseUrl == open.url && !it.pinned } ?: return
+        // Every copy: the list shows the catalog as added while any is left.
+        val entries = store.catalogs.value.filter { it.catalog?.baseUrl == open.url && !it.pinned }
+        if (entries.isEmpty()) return
         _openAdding.value = OpenCatalogAdding(open.id, busy = true)
         viewModelScope.launch {
-            _openAdding.value = when (val removed = repository.remove(entry.id)) {
-                CatalogResult.Done -> null
-                is CatalogResult.Failed -> OpenCatalogAdding(open.id, busy = false, error = catalogFailureMessage(removed.reason))
-            }
+            val failed = entries.firstNotNullOfOrNull { entry -> repository.remove(entry.id) as? CatalogResult.Failed }
+            _openAdding.value = failed?.let { OpenCatalogAdding(open.id, busy = false, error = catalogFailureMessage(it.reason)) }
         }
     }
 

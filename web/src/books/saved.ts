@@ -32,7 +32,8 @@ export async function removeSavedCatalog(request: ApiRequest, id: string): Promi
   } catch {
     throw new Error('Quire could not reach the server. Try again.')
   }
-  if (!response.ok) throw new Error('Quire could not remove this catalog. Try again later.')
+  // Already gone, removed on another device: what the reader asked for.
+  if (!response.ok && response.status !== 404) throw new Error('Quire could not remove this catalog. Try again later.')
 }
 
 /**

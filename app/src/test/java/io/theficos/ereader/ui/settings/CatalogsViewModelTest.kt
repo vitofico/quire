@@ -319,6 +319,17 @@ class CatalogsViewModelTest {
         assertThat(store.catalogs.value).isEmpty()
     }
 
+    @Test fun `removing an open catalog removes every copy of it`() = runTest {
+        store.saveCatalog(device(open().url, "Free books"))
+        store.saveCatalog(device(open().url, "Free books again"))
+        val vm = newViewModel()
+
+        vm.removeOpen(open())
+        vm.openAdding.first { it == null }
+
+        assertThat(store.catalogs.value).isEmpty()
+    }
+
     @Test fun `an open catalog that does not answer stays offered with the reason`() = runTest {
         routes["GET /open"] = MockResponse().setResponseCode(503)
         val vm = newViewModel()

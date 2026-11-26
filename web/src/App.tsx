@@ -28,6 +28,7 @@ import {
   savedCatalogRequest,
   type SavedCatalog,
 } from './books/saved'
+import { RemoveSavedCatalog } from './books/RemoveSavedCatalog'
 import { OpenCatalogs } from './books/OpenCatalogsPanel'
 import { OfflineSettings } from './OfflineSettings'
 import { BookDetails } from './BookDetails'
@@ -964,6 +965,10 @@ function Workspace({
           {t('Your saved catalogs open in the Quire app on Android. This server does not open them in the browser.')}
         </p>
       ) : null)
+    const removedSaved = (c: SavedCatalog) => {
+      setSaved((list) => list.filter((item) => item.id !== c.id))
+      setNotice(t('{name} removed.').replace('{name}', c.name))
+    }
     const open = savedBrowsable && active.request && (
       <OpenCatalogs
         language={lang}
@@ -976,11 +981,11 @@ function Workspace({
           setNotice(t('{name} added.').replace('{name}', c.name))
           setFocusCatalog(c.id)
         }}
-        onRemoved={(c) => {
-          setSaved((list) => list.filter((item) => item.id !== c.id))
-          setNotice(t('{name} removed.').replace('{name}', c.name))
-        }}
+        onRemoved={removedSaved}
       />
+    )
+    const removeSaved = activeSaved && active.request && (
+      <RemoveSavedCatalog catalog={activeSaved} request={active.request} onRemoved={removedSaved} t={t} />
     )
     // While a catalog is open, the other ways to add one wait behind a summary.
     const otherSource = (!active.catalogUrl || open) && (
@@ -997,6 +1002,7 @@ function Workspace({
             <h1>{activeSaved.name}</h1>
             {switcher}
             <p role="alert">{t(needsLogin)}</p>
+            {removeSaved}
           </section>
         ) : (
           <Catalog
@@ -1013,6 +1019,7 @@ function Workspace({
             }
           >
             {switcher}
+            {removeSaved}
           </Catalog>
         )}
         {otherSource}
