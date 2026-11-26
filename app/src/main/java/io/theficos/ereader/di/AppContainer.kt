@@ -15,6 +15,7 @@ import io.theficos.ereader.data.ai.AiClient
 import io.theficos.ereader.data.ai.AiRepository
 import io.theficos.ereader.data.ai.BookDetailsRepository
 import io.theficos.ereader.data.ai.CatalogInsightStash
+import io.theficos.ereader.data.ai.DiscussLimits
 import io.theficos.ereader.data.ai.InsightSyncRepository
 import io.theficos.ereader.data.library.LibraryClient
 import io.theficos.ereader.data.library.LibraryUploader
@@ -378,6 +379,10 @@ class AppContainer internal constructor(context: Context, private val db: EReade
             started = SharingStarted.Eagerly,
             initialValue = false,
         )
+
+    /** The limits while "Think it through" on highlights is offered, else null. */
+    val highlightsDiscussLimits: StateFlow<DiscussLimits?> = aiRepository.highlightsDiscussLimits
+        .stateIn(libraryUploaderScope, SharingStarted.Eagerly, null)
 
     val libraryInsightsViewModelFactory: LibraryInsightsViewModelFactory =
         LibraryInsightsViewModelFactory(

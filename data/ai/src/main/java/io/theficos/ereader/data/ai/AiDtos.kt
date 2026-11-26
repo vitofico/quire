@@ -49,6 +49,9 @@ data class AiConfig(
     @SerialName("cover_choice_supported") val coverChoiceSupported: Boolean = false,
     // True when this server paints cover artwork, the only time `cover_choice: "paint"` may be sent.
     @SerialName("cover_painting_supported") val coverPaintingSupported: Boolean = false,
+    // True when the server answers `POST /ai/v1/highlights/discuss`, whose limits come with it. Older servers omit both.
+    @SerialName("highlights_discuss") val highlightsDiscuss: Boolean = false,
+    @SerialName("highlights_discuss_limits") val highlightsDiscussLimits: DiscussLimits? = null,
 )
 
 @Serializable

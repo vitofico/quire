@@ -11,8 +11,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -188,6 +189,10 @@ class AiClient(
             resp.body?.bytes() ?: ByteArray(0)
         }
     }
+
+    /** One question about a few highlights. It runs a model, so it gets an insight generation's budget. */
+    suspend fun discussHighlights(body: DiscussRequest): DiscussAnswer =
+        post("/ai/v1/highlights/discuss", body, client = longCallHttp(generationTimeoutS))
 
     suspend fun invalidateInsight(identity: DocumentIdentity) {
         postUnit("/ai/v1/insights/invalidate", InsightGetBody(identity))
@@ -384,9 +389,14 @@ class AiClient(
 /** [retryAfterSeconds] is the server's `Retry-After`, when it sent one in seconds. */
 open class AiHttpException(val code: Int, val body: String, val retryAfterSeconds: Long? = null) :
     RuntimeException("AI request failed: $code body=${body.take(200)}") {
-    /** The body's `detail` when it is a plain code, such as `details_rate_limited`. */
+    /** The server's `detail` when it is a string (`"ai_not_opted_in"`, `"details_rate_limited"`), or the `code` of a `detail` object. */
     val detail: String? by lazy {
-        runCatching { (Json.parseToJsonElement(body) as? JsonObject)?.get("detail")?.jsonPrimitive?.content }.getOrNull()
+        val value = runCatching { (Json.parseToJsonElement(body) as? JsonObject)?.get("detail") }.getOrNull()
+        when (value) {
+            is JsonPrimitive -> value.contentOrNull
+            is JsonObject -> (value["code"] as? JsonPrimitive)?.contentOrNull
+            else -> null
+        }
     }
 }
 
