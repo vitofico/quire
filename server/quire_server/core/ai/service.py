@@ -1930,7 +1930,8 @@ class InsightOrchestrator:
                     discovery_recommendations=discovery_recs,
                     ai_suggested_recommendations=ai_suggested_recs,
                     input_fingerprint=fingerprint,
-                    language=None if language == "auto" else language,
+                    # With no language asked for, the English prompt gets English prose.
+                    language="en" if language == "auto" else language,
                 )
 
                 await self._upsert_reader_profile(session, principal, payload)

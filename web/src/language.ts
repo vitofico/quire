@@ -736,10 +736,17 @@ export const languages = {
   fr: 'Français',
   de: 'Deutsch',
 }
+const translators = new Map<string, (english: string) => string>()
+
+/** The app's text in [lang]: the same function each time, so it changes only with the language. */
 export function translator(lang: string) {
+  const known = translators.get(lang)
+  if (known) return known
   const index = ['es', 'it', 'fr', 'de'].indexOf(lang)
-  return (english: string) =>
+  const t = (english: string) =>
     (labels[english] ?? accountLabels[english] ?? discoveryLabels[english])?.[
       index
     ] ?? english
+  translators.set(lang, t)
+  return t
 }

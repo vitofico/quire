@@ -32,8 +32,9 @@ class AiRepositoryStyleTest {
             http = OkHttpClient.Builder()
                 .callTimeout(5, TimeUnit.SECONDS)
                 .build(),
+                language = { "en" },
         )
-        repo = AiRepository(client, insightDao = FakeInsightDao())
+        repo = AiRepository(client, insightDao = FakeInsightDao(), appLanguage = { "en" })
     }
 
     @After

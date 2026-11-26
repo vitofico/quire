@@ -57,6 +57,7 @@ export const discoveryLabels: Record<string, [string, string, string, string]> =
   "Enable AI in Settings to refresh your profile.": ["Activa la IA en Ajustes para actualizar tu perfil.", "Attiva l’IA nelle impostazioni per aggiornare il profilo.", "Activez l’IA dans les réglages pour actualiser votre profil.", "Aktiviere KI in den Einstellungen, um dein Profil zu aktualisieren."],
   "Select an available AI provider in Settings.": ["Elige un proveedor de IA disponible en Ajustes.", "Seleziona un fornitore IA disponibile nelle impostazioni.", "Sélectionnez un fournisseur d’IA disponible dans les réglages.", "Wähle in den Einstellungen einen verfügbaren KI-Anbieter aus."],
   "Open saved profile": ["Abrir perfil guardado", "Apri il profilo salvato", "Ouvrir le profil enregistré", "Gespeichertes Profil öffnen"],
+  "Written in {written}. Refresh to write it in {wanted}.": ["Escrito en {written}. Actualiza para escribirlo en {wanted}.", "Scritto in {written}. Aggiorna per scriverlo in {wanted}.", "Rédigé en {written}. Actualisez pour le rédiger en {wanted}.", "Auf {written} geschrieben. Aktualisiere, um es auf {wanted} zu schreiben."],
   "Refresh profile": ["Actualizar perfil", "Aggiorna profilo", "Actualiser le profil", "Profil aktualisieren"],
   "Delete profile": ["Eliminar perfil", "Elimina profilo", "Supprimer le profil", "Profil löschen"],
   "Delete reader profile": ["Eliminar el perfil lector", "Elimina il profilo di lettura", "Supprimer le profil de lecture", "Leseprofil löschen"],

@@ -26,12 +26,14 @@ class AiRepositoryProfileTest {
         client = AiClient(
             baseUrlProvider = { server.url("").toString().trimEnd('/') },
             http = OkHttpClient.Builder().callTimeout(5, TimeUnit.SECONDS).build(),
+            language = { "en" },
         )
         insightDao = FakeInsightDao()
         repo = AiRepository(
             client = client,
             insightDao = insightDao,
             clock = { 5_000L },
+            appLanguage = { "en" },
         )
     }
 

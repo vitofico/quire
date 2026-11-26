@@ -32,6 +32,7 @@ class AiRepositoryCacheKeyTest {
                     AiClient(
                         { server.url("/").toString() },
                         OkHttpClient.Builder().callTimeout(5, TimeUnit.SECONDS).build(),
+                        language = { "en" },
                     ),
                     dao,
                     appLanguage = { "de" },

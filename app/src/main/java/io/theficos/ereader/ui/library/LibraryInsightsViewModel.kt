@@ -78,7 +78,11 @@ sealed interface LibraryInsightsUiState {
         val preflightFailed: Boolean,
         val configHostLabel: String,
         val refreshing: Boolean = false,
+        val languageNote: LanguageNote? = null,
     ) : LibraryInsightsUiState
+
+    /** The profile is written in [written], not in the reader's insight language [wanted]. */
+    data class LanguageNote(val written: String, val wanted: String)
 
     /** Distinct error kinds (architect Finding #5). */
     sealed interface Error : LibraryInsightsUiState {
@@ -205,6 +209,7 @@ class LibraryInsightsViewModel(
                 refreshedAt = null,
                 preflightFailed = false,
                 configHostLabel = config.baseUrlHost.orEmpty(),
+                languageNote = languageNote(profile),
             )
         }
     }
@@ -249,10 +254,18 @@ class LibraryInsightsViewModel(
                 refreshedAt = clock(),
                 preflightFailed = preflightFailed,
                 configHostLabel = config.baseUrlHost.orEmpty(),
+                languageNote = languageNote(fresh),
             )
         } catch (t: Throwable) {
             mapErrorToState(t)
         }
+    }
+
+    private fun languageNote(profile: ReaderProfileResponseDto): LibraryInsightsUiState.LanguageNote? {
+        if (profile.payload.narrative.isNullOrBlank()) return null
+        val wanted = ai.insightLanguage()
+        val written = profile.payload.language ?: "en"
+        return if (written == wanted) null else LibraryInsightsUiState.LanguageNote(written, wanted)
     }
 
     internal fun mapErrorToState(t: Throwable) {

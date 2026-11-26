@@ -37,7 +37,7 @@ class AiClient(
     private val baseUrlProvider: () -> String?,
     http: OkHttpClient,
     private val json: Json = Json { ignoreUnknownKeys = true; encodeDefaults = true },
-    language: () -> String = ::appLanguage,
+    language: () -> String,
 ) {
     private val http = http.newBuilder()
         .addInterceptor { chain ->

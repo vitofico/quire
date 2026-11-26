@@ -859,17 +859,15 @@ router.add_api_route(
 
 @router.get("/profile", response_model=ReaderProfileResponse)
 async def get_profile(
-    request: Request,
     principal: Annotated[AiPrincipal, Depends(get_ai_principal)],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> ReaderProfileResponse:
     """Cache-only profile read.
 
     No opt-in gate (opted-out users can still read their last generation),
-    no LLM call. 404 when no row exists, and also when its prose is in
-    another language than the reader's insight language now resolves to: the
-    reader gets the "generate" state, as a book insight cached in another
-    language is a cache miss. Refresh / generation lives in
+    no LLM call. 404 when no row exists. The payload names the language its
+    prose is in, so a client can offer a refresh when that is not the
+    reader's insight language. Refresh / generation lives in
     pr-β's `POST /ai/v1/profile/refresh`.
     """
     row = (
@@ -883,16 +881,10 @@ async def get_profile(
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no_profile")
     payload = ReaderProfilePayload.model_validate(row.payload)
-    pref = (
-        await session.execute(
-            select(UserAIPreference).where(UserAIPreference.user_id == principal.subject)
-        )
-    ).scalar_one_or_none()
-    language = _effective_style(pref, request).language
-    # Profiles from before READER_PROFILE_PROMPT_VERSION 2 asked for no
-    # language and were written in English. A stats-only profile has no prose.
-    if payload.narrative and language != "auto" and (payload.language or "en") != language:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no_profile")
+    if payload.language is None:
+        # Profiles from before READER_PROFILE_PROMPT_VERSION 2 asked for no
+        # language and were written in English.
+        payload = payload.model_copy(update={"language": "en"})
     return ReaderProfileResponse(
         payload=payload,
         schema_version=row.schema_version,

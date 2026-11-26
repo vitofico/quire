@@ -845,9 +845,9 @@ class ReaderProfilePayload(BaseModel):
     # payload so /ai/v1/profile responses include it even when the row
     # itself (pr-α schema) carries null.
     input_fingerprint: str | None = None
-    # The ISO 639-1 code the narrative and rationales were written in, or None
-    # when no language was asked for. Profiles from before prompt v2 carry None
-    # and were written in English.
+    # The ISO 639-1 code the narrative and rationales were written in. Profiles
+    # from before prompt v2 carry None in storage and were written in English;
+    # `GET /ai/v1/profile` reports them as "en".
     language: str | None = None
 
 

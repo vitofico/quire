@@ -18,7 +18,6 @@ import kotlinx.serialization.json.Json
 import java.io.IOException
 import java.time.Instant
 import java.time.format.DateTimeParseException
-import java.util.Locale
 
 /**
  * In-app cache + facade over [AiClient]. Holds the latest server config and
@@ -49,7 +48,8 @@ class AiRepository(
     private val libraryRunner: ProfilePreflightLibrary? = null,
     private val json: Json = Json { ignoreUnknownKeys = true; encodeDefaults = true },
     private val clock: () -> Long = System::currentTimeMillis,
-    private val appLanguage: () -> String = ::appLanguage,
+    /** The language the app is shown in, as a bare code: what `auto` insights are written in. */
+    private val appLanguage: () -> String,
 ) {
     private val _config = MutableStateFlow<AiConfig?>(null)
     val config: StateFlow<AiConfig?> = _config.asStateFlow()
@@ -277,6 +277,9 @@ class AiRepository(
      */
     private fun AiStyle.cacheLanguage(): String = if (language == "auto") appLanguage() else language
 
+    /** The language the reader's insights are written in now: their chosen one, or the app's for `auto`. */
+    fun insightLanguage(): String = (_prefs.value?.style ?: AiStyle()).cacheLanguage()
+
     /** Exact-identity cache read keyed on the current `(model, prompt, style)`. */
     private suspend fun readLocal(identity: DocumentIdentity): InsightEntity? {
         if (changingProvider) return null
@@ -391,6 +394,3 @@ internal fun parseIsoMillis(iso: String?): Long? {
         null
     }
 }
-
-/** The language the app is shown in, as a bare code: the per-app language when set, else the device's. */
-fun appLanguage(): String = Locale.getDefault().toLanguageTag().substringBefore('-').lowercase(Locale.ROOT)

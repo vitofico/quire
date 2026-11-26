@@ -101,11 +101,12 @@ function EditionInsight({ request, aiAvailable, identity, metadata, t = english 
   const styleKey = JSON.stringify(settings?.preferences.style);
   const providerId = settings?.preferences.provider_id;
 
+  // `t` changes with the app language, which an `auto` insight is written in.
   useEffect(() => {
     setResult(undefined);
     setMessage("");
     setFeedback("");
-  }, [request, enabled, styleKey, providerId]);
+  }, [request, enabled, styleKey, providerId, t]);
 
   if (!request || aiAvailable === false) return null;
 

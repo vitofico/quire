@@ -749,6 +749,13 @@ positive TTL 30d / negative 24h), and asks the model for a narrative
 plus rationales. Below a configurable book-count floor it
 short-circuits to a stats-only payload at weight 0.
 
+The profile is written in the reader's insight language (with `auto`,
+the language the app sends as `Accept-Language`), and its payload
+names that language in `language`; profiles from before prompt
+version 2 read as `en`. A read always returns the stored profile: when
+its language is not the reader's current one, the apps say so under
+it and offer a refresh, rather than regenerating on their own.
+
 Android surfaces it as a Library Insights screen
 (`LibraryInsightsScreen` + `LibraryInsightsViewModel`) reached from the
 library menu. The view-model pulls `/ai/v1/profile` and

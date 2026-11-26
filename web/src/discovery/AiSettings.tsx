@@ -119,6 +119,17 @@ function Recommendations({ title, items, t }: { title: string; items?: Recommend
   );
 }
 
+/** Says so when the profile is in another language than the reader's insights are now written in. */
+function LanguageNote({ written, preferences, t }: { written: string; preferences: Preferences; t: Translate }) {
+  const app = document.documentElement.lang || "en";
+  const wanted = preferences.style.language === "auto" ? app.split("-")[0] : preferences.style.language;
+  if (written === wanted) return null;
+  const names = new Intl.DisplayNames([app], { type: "language" });
+  return <p>{interpolate(t, "Written in {written}. Refresh to write it in {wanted}.", {
+    written: names.of(written) ?? written, wanted: names.of(wanted) ?? wanted,
+  })}</p>;
+}
+
 export function ReaderProfilePanel({ request, aiAvailable, t = english }: AiPanelProps) {
   const { settings } = useAiState(request, aiAvailable);
   if (!request || !settings?.config.configured || settings.config.progress_supported === false) return null;
@@ -135,6 +146,7 @@ function ProfileControls({ request, settings, t }: {
   const [message, setMessage] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const { preferences, config } = settings;
+  const canRefresh = preferences.ai_enabled && !missingProvider(config, preferences);
 
   function load(refresh: boolean) {
     setMessage("");
@@ -171,7 +183,7 @@ function ProfileControls({ request, settings, t }: {
       {preferences.ai_enabled && missingProvider(config, preferences) && <p>{t("Select an available AI provider in Settings.")}</p>}
       <div className="discovery-actions">
         <button disabled={busy} onClick={() => load(false)}>{t("Open saved profile")}</button>
-        <button disabled={busy || ambiguous || !preferences.ai_enabled || missingProvider(config, preferences)} onClick={() => load(true)}>{t("Refresh profile")}</button>
+        <button disabled={busy || ambiguous || !canRefresh} onClick={() => load(true)}>{t("Refresh profile")}</button>
         <button disabled={busy} onClick={() => setConfirmDelete(true)}>{t("Delete profile")}</button>
         {busy && <button onClick={cancel}>{t(paid ? "Stop waiting" : "Cancel")}</button>}
       </div>
@@ -186,6 +198,7 @@ function ProfileControls({ request, settings, t }: {
       {profile && (
         <>
           {profile.payload.narrative && <p>{profile.payload.narrative}</p>}
+          {profile.payload.narrative && canRefresh && <LanguageNote written={profile.payload.language ?? "en"} preferences={preferences} t={t} />}
           <Recommendations t={t} title={t("From your library")} items={profile.payload.in_library_recommendations} />
           <Recommendations t={t} title={t("Discovery")} items={profile.payload.discovery_recommendations} />
           <Recommendations t={t} title={t("AI suggestions")} items={profile.payload.ai_suggested_recommendations} />

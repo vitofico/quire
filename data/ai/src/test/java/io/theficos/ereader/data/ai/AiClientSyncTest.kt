@@ -25,6 +25,7 @@ class AiClientSyncTest {
             http = OkHttpClient.Builder()
                 .callTimeout(5, TimeUnit.SECONDS)
                 .build(),
+                language = { "en" },
         )
     }
 

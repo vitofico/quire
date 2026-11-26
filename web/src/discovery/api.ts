@@ -73,6 +73,8 @@ export type Profile = {
     in_library_recommendations: Recommendation[];
     discovery_recommendations: Recommendation[];
     ai_suggested_recommendations: Recommendation[];
+    /** The language the prose is in; missing (older servers) means English. */
+    language?: string | null;
   };
   generated_at: string;
   model_id: string;

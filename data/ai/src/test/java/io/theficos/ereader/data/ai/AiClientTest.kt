@@ -35,6 +35,7 @@ class AiClientTest {
             http = OkHttpClient.Builder()
                 .callTimeout(5, TimeUnit.SECONDS)
                 .build(),
+            language = { "en" },
         )
     }
 
@@ -206,6 +207,7 @@ class AiClientTest {
         val nullClient = AiClient(
             baseUrlProvider = { null },
             http = OkHttpClient.Builder().callTimeout(1, TimeUnit.SECONDS).build(),
+            language = { "en" },
         )
         try {
             nullClient.getConfig()
@@ -286,6 +288,7 @@ class AiClientTest {
         val impatient = AiClient(
             baseUrlProvider = { server.url("").toString().trimEnd('/') },
             http = OkHttpClient.Builder().readTimeout(1, TimeUnit.SECONDS).build(),
+            language = { "en" },
         )
         server.enqueue(
             MockResponse().setResponseCode(200).setBody(
@@ -314,6 +317,7 @@ class AiClientTest {
         val impatient = AiClient(
             baseUrlProvider = { server.url("").toString().trimEnd('/') },
             http = OkHttpClient.Builder().readTimeout(1, TimeUnit.SECONDS).build(),
+            language = { "en" },
         )
         server.enqueue(
             MockResponse().setResponseCode(200).setBody("""{"configured":true,"generation_timeout_s":30}""")

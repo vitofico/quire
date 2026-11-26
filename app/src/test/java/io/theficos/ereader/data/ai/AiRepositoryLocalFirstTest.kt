@@ -39,6 +39,7 @@ class AiRepositoryLocalFirstTest {
         client = AiClient(
             baseUrlProvider = { server.url("").toString().trimEnd('/') },
             http = OkHttpClient.Builder().callTimeout(5, TimeUnit.SECONDS).build(),
+            language = { "en" },
         )
         dao = FakeInsightDao()
         repo = AiRepository(client = client, insightDao = dao, clock = { 1_000_000L }, appLanguage = { "en" })

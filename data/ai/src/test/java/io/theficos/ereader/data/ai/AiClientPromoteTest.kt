@@ -26,6 +26,7 @@ class AiClientPromoteTest {
             http = OkHttpClient.Builder()
                 .callTimeout(5, TimeUnit.SECONDS)
                 .build(),
+                language = { "en" },
         )
     }
 

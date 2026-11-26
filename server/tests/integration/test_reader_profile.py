@@ -963,10 +963,9 @@ async def test_refresh_profile_writes_in_the_app_language_by_default(client_fact
     assert r.json()["payload"]["language"] == "it"
     assert r.json()["prompt_version"] == "2"
     assert same.status_code == 200, same.text
-    # Written in Italian, so an app shown in French gets "generate" instead.
-    assert other.status_code == 404
-    assert other.json()["detail"] == "no_profile"
-    # A caller that names no language still reads it.
+    # An app shown in French still reads it, and learns it is in Italian.
+    assert other.status_code == 200
+    assert other.json()["payload"]["language"] == "it"
     assert unknown.status_code == 200
 
 
@@ -987,7 +986,7 @@ async def test_refresh_profile_follows_a_chosen_insight_language(client_factory,
     assert again.status_code == 200
 
 
-async def test_an_english_profile_from_before_languages_is_hidden_from_an_italian_app(
+async def test_a_profile_from_before_languages_reads_as_english_in_any_app(
     client_factory, configure_ai, app, session
 ):
     async with client_factory(ai_enabled=True, ai_base_url="http://x", ai_model="m") as client:
@@ -1024,5 +1023,8 @@ async def test_an_english_profile_from_before_languages_is_hidden_from_an_italia
             "/ai/v1/profile", headers=_basic_header("alice") | {"Accept-Language": "en-GB"}
         )
 
-    assert italian.status_code == 404
-    assert english.status_code == 200
+    # Never hidden: an opted-out reader cannot refresh it, and two devices in
+    # different languages would otherwise refresh the one profile in turn.
+    assert italian.status_code == 200
+    assert italian.json()["payload"]["language"] == "en"
+    assert english.json()["payload"]["language"] == "en"
