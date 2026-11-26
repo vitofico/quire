@@ -99,7 +99,7 @@ export function TidyDetails({ book, store, request, loadCover, coverChoice, pain
       const next = await proposeDetails(store, request!, book, signal)
       if (!alive.current) return next.close()
       if (!worthPreview(book, next.answer, coverChoice)) {
-        next.close()
+        next.close(false)
         setSaid(t('These details already look right.'))
       } else setProposal(next)
     }, () => undefined, {})
