@@ -1,11 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="details_tidy">"Details aufräumen"</string>
-    <string name="details_use_original">"Originaldetails verwenden"</string>
-    <string name="details_use_found">"Gefundene Details verwenden"</string>
-    <string name="details_tidying">"Details werden aufgeräumt…"</string>
-    <string name="details_tidied">"Details aufgeräumt."</string>
-    <string name="details_nothing_to_tidy">"Diese Details sehen schon richtig aus."</string>
+    <string name="details_use_original">"Original verwenden"</string>
+    <string name="details_use_found">"Verbesserte Angaben verwenden"</string>
+    <string name="details_nothing_to_tidy">"Diese Angaben sehen schon richtig aus."</string>
     <string name="details_allowance_used">"Dein KI-Kontingent ist vorerst aufgebraucht."</string>
     <string name="details_allowance_used_until">"Dein KI-Kontingent ist aufgebraucht. Es wird am %1$s erneuert."</string>
     <string name="details_ai_not_available">"KI ist für dein Konto gerade nicht verfügbar. Prüfe die KI-Funktionen in den Einstellungen."</string>
@@ -18,4 +15,32 @@
     <string name="details_generated_cover">"Erzeugtes Cover"</string>
     <string name="details_cover_from_open_library">"Cover von Open Library"</string>
     <string name="details_view_on_open_library">"Auf Open Library ansehen"</string>
+    <string name="details_improve">"Angaben verbessern"</string>
+    <string name="details_improving">"Angaben werden verbessert…"</string>
+    <string name="details_preview_hint">"Hake die Änderungen an, die du behalten willst. Der Rest bleibt, wie er ist."</string>
+    <string name="details_current">"Aktuell"</string>
+    <string name="details_proposed">"Vorschlag"</string>
+    <string name="details_empty">"Leer"</string>
+    <string name="details_authors">"Autoren"</string>
+    <string name="details_description">"Beschreibung"</string>
+    <string name="details_cover">"Cover"</string>
+    <string name="details_cover_keep">"Cover des Buchs behalten"</string>
+    <string name="details_cover_find">"Ein Cover suchen"</string>
+    <string name="details_cover_find_hint">"Von Open Library, falls vorhanden, sonst von Quire gezeichnet."</string>
+    <string name="details_cover_draw">"Von Quire gezeichnetes Cover"</string>
+    <string name="details_cover_paint">"Ein gemaltes Cover"</string>
+    <string name="details_cover_paint_hint">"Das Malen dauert eine Weile: Bis es fertig ist, wird das gezeichnete Cover gezeigt."</string>
+    <string name="details_apply">"Übernehmen"</string>
+    <string name="details_updated">"Aktualisiert: %1$s."</string>
+    <string name="details_changed_title">"Titel"</string>
+    <string name="details_changed_authors">"Autoren"</string>
+    <string name="details_changed_series">"Reihe"</string>
+    <string name="details_changed_description">"Beschreibung"</string>
+    <string name="details_list_two">"%1$s und %2$s"</string>
+    <string name="details_list_three">"%1$s, %2$s und %3$s"</string>
+    <string name="details_list_four">"%1$s, %2$s, %3$s und %4$s"</string>
+    <string name="details_new_cover">"Neues Cover."</string>
+    <string name="details_painting_on_its_way">"Ein gemaltes Cover ist unterwegs."</string>
+    <string name="details_no_painting_today">"Heute wird nicht gemalt: Das gezeichnete Cover bleibt."</string>
+    <string name="details_nothing_changed">"Nichts geändert."</string>
 </resources>

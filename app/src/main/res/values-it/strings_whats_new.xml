@@ -15,6 +15,12 @@
     <string name="whats_new_book_details_description">I libri con un nome di file come titolo, o senza copertina, autore o descrizione, ora ricevono i dettagli da Open Library o riordinati dall’IA, con un’etichetta che ne indica l’origine. Funziona in Wi-Fi, fino a 25 libri al giorno. Disattivalo in %1$s → %2$s, oppure torna ai dettagli originali di un libro dal suo menu.</string>
     <string name="whats_new_pdf_conversion_title">Dai PDF ai libri</string>
     <string name="whats_new_pdf_conversion_description">Condividi un PDF con Quire, o aggiungilo con + nella libreria, e il tuo server Quire lo converte in un EPUB nella tua libreria. La conversione avviene sul tuo server e il file non viene inviato altrove. Seguila in %1$s → %2$s nella libreria.</string>
+    <string name="whats_new_open_catalogs_title">Libri gratuiti per iniziare</string>
+    <string name="whats_new_open_catalogs_description">Aggiungi con un tocco un catalogo gratuito e legale di classici in %1$s → %2$s, oppure dalla scheda Catalogo finché non ne hai uno. Quelli nella tua lingua vengono prima.</string>
+    <string name="whats_new_reading_stats_title">Scopri come leggi</string>
+    <string name="whats_new_reading_stats_description">Quire ora conta quanto, quando e a che velocità leggi. I dati restano su questo dispositivo e nel backup del telefono, e non vengono mai inviati al server di Quire né all’IA. Trovi le tue serie, la tua velocità e quanto manca alla fine di un libro nella biblioteca, in %1$s → %2$s. Puoi disattivarlo nelle impostazioni.</string>
+    <string name="whats_new_details_preview_title">Guarda cosa cambia quando migliori i dati</string>
+    <string name="whats_new_details_preview_description">Da %1$s → %2$s in un libro vedi ogni modifica accanto ai dati attuali, tieni quelle che vuoi e scegli la copertina: quella del libro, una da Open Library o una disegnata da Quire.</string>
     <string name="whats_new_highlights_discuss_title">Approfondisci le tue evidenziazioni</string>
     <string name="whats_new_highlights_discuss_description">In %1$s → %2$s di un libro, scegli %3$s, seleziona alcuni brani e chiedi cosa li collega. L’IA del tuo server Quire risponde in poche righe che puoi condividere come nota. Della conversazione non viene salvato nulla.</string>
 </resources>

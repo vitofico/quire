@@ -389,7 +389,7 @@ class AiClient(
 /** [retryAfterSeconds] is the server's `Retry-After`, when it sent one in seconds. */
 open class AiHttpException(val code: Int, val body: String, val retryAfterSeconds: Long? = null) :
     RuntimeException("AI request failed: $code body=${body.take(200)}") {
-    /** The server's `detail` when it is a string (`"ai_not_opted_in"`), or the `code` of a `detail` object. */
+    /** The server's `detail` when it is a string (`"ai_not_opted_in"`, `"details_rate_limited"`), or the `code` of a `detail` object. */
     val detail: String? by lazy {
         val value = runCatching { (Json.parseToJsonElement(body) as? JsonObject)?.get("detail") }.getOrNull()
         when (value) {

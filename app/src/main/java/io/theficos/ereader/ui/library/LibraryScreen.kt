@@ -128,6 +128,7 @@ fun LibraryScreen(
     onOpenBook: (documentId: Long) -> Unit,
     onShowDetails: (documentId: Long) -> Unit = {},
     onShowStats: () -> Unit = {},
+    onShowReadingStats: () -> Unit = {},
     onShowInsights: () -> Unit = {},
     sideloadImporter: SideloadImporter? = null,
     conversions: ConversionRepository? = null,
@@ -380,6 +381,13 @@ fun LibraryScreen(
                                     onShowStats()
                                 },
                             )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.stats_title)) },
+                                onClick = {
+                                    moreMenuOpen = false
+                                    onShowReadingStats()
+                                },
+                            )
                             if (conversions != null) {
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.convert_title)) },
@@ -499,7 +507,7 @@ fun LibraryScreen(
                             }
                         }
                     }
-                    val spokenTitle = withNote(row.shown.title, row.found?.let(::titleNote))
+                    val spokenTitle = withNote(row.shown.title, row.found?.let { titleNote(row.document, it) })
                     Text(
                         text = row.shown.title,
                         style = MaterialTheme.typography.titleMedium,

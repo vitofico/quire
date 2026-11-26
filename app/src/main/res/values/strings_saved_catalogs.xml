@@ -49,4 +49,14 @@
     <string name="quire_account_legacy_retiring_admin">Calibre-Web sign-in is being retired. Ask your administrator to enable Quire accounts.</string>
     <string name="quire_account_legacy_sign_in">Calibre-Web sign-in</string>
     <string name="catalog_needs_login">%1$s needs its address and login entered again in Settings → Catalogs.</string>
+    <string name="open_catalogs_title">Open catalogs</string>
+    <string name="open_catalogs_privacy">Free, legal books to start with. Adding one lets this device contact that catalog’s site directly.</string>
+    <string name="open_catalogs_add">Add</string>
+    <string name="open_catalogs_add_named">Add %1$s</string>
+    <string name="open_catalogs_added">Added</string>
+    <string name="open_catalogs_public_domain">Public domain</string>
+    <string name="open_catalogs_open_licence">Open licence</string>
+    <string name="open_catalogs_public_domain_us">Public domain in the US</string>
+    <string name="open_catalogs_synced">It is saved to your Quire account too, like any catalog.</string>
+    <string name="open_catalogs_no_catalog">No catalog yet. Add one of these free catalogs to find books, or add your own in Settings → Catalogs.</string>
 </resources>

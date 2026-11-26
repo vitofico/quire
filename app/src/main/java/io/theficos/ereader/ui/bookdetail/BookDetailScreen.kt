@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -52,6 +53,7 @@ import io.theficos.ereader.ui.components.BookDescription
 import io.theficos.ereader.ui.components.BookHeader
 import io.theficos.ereader.ui.components.QuireCard
 import io.theficos.ereader.ui.components.SectionLabel
+import io.theficos.ereader.ui.stats.formatDuration
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -83,8 +85,10 @@ fun BookDetailScreen(
                 actions = {
                     val details = state.details
                     val hasInsight = state.insight !is InsightUiState.Hidden
-                    val stored = details.stored
-                    if (hasInsight || details.available || stored != null) {
+                    // The stored answer, offered even with AI off so found details can always be put away,
+                    // but only while switching to or from it changes something the reader can see.
+                    val switchable = details.stored?.takeIf { doc != null && differsFromOriginal(doc, state.metadata, it) }
+                    if (hasInsight || details.available || switchable != null) {
                         IconButton(onClick = { menuExpanded = true }) {
                             Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.common_more))
                         }
@@ -104,27 +108,26 @@ fun BookDetailScreen(
                             }
                             if (details.available) {
                                 DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.details_tidy)) },
-                                    enabled = doc != null && !details.tidying,
+                                    text = { Text(stringResource(R.string.details_improve)) },
+                                    enabled = doc != null && !details.improving && details.preview == null,
                                     onClick = {
                                         menuExpanded = false
-                                        viewModel.tidyDetails()
+                                        viewModel.improveDetails()
                                     },
                                 )
                             }
-                            // Offered even with AI off, so found details can always be put away.
-                            if (stored != null) {
+                            if (switchable != null) {
                                 DropdownMenuItem(
                                     text = {
                                         Text(
                                             stringResource(
-                                                if (stored.useOriginal) R.string.details_use_found else R.string.details_use_original,
+                                                if (switchable.useOriginal) R.string.details_use_found else R.string.details_use_original,
                                             ),
                                         )
                                     },
                                     onClick = {
                                         menuExpanded = false
-                                        viewModel.useOriginalDetails(!stored.useOriginal)
+                                        viewModel.useOriginalDetails(!switchable.useOriginal)
                                     },
                                 )
                             }
@@ -143,6 +146,19 @@ fun BookDetailScreen(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp),
+        )
+    }
+    val preview = state.details.preview
+    if (preview != null && doc != null) {
+        DetailsPreviewSheet(
+            preview = preview,
+            shown = doc.shownWith(state.details.shown),
+            ownCover = doc.coverPath,
+            onToggle = viewModel::toggleChange,
+            onChooseCover = viewModel::chooseCover,
+            onKeepCover = viewModel::keepNewCover,
+            onApply = viewModel::applyPreview,
+            onCancel = viewModel::cancelPreview,
         )
     }
 }
@@ -194,18 +210,18 @@ fun BookDetailContent(
             notes = found?.let { headerNotes(own, it) }.orEmpty().map { stringResource(it) },
         )
 
-        if (state.details.tidying) {
+        if (state.details.improving) {
             Spacer(Modifier.height(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                 Spacer(Modifier.width(8.dp))
-                Text(stringResource(R.string.details_tidying), style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.details_improving), style = MaterialTheme.typography.bodySmall)
             }
         }
-        state.details.outcome?.let { outcome ->
+        if (state.details.outcome.isNotEmpty()) {
             Spacer(Modifier.height(12.dp))
             Text(
-                text = outcome.asString(),
+                text = state.details.outcome.map { it.asString() }.joinToString(" "),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -230,6 +246,16 @@ fun BookDetailContent(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        state.timeLeftSeconds?.takeIf { progress != null && progress.percent > 0 }?.let { left ->
+            Text(
+                text = stringResource(R.string.stats_time_left, formatDuration(left, locale, rough = true)),
+                modifier = Modifier.semantics {
+                    contentDescription = context.getString(R.string.stats_time_left, formatDuration(left, locale, wide = true, rough = true))
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
         if (onOpenReader != null) {
             Spacer(Modifier.height(16.dp))
