@@ -16,6 +16,8 @@
 !NOTICE
 !branding/
 !branding/**
+!catalogs/
+!catalogs/**
 !core/
 !core/identity/
 !core/identity/src/

@@ -9,6 +9,7 @@ on:
     paths:
       - "server/**"
       - "web/**"
+      - "catalogs/**"
       - "reader/src/main/assets/**"
       - "reader/src/test/resources/highlights/**"
       - "scripts/make-reader-pause-fixture.py"
@@ -23,6 +24,7 @@ on:
     paths:
       - "server/**"
       - "web/**"
+      - "catalogs/**"
       - "reader/src/main/assets/**"
       - "reader/src/test/resources/highlights/**"
       - "scripts/make-reader-pause-fixture.py"

@@ -117,6 +117,15 @@ internal fun WhatsNewScreen(onBack: () -> Unit) {
                 HorizontalDivider()
                 UpdateEntry(
                     group = stringResource(R.string.whats_new_earlier),
+                    title = stringResource(R.string.whats_new_open_catalogs_title),
+                    description = stringResource(
+                        R.string.whats_new_open_catalogs_description,
+                        stringResource(R.string.common_settings),
+                        stringResource(R.string.catalogs_title),
+                    ),
+                )
+                UpdateEntry(
+                    group = null,
                     title = stringResource(R.string.whats_new_pdf_conversion_title),
                     description = stringResource(
                         R.string.whats_new_pdf_conversion_description,

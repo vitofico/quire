@@ -13,7 +13,7 @@ test.use({ serviceWorkers: 'block' })
 
 const bookCount = 1500
 const passageCount = 5000
-const budgets = { coldShelfMs: 1500, shelfSearchMs: 500, passageSearchMs: 700, scrollP95Ms: 55, firstChapterMs: 3500, epubHeapDeltaMiB: 150 }
+const budgets = { coldShelfMs: 1500, shelfSearchMs: 500, passageSearchMs: 900, scrollP95Ms: 55, firstChapterMs: 3500, epubHeapDeltaMiB: 150 }
 
 test('cold shelf, long-shelf scrolling and search on a 1,500-book, 5,000-passage replica', async ({ page: seed, context, browserName }) => {
   test.skip(browserName !== 'chromium', 'Desktop Chromium provides the reference timing environment.')

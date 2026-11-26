@@ -186,7 +186,7 @@ test('failures explain themselves and offer a retry only when the server says it
   await eventually(page, scan, 'The conversion did not finish.')
   await expect(scan).toContainText('<i>ocr</i> stage')
   // Both reasons are kept in this browser; the server's copies go.
-  expect(server.calls).toEqual(expect.arrayContaining(['POST /convert/v1/jobs/job-1/acknowledge', 'POST /convert/v1/jobs/job-2/acknowledge']))
+  await expect.poll(() => server.calls).toEqual(expect.arrayContaining(['POST /convert/v1/jobs/job-1/acknowledge', 'POST /convert/v1/jobs/job-2/acknowledge']))
 
   await scan.getByRole('button', { name: 'Try again' }).click()
   await eventually(page, scan, 'Added to your library.')

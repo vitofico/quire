@@ -10,6 +10,7 @@ import io.theficos.ereader.data.opds.CatalogSyncClient
 import io.theficos.ereader.data.opds.CatalogSyncRepository
 import io.theficos.ereader.data.opds.ServerProbe
 import io.theficos.ereader.ui.catalog.FakeAndroidKeyStore
+import io.theficos.ereader.ui.catalog.OpenCatalog
 import io.theficos.ereader.ui.onboarding.CatalogCheck
 import io.theficos.ereader.ui.uiText
 import io.theficos.quire.R
@@ -48,7 +49,7 @@ class CatalogsViewModelTest {
     private lateinit var repository: CatalogSyncRepository
     private val viewModels = mutableListOf<CatalogsViewModel>()
 
-    /** Answers keyed by "METHOD path"; anything else is a 404. */
+    // Answers keyed by "METHOD path", or by the parent path and a star for any last segment; anything else is a 404.
     private val routes = mutableMapOf<String, MockResponse>()
     private val requests = LinkedBlockingQueue<RecordedRequest>()
 
@@ -67,7 +68,9 @@ class CatalogsViewModelTest {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
                     requests += request
-                    return routes["${request.method} ${request.path}"] ?: MockResponse().setResponseCode(404)
+                    return routes["${request.method} ${request.path}"]
+                        ?: routes["${request.method} ${request.path?.substringBeforeLast('/')}/*"]
+                        ?: MockResponse().setResponseCode(404)
                 }
             }
             start()
@@ -94,6 +97,16 @@ class CatalogsViewModelTest {
     private fun newViewModel(): CatalogsViewModel =
         CatalogsViewModel(store, repository, CatalogCheck(ServerProbe(), OkHttpClient()), testDispatcher)
             .also { viewModels += it }
+
+    private fun open(path: String = "/open") = OpenCatalog(
+        id = "free",
+        name = "Free books",
+        url = server.url(path).toString(),
+        languages = listOf("en"),
+        offers = "public_domain",
+        home = "https://free.example/",
+        descriptions = mapOf("en" to "Free books."),
+    )
 
     private fun atom(body: String = feed) =
         MockResponse().setResponseCode(200).setHeader("Content-Type", "application/atom+xml").setBody(body)
@@ -230,6 +243,86 @@ class CatalogsViewModelTest {
         assertThat(vm.form.value).isNull()
         assertThat(request().method).isEqualTo("PUT")
         assertThat(store.catalogs.value.single().onAccount).isTrue()
+    }
+
+    @Test fun `an open catalog is tested and added with its own name in one tap`() = runTest {
+        // Its home lists other feeds typed as bare Atom, as Ebooks libres et gratuits does.
+        routes["GET /open"] = atom(
+            """<feed xmlns="http://www.w3.org/2005/Atom"><title>Free</title>
+                 <link rel="self" type="application/atom+xml" href="/open"/>
+                 <entry><title>Latest</title><link type="application/atom+xml" href="/open/latest"/></entry>
+               </feed>""",
+        )
+        val vm = newViewModel()
+        vm.addOpen(open())
+        assertThat(vm.openAdding.value).isEqualTo(OpenCatalogAdding("free", busy = true))
+        advanceUntilIdle()
+
+        assertThat(vm.openAdding.value).isNull()
+        val saved = store.catalogs.value.single()
+        assertThat(saved.name).isEqualTo("Free books")
+        assertThat(saved.catalog).isEqualTo(AccountCredentials.OpdsOnly(server.url("/open").toString()))
+        assertThat(store.activeCatalog.value?.id).isEqualTo(saved.id)
+
+        // Already there: a second tap asks nothing and adds nothing.
+        requests.clear()
+        vm.addOpen(open())
+        advanceUntilIdle()
+        assertThat(requests.poll(250, TimeUnit.MILLISECONDS)).isNull()
+        assertThat(store.catalogs.value).hasSize(1)
+    }
+
+    @Test fun `an open catalog added while signed in goes to the account like a typed one`() = runTest {
+        signedIn()
+        repository.pull()
+        request()
+        routes["GET /open"] = atom()
+        routes["PUT /catalogs/v1/catalogs/*"] =
+            json("""{"id":"x","name":"Free books","kind":"opds","host":"x","position":0,"updated_at":"t1"}""")
+        val vm = newViewModel()
+        vm.addOpen(open())
+        // The account call runs on the IO dispatcher, outside the test scheduler.
+        vm.openAdding.first { it == null }
+
+        assertThat(request().path).isEqualTo("/open")
+        val put = request()
+        assertThat(put.method).isEqualTo("PUT")
+        assertThat(put.body.readUtf8()).contains("\"name\":\"Free books\"")
+        assertThat(store.catalogs.value.single().onAccount).isTrue()
+    }
+
+    @Test fun `an open catalog that does not answer stays offered with the reason`() = runTest {
+        routes["GET /open"] = MockResponse().setResponseCode(503)
+        val vm = newViewModel()
+        vm.addOpen(open())
+        advanceUntilIdle()
+
+        assertThat(vm.openAdding.value).isEqualTo(
+            OpenCatalogAdding("free", busy = false, error = uiText(R.string.onboarding_server_error_try_again_later, 503)),
+        )
+        assertThat(store.catalogs.value).isEmpty()
+    }
+
+    @Test fun `an open catalog the full account refuses can stay on this device only`() = runTest {
+        signedIn()
+        repository.pull()
+        request()
+        routes["GET /open"] = atom()
+        routes["PUT /catalogs/v1/catalogs/*"] = json("""{"detail":"catalog_limit_reached"}""", 409)
+        val vm = newViewModel()
+        vm.addOpen(open())
+        // The account call runs on the IO dispatcher, outside the test scheduler.
+        val refused = vm.openAdding.first { it?.busy == false }!!
+
+        assertThat(refused.error).isEqualTo(uiText(R.string.catalogs_failed_limit))
+        assertThat(refused.tested).isNotNull()
+        assertThat(store.catalogs.value).isEmpty()
+
+        vm.keepOpenOnDevice()
+        vm.openAdding.first { it == null }
+        val kept = store.catalogs.value.single()
+        assertThat(kept.deviceOnly).isTrue()
+        assertThat(kept.name).isEqualTo("Free books")
     }
 
     @Test fun `the form's string form never shows the address or password`() {

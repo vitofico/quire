@@ -1,0 +1,49 @@
+{
+  "catalogs": [
+    {
+      "id": "textos-info",
+      "name": "textos.info",
+      "url": "https://www.textos.info/catalogo.atom",
+      "languages": ["es"],
+      "offers": "public_domain",
+      "home": "https://www.textos.info/",
+      "description": {
+        "en": "A free digital library of Spanish-language classics in the public domain.",
+        "de": "Eine kostenlose digitale Bibliothek gemeinfreier Klassiker auf Spanisch.",
+        "es": "Biblioteca digital gratuita de clásicos en español de dominio público.",
+        "fr": "Une bibliothèque numérique gratuite de classiques en espagnol du domaine public.",
+        "it": "Una biblioteca digitale gratuita di classici in spagnolo di pubblico dominio."
+      }
+    },
+    {
+      "id": "ebooks-libres-et-gratuits",
+      "name": "Ebooks libres et gratuits",
+      "url": "https://www.ebooksgratuits.com/opds/",
+      "languages": ["fr"],
+      "offers": "public_domain",
+      "home": "https://www.ebooksgratuits.com/",
+      "description": {
+        "en": "French classics in the public domain, proofread and published by volunteers.",
+        "de": "Gemeinfreie französische Klassiker, von Freiwilligen korrigiert und veröffentlicht.",
+        "es": "Clásicos franceses de dominio público, corregidos y publicados por voluntarios.",
+        "fr": "Des classiques français du domaine public, relus et publiés par des bénévoles.",
+        "it": "Classici francesi di pubblico dominio, corretti e pubblicati da volontari."
+      }
+    },
+    {
+      "id": "bibliotheque-numerique-romande",
+      "name": "Bibliothèque numérique romande",
+      "url": "https://ebooks-bnr.com/opds/",
+      "languages": ["fr"],
+      "offers": "public_domain",
+      "home": "https://ebooks-bnr.com/",
+      "description": {
+        "en": "A Swiss library of free French-language classics in the public domain.",
+        "de": "Eine Schweizer Bibliothek mit kostenlosen gemeinfreien Klassikern auf Französisch.",
+        "es": "Una biblioteca suiza de clásicos gratuitos en francés de dominio público.",
+        "fr": "Une bibliothèque suisse de classiques gratuits en français, du domaine public.",
+        "it": "Una biblioteca svizzera di classici gratuiti in francese di pubblico dominio."
+      }
+    }
+  ]
+}

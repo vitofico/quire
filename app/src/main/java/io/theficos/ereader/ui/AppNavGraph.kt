@@ -134,7 +134,9 @@ fun AppNavGraph(
     val catalogsVm: CatalogsViewModel = viewModel(
         key = "catalogs",
         factory = viewModelFactory {
-            initializer { CatalogsViewModel(container.credentialStore, container.catalogSyncRepository) }
+            initializer {
+                CatalogsViewModel(container.credentialStore, container.catalogSyncRepository, openCatalogs = container.openCatalogs)
+            }
         },
     )
     CatalogUploadQuestion(catalogsVm)
@@ -276,6 +278,7 @@ fun AppNavGraph(
                     )
                     Tab.CATALOG -> CatalogScreen(
                         viewModel = catVm,
+                        catalogsViewModel = catalogsVm,
                         contentPadding = padding,
                         onShowDetails = { pub ->
                             val key = container.catalogDetailRegistry.put(pub)

@@ -22,6 +22,8 @@ export interface CatalogProps {
   signOutCatalog?: () => void
   /** Shown under the heading: the switcher between catalogs. */
   children?: ReactNode
+  /** Move the focus to the heading when shown, as after adding this catalog. */
+  focusHeading?: boolean
 }
 
 type Destination = { href: string } | { search: OpdsSearch; query: string }
@@ -52,8 +54,12 @@ function Cover({ client, publication }: { client: Client; publication: OpdsPubli
 
 export function Catalog({
   url, authorization, request, onAcquire, onImport, t = key => key, apiRequest, aiAvailable,
-  catalogAuthenticated, signInCatalog, signOutCatalog, children,
+  catalogAuthenticated, signInCatalog, signOutCatalog, children, focusHeading,
 }: CatalogProps) {
+  const heading = useRef<HTMLHeadingElement>(null)
+  useEffect(() => {
+    if (focusHeading) heading.current?.focus()
+  }, [focusHeading])
   const [feed, setFeed] = useState<OpdsFeed>()
   const [latest, setLatest] = useState<OpdsFeed>()
   const [client, setClient] = useState<Client>()
@@ -200,7 +206,7 @@ export function Catalog({
 
   return <section className="catalog">
     <header className="catalog-header">
-      <h1>{feed?.title || t('Catalog')}</h1>
+      <h1 ref={heading} tabIndex={-1}>{feed?.title || t('Catalog')}</h1>
       <div className="catalog-actions">
         {trail.length > 0 && <button type="button" onClick={back} disabled={loading || downloading}>{t('Back')}</button>}
         {catalogAuthenticated && signOutCatalog &&

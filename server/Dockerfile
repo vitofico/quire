@@ -7,6 +7,7 @@ COPY web/ ./
 COPY core/identity/src/test/resources/identity/ /app/core/identity/src/test/resources/identity/
 COPY reader/src/main/assets/ /app/reader/src/main/assets/
 COPY branding/ /app/branding/
+COPY catalogs/ /app/catalogs/
 ARG QUIRE_VERSION=dev
 RUN QUIRE_VERSION="$QUIRE_VERSION" pnpm build \
  && mkdir /app/web-licenses \
