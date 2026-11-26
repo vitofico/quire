@@ -1,16 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="notify_section_title">"Notifications et silence"</string>
-    <string name="notify_new_books_title">"Nouveaux livres dans vos catalogues"</string>
+    <string name="notify_new_books_switch">"Nouveaux livres dans vos catalogues"</string>
     <string name="notify_new_books_hint">"Environ deux fois par jour, Quire regarde les livres les plus récents de chaque catalogue et vous prévient quand il en arrive."</string>
     <string name="notify_new_books_no_feed">"Non vérifiés, pas de liste des livres les plus récents : %1$s"</string>
     <string name="notify_reminder_switch">"Rappel de lecture"</string>
-    <string name="notify_reminder_hint">"Un petit rappel chaque jour à l’heure de votre choix. Il ne vient pas les jours où vous avez déjà lu."</string>
-    <string name="notify_reminder_at">"Me le rappeler à %1$s"</string>
+    <string name="notify_reminder_hint">"Un petit rappel vers l’heure de votre choix, les jours choisis. Il peut arriver en retard si le téléphone est resté inactif, et il ne vient pas les jours où vous avez déjà lu."</string>
+    <string name="notify_reminder_at">"Me rappeler à %1$s"</string>
     <string name="notify_reminder_time_title">"Heure du rappel"</string>
     <string name="notify_reminder_time_set">"Valider"</string>
     <string name="notify_quiet_title">"Silence pendant la lecture"</string>
-    <string name="notify_quiet_hint">"Ne pas déranger, prioritaires uniquement, tant qu’un livre est ouvert. Quand vous quittez le livre, le téléphone revient à son état d’avant."</string>
+    <string name="notify_quiet_hint">"Une règle Ne pas déranger propre à Quire, prioritaires uniquement, tant qu’un livre est ouvert. Le mode Ne pas déranger activé par vous ou une autre app reste tel quel."</string>
+    <string name="notify_quiet_rule_name">"Lecture dans Quire"</string>
+    <string name="notify_reminder_last_day">"Au moins un jour reste choisi. Pour arrêter le rappel, désactivez-le."</string>
     <string name="notify_quiet_access_title">"Autoriser l’accès à Ne pas déranger"</string>
     <string name="notify_quiet_access_explain">"Pour mettre le téléphone en silence pendant la lecture, Quire a besoin de l’accès à Ne pas déranger : autorisez-le sur l’écran suivant, puis revenez ici."</string>
     <string name="notify_quiet_access_missing">"L’accès à Ne pas déranger est désactivé, Quire ne peut donc pas mettre le téléphone en silence. Réactivez cette option pour l’autoriser."</string>

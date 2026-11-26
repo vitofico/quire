@@ -13,33 +13,42 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimeInput
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import io.theficos.ereader.notify.AndroidDoNotDisturb
 import io.theficos.ereader.notify.NotificationFeatures
 import io.theficos.ereader.notify.Notifier
 import io.theficos.ereader.ui.components.QuireCard
@@ -51,6 +60,8 @@ import java.time.ZoneId
 import java.time.format.TextStyle
 import java.time.temporal.WeekFields
 import java.util.Date
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private enum class Pending { NONE, NEW_BOOKS, REMINDER, QUIET }
 
@@ -71,6 +82,14 @@ internal fun NotificationsSettings(features: NotificationFeatures, catalogNames:
     var notificationsBlocked by rememberSaveable { mutableStateOf(false) }
     var explainDnd by rememberSaveable { mutableStateOf(false) }
     var pickTime by rememberSaveable { mutableStateOf(false) }
+    // Hidden before Android 10, on low-RAM phones, and where there is no access page to send the reader to.
+    val quietSupported = AndroidDoNotDisturb.isSupported(context)
+    var resumes by remember { mutableIntStateOf(0) }
+    // Written by the background check; read from a file, so off the main thread, again on each return.
+    var withoutLatest by remember { mutableStateOf(emptySet<String>()) }
+    LaunchedEffect(settings.newBooks, resumes) {
+        withoutLatest = if (settings.newBooks) withContext(Dispatchers.IO) { features.catalogsWithoutLatest() } else emptySet()
+    }
 
     fun enable(feature: Pending) = when (feature) {
         Pending.NEW_BOOKS -> features.setNewBooks(true)
@@ -80,6 +99,7 @@ internal fun NotificationsSettings(features: NotificationFeatures, catalogNames:
     }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        resumes++
         canPost = Notifier.canPost(context)
         dndGranted = dndAccessGranted(context)
         if (canPost) notificationsBlocked = false
@@ -102,7 +122,9 @@ internal fun NotificationsSettings(features: NotificationFeatures, catalogNames:
                 canPost = true
                 enable(feature)
             }
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !notificationsBlocked -> {
+            // Asked every time: Android shows its prompt twice before it stops, and once it has
+            // stopped the request comes straight back denied, which shows the way to settings.
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> {
                 pending = feature
                 permission.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
@@ -126,13 +148,13 @@ internal fun NotificationsSettings(features: NotificationFeatures, catalogNames:
                 }
             }
 
-            SwitchRow(
-                title = stringResource(R.string.notify_new_books_title),
+            SettingsSwitchRow(
+                title = stringResource(R.string.notify_new_books_switch),
                 description = stringResource(R.string.notify_new_books_hint),
                 checked = settings.newBooks,
                 onCheckedChange = { on -> if (on) switchOnNotifying(Pending.NEW_BOOKS) else features.setNewBooks(false) },
             )
-            val skipped = settings.catalogsWithoutLatest.mapNotNull { catalogNames[it] }
+            val skipped = withoutLatest.mapNotNull { catalogNames[it] }
             if (settings.newBooks && skipped.isNotEmpty()) {
                 Text(
                     stringResource(R.string.notify_new_books_no_feed, skipped.joinToString(", ")),
@@ -142,7 +164,7 @@ internal fun NotificationsSettings(features: NotificationFeatures, catalogNames:
             }
 
             HorizontalDivider()
-            SwitchRow(
+            SettingsSwitchRow(
                 title = stringResource(R.string.notify_reminder_switch),
                 description = stringResource(R.string.notify_reminder_hint),
                 checked = settings.reminder,
@@ -157,40 +179,55 @@ internal fun NotificationsSettings(features: NotificationFeatures, catalogNames:
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     (0L until 7L).map { first.plus(it) }.forEach { day ->
                         val selected = day in settings.reminderDays
+                        val fullName = day.getDisplayName(TextStyle.FULL, locale)
                         FilterChip(
                             selected = selected,
-                            // The last chosen day stays: a reminder on no day is the switch being off.
                             onClick = {
                                 features.setReminderDays(if (selected) settings.reminderDays - day else settings.reminderDays + day)
                             },
+                            // The last chosen day stays: a reminder on no day is the switch being off.
+                            enabled = !(selected && settings.reminderDays.size == 1),
                             label = { Text(day.getDisplayName(TextStyle.SHORT, locale)) },
+                            leadingIcon = if (selected) {
+                                { Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(FilterChipDefaults.IconSize)) }
+                            } else null,
+                            modifier = Modifier.semantics { contentDescription = fullName },
                         )
                     }
                 }
+                if (settings.reminderDays.size == 1) {
+                    Text(
+                        stringResource(R.string.notify_reminder_last_day),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
 
-            HorizontalDivider()
-            SwitchRow(
-                title = stringResource(R.string.notify_quiet_title),
-                description = stringResource(R.string.notify_quiet_hint),
-                checked = settings.quietWhileReading && dndGranted,
-                onCheckedChange = { on ->
-                    when {
-                        !on -> features.setQuietWhileReading(false)
-                        dndAccessGranted(context) -> {
-                            dndGranted = true
-                            features.setQuietWhileReading(true)
+            if (quietSupported) {
+                HorizontalDivider()
+                SettingsSwitchRow(
+                    title = stringResource(R.string.notify_quiet_title),
+                    description = stringResource(R.string.notify_quiet_hint),
+                    checked = settings.quietWhileReading && dndGranted,
+                    onCheckedChange = { on ->
+                        when {
+                            !on -> features.setQuietWhileReading(false)
+                            dndAccessGranted(context) -> {
+                                dndGranted = true
+                                features.setQuietWhileReading(true)
+                            }
+                            else -> explainDnd = true
                         }
-                        else -> explainDnd = true
-                    }
-                },
-            )
-            if (settings.quietWhileReading && !dndGranted) {
-                Text(
-                    stringResource(R.string.notify_quiet_access_missing),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
+                    },
                 )
+                if (settings.quietWhileReading && !dndGranted) {
+                    Text(
+                        stringResource(R.string.notify_quiet_access_missing),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
             }
         }
     }
@@ -204,9 +241,11 @@ internal fun NotificationsSettings(features: NotificationFeatures, catalogNames:
                 TextButton(onClick = {
                     explainDnd = false
                     pending = Pending.QUIET
-                    context.startActivity(
-                        Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                    )
+                    runCatching {
+                        context.startActivity(
+                            Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                        )
+                    }.onFailure { pending = Pending.NONE }
                 }) { Text(stringResource(R.string.notify_open_settings)) }
             },
             dismissButton = {
@@ -228,29 +267,17 @@ internal fun NotificationsSettings(features: NotificationFeatures, catalogNames:
     }
 }
 
-@Composable
-private fun SwitchRow(title: String, description: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            Text(description, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ReminderTimeDialog(initial: LocalTime, is24Hour: Boolean, onDismiss: () -> Unit, onPick: (LocalTime) -> Unit) {
     val state = rememberTimePickerState(initialHour = initial.hour, initialMinute = initial.minute, is24Hour = is24Hour)
+    // The clock face needs about 500 dp of height; with large text or a short screen it would be
+    // cut off, so type the time instead.
+    val compact = LocalConfiguration.current.screenHeightDp < 600 || LocalDensity.current.fontScale > 1.3f
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.notify_reminder_time_title)) },
-        text = { TimePicker(state = state) },
+        text = { if (compact) TimeInput(state = state) else TimePicker(state = state) },
         confirmButton = {
             TextButton(onClick = { onPick(LocalTime.of(state.hour, state.minute)) }) {
                 Text(stringResource(R.string.notify_reminder_time_set))

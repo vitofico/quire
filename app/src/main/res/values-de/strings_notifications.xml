@@ -1,16 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="notify_section_title">"Benachrichtigungen und Ruhe"</string>
-    <string name="notify_new_books_title">"Neue Bücher in deinen Katalogen"</string>
+    <string name="notify_new_books_switch">"Neue Bücher in deinen Katalogen"</string>
     <string name="notify_new_books_hint">"Etwa zweimal am Tag sieht Quire sich die neuesten Bücher jedes Katalogs an und sagt dir Bescheid, wenn neue dazukommen."</string>
     <string name="notify_new_books_no_feed">"Nicht geprüft, keine Liste der neuesten Bücher: %1$s"</string>
     <string name="notify_reminder_switch">"Leseerinnerung"</string>
-    <string name="notify_reminder_hint">"Ein sanfter Anstoß jeden Tag zur gewählten Uhrzeit. An Tagen, an denen du schon gelesen hast, bleibt er aus."</string>
+    <string name="notify_reminder_hint">"Ein sanfter Anstoß gegen die gewählte Uhrzeit, an den gewählten Tagen. War das Handy länger unbenutzt, kann er später kommen. An Tagen, an denen du schon gelesen hast, bleibt er aus."</string>
     <string name="notify_reminder_at">"Erinnern um %1$s"</string>
     <string name="notify_reminder_time_title">"Uhrzeit der Erinnerung"</string>
     <string name="notify_reminder_time_set">"Übernehmen"</string>
     <string name="notify_quiet_title">"Ruhe beim Lesen"</string>
-    <string name="notify_quiet_hint">"Bitte nicht stören, nur wichtige Unterbrechungen, solange ein Buch offen ist. Wenn du das Buch verlässt, ist dein Telefon wieder wie vorher."</string>
+    <string name="notify_quiet_hint">"Eine eigene „Bitte nicht stören“-Regel von Quire, nur Prioritäres, solange ein Buch offen ist. „Bitte nicht stören“, das du oder eine andere App eingeschaltet habt, bleibt, wie es ist."</string>
+    <string name="notify_quiet_rule_name">"Lesen in Quire"</string>
+    <string name="notify_reminder_last_day">"Mindestens ein Tag bleibt gewählt. Um die Erinnerung zu beenden, schalte sie aus."</string>
     <string name="notify_quiet_access_title">"Zugriff auf Bitte nicht stören erlauben"</string>
     <string name="notify_quiet_access_explain">"Um dein Telefon beim Lesen stummzuschalten, braucht Quire Zugriff auf Bitte nicht stören: Erlaube ihn auf dem nächsten Bildschirm und komm dann zurück."</string>
     <string name="notify_quiet_access_missing">"Der Zugriff auf Bitte nicht stören ist aus, deshalb kann Quire dein Telefon nicht stummschalten. Schalte diese Option wieder ein, um ihn zu erlauben."</string>

@@ -1,16 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="notify_section_title">"Notifiche e silenzio"</string>
-    <string name="notify_new_books_title">"Nuovi libri nei tuoi cataloghi"</string>
+    <string name="notify_new_books_switch">"Nuovi libri nei tuoi cataloghi"</string>
     <string name="notify_new_books_hint">"Circa due volte al giorno Quire guarda i libri più recenti di ogni catalogo e ti avvisa quando ne arrivano di nuovi."</string>
     <string name="notify_new_books_no_feed">"Non controllati, nessun elenco dei libri più recenti: %1$s"</string>
     <string name="notify_reminder_switch">"Promemoria di lettura"</string>
-    <string name="notify_reminder_hint">"Un piccolo invito ogni giorno all’ora che scegli. Non arriva nei giorni in cui hai già letto."</string>
+    <string name="notify_reminder_hint">"Un piccolo invito verso l’ora che scegli, nei giorni che indichi. Può arrivare in ritardo se il telefono è rimasto inattivo, e non arriva nei giorni in cui hai già letto."</string>
     <string name="notify_reminder_at">"Ricordamelo alle %1$s"</string>
     <string name="notify_reminder_time_title">"Ora del promemoria"</string>
     <string name="notify_reminder_time_set">"Imposta"</string>
     <string name="notify_quiet_title">"Silenzio durante la lettura"</string>
-    <string name="notify_quiet_hint">"Non disturbare, solo priorità, mentre un libro è aperto. Quando lasci il libro, il telefono torna com’era."</string>
+    <string name="notify_quiet_hint">"Una regola Non disturbare tutta di Quire, solo priorità, mentre un libro è aperto. Il Non disturbare attivato da te o da un’altra app resta com’è."</string>
+    <string name="notify_quiet_rule_name">"Lettura in Quire"</string>
+    <string name="notify_reminder_last_day">"Almeno un giorno resta scelto. Per fermare il promemoria, spegnilo."</string>
     <string name="notify_quiet_access_title">"Consenti l’accesso a Non disturbare"</string>
     <string name="notify_quiet_access_explain">"Per silenziare il telefono mentre leggi, Quire ha bisogno dell’accesso a Non disturbare: consentilo nella schermata successiva, poi torna qui."</string>
     <string name="notify_quiet_access_missing">"L’accesso a Non disturbare è disattivato, quindi Quire non può silenziare il telefono. Riattiva l’opzione per consentirlo."</string>

@@ -994,31 +994,19 @@ private fun ReadingStatsSettings(viewModel: SettingsViewModel) {
     SectionLabel(stringResource(R.string.stats_title))
     QuireCard(modifier = Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Top,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
-                    Text(stringResource(R.string.settings_record_stats), style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        stringResource(
-                            R.string.settings_record_stats_description,
-                            stringResource(R.string.common_more),
-                            stringResource(R.string.stats_title),
-                        ),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(
-                    checked = recording,
-                    onCheckedChange = { on ->
-                        viewModel.setRecordReadingStats(on)
-                        if (!on) offerClear = true
-                    },
-                )
-            }
+            SettingsSwitchRow(
+                title = stringResource(R.string.settings_record_stats),
+                description = stringResource(
+                    R.string.settings_record_stats_description,
+                    stringResource(R.string.common_more),
+                    stringResource(R.string.stats_title),
+                ),
+                checked = recording,
+                onCheckedChange = { on ->
+                    viewModel.setRecordReadingStats(on)
+                    if (!on) offerClear = true
+                },
+            )
             TextButton(
                 onClick = { confirmClear = true },
                 colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),

@@ -1,16 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="notify_section_title">"Notificaciones y silencio"</string>
-    <string name="notify_new_books_title">"Libros nuevos en tus catálogos"</string>
+    <string name="notify_new_books_switch">"Libros nuevos en tus catálogos"</string>
     <string name="notify_new_books_hint">"Unas dos veces al día, Quire mira los libros más recientes de cada catálogo y te avisa cuando llegan nuevos."</string>
     <string name="notify_new_books_no_feed">"Sin comprobar, no hay lista de libros más recientes: %1$s"</string>
     <string name="notify_reminder_switch">"Recordatorio de lectura"</string>
-    <string name="notify_reminder_hint">"Un pequeño aviso cada día a la hora que elijas. No aparece los días en que ya has leído."</string>
+    <string name="notify_reminder_hint">"Un pequeño aviso hacia la hora que elijas, los días que indiques. Puede llegar tarde si el teléfono ha estado inactivo, y no aparece los días en que ya has leído."</string>
     <string name="notify_reminder_at">"Recordármelo a las %1$s"</string>
     <string name="notify_reminder_time_title">"Hora del recordatorio"</string>
-    <string name="notify_reminder_time_set">"Fijar"</string>
+    <string name="notify_reminder_time_set">"Aceptar"</string>
     <string name="notify_quiet_title">"Silencio al leer"</string>
-    <string name="notify_quiet_hint">"No molestar, solo prioridad, mientras hay un libro abierto. Al salir del libro, el teléfono vuelve a estar como antes."</string>
+    <string name="notify_quiet_hint">"Una regla de No molestar propia de Quire, solo prioridad, mientras hay un libro abierto. El No molestar que activas tú u otra app se queda como está."</string>
+    <string name="notify_quiet_rule_name">"Lectura en Quire"</string>
+    <string name="notify_reminder_last_day">"Al menos un día queda elegido. Para parar el recordatorio, desactívalo."</string>
     <string name="notify_quiet_access_title">"Permitir el acceso a No molestar"</string>
     <string name="notify_quiet_access_explain">"Para silenciar el teléfono mientras lees, Quire necesita acceso a No molestar: permítelo en la siguiente pantalla y vuelve aquí."</string>
     <string name="notify_quiet_access_missing">"El acceso a No molestar está desactivado, así que Quire no puede silenciar el teléfono. Vuelve a activar esta opción para permitirlo."</string>
