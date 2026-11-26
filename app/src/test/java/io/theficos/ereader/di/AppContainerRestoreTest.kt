@@ -1,6 +1,5 @@
 package io.theficos.ereader.di
 
-import io.theficos.ereader.testing.awaitRequest
 import android.app.Application
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
@@ -18,8 +17,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
 import okio.Buffer
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -40,6 +41,16 @@ class AppContainerRestoreTest {
         val container = AppContainer(context, db)
         try {
             MockWebServer().use { server ->
+                // Answered by path: the AI features also ask the server for their config at start.
+                val answers = java.util.concurrent.ConcurrentHashMap<String, () -> MockResponse>()
+                val asked = java.util.concurrent.CopyOnWriteArrayList<String>()
+                server.dispatcher = object : Dispatcher() {
+                    override fun dispatch(request: RecordedRequest): MockResponse {
+                        val path = request.requestUrl?.encodedPath.orEmpty()
+                        if (!path.startsWith("/ai/")) asked += path
+                        return answers[path]?.invoke() ?: MockResponse().setResponseCode(404)
+                    }
+                }
                 server.start()
                 val origin = server.url("/").toString().trimEnd('/')
                 container.credentialStore.saveBasicAccount(origin, "reader", "fixture", origin)
@@ -55,28 +66,24 @@ class AppContainerRestoreTest {
                 // The mirror advertises a different identity. Only extracting the
                 // fetched EPUB can tell the restore path that it is already local.
                 val time = "2026-05-05T12:00:00Z"
-                server.enqueue(MockResponse().setBody("""
+                val library = """
                     {"items":[{"content_hash":"mirror-hash","opds_href":"$origin/restore.epub",
                     "title":"Remote Copy","created_at":"$time","updated_at":"$time"}],"server_time":"$time"}
-                """.trimIndent()))
-                server.enqueue(MockResponse().setBody("""
+                """.trimIndent()
+                val progress = """
                     {"items":[{"document":{"content_hash":"mirror-hash"},"locator":"loc",
                     "percent":0.5,"client_updated_at":"$time"}],"server_time":"$time"}
-                """.trimIndent()))
-                server.enqueue(MockResponse().setBody(Buffer().write(original.readBytes())))
+                """.trimIndent()
+                answers["/library/v1/items"] = { MockResponse().setBody(library) }
+                answers["/sync/v1/progress"] = { MockResponse().setBody(progress) }
+                answers["/restore.epub"] = { MockResponse().setBody(Buffer().write(original.readBytes())) }
 
                 assertThat(container.runRestoreInProgress { _, _ -> })
                     .isEqualTo(RestoreSummary(1, 1, 0, 0, 0))
                 assertThat(container.documentRepository.observeLibrary().first().map { it.id })
                     .containsExactly(id)
                 assertThat(container.booksDir.list()?.toList()).containsExactly("original.epub")
-                assertThat(server.requestCount).isEqualTo(3)
-                assertThat(server.awaitRequest().requestUrl?.encodedPath)
-                    .isEqualTo("/library/v1/items")
-                assertThat(server.awaitRequest().requestUrl?.encodedPath)
-                    .isEqualTo("/sync/v1/progress")
-                assertThat(server.awaitRequest().requestUrl?.encodedPath)
-                    .isEqualTo("/restore.epub")
+                assertThat(asked).containsExactly("/library/v1/items", "/sync/v1/progress", "/restore.epub").inOrder()
             }
         } finally {
             container.libraryUploaderScope.coroutineContext[Job]?.cancelAndJoin()

@@ -607,6 +607,13 @@ class AppContainer internal constructor(context: Context, private val db: EReade
                 }
             }
         }
+        // The AI features read the server's AI config and the reader's opt-in from here: fetch them
+        // at start and for each account, not only when Settings happens to be built.
+        libraryUploaderScope.launch {
+            credentialStore.accountFlow.map { it?.detailsOwner() }.distinctUntilChanged().collect { owner ->
+                if (owner != null) aiRepository.refresh()
+            }
+        }
         // Quietly fill in missing book details and covers, once per book, while AI is on and on Wi-Fi.
         libraryUploaderScope.launch { bookDetailsRepository.followLibrary() }
         // Discard queued promotions when either connection changes ownership.
