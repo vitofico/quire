@@ -67,7 +67,8 @@ class HighlightsDiscussionViewModel(
     private var generation = 0
 
     fun open(highlights: List<Highlight>) {
-        val passages = discussPassages(highlights)
+        // The selection already stops at the limit; this holds if a caller ever passes more.
+        val passages = discussPassages(highlights.take(limits.value?.maxHighlights ?: highlights.size))
         if (passages.isEmpty()) return
         drop()
         _state.value = DiscussionState(passages = passages)
@@ -91,6 +92,11 @@ class HighlightsDiscussionViewModel(
             return
         }
         if (current.questionsLeft(limits) == 0) return
+        // The server can lower its limit while the screen is open; never send more than it takes.
+        if (current.passages.size > limits.maxHighlights) {
+            _state.update { it.copy(error = uiText(R.string.discuss_too_large)) }
+            return
+        }
         val draft = discussDraft(current.passages, current.exchanges, question, current.includeNotes, limits)
         if (draft.tooLarge) {
             _state.update { it.copy(clipped = draft.clipped, error = uiText(R.string.discuss_too_large)) }
@@ -98,7 +104,8 @@ class HighlightsDiscussionViewModel(
         }
         val asked = question.trim()
         val mine = ++generation
-        _state.update { it.copy(asking = asked, clipped = draft.clipped, error = null) }
+        // A starter goes into the box too, so Cancel leaves it there to send again, as it does a typed one.
+        _state.update { it.copy(asking = asked, draft = question, clipped = draft.clipped, error = null) }
         job = viewModelScope.launch {
             val outcome = try {
                 Result.success(discuss(draft.request))
@@ -155,6 +162,8 @@ internal fun discussErrorMessage(e: Throwable): UiText = when {
     e is AiQuotaException -> uiText(R.string.details_allowance_used_until, e.info.resetsAt.take(10))
     e is AiProviderException && e.serverMessage.isNotBlank() -> UiText.Dynamic(e.serverMessage)
     e is AiHttpException -> when {
+        e.code == 401 -> uiText(R.string.quire_account_expired)
+        e.code == 413 -> uiText(R.string.discuss_too_large)
         e.code == 429 && e.detail == "discuss_rate_limited" -> uiText(R.string.details_busy)
         e.code == 429 -> uiText(R.string.details_allowance_used)
         e.detail == "ai_provider_unavailable" || e.detail == "ai_provider_unknown" -> uiText(R.string.discuss_provider_gone)

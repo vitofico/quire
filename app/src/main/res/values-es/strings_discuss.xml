@@ -15,14 +15,15 @@
     <string name="discuss_passage_excerpt">"Pasaje %1$d: %2$s"</string>
     <string name="discuss_clipped">"Algunos pasajes largos se han acortado para ajustarse al límite del servidor."</string>
     <string name="discuss_include_notes">"Incluir mis notas"</string>
-    <string name="discuss_privacy_notes">"Se envía al proveedor de IA de tu servidor: los pasajes seleccionados, tus notas sobre ellos y los títulos y autores de los libros."</string>
-    <string name="discuss_privacy">"Se envía al proveedor de IA de tu servidor: los pasajes seleccionados y los títulos y autores de los libros."</string>
+    <string name="discuss_privacy_notes">"Se envía al proveedor de IA de tu servidor: los pasajes seleccionados y tus notas, tus preguntas y las respuestas anteriores, con los títulos y autores de los libros."</string>
+    <string name="discuss_privacy">"Se envía al proveedor de IA de tu servidor: los pasajes seleccionados, tus preguntas y las respuestas anteriores, con los títulos y autores de los libros."</string>
     <string name="discuss_based_on">"Basado en los pasajes"</string>
     <string name="discuss_passages_heading">"Pasajes"</string>
     <string name="discuss_share">"Compartir"</string>
     <string name="discuss_copy">"Copiar"</string>
     <string name="discuss_copied">"Copiado."</string>
     <string name="discuss_thinking">"Pensando…"</string>
+    <string name="discuss_answer_ready">"Respuesta lista"</string>
     <string name="discuss_starter_connects">"¿Qué los une?"</string>
     <string name="discuss_starter_disagree">"¿En qué discrepan?"</string>
     <string name="discuss_starter_note">"Resumir como nota"</string>

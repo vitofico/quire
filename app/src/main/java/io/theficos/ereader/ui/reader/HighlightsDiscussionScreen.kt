@@ -48,6 +48,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -68,6 +74,8 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -75,7 +83,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.theficos.ereader.data.ai.DiscussLimits
 import io.theficos.ereader.data.ai.DiscussPassage
-import io.theficos.ereader.data.ai.codePointLength
+import io.theficos.ereader.data.ai.clipCodePoints
 import io.theficos.ereader.data.ai.excerpt
 import io.theficos.ereader.ui.UiText
 import io.theficos.ereader.ui.uiText
@@ -171,7 +179,7 @@ internal fun HighlightsDiscussionContent(
             HorizontalDivider()
             LazyColumn(
                 state = list,
-                modifier = Modifier.fillMaxSize().testTag("discuss-list"),
+                modifier = Modifier.weight(1f).fillMaxWidth().testTag("discuss-list"),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -229,9 +237,7 @@ internal fun HighlightsDiscussionContent(
                             Text(
                                 exchange.answer,
                                 style = MaterialTheme.typography.bodyLarge,
-                                modifier = Modifier.testTag("discuss-answer-$index").then(
-                                    if (index == state.exchanges.lastIndex) Modifier.semantics { liveRegion = LiveRegionMode.Polite } else Modifier,
-                                ),
+                                modifier = Modifier.testTag("discuss-answer-$index"),
                             )
                         }
                         if (exchange.cited.isNotEmpty()) {
@@ -247,7 +253,12 @@ internal fun HighlightsDiscussionContent(
                                     AssistChip(
                                         onClick = { show(n) },
                                         label = { Text("$n") },
-                                        modifier = Modifier.semantics { contentDescription = description },
+                                        // Read once, as the passage it points to, not again as its number.
+                                        modifier = Modifier.clearAndSetSemantics {
+                                            contentDescription = description
+                                            role = Role.Button
+                                            onClick { show(n); true }
+                                        },
                                     )
                                 }
                             }
@@ -262,24 +273,6 @@ internal fun HighlightsDiscussionContent(
                                 OutlinedButton(onClick = onCopy) { Text(stringResource(R.string.discuss_copy)) }
                             }
                         }
-                        if (asking) {
-                            Row(
-                                Modifier.semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                CircularProgressIndicator(Modifier.sizeIn(maxWidth = 24.dp, maxHeight = 24.dp), strokeWidth = 2.dp)
-                                Text(stringResource(R.string.discuss_thinking), Modifier.weight(1f))
-                                TextButton(onClick = onCancel) { Text(stringResource(R.string.common_cancel)) }
-                            }
-                        }
-                        (state.error ?: notice)?.let { message ->
-                            Text(
-                                message.asString(),
-                                color = if (state.error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-                            )
-                        }
                         when {
                             limits == null -> if (state.error == null) Text(stringResource(R.string.discuss_not_offered))
                             state.questionsLeft(limits) == 0 -> {
@@ -291,11 +284,48 @@ internal fun HighlightsDiscussionContent(
                     }
                 }
             }
+            StatusBar(asking, state.error ?: notice, isError = state.error != null, answered = latest != null, onCancel)
         }
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+/**
+ * One node that stays composed, so TalkBack announces each change of its text: a node that
+ * appears with its text already set is not announced.
+ */
+@Composable
+private fun StatusBar(asking: Boolean, message: UiText?, isError: Boolean, answered: Boolean, onCancel: () -> Unit) {
+    val thinking = stringResource(R.string.discuss_thinking)
+    val shown = message?.asString()
+    val status = when {
+        asking -> thinking
+        shown != null -> shown
+        answered -> stringResource(R.string.discuss_answer_ready)
+        else -> ""
+    }
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+            .then(if (asking || shown != null) Modifier.padding(vertical = 8.dp) else Modifier),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(
+            Modifier.weight(1f).clearAndSetSemantics { contentDescription = status; liveRegion = LiveRegionMode.Polite },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            if (asking) {
+                CircularProgressIndicator(Modifier.sizeIn(maxWidth = 24.dp, maxHeight = 24.dp), strokeWidth = 2.dp)
+                Text(thinking)
+            } else if (shown != null) {
+                Text(shown, color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+            }
+        }
+        if (asking) TextButton(onClick = onCancel) { Text(stringResource(R.string.common_cancel)) }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 private fun AskForm(state: DiscussionState, limits: DiscussLimits, onDraft: (String) -> Unit, onAsk: (String) -> Unit) {
     val asking = state.asking != null
@@ -309,23 +339,31 @@ private fun AskForm(state: DiscussionState, limits: DiscussLimits, onDraft: (Str
                 }
             }
         }
-        OutlinedTextField(
-            value = state.draft,
-            onValueChange = { if (it.codePointLength() <= limits.maxQuestionChars) onDraft(it) },
-            label = { Text(stringResource(if (latest == null) R.string.discuss_your_question else R.string.discuss_follow_up)) },
-            enabled = !asking,
-            minLines = 2,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-            keyboardActions = KeyboardActions(onSend = { onAsk(state.draft) }),
-            modifier = Modifier.fillMaxWidth().testTag("discuss-question"),
-        )
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(onClick = { onAsk(state.draft) }, enabled = !asking && state.draft.isNotBlank()) {
-                Text(stringResource(R.string.discuss_ask))
-            }
-            if (latest != null) {
-                Text(stringResource(R.string.discuss_questions_left, state.questionsLeft(limits)),
-                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        // The system scrolls only the focused field above the keyboard; keep its Ask button there too.
+        val askArea = remember { BringIntoViewRequester() }
+        var focused by remember { mutableStateOf(false) }
+        val keyboard = WindowInsets.ime.getBottom(LocalDensity.current)
+        LaunchedEffect(focused, keyboard) { if (focused) askArea.bringIntoView() }
+        Column(Modifier.bringIntoViewRequester(askArea), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedTextField(
+                value = state.draft,
+                // A paste past the limit keeps what fits rather than nothing.
+                onValueChange = { onDraft(it.clipCodePoints(limits.maxQuestionChars)) },
+                label = { Text(stringResource(if (latest == null) R.string.discuss_your_question else R.string.discuss_follow_up)) },
+                enabled = !asking,
+                minLines = 2,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                keyboardActions = KeyboardActions(onSend = { onAsk(state.draft) }),
+                modifier = Modifier.fillMaxWidth().testTag("discuss-question").onFocusChanged { focused = it.isFocused },
+            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(onClick = { onAsk(state.draft) }, enabled = !asking && state.draft.isNotBlank()) {
+                    Text(stringResource(R.string.discuss_ask))
+                }
+                if (latest != null) {
+                    Text(stringResource(R.string.discuss_questions_left, state.questionsLeft(limits)),
+                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
     }

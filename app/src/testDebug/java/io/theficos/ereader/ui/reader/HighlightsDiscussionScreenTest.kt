@@ -11,7 +11,11 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
@@ -39,7 +43,7 @@ class HighlightsDiscussionScreenTest {
 
     private val sent = mutableListOf<DiscussRequest>()
     private val vm = HighlightsDiscussionViewModel(
-        MutableStateFlow(DiscussLimits(20, 2000, 1000, 500, 10, 200, 1000, 4000, 2, 60_000, 10)),
+        MutableStateFlow(DiscussLimits(maxQuestions = 2)),
     ) { request ->
         sent += request
         DiscussAnswer("**Both** are about control. See https://example.com", listOf(2))
@@ -72,6 +76,9 @@ class HighlightsDiscussionScreenTest {
         scrollTo(hasText("**Both** are about control. See https://example.com"))
         compose.onNodeWithText("**Both** are about control. See https://example.com").assertIsDisplayed()
         compose.runOnIdle { assertThat(sent.single().messages.single().content).isEqualTo("What connects these?") }
+        // The status line stays put and changes its text, so TalkBack announces the answer.
+        compose.onNodeWithContentDescription("Answer ready")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
         // The notes choice holds for the whole conversation.
         scrollTo(hasText("Include my notes"))
         compose.onNodeWithText("Include my notes").assertIsNotEnabled()
@@ -81,7 +88,11 @@ class HighlightsDiscussionScreenTest {
         compose.onNodeWithText("Copy").assertExists()
 
         scrollTo(hasContentDescription("Passage 2: The spice must flow."))
-        compose.onNodeWithContentDescription("Passage 2: The spice must flow.").performClick()
+        // Read once, as the passage, not again as its number.
+        compose.onNodeWithContentDescription("Passage 2: The spice must flow.")
+            .assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.Text))
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+            .performClick()
         compose.onNodeWithTag("discuss-passage-2").assertIsDisplayed()
     }
 
@@ -103,6 +114,13 @@ class HighlightsDiscussionScreenTest {
         compose.onNodeWithText("What connects these?").assertIsDisplayed()
         scrollTo(hasText("Include my notes"))
         compose.onNodeWithText("Include my notes").assertIsEnabled()
+    }
+
+    @Test fun `a paste past the question limit keeps what fits`() {
+        show()
+        scrollTo(hasTestTag("discuss-question"))
+        compose.onNodeWithTag("discuss-question").performTextInput("😀".repeat(1_001))
+        compose.runOnIdle { assertThat(vm.state.value.draft).isEqualTo("😀".repeat(1_000)) }
     }
 
     @Test fun `large text keeps the heading, Back and the question box reachable`() {

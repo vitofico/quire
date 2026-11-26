@@ -33,7 +33,7 @@ import org.junit.Test
 class HighlightsDiscussionViewModelTest {
     private val dispatcher = StandardTestDispatcher()
     private val limits = MutableStateFlow<DiscussLimits?>(
-        DiscussLimits(20, 2000, 1000, 500, 10, 200, 1000, 4000, 3, 60_000, 10),
+        DiscussLimits(maxQuestions = 3),
     )
     private val sent = mutableListOf<DiscussRequest>()
     private val answers = ArrayDeque<CompletableDeferred<DiscussAnswer>>()
@@ -104,6 +104,8 @@ class HighlightsDiscussionViewModelTest {
         runCurrent()
         vm.cancel()
         assertThat(vm.state.value.asking).isNull()
+        // Asked without typing, as a starter is: it waits in the box all the same.
+        assertThat(vm.state.value.draft).isEqualTo("Slow?")
         late.complete(DiscussAnswer("Too late"))
         runCurrent()
         assertThat(vm.state.value.exchanges).isEmpty()
@@ -146,6 +148,16 @@ class HighlightsDiscussionViewModelTest {
         vm.ask("What connects these?")
         assertThat(sent).isEmpty()
         assertThat(vm.state.value.error).isEqualTo(uiText(R.string.discuss_too_large))
+    }
+
+    @Test fun `never more passages than the server takes`() = runTest(dispatcher) {
+        limits.value = limits.value!!.copy(maxHighlights = 1)
+        vm.ask("Two passages, a limit of one?")
+        assertThat(sent).isEmpty()
+        assertThat(vm.state.value.error).isEqualTo(uiText(R.string.discuss_too_large))
+
+        vm.open(listOf(highlight("a", "One."), highlight("b", "Two."), highlight("c", "Three.")))
+        assertThat(vm.state.value.passages.map { it.text }).containsExactly("One.")
     }
 
     @Test fun `nothing is asked once the server stops offering the feature`() = runTest(dispatcher) {
@@ -191,6 +203,8 @@ class HighlightsDiscussionViewModelTest {
         assertThat(http(503, """{"detail":"ai_policy_unavailable"}""")).isEqualTo(uiText(R.string.details_busy))
         assertThat(http(422, """{"detail":{"code":"too_large","field":"request","limit":60000}}""")).isEqualTo(uiText(R.string.discuss_too_large))
         assertThat(http(422, """{"detail":{"code":"too_long","field":"messages[0].content","limit":1000}}""")).isEqualTo(uiText(R.string.discuss_refused))
+        assertThat(http(401, "")).isEqualTo(uiText(R.string.quire_account_expired))
+        assertThat(http(413, "")).isEqualTo(uiText(R.string.discuss_too_large))
         assertThat(http(502, "")).isEqualTo(uiText(R.string.discuss_failed))
         assertThat(discussErrorMessage(AiProviderException(504, "", "provider_timeout", "The AI provider did not answer.", null, null)))
             .isEqualTo(UiText.Dynamic("The AI provider did not answer."))

@@ -202,9 +202,17 @@ class HighlightsScreenTest {
         compose.onNodeWithText("Think it through").assertIsEnabled().performClick()
         compose.runOnIdle { assertThat(handed).containsExactly(listOf("first", "third")) }
 
-        // A highlight removed elsewhere leaves the selection.
+        // A highlight removed elsewhere leaves the selection, and the limit hint with it.
         compose.runOnIdle { rows = rows.filter { it.highlight.id != "third" } }
         compose.onNodeWithText("Selected: 1").assertIsDisplayed()
+        compose.onNodeWithText("You can select up to 2 passages.").assertDoesNotExist()
+        compose.onNodeWithTag("highlight-row-second").performClick()
+        compose.runOnIdle { rows = rows + item("third", "Third quote") }
+        compose.onNodeWithTag("highlight-row-third").performClick()
+        compose.onNodeWithText("You can select up to 2 passages.").assertIsDisplayed()
+        // Unpicking one makes room again.
+        compose.onNodeWithTag("highlight-row-second").performClick()
+        compose.onNodeWithText("You can select up to 2 passages.").assertDoesNotExist()
         compose.onNodeWithContentDescription("Cancel selection").performClick()
         compose.onNodeWithText("Highlights").assertIsDisplayed()
     }
@@ -219,6 +227,17 @@ class HighlightsScreenTest {
         compose.onNodeWithTag("highlight-row-first").performClick()
         compose.onNodeWithText("Selected: 2").assertIsDisplayed()
         compose.runOnIdle { assertThat(opened).isEmpty() }
+    }
+
+    @Test fun `a passage that cannot open offers only the long press that selects it`() {
+        compose.setContent {
+            MaterialTheme { HighlightsScreen("Book title", listOf(item("gone", canJump = false)), false, null, null, {}, {}, selectLimit = 20) }
+        }
+        compose.onNodeWithTag("highlight-row-gone")
+            .assert(SemanticsMatcher.keyNotDefined(SemanticsActions.OnClick))
+            .assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.Role))
+            .performSemanticsAction(SemanticsActions.OnLongClick)
+        compose.onNodeWithText("Selected: 1").assertIsDisplayed()
     }
 
     @Test fun `without the server's offer there is no selection`() {

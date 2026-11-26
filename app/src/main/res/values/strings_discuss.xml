@@ -14,14 +14,15 @@
     <string name="discuss_passage_excerpt">"Passage %1$d: %2$s"</string>
     <string name="discuss_clipped">"Some long passages were shortened to fit the server’s limit."</string>
     <string name="discuss_include_notes">"Include my notes"</string>
-    <string name="discuss_privacy_notes">"Sent to your server’s AI provider: the selected passages, your notes on them, and the books’ titles and authors."</string>
-    <string name="discuss_privacy">"Sent to your server’s AI provider: the selected passages and the books’ titles and authors."</string>
+    <string name="discuss_privacy_notes">"Sent to your server’s AI provider: the selected passages and your notes on them, your questions and the earlier answers, with the books’ titles and authors."</string>
+    <string name="discuss_privacy">"Sent to your server’s AI provider: the selected passages, your questions and the earlier answers, with the books’ titles and authors."</string>
     <string name="discuss_based_on">"Based on passages"</string>
     <string name="discuss_passages_heading">"Passages"</string>
     <string name="discuss_share">"Share"</string>
     <string name="discuss_copy">"Copy"</string>
     <string name="discuss_copied">"Copied."</string>
     <string name="discuss_thinking">"Thinking…"</string>
+    <string name="discuss_answer_ready">"Answer ready"</string>
     <string name="discuss_starter_connects">"What connects these?"</string>
     <string name="discuss_starter_disagree">"Where do they disagree?"</string>
     <string name="discuss_starter_note">"Summarise as a note"</string>

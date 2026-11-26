@@ -17,8 +17,7 @@ import org.junit.Test
 class HighlightsDiscussTest {
     private val limits = DiscussLimits(
         maxHighlights = 20, maxTextChars = 10, maxNoteChars = 5, maxTitleChars = 4, maxAuthors = 2,
-        maxAuthorChars = 3, maxQuestionChars = 100, maxAnswerChars = 400, maxQuestions = 6,
-        maxTotalChars = 1_000, questionsPerMinute = 10,
+        maxAuthorChars = 3, maxQuestionChars = 100, maxQuestions = 6, maxTotalChars = 1_000,
     )
 
     private fun highlight(text: String, comment: String? = null, title: String = "Dune", author: String? = "Frank Herbert") =
@@ -100,6 +99,17 @@ class HighlightsDiscussTest {
         val old = json.decodeFromString(AiConfig.serializer(), """{"configured":true,"model_id":"m"}""")
         assertThat(old.highlightsDiscuss).isFalse()
         assertThat(old.highlightsDiscussLimits).isNull()
+    }
+
+    @Test fun `a limit the server leaves out takes its default instead of failing the whole config`() {
+        val json = Json { ignoreUnknownKeys = true }
+        val config = json.decodeFromString(
+            AiConfig.serializer(),
+            """{"configured":true,"model_id":"m","highlights_discuss":true,
+               "highlights_discuss_limits":{"max_highlights":5,"max_questions":4,"questions_per_minute":2}}""",
+        )
+        assertThat(config.highlightsDiscussLimits).isEqualTo(DiscussLimits(maxHighlights = 5, maxQuestions = 4))
+        assertThat(config.highlightsDiscussLimits?.maxTotalChars).isEqualTo(60_000)
     }
 
     @Test fun `the error detail is read from a string or from a limit object`() {

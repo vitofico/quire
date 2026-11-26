@@ -15,14 +15,15 @@
     <string name="discuss_passage_excerpt">"Brano %1$d: %2$s"</string>
     <string name="discuss_clipped">"Alcuni brani lunghi sono stati accorciati per rientrare nel limite del server."</string>
     <string name="discuss_include_notes">"Includi le mie note"</string>
-    <string name="discuss_privacy_notes">"Inviati al fornitore di IA del tuo server: i brani selezionati, le tue note e i titoli e gli autori dei libri."</string>
-    <string name="discuss_privacy">"Inviati al fornitore di IA del tuo server: i brani selezionati e i titoli e gli autori dei libri."</string>
+    <string name="discuss_privacy_notes">"Inviati al fornitore di IA del tuo server: i brani selezionati e le tue note, le tue domande e le risposte precedenti, con titoli e autori dei libri."</string>
+    <string name="discuss_privacy">"Inviati al fornitore di IA del tuo server: i brani selezionati, le tue domande e le risposte precedenti, con titoli e autori dei libri."</string>
     <string name="discuss_based_on">"Basato sui brani"</string>
     <string name="discuss_passages_heading">"Brani"</string>
     <string name="discuss_share">"Condividi"</string>
     <string name="discuss_copy">"Copia"</string>
     <string name="discuss_copied">"Copiato."</string>
     <string name="discuss_thinking">"Sto pensando…"</string>
+    <string name="discuss_answer_ready">"Risposta pronta"</string>
     <string name="discuss_starter_connects">"Cosa li collega?"</string>
     <string name="discuss_starter_disagree">"Su cosa non sono d’accordo?"</string>
     <string name="discuss_starter_note">"Riassumi in una nota"</string>

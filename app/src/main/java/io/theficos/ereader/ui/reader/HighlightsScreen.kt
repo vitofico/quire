@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -55,11 +56,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.style.TextOverflow
@@ -91,19 +94,20 @@ internal fun HighlightsScreen(
     selectLimit: Int? = null,
     onThinkThrough: (List<Highlight>) -> Unit = {},
 ) {
-    // Ids in the order they were picked; a highlight that goes away, or loses its text, drops out.
+    // Picked ids, handed over in the order shown; a highlight that goes away, or loses its text, drops out.
     var picked by rememberSaveable { mutableStateOf<List<String>?>(null) }
     val selectable = items.filter { it.highlight.text.isNotBlank() }.map { it.highlight.id }.toSet()
     val selection = if (selectLimit == null) null else picked?.filter { it in selectable }
+    // Set by a pick past the limit; shown only while the selection is still full.
     var atLimit by remember { mutableStateOf(false) }
-    if (selection == null) atLimit = false
-    BackHandler(enabled = selection != null) { picked = null }
+    fun pick(ids: List<String>?) { picked = ids; atLimit = false }
+    BackHandler(enabled = selection != null) { pick(null) }
     fun toggle(id: String) {
         val current = selection ?: return
         when {
-            id in current -> { picked = current - id; atLimit = false }
+            id in current -> pick(current - id)
             current.size >= selectLimit!! -> atLimit = true
-            else -> picked = current + id
+            else -> pick(current + id)
         }
     }
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
@@ -113,7 +117,7 @@ internal fun HighlightsScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (selection != null) {
-                    IconButton(onClick = { picked = null }) {
+                    IconButton(onClick = { pick(null) }) {
                         Icon(Icons.Filled.Close, stringResource(R.string.discuss_cancel_selection))
                     }
                     Text(stringResource(R.string.discuss_selected_count, selection.size),
@@ -134,12 +138,12 @@ internal fun HighlightsScreen(
                             overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     if (selectLimit != null && selectable.isNotEmpty()) {
-                        TextButton(onClick = { picked = emptyList() }) { Text(stringResource(R.string.discuss_select)) }
+                        TextButton(onClick = { pick(emptyList()) }) { Text(stringResource(R.string.discuss_select)) }
                     }
                 }
             }
             HorizontalDivider()
-            if (atLimit && selectLimit != null) {
+            if (atLimit && selectLimit != null && selection != null && selection.size >= selectLimit) {
                 Text(pluralStringResource(R.plurals.discuss_select_limit, selectLimit, selectLimit),
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
                         .semantics { liveRegion = LiveRegionMode.Polite },
@@ -182,7 +186,7 @@ internal fun HighlightsScreen(
                             selectable = id in selectable,
                             onToggle = { toggle(id) },
                             onLongPress = if (selectLimit != null && selection == null && id in selectable) {
-                                { picked = listOf(id) }
+                                { pick(listOf(id)) }
                             } else null,
                         )
                     }
@@ -212,13 +216,20 @@ private fun HighlightListCard(
     var canExpand by remember(highlight.id, highlight.text) { mutableStateOf(false) }
     val action = when {
         selected != null -> Modifier.toggleable(value = selected, enabled = selectable, role = Role.Checkbox) { onToggle() }
-        onLongPress != null -> Modifier.combinedClickable(
+        onLongPress != null && item.canJump -> Modifier.combinedClickable(
             enabled = !busy,
             role = Role.Button,
-            onClickLabel = if (item.canJump) stringResource(R.string.reader_highlight_open) else null,
+            onClickLabel = stringResource(R.string.reader_highlight_open),
             onLongClickLabel = stringResource(R.string.discuss_select),
             onLongClick = onLongPress,
-        ) { if (item.canJump) onOpen(highlight.id) }
+        ) { onOpen(highlight.id) }
+        // Nothing to open, so only the long press that starts selection.
+        onLongPress != null -> {
+            val label = stringResource(R.string.discuss_select)
+            if (busy) Modifier else Modifier
+                .pointerInput(onLongPress) { detectTapGestures(onLongPress = { onLongPress() }) }
+                .semantics { onLongClick(label) { onLongPress(); true } }
+        }
         else -> Modifier.clickable(
             enabled = item.canJump && !busy,
             role = Role.Button,

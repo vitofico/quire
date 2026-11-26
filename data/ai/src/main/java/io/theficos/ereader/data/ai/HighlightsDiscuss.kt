@@ -4,20 +4,22 @@ import io.theficos.ereader.core.model.Highlight
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
-/** The limits `POST /ai/v1/highlights/discuss` enforces, as `GET /ai/v1/config` publishes them. */
+/**
+ * The limits `POST /ai/v1/highlights/discuss` enforces, as `GET /ai/v1/config` publishes them.
+ * Each falls back to the server's own default, so a key a server renames or drops cannot fail
+ * the whole config, and with it every AI feature.
+ */
 @Serializable
 data class DiscussLimits(
-    @SerialName("max_highlights") val maxHighlights: Int,
-    @SerialName("max_text_chars") val maxTextChars: Int,
-    @SerialName("max_note_chars") val maxNoteChars: Int,
-    @SerialName("max_title_chars") val maxTitleChars: Int,
-    @SerialName("max_authors") val maxAuthors: Int,
-    @SerialName("max_author_chars") val maxAuthorChars: Int,
-    @SerialName("max_question_chars") val maxQuestionChars: Int,
-    @SerialName("max_answer_chars") val maxAnswerChars: Int,
-    @SerialName("max_questions") val maxQuestions: Int,
-    @SerialName("max_total_chars") val maxTotalChars: Int,
-    @SerialName("questions_per_minute") val questionsPerMinute: Int,
+    @SerialName("max_highlights") val maxHighlights: Int = 20,
+    @SerialName("max_text_chars") val maxTextChars: Int = 2000,
+    @SerialName("max_note_chars") val maxNoteChars: Int = 1000,
+    @SerialName("max_title_chars") val maxTitleChars: Int = 500,
+    @SerialName("max_authors") val maxAuthors: Int = 10,
+    @SerialName("max_author_chars") val maxAuthorChars: Int = 200,
+    @SerialName("max_question_chars") val maxQuestionChars: Int = 1000,
+    @SerialName("max_questions") val maxQuestions: Int = 6,
+    @SerialName("max_total_chars") val maxTotalChars: Int = 60_000,
 )
 
 /**
@@ -79,14 +81,14 @@ fun discussDraft(
 ): DiscussDraft {
     var clipped = false
     val highlights = passages.map { p ->
-        val text = p.text.clip(limits.maxTextChars)
+        val text = p.text.clipCodePoints(limits.maxTextChars)
         if (text != p.text) clipped = true
         DiscussHighlight(
             n = p.n,
             text = text,
-            note = p.note?.takeIf { includeNotes }?.clip(limits.maxNoteChars),
-            title = p.title?.clip(limits.maxTitleChars),
-            authors = p.authors.take(limits.maxAuthors).map { it.clip(limits.maxAuthorChars) },
+            note = p.note?.takeIf { includeNotes }?.clipCodePoints(limits.maxNoteChars),
+            title = p.title?.clipCodePoints(limits.maxTitleChars),
+            authors = p.authors.take(limits.maxAuthors).map { it.clipCodePoints(limits.maxAuthorChars) },
         )
     }
     val messages = exchanges.flatMap {
@@ -109,10 +111,11 @@ fun discussShareNote(exchange: DiscussExchange, passages: List<DiscussPassage>, 
 }
 
 /** [this] cut to at most [max] code points, with "…" when anything was cut. */
-fun String.excerpt(max: Int): String = if (codePointLength() > max) clip(max).trimEnd() + "…" else this
+fun String.excerpt(max: Int): String = if (codePointLength() > max) clipCodePoints(max).trimEnd() + "…" else this
 
-fun String.codePointLength(): Int = codePointCount(0, length)
+private fun String.codePointLength(): Int = codePointCount(0, length)
 
-private fun String.clip(max: Int): String = if (codePointLength() > max) substring(0, offsetByCodePoints(0, max)) else this
+/** At most [max] code points, so an emoji or other surrogate pair is never cut in half. */
+fun String.clipCodePoints(max: Int): String = if (codePointLength() > max) substring(0, offsetByCodePoints(0, max)) else this
 
 private const val SHARE_EXCERPT_CHARS = 300
