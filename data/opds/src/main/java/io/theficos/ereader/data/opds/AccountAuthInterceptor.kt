@@ -1,7 +1,7 @@
 package io.theficos.ereader.data.opds
 
 import io.theficos.ereader.auth.AccountCredentials
-import io.theficos.ereader.auth.catalogAccount
+import io.theficos.ereader.auth.CatalogSession
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -31,82 +31,102 @@ private fun sameOrigin(base: String, request: HttpUrl): Boolean {
 private const val HEADER_AUTHORIZATION = "Authorization"
 private const val HTTP_UNAUTHORIZED = 401
 
-internal enum class AccountAuthRoute { CATALOG, QUIRE }
-
-private class AccountSnapshot(val account: AccountCredentials?)
-
-internal fun OkHttpClient.Builder.accountAuth(
-    route: AccountAuthRoute,
+/** Quire's own client: the account's login, and only to the account's Quire API. */
+internal fun OkHttpClient.Builder.quireAuth(
     accountProvider: () -> AccountCredentials?,
     onBearerUnauthorized: (AccountCredentials.Bearer) -> Unit,
-): OkHttpClient.Builder = when (route) {
-    AccountAuthRoute.QUIRE -> {
-        // Quire POST bodies can contain private reading activity as well as authorization.
-        followRedirects(false).addInterceptor { chain ->
-            val request = chain.request()
-            val account = accountProvider()
-            val authorization = account?.authorization()
-            val preset = request.header(HEADER_AUTHORIZATION)
-            if (account == null || authorization == null || !account.allowsQuire(request.url) ||
-                (preset != null && preset != authorization)
-            ) {
-                throw IOException("Quire account changed or the request is outside its configured API")
-            }
-            val response = chain.proceed(request.newBuilder().header(HEADER_AUTHORIZATION, authorization).build())
-            if (account is AccountCredentials.Bearer && response.code == HTTP_UNAUTHORIZED) {
-                onBearerUnauthorized(account)
-            }
-            response
+): OkHttpClient.Builder =
+    // Quire POST bodies can contain private reading activity as well as authorization.
+    followRedirects(false).addInterceptor { chain ->
+        val request = chain.request()
+        val account = accountProvider()
+        val authorization = account?.authorization()
+        val preset = request.header(HEADER_AUTHORIZATION)
+        if (account == null || authorization == null || !account.allowsQuire(request.url) ||
+            (preset != null && preset != authorization)
+        ) {
+            throw IOException("Quire account changed or the request is outside its configured API")
         }
+        val response = chain.proceed(request.newBuilder().header(HEADER_AUTHORIZATION, authorization).build())
+        if (account is AccountCredentials.Bearer && response.code == HTTP_UNAUTHORIZED) {
+            onBearerUnauthorized(account)
+        }
+        response
     }
-    AccountAuthRoute.CATALOG -> addInterceptor { chain ->
+
+private class CatalogSnapshot(val session: CatalogSession?)
+
+/**
+ * The catalog client: a saved catalog's login, only to that catalog's server. Never the account's
+ * login, never into the account's Quire API, and never one catalog's login to another catalog.
+ */
+internal fun OkHttpClient.Builder.catalogAuth(session: () -> CatalogSession?): OkHttpClient.Builder =
+    addInterceptor { chain ->
         val request = chain.request().newBuilder()
-            .tag(AccountSnapshot::class.java, AccountSnapshot(accountProvider()))
+            .tag(CatalogSnapshot::class.java, CatalogSnapshot(session()))
             .build()
         chain.proceed(request)
     }.addNetworkInterceptor { chain ->
-        // OkHttp preserves Authorization across same-origin redirects. Select it per hop,
-        // without allowing a catalog redirect into a separately authenticated Quire route.
+        // OkHttp preserves Authorization across same-origin redirects. Select it per hop: a hop
+        // gets a login only when it belongs to the same catalog as the request that started it.
         val request = chain.request()
         val original = chain.call().request()
-        val account = request.tag(AccountSnapshot::class.java)?.account
-        val authorization = account?.takeIf {
-            it.allowsCatalog(original.url) && it.allowsCatalog(request.url)
-        }?.catalogAccount()?.authorization()
+        val snapshot = request.tag(CatalogSnapshot::class.java)?.session
+        val catalog = snapshot?.catalogFor(request.url)?.takeIf { it == snapshot.catalogFor(original.url) }
+        val authorization = catalog?.authorization()
         val actual = request.newBuilder().removeHeader(HEADER_AUTHORIZATION).apply {
             if (authorization != null) header(HEADER_AUTHORIZATION, authorization)
         }.build()
         chain.proceed(actual)
     }
+
+/**
+ * The catalog [url] belongs to, or null. Among the catalogs on the url's origin, the one whose
+ * address shares the longest path with it wins, so two catalogs on one host each keep their own
+ * login. A tie goes to the catalog being browsed; any other tie between different logins sends none.
+ */
+internal fun CatalogSession.catalogFor(url: HttpUrl): AccountCredentials.OpdsOnly? {
+    val candidates = catalogs.filter { it.allows(url, account) }
+    if (candidates.isEmpty()) return null
+    val depth = candidates.associateWith { it.sharedPathDepth(url) }
+    val longest = depth.values.max()
+    val best = candidates.filter { depth[it] == longest }
+    if (active in best) return active
+    return best.first().takeIf { first -> best.all { it.authorization() == first.authorization() } }
+}
+
+private fun AccountCredentials.OpdsOnly.sharedPathDepth(url: HttpUrl): Int {
+    val path = baseUrl.toHttpUrlOrNull()?.pathSegments?.filter { it.isNotEmpty() } ?: return 0
+    return path.zip(url.pathSegments).takeWhile { (a, b) -> a == b }.size
 }
 
 private fun AccountCredentials.allowsQuire(url: HttpUrl): Boolean {
-    val base = when (this) {
-        is AccountCredentials.Basic -> quireServerUrl ?: baseUrl
-        is AccountCredentials.Bearer -> baseUrl
-        is AccountCredentials.OpdsOnly -> return false
-    }
+    val base = quireBase() ?: return false
     return !url.hasAmbiguousPath() && url.pathUnder(base)?.isQuireApi() == true
 }
 
-private fun AccountCredentials.allowsCatalog(url: HttpUrl): Boolean {
-    val catalogBase = catalogAccount()?.baseUrl ?: return false
-    if (!sameOrigin(catalogBase, url)) return false
-    // These paths belong to Quire Web on a shared ingress, including during
-    // transition when only legacy catalog credentials have been configured.
+private fun AccountCredentials.quireBase(): String? = when (this) {
+    is AccountCredentials.Basic -> quireServerUrl ?: baseUrl
+    is AccountCredentials.Bearer -> baseUrl
+    is AccountCredentials.OpdsOnly -> null
+}
+
+private fun AccountCredentials.OpdsOnly.allows(url: HttpUrl, account: AccountCredentials?): Boolean {
+    if (!sameOrigin(baseUrl, url)) return false
+    // These paths belong to Quire Web on a shared ingress, with or without a Quire login.
     if (url.pathSegments.firstOrNull() in quireWebRoutes) return false
-    val independentCatalog = (this as? AccountCredentials.Bearer)?.catalog ?: return true
-    if (!sameOrigin(baseUrl, url)) return true
+    val quireBase = account?.quireBase() ?: return true
+    if (!sameOrigin(quireBase, url)) return true
     if (url.hasAmbiguousPath()) return false
-    val catalogUrl = catalogBase.toHttpUrlOrNull() ?: return false
-    if (independentCatalog.calibre) {
+    val catalogUrl = baseUrl.toHttpUrlOrNull() ?: return false
+    if (calibre) {
         val calibreMount = catalogUrl.pathSegments.dropLastWhile { it.isEmpty() }.dropLast(1)
         if (url.pathSegments.take(calibreMount.size) != calibreMount) return false
     }
     // A separate URL prefix reserves the whole Quire mount. Catalog and service URLs
     // that share a mount still reserve Quire's ingress routes.
-    val quirePath = url.pathUnder(baseUrl) ?: return true
-    return catalogUrl.pathUnder(baseUrl) != null && quirePath.firstOrNull() !in quireEdgeRoutes
+    val quirePath = url.pathUnder(quireBase) ?: return true
+    return catalogUrl.pathUnder(quireBase) != null && quirePath.firstOrNull() !in quireEdgeRoutes
 }
 
 private fun HttpUrl.pathUnder(base: String): List<String>? {
@@ -120,10 +140,13 @@ private fun HttpUrl.pathUnder(base: String): List<String>? {
 private fun List<String>.isQuireApi(): Boolean =
     size >= 2 && first() in quireApiNamespaces && this[1] == "v1"
 
+// An empty segment before the end (`//library/v1`) reaches the same route once the server
+// merges the slashes, while the route checks here would not see it.
 private fun HttpUrl.hasAmbiguousPath(): Boolean =
-    pathSegments.any { '/' in it || '\\' in it || '%' in it || it == "." || it == ".." }
+    pathSegments.dropLast(1).any { it.isEmpty() } ||
+        pathSegments.any { '/' in it || '\\' in it || '%' in it || it == "." || it == ".." }
 
-private val quireApiNamespaces = setOf("ai", "auth", "library", "sync")
+private val quireApiNamespaces = setOf("ai", "auth", "catalogs", "convert", "details", "library", "sync")
 private val quireWebRoutes = setOf("quire", "cloud")
 private val quireEdgeRoutes = quireApiNamespaces + quireWebRoutes + setOf(
     "agent", "mcp", "quire-admin", "health", "healthz", "readyz",

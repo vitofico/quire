@@ -9,6 +9,7 @@ on:
     paths:
       - "server/**"
       - "web/**"
+      - "catalogs/**"
       - "reader/src/main/assets/**"
       - "reader/src/test/resources/highlights/**"
       - "scripts/make-reader-pause-fixture.py"
@@ -18,10 +19,12 @@ on:
       - "docs/configuration.md"
       - ".github/workflows/server-ci.yaml"
       - "core/identity/src/test/resources/identity/**"
+      - "converter/tests/fixtures/worker-results.json"
   pull_request:
     paths:
       - "server/**"
       - "web/**"
+      - "catalogs/**"
       - "reader/src/main/assets/**"
       - "reader/src/test/resources/highlights/**"
       - "scripts/make-reader-pause-fixture.py"
@@ -31,6 +34,7 @@ on:
       - "docs/configuration.md"
       - ".github/workflows/server-ci.yaml"
       - "core/identity/src/test/resources/identity/**"
+      - "converter/tests/fixtures/worker-results.json"
 
 # Cancel superseded runs on the same branch / PR.
 concurrency:

@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { type ReplicaSnapshot, type ShelfBook, type Progress } from './data'
 import { Icon } from './icons'
+import { foundCover, originLabel, withDetails } from './details'
 export const authors = (book: ShelfBook) =>
   book.authors?.join(', ') || book.author || ''
 export function findProgress(book: ShelfBook, rows: Progress[]) {
@@ -14,17 +15,28 @@ export function findProgress(book: ShelfBook, rows: Progress[]) {
 // A book without artwork gets a steady colour of its own, so a shelf of them is not one block.
 const tint = (title: string) =>
   `hsl(${[...title].reduce((sum, char) => sum + char.charCodeAt(0), 0) * 47 % 360} 24% 33%)`
-export function Cover({ book }: { book: ShelfBook }) {
+/** Reads the found or drawn cover kept for a book. */
+export type LoadCover = (key: string) => Promise<Blob | undefined>
+export function Cover({ book, load }: { book: ShelfBook; load?: LoadCover }) {
   const [url, setUrl] = useState('')
+  const found = load && foundCover(book)
   useEffect(() => {
-    if (!(book.cover instanceof Blob)) {
-      setUrl('')
-      return
+    let source = '', live = true
+    const show = (blob?: Blob) => {
+      if (!live || !blob) return
+      source = URL.createObjectURL(blob)
+      setUrl(source)
     }
-    const source = URL.createObjectURL(book.cover)
-    setUrl(source)
-    return () => URL.revokeObjectURL(source)
-  }, [book.cover])
+    setUrl('')
+    const own = book.cover instanceof Blob ? book.cover : undefined
+    // A cover the reader chose replaces the book's own; without its image the own one shows.
+    if (found) load(book.key).then((blob) => show(blob ?? own), () => show(own))
+    else show(own)
+    return () => {
+      live = false
+      if (source) URL.revokeObjectURL(source)
+    }
+  }, [book.cover, book.key, found, load])
   return (
     <span
       className={'cover' + (url ? ' with-image' : '')}
@@ -32,6 +44,19 @@ export function Cover({ book }: { book: ShelfBook }) {
     >
       {url ? <img src={url} alt="" /> : book.title}
     </span>
+  )
+}
+/** A quiet sign that the shelf shows a drawn cover or a title that is not the book's own. */
+function Marks({ book, t }: { book: ShelfBook; t: (s: string) => string }) {
+  const label = [
+    foundCover(book) && book.details?.answer?.cover.generated && t('Generated cover'),
+    originLabel(book, 'title', t),
+  ].filter(Boolean).join(', ')
+  return label && (
+    <small className="origin">
+      <span aria-hidden="true">✦</span>
+      <span className="visually-hidden">{label}</span>
+    </small>
   )
 }
 function Meter({ percent }: { percent: number }) {
@@ -51,12 +76,18 @@ type Props = {
   local?: boolean
   art?: boolean
   data: ReplicaSnapshot
+  loadCover?: LoadCover
   t: (s: string) => string
   choose: () => void
   details: (id: string) => void
   read: (id: string) => void
+  /** The server converts PDFs: the add control takes them too. */
+  pdf?: boolean
+  /** PDF conversions under way, shown by the add control. */
+  conversions?: ReactNode
 }
-export function Shelf({ ready, local, art, data, t, choose, details, read }: Props) {
+export function Shelf({ ready, local, art, data, loadCover, t, choose, details, read, pdf, conversions }: Props) {
+  const importLabel = t(pdf ? 'Import EPUB or PDF' : 'Import EPUB')
   const [search, setSearch] = useState(''),
     [filter, setFilter] = useState('All books'),
     [sort, setSort] = useState('Recently read'),
@@ -64,7 +95,9 @@ export function Shelf({ ready, local, art, data, t, choose, details, read }: Pro
   const rows = useMemo(
     () =>
       data.books.map((book) => ({
-        book,
+        book: withDetails(book),
+        // Labels compare the shown values with the book's own.
+        own: book,
         p: findProgress(book, data.progress),
       })),
     [data],
@@ -118,10 +151,11 @@ export function Shelf({ ready, local, art, data, t, choose, details, read }: Pro
         {rows.length > 0 && (
           <button className="primary" disabled={!ready} onClick={choose}>
             <Icon name="upload" />
-            {t('Import EPUB')}
+            {importLabel}
           </button>
         )}
       </div>
+      {conversions}
       {conflicts.length > 0 && (
         <section className="notice" aria-label={t('Resolve edition conflicts')}>
           <strong>{t('Resolve edition conflicts')}</strong>
@@ -144,7 +178,7 @@ export function Shelf({ ready, local, art, data, t, choose, details, read }: Pro
                   book.hasDownload ? read(book.key) : details(book.key)
                 }
               >
-                <Cover book={book} />
+                <Cover book={book} load={loadCover} />
                 <span>
                   <strong>{book.title}</strong>
                   <small>{authors(book)}</small>
@@ -163,10 +197,10 @@ export function Shelf({ ready, local, art, data, t, choose, details, read }: Pro
             <Icon name="library" />
           </span>
           <h2>{t('Add your first book')}</h2>
-          <p>{t('Drop an EPUB here or choose a file.')}</p>
+          <p>{t(pdf ? 'Drop an EPUB or PDF here or choose a file.' : 'Drop an EPUB here or choose a file.')}</p>
           <button className="primary" onClick={choose}>
             <Icon name="upload" />
-            {t('Import EPUB')}
+            {importLabel}
           </button>
           {local && <p className="hint">{t('Books you add stay in this browser.')}</p>}
         </section>
@@ -222,16 +256,17 @@ export function Shelf({ ready, local, art, data, t, choose, details, read }: Pro
             ))}
           </div>
           <div className={'library-grid' + (compact ? ' compact' : '')}>
-            {matches.map(({ book, p }) => (
+            {matches.map(({ book, own, p }) => (
               <button
                 className="book-entry"
                 key={book.key}
                 onClick={() => details(book.key)}
               >
-                <Cover book={book} />
+                <Cover book={book} load={loadCover} />
                 <span className="who">
                   <strong>{book.title}</strong>
                   <small>{authors(book)}</small>
+                  <Marks book={own} t={t} />
                 </span>
                 {p?.finished_at ? (
                   <small>{t('Finished')}</small>

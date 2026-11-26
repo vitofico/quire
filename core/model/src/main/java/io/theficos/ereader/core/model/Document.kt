@@ -1,5 +1,8 @@
 package io.theficos.ereader.core.model
 
+/** How a book imported from a file, not downloaded from a catalog, marks its `downloadUrl`. */
+const val SIDELOAD_URL_PREFIX = "sideload://"
+
 data class Document(
     val id: Long,
     val identity: DocumentIdentity,

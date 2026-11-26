@@ -24,9 +24,15 @@ checkout and a running production DB.
 
 ## Branches (forward-only from 0004)
 
-The current AI head is `ai_011`, deleting `calibre_book_id` identity aliases
-(a Calibre-Web book number is not unique across servers). It follows `ai_010`
-without rewriting any deployed revision.
+The current AI head is `ai_014`, admitting the `discuss` kind in
+`ai_generation_log` (one row per question about a reader's highlights,
+counts and timings only). It follows `ai_013`, adding `book_cover_art`
+(painted artwork for generated covers, one row per details record, deleted
+with it) and admitting the `cover_art` kind. Before it, `ai_012`
+added `book_details` (the shared table of tidied book records),
+`book_details_reader` (each reader's pointer to the record they were last
+given for a book) and the `details` kind, without rewriting any deployed
+revision.
 
 The current progress head is `progress_005`, adding an optional private comment
 to each highlight. Its parent `progress_004` introduced caller-scoped `highlights` plus `highlight_sync_state`. Highlights
@@ -45,9 +51,11 @@ From the split point onward, every new migration belongs to exactly one branch:
 | Branch     | Label        | Owners | Notes                                                                                            |
 | ---------- | ------------ | ------ | ------------------------------------------------------------------------------------------------ |
 | `auth`     | `"auth"`     | shared | `auth_001` → `auth_002` → `auth_003`; always upgraded. |
+| `catalogs` | `"catalogs"` | shared | `catalogs_001` (synced catalogs saved to an account); always upgraded. |
+| `convert`  | `"convert"`  | shared | `convert_001` (PDF conversions started from the apps); always upgraded. |
 | `core`     | `"core"`     | shared | Reserved; no migrations yet.                                                                     |
 | `progress` | `"progress"` | sync   | `progress_001` → `progress_002` → `progress_003` → `progress_004` (private highlights) → `progress_005` (comments). Spliced from `0004`. |
-| `ai`       | `"ai"`       | AI     | `ai_001` through `ai_011`; the latest deletes `calibre_book_id` aliases. |
+| `ai`       | `"ai"`       | AI     | `ai_001` through `ai_014`; the latest admits the `discuss` log kind. |
 
 ### Adding the FIRST migration on a branch (splice)
 
@@ -112,7 +120,7 @@ The container entrypoint runs `python /app/scripts/migrate.py`, not
 `alembic upgrade head`. The wrapper:
 
 1. Always upgrades the unlabeled backbone (today: `0004`).
-2. Upgrades the foundational `auth` branch when present.
+2. Upgrades the foundational `auth`, `catalogs` and `convert` branches when present.
 3. For each enabled+materialized feature branch (per `QUIRE_SERVER_PROGRESS_ENABLED` and
    `QUIRE_SERVER_AI_ENABLED`), runs `alembic upgrade <branch>@head`.
 

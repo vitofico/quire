@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { InsightPanel } from '../discovery/Insights'
 import { catalogInsightIdentity } from '../discovery/api'
 import './catalog.css'
@@ -20,6 +20,10 @@ export interface CatalogProps {
   catalogAuthenticated?: boolean
   signInCatalog?: (username: string, password: string, url?: string) => Promise<void>
   signOutCatalog?: () => void
+  /** Shown under the heading: the switcher between catalogs. */
+  children?: ReactNode
+  /** Move the focus to the heading when shown, as after adding this catalog. */
+  focusHeading?: boolean
 }
 
 type Destination = { href: string } | { search: OpdsSearch; query: string }
@@ -50,8 +54,12 @@ function Cover({ client, publication }: { client: Client; publication: OpdsPubli
 
 export function Catalog({
   url, authorization, request, onAcquire, onImport, t = key => key, apiRequest, aiAvailable,
-  catalogAuthenticated, signInCatalog, signOutCatalog,
+  catalogAuthenticated, signInCatalog, signOutCatalog, children, focusHeading,
 }: CatalogProps) {
+  const heading = useRef<HTMLHeadingElement>(null)
+  useEffect(() => {
+    if (focusHeading) heading.current?.focus()
+  }, [focusHeading])
   const [feed, setFeed] = useState<OpdsFeed>()
   const [latest, setLatest] = useState<OpdsFeed>()
   const [client, setClient] = useState<Client>()
@@ -198,7 +206,7 @@ export function Catalog({
 
   return <section className="catalog">
     <header className="catalog-header">
-      <h1>{feed?.title || t('Catalog')}</h1>
+      <h1 ref={heading} tabIndex={-1}>{feed?.title || t('Catalog')}</h1>
       <div className="catalog-actions">
         {trail.length > 0 && <button type="button" onClick={back} disabled={loading || downloading}>{t('Back')}</button>}
         {catalogAuthenticated && signOutCatalog &&
@@ -210,6 +218,7 @@ export function Catalog({
         {onImport && <button type="button" onClick={onImport}>{t('Import EPUB')}</button>}
       </div>
     </header>
+    {children}
     {needsSignIn && <p>{t('Sign in to browse this catalog.')}</p>}
     {showCredentials && signInCatalog && <form className="catalog-credentials" onSubmit={connect}>
       <label>{t('Catalog username')} <input name="catalogUsername" autoComplete="username" required autoFocus /></label>

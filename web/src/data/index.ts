@@ -1,5 +1,5 @@
 import { clearStorage, openStorage, result, transaction, type Store } from './storage'
-import { EditionConflict, SyncError, type Highlight, type LocalBook, type Progress, type ReplicaSnapshot, type ShelfBook, type SyncTransport } from './types'
+import { EditionConflict, SyncError, type BookDetails, type Highlight, type LocalBook, type Progress, type ReplicaSnapshot, type ShelfBook, type SyncTransport } from './types'
 import {
   compareTimestamps, libraryEntry, newerProgress, requestJson,
   type HighlightsPull, type HighlightsPush, type LibraryPull, type LibraryRow,
@@ -122,9 +122,12 @@ export class Replica {
       ['books', 'epubs', 'library', 'progress', 'highlights', 'localProgress', 'localHighlights', 'queue', 'settings'],
       async (store) => {
         const catalogCovers = IDBKeyRange.bound('cover:', 'cover:\uffff')
-        const [coverKeys, coverBlobs, local, downloads, library, progress, highlights, localProgress, localHighlights, queue] = await Promise.all([
+        const bookDetails = IDBKeyRange.bound('details:', 'details:\uffff')
+        const [coverKeys, coverBlobs, detailKeys, detailRecords, local, downloads, library, progress, highlights, localProgress, localHighlights, queue] = await Promise.all([
           result(store('settings').getAllKeys(catalogCovers)),
           result<StoredBlob[]>(store('settings').getAll(catalogCovers)),
+          result(store('settings').getAllKeys(bookDetails)),
+          result<BookDetails[]>(store('settings').getAll(bookDetails)),
           result<LocalRecord[]>(store('books').getAll()),
           result(store('epubs').getAllKeys()),
           result<LibraryRow[]>(store('library').getAll()),
@@ -135,7 +138,8 @@ export class Replica {
           result<Queued[]>(store('queue').getAll()),
         ])
         const covers = new Map(coverKeys.map((key, index) => [String(key).slice('cover:'.length), coverBlobs[index]]))
-        return { covers, local, downloads, library, progress, highlights, localProgress, localHighlights, queue }
+        const details = new Map(detailKeys.map((key, index) => [String(key).slice('details:'.length), detailRecords[index]]))
+        return { covers, details, local, downloads, library, progress, highlights, localProgress, localHighlights, queue }
       },
     )
     this.assertActive()
@@ -156,6 +160,7 @@ export class Replica {
       books.set(book.key, {
         ...remote, ...book,
         opds_href: book.opds_href ?? remote?.opds_href,
+        catalog_id: book.catalog_id !== undefined ? book.catalog_id : remote?.catalog_id,
         hasDownload: downloads.has(book.key),
         synced: Boolean(remote),
         localOnly,
@@ -178,6 +183,10 @@ export class Replica {
     for (const [key, cover] of data.covers) {
       const book = books.get(key)
       if (book && !(book.cover instanceof Blob)) book.cover = decodeBlob(cover)
+    }
+    for (const [key, details] of data.details) {
+      const book = books.get(key)
+      if (book) book.details = details
     }
     return {
       books: [...books.values()],
@@ -301,7 +310,8 @@ export class Replica {
       }
       await Promise.all([
         result(store('books').delete(key)), result(store('epubs').delete(key)),
-        result(store('settings').delete(`bookmark:${key}`)),
+        result(store('settings').delete(`bookmark:${key}`)), result(store('settings').delete(`details:${key}`)),
+        result(store('settings').delete(`foundCover:${key}`)),
       ])
     })
   }
@@ -354,6 +364,26 @@ export class Replica {
   /** A catalog's cover for a book whose EPUB is not in this browser. Local only, like every cover. */
   async setCatalogCover(key: string, cover: Blob): Promise<void> {
     return this.setSetting(`cover:${key}`, await encodeBlob(cover))
+  }
+
+  /**
+   * Found and tidied details of a book, and `cover`, the image behind
+   * `details.cover_url`. Local only, like every cover. The image is kept apart
+   * so a snapshot does not load every one.
+   */
+  async setDetails(key: string, details: BookDetails, cover?: Blob): Promise<void> {
+    const image = cover && await encodeBlob(cover)
+    await this.write(['settings'], async (store) => {
+      await result(store('settings').put(details, `details:${key}`))
+      if (image) await result(store('settings').put(image, `foundCover:${key}`))
+      else if (!details.cover_url) await result(store('settings').delete(`foundCover:${key}`))
+    })
+  }
+
+  /** The image `setDetails` kept for a book. */
+  async getFoundCover(key: string): Promise<Blob | undefined> {
+    const stored = await this.read(['settings'], (store) => result<StoredBlob | undefined>(store('settings').get(`foundCover:${key}`)))
+    return stored && decodeBlob(stored)
   }
 
   getBookmark<T>(key: string): Promise<T | undefined> {

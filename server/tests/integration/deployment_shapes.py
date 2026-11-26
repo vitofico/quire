@@ -31,6 +31,9 @@ async def assert_partial_schema(url: str, *, enabled: str, disabled: str) -> lis
     assert _BRANCH_TABLES[enabled] <= tables
 
     script = ScriptDirectory.from_config(Config("alembic.ini"))
-    expected = sorted(script.get_revision(f"{label}@head").revision for label in ("auth", enabled))
+    expected = sorted(
+        script.get_revision(f"{label}@head").revision
+        for label in ("auth", "catalogs", "convert", enabled)
+    )
     assert applied == expected
     return expected

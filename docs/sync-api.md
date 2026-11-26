@@ -4,7 +4,8 @@ REST surface of the `quire-server` server. Endpoints live under
 prefixes — `/sync/v1` (progress, highlights + planned bookmarks), `/library/v1`
 (per-user library mirror, including the Phase 0 push-model
 `POST /library/v1/sync` bulk endpoint), `/ai/v1` (optional book insights
-and reader profile), `/agent/v1` (read-only highlights), and the unprefixed
+and reader profile), `/agent/v1` (read-only highlights), `/catalogs/v1`
+(book catalogs saved to a Quire account), and the unprefixed
 `/health` / `/readyz` operational probes. All request and response bodies are JSON. Authenticated
 endpoints accept the same credential as calibre-web by default; see
 [Authentication](#authentication) for the Phase 0 pluggable backend.
@@ -147,6 +148,20 @@ the operator migrates. Plan cutover within the two-minor-release window.
 | `GET` | `/library/v1/items` | yes | List items, optional `since=<ISO>` cursor with tombstones |
 | `DELETE` | `/library/v1/items` | yes | Soft-delete one library item by `content_hash` |
 | `GET` | `/library/v1/stats` | yes | Per-user library roll-up: totals + top authors + top themes |
+| `GET` | `/catalogs/v1/catalogs` | Quire session | Saved catalogs without addresses or logins, with a `revision` and `ETag` |
+| `GET` | `/catalogs/v1/catalogs/{id}/secret` | Quire Bearer token | One catalog's address and login |
+| `PUT` | `/catalogs/v1/catalogs/{id}` | Quire session | Create or replace one catalog |
+| `DELETE` | `/catalogs/v1/catalogs/{id}` | Quire session | Remove one catalog |
+| `PUT` | `/catalogs/v1/order` | Quire session | Reorder the whole list |
+| `GET` | `/catalogs/v1/catalogs/{id}/fetch` | Quire session | A page, cover or book from a saved catalog, fetched by the server with its login (Quire Web) |
+| `GET` | `/convert/v1/capabilities` | yes | Whether PDF conversion is available here, and its limits |
+| `POST` | `/convert/v1/jobs` | yes | Start a conversion: idempotency key, SHA-256 and size of the PDF |
+| `PUT` | `/convert/v1/jobs/{id}/source` | yes | Upload the PDF as the raw request body |
+| `GET` | `/convert/v1/jobs` | yes | The caller's conversions, newest first |
+| `GET` | `/convert/v1/jobs/{id}` | yes | One conversion's state, result, review pages or failure |
+| `GET` | `/convert/v1/jobs/{id}/epub` | yes | Download the converted EPUB |
+| `POST` | `/convert/v1/jobs/{id}/cancel` | yes | Stop a conversion that has not finished |
+| `POST` | `/convert/v1/jobs/{id}/acknowledge` | yes | Done with a finished conversion: the server deletes the PDF and the EPUB |
 | `GET` | `/ai/v1/health` | none | AI provider + retrieval reachability snapshot (mode-gated on `QUIRE_SERVER_AI_ENABLED`) |
 | `GET` | `/ai/v1/config` | yes | User-visible AI configuration |
 | `GET`/`PUT` | `/ai/v1/preferences` | yes | Per-user opt-in + tone/language |
@@ -159,6 +174,9 @@ the operator migrates. Plan cutover within the two-minor-release window.
 | `GET` | `/ai/v1/profile` | yes | Cached reader profile (narrative + recommendations); 404 if never refreshed |
 | `POST` | `/ai/v1/profile/refresh` | yes | Recompute the reader profile (budgeted) |
 | `DELETE` | `/ai/v1/profile` | yes | Wipe the caller's reader profile row |
+| `POST` | `/details/v1/lookup` | yes | Fill a book's missing details from Open Library; tidy them when due |
+| `POST` | `/details/v1/tidy` | yes | Tidy a book's details now, replacing the stored record (budgeted) |
+| `GET` | `/details/v1/covers/{key}` | yes | The designed cover of a tidied record, as PNG (JPEG on painted artwork) |
 
 `/sync/v1/documents/alias` and `/sync/v1/bookmarks` are designed but not
 shipped. Everything else above is on `main`.
@@ -169,7 +187,10 @@ shipped. Everything else above is on `main`.
 highlights using bounded previews and UUID pagination. `GET
 /agent/v1/highlights/{highlight_id}` retrieves one complete saved quotation and
 locator. The remote `/mcp` Streamable HTTP endpoint exposes the same service
-through `list_highlights`, `search_highlights` and `get_highlight` tools.
+through `list_highlights`, `search_highlights` and `get_highlight` tools, and
+adds read-only `get_highlights` (several by ID), `list_highlighted_books`,
+`list_library` (the shelf with reading progress) and `get_book` (one book with
+its tidied details). The server calls no model for any of them.
 
 Both surfaces follow the progress/full-mode gate. MCP requires an explicit
 existing Basic or NativeAuth Bearer Authorization header on every request;
@@ -433,6 +454,7 @@ Content-Type: application/json
       "language": "en",
       "subjects": ["Fiction", "Classics"],
       "opds_href": "/opds/book/42/download",
+      "catalog_id": "3f2b9c1e-8d4a-4f6b-9a7e-2c5d1e0b4a93",
       "last_seen_at": "2026-05-22T10:15:32+00:00"
     },
     {
@@ -460,6 +482,7 @@ Per-entry fields:
 | `language`              | optional                   |                                                                                             |
 | `subjects`              | optional                   | List of strings.                                                                            |
 | `opds_href`             | optional                   |                                                                                             |
+| `catalog_id`            | optional                   | UUID of the saved catalog the book came from; stored lowercase. Not a foreign key. Unlike every other field, omitted keeps the stored value; explicit `null` clears it (see PUT below). |
 | `last_seen_at`          | optional                   | ISO-8601, **tz-aware** (naive rejected). Validated but not persisted in v1.                 |
 
 Batch semantics:
@@ -541,10 +564,18 @@ with a different content-hash row, the server returns `409` with
     "isbn": "9780141036144",
     "language": "en",
     "subjects": ["Fiction", "Classics"],
-    "opds_href": "/opds/book/42/download"
+    "opds_href": "/opds/book/42/download",
+    "catalog_id": "3f2b9c1e-8d4a-4f6b-9a7e-2c5d1e0b4a93"
   }
 }
 ```
+
+`catalog_id` is optional and validated as a UUID (`422` otherwise). It is
+the one field PUT and sync do not replace when omitted: leaving it out keeps
+the stored value, and only an explicit `null` clears it. Clients that predate
+saved catalogs never send it and re-push the whole library, so full replace
+would keep wiping the value a newer client set. An omitted `catalog_id` is
+also not a change, so a replay from such a client is still skipped.
 
 Response: the persisted row, including server-assigned `created_at`,
 `updated_at`, and `deleted_at` (null on a live row).
@@ -680,6 +711,260 @@ GET /sync/v1/bookmarks?since=<ISO8601>[&document=<id>]
 Returns rows where `updated_at > since`, **including tombstones**
 (`deleted: true`), so deletes propagate.
 
+## Saved catalogs (`/catalogs/v1`)
+
+A reader signed in with a Quire account saves the book catalogs they use
+(an address, plus a login when the catalog needs one), and every device
+signed in to that account gets the same list. The server keeps each address
+and login together in one encrypted value (see
+[Synced catalogs](configuration.md#synced-catalogs) for the key). The full
+address counts as a secret, because some servers (Kavita) put an account key
+in the URL path.
+
+Who can call it: a Quire account session only, Bearer token or browser
+cookie (`/secret` takes a Bearer token only). A Calibre-Web Basic login gets `401 native_login_required`, and
+legacy-only (`calibreweb`) deployments do not mount these routes. While the
+server has no catalog key, every route answers `404 {"detail": "Not Found"}`,
+the same as a route that does not exist, and `GET /quire/v1/bootstrap`
+reports `catalogSync: false`. `catalogSync` is `true` only when the key is
+present and this browser can sign in to a Quire account on this host.
+`catalogProxy` is `true` when, on top of that, `/fetch` is on
+(`QUIRE_SERVER_CATALOG_PROXY_ENABLED`).
+
+Rules for every route:
+
+- Every response, errors included, is `Cache-Control: no-store`.
+- Rows belong to the account's storage scope. Another account's catalog is
+  indistinguishable from one that does not exist.
+- A `422` never repeats what was sent. Schema errors come back as
+  `{"detail": [{"type", "loc", "msg"}]}`, without FastAPI's usual `input`.
+  Rule errors come back as `{"detail": "<code>"}`.
+- The server logs a catalog by its id only.
+- The browser's account binding (`X-Quire-Account`) covers `/catalogs/v1/`:
+  a mismatch is `409 account_changed`, as on `/library/v1/`.
+
+### `GET /catalogs/v1/catalogs`
+
+```json
+{
+  "revision": "6f1c0d9e2b7a4c3f8e5d1a0b9c8d7e6f",
+  "catalogs": [
+    {
+      "id": "3f2b9c1e-8d4a-4f6b-9a7e-2c5d1e0b4a93",
+      "name": "Kavita",
+      "kind": "opds",
+      "host": "https://books.example.org",
+      "has_login": true,
+      "needs_login": false,
+      "position": 0,
+      "updated_at": "2026-11-25T10:15:32.123456+00:00"
+    }
+  ]
+}
+```
+
+In `position` order. No address, username or password, only `host`: scheme,
+host and a non-default port, never the path. A name with non-ASCII letters
+shows in its ASCII (`xn--`) form. `kind` is `calibre` for a
+Calibre-Web catalog and `opds` for any other OPDS server. `updated_at` moves
+on every change to that catalog, its position included, so a device fetches a
+catalog's `/secret` when the catalog is new or its `updated_at` changed.
+
+`needs_login: true` means the server cannot decrypt the stored address and
+login, typically after a database restore without its key file. The row is
+still listed (one unreadable row never fails the list), `has_login` is then
+`false` because the server cannot tell, and the reader has to enter the
+catalog again with a `PUT`.
+
+The response carries `ETag: "<revision>"`. Send it back as `If-None-Match`
+and an unchanged list is a `304` with no body. The revision changes on every
+create, edit, reorder and delete, and when a row becomes readable or
+unreadable. A save that changes nothing keeps it, even when it moves the row
+to a newer key.
+
+### `GET /catalogs/v1/catalogs/{id}/secret`
+
+```json
+{ "url": "https://books.example.org/api/opds/<key>", "username": "reader", "password": "..." }
+```
+
+`username` and `password` are both `null` for a catalog without a login.
+Bearer token only: a browser cookie session gets `403 token_required`, so a
+script running on Quire's origin cannot read saved logins (Quire Web browses
+saved catalogs through `/fetch` instead). `404 not_found` for an unknown id. `409 needs_login` when the stored value
+cannot be decrypted: ask the reader for the catalog's address and login again
+and `PUT` them.
+
+### `PUT /catalogs/v1/catalogs/{id}`
+
+```json
+{
+  "name": "Kavita",
+  "kind": "opds",
+  "url": "https://books.example.org/api/opds/<key>",
+  "username": "reader",
+  "password": "..."
+}
+```
+
+Creates or replaces the catalog with this id, which the client chooses
+(a UUID, otherwise `422`), so a retried create lands on the same row.
+Answers `200` with the catalog as listed. A save identical to what is stored
+writes nothing. A new catalog goes last; a replaced one keeps its place.
+
+`username` and `password` are optional, and blank counts as absent. On an
+existing catalog, sending `username` without `password` keeps the stored
+password; sending neither removes the login. The password is kept only while
+the address stays on the same scheme, host and port: a new path is fine, but
+moving to another server needs the password again (`422 login_incomplete`),
+so a stored password is never sent somewhere it was not entered for. Keeping
+it also needs the stored value, so on a row that cannot be decrypted that
+save is `409 needs_login`: send the password again.
+
+`unique_url` is an optional boolean, `false` by default. When it is `true` and
+the id is new, a catalog whose stored address equals `url` (both trimmed) is
+not saved a second time: the answer is `409` with
+`{"detail": "catalog_exists", "id": "<the existing id>"}`. Quire Web sets it
+when adding a suggested open catalog. Without it, as older apps send, the same
+address can be saved under two ids.
+
+| Status | `detail` | When |
+|---|---|---|
+| 409 | `catalog_exists` | `unique_url` is `true`, the id is new and the account already holds this address; the body names its `id`. |
+| 409 | `catalog_limit_reached` | Creating a 21st catalog. An account holds at most 20; replacing one at the limit is fine. |
+| 409 | `needs_login` | `password` omitted and the stored one cannot be read. |
+| 422 | `invalid_name` | `name` is blank after trimming (at most 60 characters). |
+| 422 | `invalid_url` | `url` does not parse, has an invalid port, contains spaces, control characters or `\`, or is not `http` or `https`; or its host is not an IPv4 address, a bracketed IPv6 address (no zone) or a name valid under IDNA 2008 (letters, digits, `-` and `.` once in ASCII form). At most 2048 characters. |
+| 422 | `https_required` | `url` is `http` and `QUIRE_SERVER_CATALOG_ALLOW_HTTP` is not `true`. |
+| 422 | `credentials_in_url` | `url` carries a login (`user:pass@host`); send it as `username` and `password`. |
+| 422 | `login_incomplete` | Only one of `username` and `password`, with no stored password to keep, or the address moved to another scheme, host or port. |
+| 422 | schema list | Missing or unknown field, `kind` other than `calibre` or `opds`, `username` over 256 or `password` over 1024 characters. |
+
+### `DELETE /catalogs/v1/catalogs/{id}`
+
+`204` whether or not the catalog existed, so a retry is safe.
+
+### `PUT /catalogs/v1/order`
+
+```json
+{ "ids": ["3f2b9c1e-8d4a-4f6b-9a7e-2c5d1e0b4a93", "0c8e6a4f-2d1b-4e9a-8c7f-5b3a1d0e9f82"] }
+```
+
+The account's whole list in its new order. Answers `200` with the list as
+`GET` returns it, new `revision` and `ETag` included. A list that is not
+exactly the account's current catalogs (one missing, one extra, a duplicate)
+is `409 order_mismatch`: fetch the list and try again.
+
+### `GET /catalogs/v1/catalogs/{id}/fetch`
+
+For Quire Web, which cannot read most third-party catalogs itself (they send
+no CORS headers) and must not hold their logins. The server fetches the page
+with the catalog's saved login and passes the answer on. Android talks to its
+catalogs directly and does not use this.
+
+```http
+GET /catalogs/v1/catalogs/3f2b9c1e-8d4a-4f6b-9a7e-2c5d1e0b4a93/fetch?url=https%3A%2F%2Fbooks.example.org%2Fopds%2Fnew
+```
+
+`url` is optional; without it the server fetches the saved address, the
+catalog's home. With it, `url` must be on the saved address's origin: the
+same scheme, host and port. A link in a feed that points anywhere else is the
+browser's to fetch directly, without the login. Only `GET`. A browser cookie
+session must also send `X-Quire-Account` (as for any account route, it must
+match the signed-in account); without it the answer is
+`403 account_header_required`. A Bearer token needs no such header.
+
+The page sees the catalog's paths (in `url` and `Content-Location`), never
+its saved login.
+
+The server then:
+
+- resolves the host and refuses the request when any address it gets is not
+  globally routable. `QUIRE_SERVER_CATALOG_PROXY_ALLOW_PRIVATE=true` allows
+  RFC 1918, CGNAT and IPv6 unique local addresses as well, nothing more
+  (loopback and link-local never; the full list is in
+  [configuration](configuration.md#quire_server_catalog_proxy_allow_private)).
+  A refused address answers the same `502 catalog_unreachable` as a name that
+  does not resolve, so the answer does not reveal what a name resolves to
+  inside the server's network. It connects to an address it checked, trying
+  at most 2, while TLS still verifies the real host name, so a DNS answer
+  that changes in between cannot redirect it.
+- follows at most 3 redirects itself, each on the same origin and checked
+  again. A redirect to another origin is refused, so the login never leaves
+  the catalog's origin.
+- sends the catalog only `Accept`, `Accept-Language`, `Range`, `If-Range`,
+  `If-None-Match` and `If-Modified-Since` from the browser, plus the saved
+  login as `Authorization: Basic`. Never the browser's cookies or its own
+  `Authorization`.
+- asks for an uncompressed answer and refuses one with any `Content-Encoding`
+  other than `identity` (`502 catalog_compressed`). The body is relayed as
+  the raw bytes received, never decoded, so the caps below count what
+  crosses the wire.
+- reads feeds and covers (Atom, XML, OpenSearch, AVIF, WebP, PNG, JPEG, GIF)
+  whole, up to 5 MB, and treats anything else as a download, up to 200 MB.
+  The caps count the bytes received, whatever `Content-Length` says. A
+  download the catalog frames by `Content-Length` is streamed as it arrives,
+  and one that stops short leaves the browser a broken transfer. Any other
+  download is gathered first, then sent with its `Content-Length`, so a cut
+  one is an error (`catalog_too_large` or `catalog_unreachable`) and never a
+  shorter book.
+- gives up when the catalog's response headers have not all arrived 20
+  seconds after the request started (DNS, connecting and redirects
+  included), or a feed or cover is not whole after 60 seconds. A download has
+  no total limit; it ends when the catalog sends nothing for 30 seconds.
+- runs at most 4 fetches at once for one account and
+  `QUIRE_SERVER_CATALOG_PROXY_MAX_CONCURRENT` for the whole server, and holds
+  no database connection while it waits for the catalog.
+- after 5 `catalog_login_rejected` answers in a row for one catalog, stops
+  asking that catalog for 5 minutes, or until its login is saved again, and
+  answers `catalog_login_rejected` straight away.
+
+A success is the catalog's `200`, `206` or `304`, with its `ETag`,
+`Last-Modified`, `Accept-Ranges` and `Content-Range`, each only when it is
+printable ASCII. No other catalog header comes through (`Set-Cookie`
+included). A browser request header that is not printable ASCII is dropped
+too. `Content-Location` is the catalog
+address that answered, after redirects, so the browser can resolve the page's
+relative links. The body is another site's content served from Quire's
+origin, so it can never act as a page there: every answer is
+`X-Content-Type-Options: nosniff`,
+`Content-Security-Policy: sandbox; default-src 'none'`,
+`Cross-Origin-Resource-Policy: same-origin` and `Cache-Control: no-store`.
+A download keeps its type only when it is EPUB, PDF, ZIP or
+`application/octet-stream` (anything else, `text/html` and SVG included,
+becomes `application/octet-stream`) and always gets the server's own
+`Content-Disposition: attachment`, with the catalog's file name, cleaned up,
+as `filename*`, and always carries `Content-Length`.
+
+| Status | `detail` | When |
+|---|---|---|
+| 401 | `native_login_required` | A Calibre-Web Basic login, or no session. |
+| 403 | `account_header_required` | A browser cookie session without `X-Quire-Account`. |
+| 404 | `Not Found` | `QUIRE_SERVER_CATALOG_PROXY_ENABLED=false`, or no catalog key. |
+| 404 | `not_found` | No such catalog on this account. |
+| 409 | `needs_login` | The saved address and login cannot be decrypted. |
+| 422 | `other_origin` | `url` is not on the saved address's origin. |
+| 422 | `invalid_url`, `https_required`, `credentials_in_url` | As for `PUT`. `https_required` also applies to a saved `http` address once `QUIRE_SERVER_CATALOG_ALLOW_HTTP` is off. |
+| 429 | `rate_limited` | More than `QUIRE_SERVER_CATALOG_PROXY_RATE_PER_MIN` fetches this minute. `Retry-After` says when to try again. |
+| 429 | `too_many_fetches` | 4 fetches already running for this account, or the server's limit reached. `Retry-After: 1`. |
+| 502 | `catalog_login_rejected` | The catalog answered `401` or `403`: the saved login no longer works (or the catalog needs one). Also while the server has stopped asking a catalog that kept refusing its login. |
+| 502 | `catalog_compressed` | The catalog sent a compressed (`Content-Encoding`) answer. |
+| 502 | `catalog_error` | The catalog answered another error; the body also carries its `status`, as in `{"detail": "catalog_error", "status": 404}`. |
+| 502 | `catalog_redirect_refused` | A redirect to another origin, a malformed one, or more than 3. |
+| 502 | `catalog_too_large` | A feed or cover over 5 MB, a `Content-Length` over the cap, or a download without one that passes the cap. |
+| 502 | `catalog_unreachable` | The name does not resolve or resolves to a refused address, no address connects, TLS fails, or the catalog misses a deadline. |
+
+The server logs these by catalog id and reason only (a refused address is
+logged as `address_refused`), never the address or login.
+
+### In account export and deletion
+
+`GET /auth/v1/account/export` includes `account_catalogs`, one entry per
+catalog with its readable `url`, `username` and `password` in place of the
+encrypted value. A catalog that cannot be decrypted is exported with
+`secret_unreadable: true` and no address or login. Purging an account deletes
+its catalogs.
+
 ## Health
 
 ```
@@ -749,8 +1034,8 @@ Two layers protect the configured AI endpoint:
 
 ### AI provider errors
 
-When the model call behind `/insights/lookup`, `/insights/regenerate`, or
-`/profile/refresh` fails, the response carries a structured `detail`
+When the model call behind `/insights/lookup`, `/insights/regenerate`,
+`/profile/refresh` or `/highlights/discuss` fails, the response carries a structured `detail`
 instead of the bare 500 that older servers returned (issue #102):
 
 ```json
@@ -795,7 +1080,25 @@ Returns the user-visible AI configuration. Public to authed users.
   "prompt_version": "5",
   "progress_supported": true,
   "generation_timeout_s": 120,
-  "profile_timeout_s": 90
+  "profile_timeout_s": 90,
+  "details_supported": true,
+  "cover_choice_supported": true,
+  "cover_painting_supported": false,
+  "conversion_supported": false,
+  "highlights_discuss": true,
+  "highlights_discuss_limits": {
+    "max_highlights": 20,
+    "max_text_chars": 2000,
+    "max_note_chars": 1000,
+    "max_title_chars": 500,
+    "max_authors": 10,
+    "max_author_chars": 200,
+    "max_question_chars": 1000,
+    "max_answer_chars": 4000,
+    "max_questions": 6,
+    "max_total_chars": 60000,
+    "questions_per_minute": 10
+  }
 }
 ```
 
@@ -828,6 +1131,36 @@ its wait for that call from the server's actual profile timeout instead of
 `generation_timeout_s`, which is never too short but was longer than
 needed. Older deploys omit the field; the client falls back to sizing the
 profile-refresh wait off `generation_timeout_s`.
+
+`details_supported` is true when the server mounts
+[`/details/v1`](#book-details-and-covers-details-v1), that is when
+`QUIRE_SERVER_DETAILS_ENABLED` is on. Like the insights, the details also
+need `configured` and the reader's opt-in. Older servers omit the field and
+clients read it as false. Browser clients find the same flag as
+`capabilities.book_details` in the session response.
+
+`cover_choice_supported` is true when `/details/v1` accepts the
+[`cover_choice`](#post-detailsv1lookup-and-post-detailsv1tidy) field, that
+is whenever `details_supported` is. Older servers omit it and reject a body
+that carries the field with 422, so a client sends `cover_choice` only when
+this flag is true. `cover_painting_supported` is true only when, in
+addition, the server has an image provider for
+[painted cover artwork](#painted-cover-artwork); only then may a client send
+`cover_choice: "paint"`. Both are false when omitted.
+
+`conversion_supported` is true when the server mounts
+[`/convert/v1`](#pdf-conversion-convert-v1). Conversion does not need AI,
+so this is only a hint for clients that already read this response;
+`capabilities.pdf_conversion` in `GET /auth/v1/me` and
+`GET /convert/v1/capabilities` say the same without AI. Older servers omit
+the field and clients read it as false.
+
+`highlights_discuss` is true when
+[`POST /ai/v1/highlights/discuss`](#post-aiv1highlightsdiscuss) answers,
+that is when `configured` is true. `highlights_discuss_limits` then carries
+the limits that endpoint enforces, so clients never hard-code them; it is
+`null` when `highlights_discuss` is false. Older servers omit both fields:
+clients read them as false and null, and hide the action.
 
 ### `GET /ai/v1/preferences` / `PUT /ai/v1/preferences`
 
@@ -1328,6 +1661,165 @@ Filters applied (in addition to `LibraryItem.user_id == subject`):
 Promoted rows (PR-ζ) carry `generated_at = NOW()` at copy time so they enter
 the cursor stream as fresh events.
 
+### `POST /ai/v1/highlights/discuss`
+
+Think through a few highlights with the server's AI. The reader ticks up to
+20 highlights, possibly from different books, and asks a question ("what
+connects these?", "turn these into a note I can send"). They may follow up,
+up to 6 questions in all, and share the last answer as a note.
+
+The server keeps no conversation and stores nothing of it: the client
+sends the passages and every turn so far with each question. No passage,
+note, question or answer is logged or written to the database; the server
+logs only counts and timings.
+
+Show the action only when `highlights_discuss` is true in
+[`GET /ai/v1/config`](#get-aiv1config), and read the limits from
+`highlights_discuss_limits` there.
+
+#### Request
+
+```json
+{
+  "highlights": [
+    {
+      "n": 1,
+      "text": "Fear is the mind-killer.",
+      "note": "Compare with the Stoics.",
+      "title": "Dune",
+      "authors": ["Frank Herbert"]
+    },
+    { "n": 2, "text": "The spice must flow.", "title": "Dune", "authors": ["Frank Herbert"] }
+  ],
+  "messages": [
+    { "role": "reader", "content": "What connects these?" },
+    { "role": "assistant", "content": "Both are about control..." },
+    { "role": "reader", "content": "Turn this into a short note I can send." }
+  ],
+  "provider": "default"
+}
+```
+
+| Field | Type | Rules |
+|---|---|---|
+| `highlights` | array, required | 1 to 20 items. Send them again, unchanged, on every turn. |
+| `highlights[].n` | integer, required | The client's own number for the passage: 1 or more, unique in the request. Number the picked highlights 1, 2, 3 in the order shown; `cited` answers with these numbers. |
+| `highlights[].text` | string, required | The highlighted text. Not blank. At most 2,000 characters. |
+| `highlights[].note` | string or null | The reader's own note on the highlight. At most 1,000 characters. Omit or send null when there is none; a blank note counts as none. |
+| `highlights[].title` | string or null | The book's title. At most 500 characters. |
+| `highlights[].authors` | array of strings | The book's authors, at most 10, each at most 200 characters. Default `[]`. |
+| `messages` | array, required | The turns so far, oldest first, strictly alternating: `reader`, `assistant`, `reader`, ... It starts and ends with a `reader` turn, the last being the new question. At most 6 `reader` turns, so at most 11 items. |
+| `messages[].role` | `"reader"` or `"assistant"` | `assistant` turns are the server's earlier `answer` values, sent back unchanged. |
+| `messages[].content` | string, required | Not blank. A `reader` turn is at most 1,000 characters, an `assistant` turn at most 4,000. |
+| `provider` | string or null | Optional. One of the `providers[].id` values from `GET /ai/v1/config`, to use for this question only. Omitted or null: the reader's provider from `PUT /ai/v1/preferences`. |
+
+Characters are Unicode code points. On top of the per-field limits, all
+`text`, `note`, `title`, `authors` and `content` strings together may hold
+at most 60,000 characters. Every limit is enforced whatever the client
+sends: a value over a limit is refused with a 422 naming the field, never
+trimmed. Unknown fields are refused too.
+
+#### Response
+
+```json
+{
+  "answer": "Both passages are about control: one over fear, one over a resource...",
+  "cited": [1, 2]
+}
+```
+
+- `answer`: text to be rendered as plain text. It may contain URLs.
+  Clients must never render it as Markdown or HTML: the model is asked
+  for plain text, but the server does not rewrite what it returns, so
+  stray marks such as `**` may appear and must show as typed. Paragraphs
+  are separated by a blank line; a list may use plain hyphens. The model
+  is asked to leave out passage numbers, so the answer reads on its own
+  when shared. It is in the language of the reader's latest question,
+  about 150 words unless the reader asked for more, and never longer than
+  4,000 characters, so it can always be sent back as an `assistant` turn:
+  in the rare case of a longer answer the server cuts it, at a sentence
+  end when one falls in the second half of the limit, and adds "…". When
+  the passages cannot answer the question, the answer says so rather than
+  guessing.
+- `cited`: the `n` values of the passages the answer relies on, in the
+  order it uses them. Every value is one of the request's `n`; the server
+  drops any other number and any repeat. It may be empty.
+
+Render `answer` as plain text only. Responses carry
+`Cache-Control: no-store`.
+
+#### Allowance, rate and log
+
+Each question is one generation: it counts once against the reader's
+`AI_DAILY_BUDGET` ([quota model](#quota-model)), and on the hosted service
+against the monthly allowance. It is not a regeneration. It waits for the
+process-wide `AI_RATE_PER_MIN` bucket like every model call. On top, each
+reader may ask at most `questions_per_minute` questions per minute
+(`QUIRE_SERVER_AI_DISCUSS_RATE_PER_MIN`, default 10, counted per server
+process). Each answered question writes one `ai_generation_log` row of
+kind `discuss`, with the model, the prompt version, the latency and
+nothing of the content.
+
+#### Passages are material, not instructions
+
+Highlights, notes and titles may contain anything, including text such as
+"ignore previous instructions". The server sends them to the model as JSON
+string values inside the user message. Quoting stops a passage from
+breaking the structure of the message (it cannot close its string and
+pose as a new field or turn), but it does not stop the model from reading
+the words. That part is the system prompt's job: it says the passages are
+material to reason about and never instructions, that answers must be
+grounded in them, and that "I can't tell from these passages" beats
+invention. `cited` is checked against the request whatever the model
+returns.
+
+#### Errors
+
+Checked in this order: authentication, the body, whether AI is
+configured, the provider, the opt-in, the per-minute rate, the allowance,
+the model call.
+
+| Status | Body | When |
+|---|---|---|
+| 401 | | Not authenticated. |
+| 404 | | AI is off (`QUIRE_SERVER_AI_ENABLED=false`): `/ai/v1` is not mounted. |
+| 413 | | The body is larger than `QUIRE_SERVER_MAX_REQUEST_BYTES` (default 1 MiB), refused before it is read. |
+| 422 | `{"detail": {"code": ..., "field": ..., "limit": ...}}` | A value over a limit or a malformed conversation; see below. Nothing is counted. |
+| 422 | `{"detail": [...]}` (FastAPI validation list) | The body is not JSON of the shape above: unparseable JSON (`type` `json_invalid`), a missing or mistyped field (an `n` must be a JSON integer, not `"1"` or `1.0`), an unknown field, a `role` other than `reader` or `assistant`, or a `provider` that is not a lowercase id. Each item has `type`, `loc` and `msg` only: the values sent are never echoed back. |
+| 503 | `{"detail": "ai_disabled"}` | AI is on but no provider is configured (`configured` is false). |
+| 422 | `{"detail": "ai_provider_unknown"}` | `provider` names no provider this server offers. |
+| 409 | `{"detail": "ai_provider_unavailable"}` | The reader's chosen provider is no longer on this server. |
+| 409 | `{"detail": "ai_not_opted_in"}` | The reader has not opted in to AI. |
+| 429 | `{"detail": "discuss_rate_limited"}`, `Retry-After` | More than `questions_per_minute` questions in the last minute. `Retry-After` is a whole number of seconds, at least 1. Nothing is counted against the allowance. |
+| 429 | `{"detail": {"used": 200, "limit": 200, "resets_at": "..."}}`, `Retry-After` | The daily allowance is spent ([quota model](#quota-model)). |
+| 429 | `{"detail": "monthly_ai_quota_exhausted"}` | Hosted service only: the monthly allowance is spent. No `Retry-After`. |
+| 503 | `{"detail": "ai_policy_unavailable"}` | Hosted service only: the allowance service cannot answer. |
+| 502, 504 | [provider error](#ai-provider-errors) | The model call failed. `provider_invalid_output` also covers an empty answer. The question was counted. |
+
+The limit 422 `detail` object:
+
+- `code`: `"too_many"` (more items than allowed: `highlights`,
+  `highlights[i].authors`, or reader turns in `messages`), `"too_long"`
+  (one string over its limit), `"too_large"` (the 60,000-character total)
+  or `"invalid"` (a problem that is not a size: no highlights, an `n` below
+  1 or repeated, a blank `text`, a blank turn, turns that do not
+  alternate starting with `reader`, or a conversation that is empty or
+  ends with an `assistant` turn).
+- `field`: where, as a path into the request: `"highlights"`,
+  `"highlights[3].text"`, `"highlights[0].note"`, `"highlights[0].title"`,
+  `"highlights[0].authors"`, `"highlights[0].authors[2]"`,
+  `"highlights[1].n"`, `"messages"`, `"messages[4]"` (a turn in the wrong
+  place or blank), `"messages[4].content"`, or `"request"` for the total.
+  Indexes count from 0.
+- `limit`: the number that was exceeded, or null for `"invalid"`.
+
+The server reports the first problem it finds, checking the highlights in
+order and then the turns in order.
+
+Clients should check the limits before sending, using
+`highlights_discuss_limits`, and count only `reader` turns against
+`max_questions`. When a conversation reaches it, offer to start a new one.
+
 ### `GET /ai/v1/health`
 
 Operational visibility for AI provider + retrieval reachability. **Unauthenticated**
@@ -1365,3 +1857,633 @@ most recently observed model on a successful chat completion (not necessarily
 equal to `AI_MODEL`; see `/ai/v1/config` for the configured value). On
 failure, `last_failure_at` and `last_failure_class` are set and cleared on
 the next success.
+
+## Book details and covers (`/details/v1`)
+
+When a book has no cover, no description or a title that is really a file
+name ("dune_frank_herbert_(retail).epub"), the server can fill in what is
+missing and tidy what is messy. It runs in two steps:
+
+1. **Find.** If the book lacks a cover, a description, subjects, a
+   language, an ISBN or a year, the server looks it up on Open Library,
+   with the same check the insights use that the result is this book: the
+   title forms, the volume number, the format and, when an author is
+   given and the match came from the title rather than the ISBN, that the
+   result credits the same person (any name word of three letters or more,
+   ignoring accents, word order, initials and words such as "ed." or
+   "Various"). A title alone is never looked up. No match means nothing is
+   filled, never a guess. This step makes no model call
+   and costs nothing.
+2. **Tidy.** One model call reads the book's own fields and the Open
+   Library record and returns a cleaned title, authors, series and
+   description, plus a cover design. The server then removes anything the
+   model may not say: the answer has no field for a year, an ISBN, a
+   publisher or a language, which only ever come from the client or Open
+   Library; a title, author or series whose words are not whole words of
+   the input is refused, and a title that was not a file name keeps the
+   input's words in their order, losing only a series, the author's name
+   or a volume word; a series number must appear in the input; and
+   description sentences that state a publication detail, carry a web
+   address or hold a number the sources do not are dropped. A tidy counts as one generation against the
+   reader's allowance ([quota model](#quota-model)); serving a stored tidy
+   is free.
+
+The endpoints are mounted only when AI is on
+(`QUIRE_SERVER_AI_ENABLED=true`) and `QUIRE_SERVER_DETAILS_ENABLED` is
+true (the default); otherwise every path answers **404**. Clients check
+`details_supported` in [`GET /ai/v1/config`](#get-aiv1config), or
+`capabilities.book_details` in a browser session. They use the same
+authentication as `/ai/v1` and require the reader's AI opt-in, because the
+book's details reach the model provider.
+
+### When a lookup tidies on its own
+
+`POST /details/v1/lookup` spends a generation only when one of these holds
+and no stored record exists for the same input:
+
+- the title looks like a file name: underscores, an ebook extension, a
+  release tag such as "(retail)", "[epub]" or "v5", words joined by dots or
+  dashes, no capital letter at all, or the author's surname inside a title
+  of several words;
+- the book has no cover, from the client or from Open Library, so the tidy
+  is needed to design one;
+- Open Library matched but the client sent no authors, or neither the
+  client nor Open Library has a description.
+
+Otherwise the answer is the client's fields plus what the find added, with
+`tidy: "not_needed"`. `cover_choice` never causes a tidy: a lookup with any
+choice spends a generation exactly when the same lookup with `"keep"`
+would, so a client may send a stored choice on its automatic lookups
+without making them cost more. `POST /details/v1/tidy` always tidies, for
+a reader who asks.
+
+A stored record is served with the Open Library result found when it was
+tidied, so serving it makes no Open Library request. When a tidy fails
+for a reason other than the allowance, the server remembers the record key
+for about 15 minutes (in each server process): lookups of that book answer
+`tidy: "failed"` at once without calling the model again, while
+`POST /details/v1/tidy` still tries.
+
+### Sharing and keying
+
+Records live in `book_details`, shared by every account like
+`book_insights`: there is no user column, and a second reader with the same
+book gets the stored record free. The key is a SHA-256 over the book's
+canonical identity (`metadata_id:...` or `content_hash:...`, resolved from
+alias hints as the insights do), every field of `book`, and the tidy's
+prompt version. Because every input field is part of the key, a client that
+sends false fields only writes a record that no client with the true fields
+will be served. The model id is stored with the record but is not part of
+the key. Each tidy, and each record served from the store, writes one
+`ai_generation_log` row of kind `details` for cost attribution.
+
+The same reader's devices often send different fields for one book (the
+phone reads them from the file, the web from the catalog), which gives a
+different key. So the server also keeps, per reader, a pointer from the
+book's canonical identity to the record that reader was last given
+(`book_details_reader`). A `/lookup` checks it first, before Open Library
+or the model: when the pointed record exists, the answer is that record,
+with `cached: true` and `tidy: "done"` (or `"not_needed"` when the record
+says what the fields sent already say), free, even though the fields sent
+differ. Every lookup that serves or stores a record, and every `/tidy`,
+moves the pointer to that record. The pointer belongs to one reader and
+only ever picks among records made for their own lookups, so it cannot
+change what any other reader is served. It is deleted with the account and
+included in the account export.
+
+### `POST /details/v1/lookup` and `POST /details/v1/tidy`
+
+Body:
+
+```json
+{
+  "identity": { "metadata_id": "urn:uuid:4b6f...", "content_hash": "abc..." },
+  "book": {
+    "title": "dune_frank_herbert_(retail)",
+    "authors": ["Herbert, Frank"],
+    "series_name": null,
+    "series_index": null,
+    "description": null,
+    "subjects": [],
+    "language": null,
+    "isbn": "9780441013593",
+    "year": null,
+    "publisher": null
+  },
+  "source": "file",
+  "cover": null,
+  "cover_choice": "keep"
+}
+```
+
+- `identity`: as for [`/ai/v1/insights/lookup`](#post-aiv1insightslookup).
+- `book`: the details the client holds. Only `title` is required. Caps:
+  `title <= 512`, `authors <= 16 x 256`, `series_name <= 256`,
+  `series_index 0-10000`, `description <= 8192`, `subjects <= 64 x 80`,
+  `language <= 32`, `isbn <= 64`, `year 0-9999`, `publisher <= 256`.
+  Runs of whitespace collapse to one space and blank values count as
+  missing. Unknown keys are rejected.
+- `source`: where `book` came from, `"file"` (the book file) or
+  `"catalog"` (its catalog entry). It is echoed as the origin of the
+  fields the client sent.
+- `cover`: `"file"` or `"catalog"` when the client already shows a real
+  cover, else `null`. With `cover_choice` `"keep"` a found or generated
+  cover never replaces a real one; only a reader's explicit choice does.
+- `cover_choice` (optional, default `"keep"`; send it only when
+  [`cover_choice_supported`](#get-aiv1config) is true): the cover the
+  reader asked for.
+  - `"keep"`: the client's own cover; without one, Open Library's, else a
+    generated one. This is the behaviour of servers without the field.
+  - `"find"`: Open Library's cover, even when the client has its own; when
+    Open Library has none, a generated one. The server asks Open Library
+    even if the book lacks nothing else. A stored record that was made
+    without asking Open Library is asked about once, the first time it is
+    served for `"find"`, and the answer is kept with the record (no model
+    call either way).
+  - `"draw"`: the generated cover, drawn by the server from the tidy's
+    design, even when the client or Open Library has a cover.
+  - `"paint"`: the generated cover on painted artwork
+    ([below](#painted-cover-artwork)). Allowed only when
+    `cover_painting_supported` is true, else the request answers 409
+    `cover_art_unavailable` before anything else happens.
+
+  A choice that cannot be served falls back in the order generated cover,
+  then the client's own: `"find"`, `"draw"` or `"paint"` on a `/lookup`
+  that has no record to serve and did not tidy (`tidy` `"not_needed"`,
+  `"quota_exceeded"` or `"failed"`) answer with the client's own cover, or
+  `source: null` without one. The
+  cover choice is not part of the record key: every choice of the same
+  book is served from the same record, so trying choices one after another
+  with `/lookup` after a `/tidy` costs no generation.
+
+Response:
+
+```json
+{
+  "key": "3f1c...64 hex characters",
+  "book": {
+    "title": "Dune",
+    "authors": ["Frank Herbert"],
+    "series_name": null,
+    "series_index": null,
+    "description": "...",
+    "subjects": ["Science fiction", "Desert planets"],
+    "language": null,
+    "isbn": "9780441013593",
+    "year": 1965,
+    "publisher": null
+  },
+  "origins": {
+    "title": "ai",
+    "authors": "ai",
+    "description": "openlibrary",
+    "subjects": "openlibrary",
+    "isbn": "file",
+    "year": "openlibrary",
+    "cover": "openlibrary"
+  },
+  "cover": {
+    "source": "openlibrary",
+    "url": "https://covers.openlibrary.org/b/id/12345-L.jpg",
+    "generated": false
+  },
+  "tidy": "done",
+  "cached": false,
+  "openlibrary_url": "https://openlibrary.org/works/OL893415W"
+}
+```
+
+- `book`: the merged details. The client's own values always win for
+  facts; the tidy replaces only the title, authors, series and
+  description; the find fills only fields the client left empty.
+- `origins`: for every field that has a value, where it came from:
+  `"file"` or `"catalog"` (echoing `source`), `"openlibrary"` or `"ai"`.
+  For `description` there are two model origins: `"ai"` when the model
+  cleaned a description the client or Open Library had (whenever the text
+  differs from that source at all, since a cleaned text may still say
+  something the source did not), and `"ai_written"` when neither had one
+  and the model wrote it from the Open Library record, which happens only
+  when Open Library matched.
+  `cover` is `"file"`/`"catalog"` for the client's own, `"openlibrary"`,
+  or `"ai"` for a generated cover.
+- `cover`: the cover to show, as `cover_choice` asks: with `"keep"` in the
+  order the client's own, Open Library's, then a generated one. `source`
+  is `null` when there is none (no tidy ran). For a generated cover, `url` is a server path such as
+  `/details/v1/covers/<key>?v=<etag>` and `generated` is true, so the
+  client can label it. Two more flags, both false unless the server paints
+  cover artwork ([below](#painted-cover-artwork)): `painted` when the
+  cover is drawn on painted artwork, and `painting` when artwork for it is
+  on its way, so a later lookup will answer with a new `url`.
+- `tidy`: `"done"` when the answer includes a tidy that changed something,
+  `"not_needed"` when nothing called for one or when the answer's `title`,
+  `authors`, `series_name`, `series_index` and `description` all equal
+  what the client sent (after the whitespace and blank-value rules above),
+  and on a lookup `"quota_exceeded"` or `"failed"` when one was due but
+  the allowance was spent or the model call failed. A `/tidy`, forced, and
+  a stored record served from the reader's pointer answer `"not_needed"`
+  by the same rule, even though a model call was made and counted: the
+  server's checks often keep a clean book's title and authors as they
+  were, and then there is nothing for the reader to see. A description
+  that the find filled from Open Library counts as a change. `tidy` says
+  nothing about the cover: a `"not_needed"` answer can still carry a new
+  found or generated cover. A lookup never fails because of the tidy: it
+  answers with what the find gave.
+- `cached`: true when the tidy was served from the shared store, at no
+  cost, including a record found through the reader's pointer.
+
+A client that shows a `/tidy` answer as a preview, for the reader to
+accept or reject, must remember a rejected answer's `key` on the device.
+The `/tidy` has already moved the reader's pointer to that record, and the
+pointer is per reader, not per device, so every later `/lookup` of the
+book is served that record. When a lookup answers with a remembered
+rejected `key`, the client keeps showing the book's own title, authors,
+series and description. The Web app does this.
+- `openlibrary_url`: the matched Open Library work, for attribution;
+  `null` when nothing matched.
+
+Every text field is plain text: the server strips HTML tags, Markdown
+links and emphasis, and web addresses from descriptions. Clients must still
+render every field as plain text, never as HTML or Markdown, since a
+record holds text written by other readers and by the model.
+
+ISBN and publisher are never filled from Open Library, because a work has
+many editions; `year` is the work's first publication year; `language`
+is filled only from the edition of the book's own ISBN.
+
+| Status | Body | When |
+|---|---|---|
+| 200 | the response above | Success. On `/lookup` also when the tidy could not run; see `tidy`. |
+| 401 | | Not authenticated. |
+| 404 | | The feature is off (`QUIRE_SERVER_DETAILS_ENABLED=false`) or AI is off. |
+| 409 | `{"detail": "ai_not_opted_in"}` | The reader has not opted in to AI. |
+| 409 | `{"detail": "ai_provider_unavailable"}` | The reader picked a provider this server no longer has. |
+| 409 | `{"detail": "cover_art_unavailable"}` | `cover_choice` is `"paint"` and this server paints no artwork (`cover_painting_supported` is false). Checked first, so it costs nothing. Ask again with `"draw"`. |
+| 422 | | The body fails validation (an unknown `cover_choice` included), or no canonical identity resolves. |
+| 429 | `{"detail": "details_rate_limited"}`, `Retry-After` | The reader made more than `QUIRE_SERVER_DETAILS_LOOKUP_RATE_PER_MIN` lookups and tidies together in the last minute (counted per server process). Checked before Open Library or the model is reached, so it costs nothing. The `detail` code is stable. |
+| 429 | quota body, `Retry-After` | `/tidy` only: the daily allowance or the regeneration limit is spent ([quota model](#quota-model)), or the hosted monthly allowance (`{"detail": "monthly_ai_quota_exhausted"}`). |
+| 502, 504 | [provider error](#ai-provider-errors) | `/tidy` only: the model call failed. |
+| 503 | `{"detail": "ai_disabled"}` | AI is on but no provider is configured. Also when the hosted allowance service cannot answer. |
+
+Wherever a 429 here or on the cover endpoint below carries `Retry-After`,
+it is a whole number of seconds, at least 1, never an HTTP date. The
+rate-limit 429s always carry it; the hosted monthly allowance's does not. The rate-limit body is
+exactly `{"detail": "details_rate_limited"}` (or `"cover_rate_limited"`),
+so a client can tell it from the allowance's 429 by `detail` alone: wait
+`Retry-After` seconds and send the same request again.
+
+A forced tidy of a book that already has a stored record counts as a
+regeneration (`AI_REGEN_DAILY_LIMIT`); the first tidy of a book counts as
+a generation.
+
+### `GET /details/v1/covers/{key}`
+
+The designed cover of the record with this `key`, as a 600 x 900 PNG, or
+a JPEG when it is drawn on painted artwork. It is drawn on request from
+the stored design, title and authors (and artwork), so the same record
+always gives the same image. Use the `url` from the lookup response: it
+carries the current `ETag` as `?v=`, so a changed cover has a new address.
+Once artwork is painted, both the drawn cover's address and the painted
+one's are served, each with its own picture, so an address a client
+already holds keeps working.
+
+Response headers: `Content-Type: image/png` (or `image/jpeg`), `ETag`,
+`Cache-Control: private, max-age=31536000, immutable` for an address with
+`?v=` (`private, no-cache` without one), and `X-Quire-Cover: generated`, which marks the image as drawn by the server
+rather than a real cover.
+
+| Status | When |
+|---|---|
+| 200 | The PNG or JPEG. |
+| 304 | `If-None-Match` matches the current `ETag`. |
+| 401 | Not authenticated. |
+| 404 | `{"detail": "cover_not_found"}`: no record has this key, or `?v=` names a cover since redrawn (look the book up again for the new address). Also when the feature or AI is off. |
+| 409 | `{"detail": "ai_not_opted_in"}`: the reader has not opted in to AI. |
+| 429 | `{"detail": "cover_rate_limited"}` with `Retry-After`: the reader fetched more than `QUIRE_SERVER_DETAILS_COVER_RATE_PER_MIN` covers in the last minute (counted per server process; a `304` does not count). |
+
+### Painted cover artwork
+
+Off by default (`QUIRE_SERVER_COVER_ART_ENABLED`, see
+[configuration](configuration.md#quire_server_cover_art_enabled)). When an
+operator turns it on, an image model paints a background for generated
+covers: an illustration with no text, made from the record's title,
+subjects and a trimmed description. The server still sets the title and
+author itself, on a solid band over the lower part of the artwork, so the
+type keeps the design's contrast whatever the painting looks like.
+
+A cover is painted only for a reader who asks for it, with
+`cover_choice: "paint"` on a `/lookup` or `/tidy`; nothing is painted for
+`"keep"`, `"find"` or `"draw"`. Painting never happens on the request. A
+`"paint"` request that answers with a generated cover queues a painting
+when one is due and answers at once with the drawn cover and
+`cover.painting: true`. When the artwork is stored, the next `"paint"`
+lookup of that book answers with a new `url` (a new `?v=`) and
+`cover.painted: true`; that lookup is served from the stored record, so it
+costs nothing. Each book is painted once and the artwork is shared by
+every reader who asks for a painted cover of the record, like the record
+itself. A client that never sends `cover_choice`, as clients from before
+the field do, never receives a painted cover.
+
+The artwork is keyed by the shared record, so a painting may already exist
+when a reader did not ask for one. Such a reader (`"keep"` with no cover of
+their own, or `"draw"`) still gets the drawn cover: `url` is the drawn
+cover's address and `painted` and `painting` are false. Both addresses are
+served ([covers](#get-detailsv1coverskey)), so each reader keeps the
+picture they chose.
+
+A painting that fails (the provider refused, timed out or answered with no
+usable image) is not retried on every lookup: after a timeout or a busy or
+unavailable provider a later lookup may try again a day later, otherwise
+after 30 days. The server paints at most `QUIRE_SERVER_COVER_ART_DAILY_BUDGET`
+covers a day in all; a `"paint"` request made once the day's budget is
+spent, or for a book whose painting failed and may not be tried again yet,
+answers with the drawn cover and `painting: false`, `painted: false`. None
+of this is charged to the reader's allowance.
+
+`painting: true` means "ask again later": look the book up again with
+`cover_choice: "paint"` (an hour is plenty), which is free because the
+record is stored, and fetch the new `url` when it changed. A client that keeps the first cover it was given and
+never looks the book up again keeps showing the drawn cover.
+
+The artwork comes only as base64 image data in the provider's answer; the
+server never fetches an image address, so a provider that answers with
+one paints nothing.
+
+## PDF conversion (`/convert/v1`)
+
+A reader picks a PDF in the app; the server turns it into an EPUB and the app
+downloads the book. The converting is done by a separate worker container
+running `quire-convert` from `converter/` (Calibre, Poppler, EPUBCheck). It
+uses no model and sends nothing off the server, so it works with AI switched
+off. Setup is in [PDF conversion](configuration.md#pdf-conversion).
+
+Who can call it: any login the server accepts (a Quire account session,
+Bearer token or browser cookie, or a Calibre-Web Basic login). Cookie
+sessions send `X-CSRF-Token` on `POST` and `PUT` as everywhere else, and
+`X-Quire-Account` is checked on `/convert/v1/` like on `/library/v1/`.
+
+The routes exist only while `QUIRE_SERVER_CONVERT_ENABLED` is on and the job
+folder is usable; otherwise every one of them is `404 {"detail": "Not Found"}`.
+Clients find out with any of:
+
+- `GET /convert/v1/capabilities`: `200` when conversion is on (any login).
+- `capabilities.pdf_conversion` in `GET /auth/v1/me` (browser sessions and
+  Quire accounts). A Calibre-Web browser session (`/quire/v1/session`)
+  carries no capabilities, so a client signed in that way asks
+  `GET /convert/v1/capabilities`.
+- `conversion_supported` in `GET /ai/v1/config`, when AI is on.
+
+Rules for every route:
+
+- Every response, errors included, is `Cache-Control: no-store`.
+- Jobs belong to the account's storage scope. Another account's job answers
+  `404 {"detail": "job_not_found"}`, exactly like one that does not exist.
+- A `422` never repeats what was sent. Schema errors come back as
+  `{"detail": [{"type", "loc", "msg"}]}`; rule errors as `{"detail": "<code>"}`.
+- The server logs a job by id, state, codes and sizes, never a file name or
+  any text from the book.
+- Two kinds of `404`: `{"detail": "Not Found"}` means conversion is off on
+  this server (or the path is wrong); `{"detail": "job_not_found"}` means
+  this account has no such job (never created, another account's, or purged
+  48 hours after creation).
+- Text the worker supplies (`failure.detail`, `review.reason`, an issue's
+  `code`, `message` and `page_label`, a page's `label`, `engine_revision`)
+  comes out of converting an untrusted PDF. Show it as plain text, never as
+  HTML or markup.
+
+### The flow
+
+1. `POST /convert/v1/jobs` with the PDF's SHA-256 and size: `201` and a job
+   in state `created`.
+2. `PUT /convert/v1/jobs/{id}/source` with the PDF as the body: `202`, state
+   `queued`.
+3. Poll `GET /convert/v1/jobs/{id}`, at most every 5 seconds (the server
+   moves jobs along about that often; a conversion takes seconds to
+   minutes), through `running` until a finished state.
+4. `ready` or `review`: `GET /convert/v1/jobs/{id}/epub`, then
+   `POST /convert/v1/jobs/{id}/acknowledge`. `failed`: show the reason, then
+   acknowledge.
+
+| State | Meaning | Next |
+|---|---|---|
+| `created` | Waiting for the PDF. After an hour without it the job expires. | `queued`, `cancelled`, `expired` |
+| `queued` | The PDF is in and waits for the worker. | `running`, `failed`, `cancelled`, `expired` |
+| `running` | The worker is converting it. | `ready`, `review`, `failed`, `queued` (worker restarted), `cancelled`, `expired` |
+| `ready` | Converted and checked; the EPUB can be downloaded. | `acknowledged`, `expired` |
+| `review` | Converted, but some pages need a look (`review` lists them). The EPUB can be downloaded. | `acknowledged`, `expired` |
+| `failed` | Not converted; `failure.code` says why. | `acknowledged`, `expired` |
+| `cancelled` | Stopped by the reader. | none |
+| `acknowledged` | The reader took the result; both files are deleted. | none |
+| `expired` | 24 hours passed since creation; both files are deleted. | none |
+
+The PDF is deleted as soon as the job reaches any state after `running`. A
+finished job keeps its EPUB until it is acknowledged, or for at most 24 hours
+from creation (not from when it finished: `expires_at` says when). Jobs stay
+listed for another day after that (so the daily limit can count them) and
+then disappear.
+
+**After an app restart.** Save the idempotency key before the `POST` and the
+job id from its answer before starting the `PUT`. To pick up again, `POST`
+the same key with the same values: the answer is the job in its current
+state, whatever it is. If it is still `created`, upload again. A retried
+`PUT` that answers `409 not_accepting_source` means the first upload arrived
+and only its answer was lost: `GET` the job. `409 upload_in_progress` means
+an earlier upload of the job is still arriving (or went quiet less than two
+minutes ago): wait, then `GET` the job. If it is still `created` two minutes
+later, that upload died: upload again.
+
+**When no worker runs.** A queued job waits for a worker and expires 24 hours
+after creation if none comes. Offer conversion only while `available` is
+`true` in the capabilities, and show a queued job as waiting.
+
+### Job object
+
+Every job route answers with this shape:
+
+```json
+{
+  "id": "0b7f8a8e-5f0c-4c1e-9f3a-2f9a1e0c6d11",
+  "state": "review",
+  "mode": "local",
+  "attempt": 1,
+  "created_at": "2026-11-25T10:00:00+00:00",
+  "updated_at": "2026-11-25T10:01:12+00:00",
+  "expires_at": "2026-11-26T10:00:00+00:00",
+  "source": {"sha256": "<64 hex>", "bytes": 1843200},
+  "engine_revision": "quire-convert 0.1.0; calibre 9.19.0; epubcheck 5.4.0",
+  "result": {
+    "sha256": "<64 hex>",
+    "bytes": 912345,
+    "rendition_id": "urn:uuid:5a0d...",
+    "issue_counts": {"critical": 0, "major": 1, "minor": 2, "info": 0}
+  },
+  "review": {
+    "reason": "1 page needs review",
+    "affected_pages": [{"page": 12, "label": "x"}],
+    "issues": [
+      {"code": "...", "severity": "major", "page": 12, "page_label": "x", "message": "..."}
+    ]
+  },
+  "failure": null
+}
+```
+
+- `result` is set in `ready` and `review`, `null` otherwise. `sha256` and
+  `bytes` describe exactly the bytes `/epub` returns.
+- `result.rendition_id` is the book's first `dc:identifier`. It is derived
+  from the PDF's SHA-256 and the converter's fixed settings, and the EPUB is
+  packaged deterministically, so converting the same PDF again gives the
+  same identifier (and, with the same `engine_revision`, the same bytes). A
+  client that keys books by that identifier sees the same book, not a copy.
+- `result.issue_counts` counts the converter's findings by severity, with the
+  keys `critical`, `major`, `minor` and `info`.
+- `review` is set only in `review`: the physical pages (`page`, 1-based) and
+  printed labels (`label`, may be `null`) that kept the book from `ready`,
+  and up to 100 of the issues that did, each with a `severity` of
+  `critical` or `major`. A `review` book is usable: import it like a `ready`
+  one and tell the reader which pages to check.
+- `failure` is set only in `failed`:
+  `{"code": "<code>", "retryable": false, "detail": "<short reason or null>"}`.
+  `retryable: true` means the same PDF may convert on another try (start a
+  new job with a new idempotency key); `false` means it will fail the same
+  way. `worker_error`, `worker_lost` and `invalid_result` are faults on the
+  server's side and always retryable; `conversion_failed` is when the
+  converter says so; the other codes never are.
+- `engine_revision` is the worker's tools when the job was created, replaced
+  by the ones that actually converted it.
+- `attempt` counts the server's tries: a worker that disappears mid-run gets
+  the job taken back and run once more (attempt 2) before it fails
+  `worker_lost`.
+- `mode` is always `"local"` for now: converted on this server, nothing sent
+  elsewhere. The field is reserved for other ways of converting.
+
+| `failure.code` | Meaning |
+|---|---|
+| `encrypted` | The PDF is encrypted or password-protected (any encryption, even with no open password). |
+| `too_many_pages` | More pages than `max_pages`. |
+| `unreadable_pdf` | Poppler could not read it as a PDF. |
+| `unsupported` | A kind of PDF the converter does not handle (`detail` says which). |
+| `conversion_failed` | A conversion stage failed; `detail` names the stage. |
+| `timed_out` | The conversion ran past `time_limit_s`. |
+| `worker_error` | The worker stopped unexpectedly or could not read its job. |
+| `worker_lost` | No worker finished the job, twice. |
+| `invalid_result` | The worker's result did not check out (a forged or malformed report, a file that is not a regular file, an EPUB whose size, checksum or structure is wrong), or the server could not reconcile the job; nothing was kept. |
+
+### `GET /convert/v1/capabilities`
+
+```json
+{
+  "available": true,
+  "engine_revision": "quire-convert 0.1.0; calibre 9.19.0; epubcheck 5.4.0",
+  "accepted_media_types": ["application/pdf"],
+  "max_bytes": 104857600,
+  "max_pages": 1000,
+  "time_limit_s": 1200,
+  "max_active_jobs": 2,
+  "daily_limit": 10,
+  "retention_hours": 24,
+  "modes": [{"id": "local", "sends_content_off_server": false}]
+}
+```
+
+`available` is `false` while no worker has checked in during the last two
+minutes; creating a job then answers `503 converter_unavailable`. A client
+can check `max_bytes` before uploading; `max_pages` is checked by the worker
+(`failed`, `too_many_pages`).
+
+### `POST /convert/v1/jobs`
+
+```json
+{"idempotency_key": "b2f0c1d4-7c7e-4d0e-a8f2-1c9b0e3d2a10", "sha256": "<64 hex>", "bytes": 1843200, "mode": "local"}
+```
+
+- `idempotency_key`: 8 to 128 characters from `A-Z a-z 0-9 _ -`, chosen by
+  the client, new for every PDF the reader picks. Sending the same key with
+  the same `sha256`, `bytes` and `mode` again returns the existing job
+  (`200`) in whatever state it is, finished, cancelled and expired included;
+  with different values it is `409`. Once the job's row is purged (48 hours
+  after creation) the key is free and starts a new job.
+- `sha256`: lowercase hex SHA-256 of the exact bytes the upload will send.
+- `bytes`: their count.
+- `mode`: optional, `"local"` (the only value).
+
+| Status | When |
+|---|---|
+| 201 | A new job, state `created`. |
+| 200 | The same key with the same values: the existing job. |
+| 403 | `{"detail": "hosting_subscription_required"}`: on a hosted server, the account's plan does not include writes (the same rule as sync writes). |
+| 409 | `{"detail": "idempotency_conflict"}`: the key was used for another PDF. |
+| 413 | `{"detail": "source_too_large"}`: `bytes` is over `max_bytes`. |
+| 422 | Schema errors (bad key, checksum or mode). |
+| 429 | `{"detail": "too_many_active_jobs"}` with `Retry-After: 60`: the account already has `max_active_jobs` jobs in `created`, `queued` or `running`. `{"detail": "daily_limit_reached"}` with `Retry-After` in seconds: the account started `daily_limit` jobs in the last 24 hours (cancelled and failed ones count). |
+| 503 | `{"detail": "converter_unavailable"}` with `Retry-After: 60`: no worker is running. |
+
+### `PUT /convert/v1/jobs/{id}/source`
+
+The PDF as the raw body (not multipart), `Content-Type: application/pdf`.
+`Content-Length` is optional: a chunked upload works too. This route alone
+accepts bodies up to `max_bytes`; every other route keeps the global request
+limit. The server stores the body, then checks that its size and SHA-256 are
+the ones the job was created with and that it looks like a PDF (`%PDF-`
+within the first KiB, `%%EOF` within the last). Only then is it queued.
+One upload per job runs at a time, and an upload that sends nothing for 60
+seconds is dropped.
+
+| Status | When |
+|---|---|
+| 202 | Stored and queued: the job, state `queued`. |
+| 408 | `{"detail": "upload_timed_out"}`: no bytes for 60 seconds. The job stays `created`; upload again. |
+| 409 | `{"detail": "not_accepting_source"}`: the job is past `created` (the source already arrived, or it was cancelled or expired). |
+| 409 | `{"detail": "upload_in_progress"}`: another upload of this job is under way, or went quiet less than two minutes ago. |
+| 413 | `{"detail": "request body exceeds <max_bytes> bytes"}`: the body went over `max_bytes`, with or without `Content-Length`. The detail is free text, so match on the status. |
+| 415 | `{"detail": "unsupported_media_type"}`: not `application/pdf`. |
+| 422 | `{"detail": "size_mismatch"}` (more or fewer bytes than `bytes`, or a `Content-Length` that says so), `{"detail": "checksum_mismatch"}`, `{"detail": "not_a_pdf"}`. The job stays `created`, so the client can upload again. A client that will not upload again (the file is not a PDF, or is too large) should cancel the job: a `created` job counts toward `max_active_jobs` until it expires. |
+
+### `GET /convert/v1/jobs` and `GET /convert/v1/jobs/{id}`
+
+`{"jobs": [<job>, ...]}` with the caller's jobs newest first, every state
+included; or one job. The single-job route is the one to poll.
+
+### `GET /convert/v1/jobs/{id}/epub`
+
+The EPUB, `Content-Type: application/epub+zip`, with `Content-Length`,
+`ETag: "<result.sha256>"` and
+`Content-Disposition: attachment; filename="<id>.epub"`. Repeat downloads
+return identical bytes until the job is acknowledged or expires, so an
+interrupted download can simply start over. A download already under way
+finishes even if the job is acknowledged meanwhile. There are no `Range`
+requests (every download sends the whole file), and the `ETag` is for
+comparing only: `If-None-Match` never yields `304`.
+
+The EPUB comes from converting an untrusted PDF. The server checks that it
+is the file the worker reported and a plain EPUB container (`mimetype`
+first, no entry name that leaves the book, bounded size), not what is
+inside: open it the way the app opens any sideloaded book.
+
+| Status | When |
+|---|---|
+| 200 | The EPUB. |
+| 409 | `{"detail": "not_ready"}`: the job is not `ready` or `review`. |
+| 410 | `{"detail": "result_gone"}`: acknowledged or expired. |
+
+### `POST /convert/v1/jobs/{id}/cancel`
+
+No body. Moves a `created`, `queued` or `running` job to `cancelled` and
+deletes its PDF; a running conversion is stopped within seconds, and a
+result it publishes after that is discarded. Cancelling a cancelled job
+answers `200` again; a finished one is `409 {"detail": "not_cancellable"}`.
+
+### `POST /convert/v1/jobs/{id}/acknowledge`
+
+No body. Moves a `ready`, `review` or `failed` job to `acknowledged` and
+deletes the EPUB; call it once the book is saved on the device. Answers `200`
+with the job, also when it is already `acknowledged`, `cancelled` or
+`expired`. A job still in `created`, `queued` or `running` is
+`409 {"detail": "not_finished"}`.
+
+### In account export and deletion
+
+`GET /auth/v1/account/export` includes `convert_jobs`, one entry per job with
+its checksums, sizes, states and summary (no PDF or EPUB). Purging an account
+deletes its jobs. While conversion is on, the server clears their files on
+its next pass; while it is off, they stay until it is on again or the
+folder is deleted (see `QUIRE_SERVER_CONVERT_ENABLED`).

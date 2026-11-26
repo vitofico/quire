@@ -41,17 +41,82 @@ export interface LocalBook {
   subjects?: string[]
   isbn?: string | null
   opds_href?: string | null
+  /** The saved catalog `opds_href` belongs to; null for the server's own catalog. */
+  catalog_id?: string | null
   sizeBytes?: number
   publisher?: string | null
   description?: string | null
   cover?: Blob | string | null
 }
 
+/** `ai` rewrote the book's own value; `ai_written` wrote one where none existed. */
+export type DetailsOrigin = 'file' | 'catalog' | 'openlibrary' | 'ai' | 'ai_written'
+
+export interface DetailsFields {
+  title: string
+  authors: string[]
+  series_name: string | null
+  series_index: number | null
+  description: string | null
+  subjects: string[]
+  language: string | null
+  isbn: string | null
+  year: number | null
+  publisher: string | null
+}
+
+/** The server's answer from `/details/v1/lookup` or `/details/v1/tidy`. */
+export interface DetailsAnswer {
+  key: string
+  book: DetailsFields
+  origins: Partial<Record<keyof DetailsFields | 'cover', DetailsOrigin>>
+  cover: {
+    source: 'file' | 'catalog' | 'openlibrary' | 'generated' | null
+    url?: string | null
+    generated: boolean
+    /** Artwork for this drawn cover is being painted: a later lookup answers with a new `url`. */
+    painting?: boolean
+    painted?: boolean
+  }
+  tidy: 'done' | 'not_needed' | 'quota_exceeded' | 'failed'
+  cached: boolean
+  openlibrary_url?: string | null
+}
+
+/** Found and tidied details of one book, kept in this browser only. */
+export interface BookDetails {
+  /** When the last lookup was tried, in ms. */
+  attempted_at: number
+  /** A failed lookup, an unfinished tidy or a cover not yet downloaded is tried again only after this, in ms. */
+  retry_at?: number
+  answer?: DetailsAnswer
+  /** The `answer.cover.url` whose image is kept in this browser, so it shows offline. */
+  cover_url?: string
+  /** Answers in a row that said the cover was still being painted. */
+  painting_checks?: number
+  /** The reader chose to see the book's own details instead. */
+  original?: boolean
+  /** The book's own fields the answer was asked for: a field the book changed since shows the book's value again. */
+  basis?: DetailsFields
+  /** The improvements the reader accepted in the preview; without it, all of them. */
+  accepted?: TidiedField[]
+  /** The cover the reader chose in the preview; without it, `keep`. */
+  cover_choice?: CoverChoice
+  /** The key of a record the reader rejected in the preview: served again, it shows none of its improvements. */
+  declined?: string
+}
+
+/** What `cover_choice` asks the server for: the book's own cover, Open Library's, Quire's drawn one or a painted one. */
+export type CoverChoice = 'keep' | 'find' | 'draw' | 'paint'
+/** The improvements a reader accepts or rejects one by one. */
+export type TidiedField = 'title' | 'authors' | 'series' | 'description'
+
 export interface ShelfBook extends LocalBook {
   hasDownload: boolean
   synced: boolean
   localOnly: boolean
   editionConflict?: boolean
+  details?: BookDetails
 }
 
 export interface ReplicaSnapshot {

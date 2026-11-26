@@ -20,13 +20,15 @@ import androidx.compose.ui.text.style.TextOverflow
 
 /**
  * A book's blurb, collapsed to six lines with More/Less when it runs longer. Catalogs and OPF
- * files often carry HTML here; it is rendered as styled text, never shown as tags.
+ * files often carry HTML here; it is rendered as styled text, never shown as tags. A
+ * [plainText] blurb, such as found details written by other readers or a model, is never read
+ * as HTML.
  */
 @Composable
-fun BookDescription(raw: String?, modifier: Modifier = Modifier) {
+fun BookDescription(raw: String?, modifier: Modifier = Modifier, plainText: Boolean = false) {
     if (raw.isNullOrBlank()) return
-    val description = remember(raw) {
-        val text = if (Regex("<[a-zA-Z/!]").containsMatchIn(raw)) {
+    val description = remember(raw, plainText) {
+        val text = if (!plainText && Regex("<[a-zA-Z/!]").containsMatchIn(raw)) {
             // fromHtml ends a paragraph with a single line break, which runs paragraphs together;
             // a blank line between them is how a blurb is laid out on the page.
             AnnotatedString.fromHtml(raw.replace(Regex("</p>", RegexOption.IGNORE_CASE), "</p><br>"))

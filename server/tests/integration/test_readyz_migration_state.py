@@ -55,9 +55,9 @@ async def restore_after(postgres_url: str, engine):
 async def test_readyz_200_when_at_ai_head(
     managed_app_factory, monkeypatch, postgres_url, alembic_upgrade
 ):
-    """With ai@head (ai_011) + progress@head (progress_003) materialized,
+    """With ai@head (ai_014) + progress@head (progress_003) materialized,
     /readyz reports both heads. (progress_003 added by Phase 0 task F-1;
-    ai_011 by the calibre_book_id alias cleanup.)
+    ai_014 by the discuss log kind.)
     """
     # Some earlier test in the session may have downgraded the DB
     # (test_migrate_script.py exercises rollback). Ensure both branches are
@@ -77,14 +77,20 @@ async def test_readyz_200_when_at_ai_head(
     assert body["ready"] is True
     # Phase 0, task S-1 added the always-materialized `auth` branch:
     # The enabled branch heads are sorted in the readiness response.
-    assert body["heads_applied"] == ["ai_011", "auth_005", "progress_006"]
+    assert body["heads_applied"] == [
+        "ai_014",
+        "auth_005",
+        "catalogs_001",
+        "convert_001",
+        "progress_007",
+    ]
 
 
 async def test_readyz_503_when_db_below_backbone(
     managed_app_factory, monkeypatch, postgres_url, alembic_upgrade, restore_after
 ):
     """DB stamped below backbone; with both modes enabled, required heads
-    include ai_011 (ai@head since the calibre_book_id alias cleanup) and auth_005 (auth@head
+    include ai_014 (ai@head since the discuss log kind) and auth_005 (auth@head
     after Phase 0 / S-1) — both should be reported missing.
     """
     await _stamp(postgres_url, "0003")
@@ -94,7 +100,7 @@ async def test_readyz_503_when_db_below_backbone(
     assert r.status_code == 503
     body = r.json()
     assert body["ready"] is False
-    assert "ai_011" in body["missing"]
+    assert "ai_014" in body["missing"]
     assert "auth_005" in body["missing"]
 
 
@@ -102,12 +108,13 @@ async def test_readyz_200_with_neither_mode_at_backbone(
     managed_app_factory, monkeypatch, postgres_url, alembic_upgrade, restore_after
 ):
     """With neither feature-mode enabled, the required heads collapse to
-    {backbone, auth} — `auth` is unconditionally required (Phase 0 / S-1).
+    {backbone, auth, catalogs, convert}: the account branches are unconditionally
+    required (Phase 0 / S-1, synced catalogs, PDF conversions).
 
-    Stamp the DB to ``(0004, auth_005)`` to exercise the "fresh sync-only
-    deploy that never materialized the ai or progress branches" code path.
+    Stamp the DB to ``(0004, auth_005, catalogs_001, convert_001)`` to exercise the "fresh
+    sync-only deploy that never materialized the ai or progress branches" code path.
     """
-    await _stamp(postgres_url, ("0004", "auth_005"))
+    await _stamp(postgres_url, ("0004", "auth_005", "catalogs_001", "convert_001"))
     app = _build_app(managed_app_factory, monkeypatch, postgres_url, progress=False, ai=False)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         r = await c.get("/readyz")
@@ -115,9 +122,9 @@ async def test_readyz_200_with_neither_mode_at_backbone(
     body = r.json()
     assert body["modes"] == []
     # ``heads_applied`` lists every row in ``alembic_version`` (sorted).
-    # We stamped both to simulate a deploy that explicitly walked the
-    # backbone + always-on ``auth`` branch.
-    assert body["heads_applied"] == ["0004", "auth_005"]
+    # We stamped them to simulate a deploy that explicitly walked the
+    # backbone + always-on ``auth``, ``catalogs`` and ``convert`` branches.
+    assert body["heads_applied"] == ["0004", "auth_005", "catalogs_001", "convert_001"]
 
 
 async def test_readyz_503_with_neither_mode_below_backbone(
@@ -129,5 +136,7 @@ async def test_readyz_503_with_neither_mode_below_backbone(
         r = await c.get("/readyz")
     assert r.status_code == 503
     body = r.json()
-    # Both the backbone tip and the always-on `auth` head are missing.
+    # Both the backbone tip and the always-on `auth` and `catalogs` heads are missing.
     assert "auth_005" in body["missing"]
+    assert "catalogs_001" in body["missing"]
+    assert "convert_001" in body["missing"]

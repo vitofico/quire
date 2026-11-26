@@ -90,6 +90,7 @@ fun ReaderScreen(
     highlightsAreNew: Boolean,
     onHighlightsOpened: () -> Unit,
     detailsSheet: @Composable (onDismiss: () -> Unit) -> Unit,
+    discussion: HighlightsDiscussionViewModel,
 ) {
     val preferences by viewModel.preferences.collectAsState()
     val state by viewModel.state.collectAsState()
@@ -100,7 +101,7 @@ fun ReaderScreen(
     } else MaterialTheme.colorScheme
     MaterialTheme(colorScheme = colors) {
         Surface(Modifier.fillMaxSize()) {
-            ReaderScreenContent(viewModel, onClose, highlightsAreNew, onHighlightsOpened, detailsSheet)
+            ReaderScreenContent(viewModel, onClose, highlightsAreNew, onHighlightsOpened, detailsSheet, discussion)
         }
     }
 }
@@ -112,9 +113,12 @@ private fun ReaderScreenContent(
     highlightsAreNew: Boolean,
     onHighlightsOpened: () -> Unit,
     detailsSheet: @Composable (onDismiss: () -> Unit) -> Unit,
+    discussion: HighlightsDiscussionViewModel,
 ) {
     val state by viewModel.state.collectAsState()
     val preferences by viewModel.preferences.collectAsState()
+    val discussLimits by discussion.limits.collectAsState()
+    val discussionState by discussion.state.collectAsState()
     val chromeVisible by viewModel.chromeVisible.collectAsState()
     val chromeAutoHides by viewModel.chromeAutoHides.collectAsState()
     val liveLocator by viewModel.currentLocator.collectAsState()
@@ -158,12 +162,19 @@ private fun ReaderScreenContent(
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_PAUSE) {
-                SyncEnqueuer.enqueue(context, expedited = true)
+            when (event) {
+                Lifecycle.Event.ON_PAUSE -> SyncEnqueuer.enqueue(context, expedited = true)
+                // Reading time counts only while the book is in front of the reader.
+                Lifecycle.Event.ON_START -> viewModel.onReaderStarted()
+                Lifecycle.Event.ON_STOP -> viewModel.onReaderStopped()
+                else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            viewModel.onReaderStopped()
+        }
     }
 
     val activity = LocalContext.current as Activity
@@ -422,7 +433,18 @@ private fun ReaderScreenContent(
                                 onHighlightClick = viewModel::jumpToHighlight,
                                 onBack = handleBack,
                                 onRetry = if (highlightJumpError == null && highlightsLoadError != null) viewModel.highlighting::reload else null,
+                                selectLimit = discussLimits?.maxHighlights,
+                                onThinkThrough = discussion::open,
                             )
+                        }
+                    }
+                    if (discussionState.open) {
+                        // Over the highlights, like them, so the book stays open underneath.
+                        Dialog(
+                            onDismissRequest = discussion::close,
+                            properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+                        ) {
+                            HighlightsDiscussionScreen(discussion)
                         }
                     }
                 }

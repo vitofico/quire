@@ -1,8 +1,11 @@
 package io.theficos.ereader.di
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.Uri
 import io.theficos.ereader.auth.AccountCredentials
-import io.theficos.ereader.auth.catalogAccount
 import io.theficos.ereader.auth.CalibreCredentialStore
 import io.theficos.ereader.core.identity.extractIdentity
 import io.theficos.ereader.core.metadata.readOpfBundle
@@ -10,10 +13,17 @@ import io.theficos.ereader.core.model.Document
 import io.theficos.ereader.core.model.DocumentIdentity
 import io.theficos.ereader.data.ai.AiClient
 import io.theficos.ereader.data.ai.AiRepository
+import io.theficos.ereader.data.ai.BookDetailsRepository
 import io.theficos.ereader.data.ai.CatalogInsightStash
+import io.theficos.ereader.data.ai.DiscussLimits
 import io.theficos.ereader.data.ai.InsightSyncRepository
 import io.theficos.ereader.data.library.LibraryClient
 import io.theficos.ereader.data.library.LibraryUploader
+import io.theficos.ereader.data.library.convert.ConversionDependencies
+import io.theficos.ereader.data.library.convert.ConversionRepository
+import io.theficos.ereader.data.library.convert.ConversionScheduler
+import io.theficos.ereader.data.library.convert.ConvertClient
+import io.theficos.ereader.data.library.convert.ImportOutcome
 import io.theficos.ereader.data.library.sync.CredentialsProvider
 import io.theficos.ereader.data.library.sync.LibraryMirrorPushDependencies
 import io.theficos.ereader.data.library.sync.LibraryMirrorPushScheduler
@@ -23,6 +33,8 @@ import io.theficos.ereader.data.local.HighlightRepository
 import io.theficos.ereader.data.local.db.EReaderDatabase
 import io.theficos.ereader.data.local.db.ProgressDao
 import io.theficos.ereader.data.opds.BookDownloader
+import io.theficos.ereader.data.opds.CatalogSyncClient
+import io.theficos.ereader.data.opds.CatalogSyncRepository
 import io.theficos.ereader.data.opds.OpdsClient
 import io.theficos.ereader.data.opds.OpdsHttpClient
 import io.theficos.ereader.data.opds.OpenLibraryClient
@@ -33,13 +45,22 @@ import io.theficos.ereader.data.sync.SyncEnqueuer
 import io.theficos.ereader.data.sync.SyncOrchestrator
 import io.theficos.ereader.domain.restore.RestoreInProgressUseCase
 import io.theficos.ereader.domain.restore.RestoreSummary
+import io.theficos.ereader.notify.AndroidDoNotDisturb
+import io.theficos.ereader.notify.NotificationFeatures
+import io.theficos.ereader.notify.NotificationPreferencesStore
+import io.theficos.ereader.notify.QuietWhileReading
+import io.theficos.ereader.notify.WorkManagerQuietSafetyNet
 import io.theficos.ereader.reader.ReaderPreferencesStore
 import io.theficos.ereader.reader.ReadiumFactory
+import io.theficos.ereader.sideload.SideloadFailure
 import io.theficos.ereader.sideload.SideloadImporter
+import io.theficos.ereader.sideload.SideloadResult
 import io.theficos.ereader.ui.bookdetail.AppInsightAuditSource
 import io.theficos.ereader.ui.bookdetail.BookDetailViewModel
 import io.theficos.ereader.ui.bookdetail.InsightAuditViewModel
 import io.theficos.ereader.ui.catalog.CatalogPreferencesStore
+import io.theficos.ereader.ui.catalog.OpenCatalog
+import io.theficos.ereader.ui.catalog.OpenCatalogs
 import io.theficos.ereader.ui.catalogdetail.AiRepositoryAdapter
 import io.theficos.ereader.ui.catalogdetail.CatalogAiPort
 import io.theficos.ereader.ui.catalogdetail.CatalogDetailRegistry
@@ -50,20 +71,31 @@ import io.theficos.ereader.ui.library.LibraryStatsCache
 import io.theficos.ereader.ui.library.LibraryStatsViewModel
 import io.theficos.ereader.ui.onboarding.ConnectServerViewModel
 import io.theficos.ereader.ui.onboarding.WelcomePreferencesStore
+import io.theficos.ereader.ui.reader.memoryAccountKey
 import io.theficos.ereader.ui.settings.WhatsNewPreferencesStore
+import io.theficos.ereader.ui.stats.ReadingStatsRepository
 import io.theficos.ereader.ui.scan.ScanResultRegistry
 import io.theficos.ereader.ui.theme.AppThemePreferencesStore
+import io.theficos.quire.R
 import java.io.File
 import java.security.MessageDigest
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
 
 /**
  * URL that the sync, library and AI clients should target, or null when this
@@ -83,15 +115,35 @@ internal fun AccountCredentials.quireServerUrlOrNull(): String? = when (this) {
     is AccountCredentials.OpdsOnly -> null
 }
 
-internal fun AccountCredentials.catalogInsightScope(): String? {
-    val service = quireServerUrlOrNull() ?: return null
-    val catalog = catalogAccount() ?: return null
-    val catalogUser = when (catalog) {
-        is AccountCredentials.Basic -> catalog.username
-        is AccountCredentials.OpdsOnly -> catalog.username.orEmpty()
-        is AccountCredentials.Bearer -> error("A Quire account cannot authenticate a catalog")
+/** Who stored book details belong to: this account on this server, or null with no Quire server. */
+private fun AccountCredentials.detailsOwner(): String? = quireServerUrlOrNull()?.let { accountOwner(it, subject) }
+
+/** An account on a Quire server, as book details and PDF conversions record their owner. */
+internal fun accountOwner(serverUrl: String, subject: String): String = "$serverUrl $subject"
+
+/** The device's default network's capabilities, or null while it has none. */
+private fun defaultNetwork(context: Context): Flow<NetworkCapabilities?> = callbackFlow {
+    val connectivity = context.getSystemService(ConnectivityManager::class.java)
+    val callback = object : ConnectivityManager.NetworkCallback() {
+        override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+            trySend(capabilities)
+        }
+        override fun onLost(network: Network) {
+            trySend(null)
+        }
     }
-    val input = listOf(service, subject, catalog.baseUrl, catalogUser)
+    trySend(connectivity.getNetworkCapabilities(connectivity.activeNetwork))
+    connectivity.registerDefaultNetworkCallback(callback)
+    awaitClose { connectivity.unregisterNetworkCallback(callback) }
+}
+
+/** Key of the reading-pause notes kept on a device with no account. */
+internal const val DEVICE_MEMORY_KEY = "device-local"
+
+internal fun AccountCredentials.catalogInsightScope(catalog: AccountCredentials.OpdsOnly?): String? {
+    val service = quireServerUrlOrNull() ?: return null
+    if (catalog == null) return null
+    val input = listOf(service, subject, catalog.baseUrl, catalog.username.orEmpty())
         .joinToString("") { "${it.length}:$it" }
     return MessageDigest.getInstance("SHA-256").digest(input.toByteArray())
         .joinToString("") { "%02x".format(it) }
@@ -165,7 +217,20 @@ class AppContainer internal constructor(context: Context, private val db: EReade
      */
     val catalogInsightStash: CatalogInsightStash = CatalogInsightStash()
 
-    internal fun catalogInsightScope(): String? = credentialStore.getAccount()?.catalogInsightScope()
+    internal fun catalogInsightScope(): String? =
+        credentialStore.getAccount()?.catalogInsightScope(credentialStore.catalogAccount())
+
+    val catalogSyncRepository: CatalogSyncRepository = CatalogSyncRepository(
+        store = credentialStore,
+        client = CatalogSyncClient(
+            baseUrlProvider = { (credentialStore.getAccount() as? AccountCredentials.Bearer)?.baseUrl },
+            http = opdsHttp.quireHttp,
+        ),
+        onCatalogMerged = { from, into -> db.documentDao().replaceCatalogId(from, into) },
+    )
+
+    /** The free catalogs offered when adding one, from the packaged `open-catalogs.json`. */
+    val openCatalogs: List<OpenCatalog> by lazy { OpenCatalogs.load(appContext) }
 
     val libraryClient: LibraryClient = LibraryClient(
         baseUrlProvider = { credentialStore.getAccount()?.quireServerUrlOrNull() },
@@ -195,6 +260,29 @@ class AppContainer internal constructor(context: Context, private val db: EReade
      */
     val libraryUploaderScope: CoroutineScope =
         CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /** Background work that outlives any screen, for as long as the process runs. */
+    val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    val notificationPreferencesStore = NotificationPreferencesStore(appContext)
+    val notificationFeatures = NotificationFeatures(
+        appContext,
+        notificationPreferencesStore,
+        QuietWhileReading(
+            AndroidDoNotDisturb(appContext, notificationPreferencesStore),
+            notificationPreferencesStore,
+            WorkManagerQuietSafetyNet(appContext),
+        ),
+        catalogs = credentialStore.catalogs,
+        scope = appScope,
+    )
+
+    /** Reading sessions and their statistics, kept on this device and in its own backup. */
+    val readingStats: ReadingStatsRepository = ReadingStatsRepository(
+        dao = db.readingSessionDao(),
+        prefs = appContext.getSharedPreferences("reading_stats", Context.MODE_PRIVATE),
+        scope = appScope,
+    )
 
     val libraryUploader: LibraryUploader = LibraryUploader(
         client = libraryClient,
@@ -231,6 +319,38 @@ class AppContainer internal constructor(context: Context, private val db: EReade
             runCatching { LibraryMirrorPushScheduler.enqueueAfterLibraryChange(appContext) }
         },
     )
+
+    /**
+     * PDF to EPUB on the account's Quire server. The converted EPUB goes through [sideloadImporter]
+     * like any shared file, which also spots a book already in the library.
+     */
+    val conversionRepository: ConversionRepository = ConversionRepository(
+        client = ConvertClient(
+            baseUrlProvider = { credentialStore.getAccount()?.quireServerUrlOrNull() },
+            http = opdsHttp.quireHttp,
+        ),
+        dao = db.conversionJobDao(),
+        documents = db.documentDao(),
+        owner = { credentialStore.getAccount()?.detailsOwner() },
+        ownerFlow = credentialStore.accountFlow.map { it?.detailsOwner() },
+        // Out of backups: a copy of a PDF only matters to the conversion on this device.
+        sourceDir = File(appContext.noBackupFilesDir, "conversions"),
+        downloadDir = File(appContext.cacheDir, "conversions"),
+        importEpub = { epub, title ->
+            when (val result = sideloadImporter.import(Uri.fromFile(epub), title)) {
+                is SideloadResult.Imported -> ImportOutcome.Saved(result.documentId)
+                is SideloadResult.AlreadyImported -> ImportOutcome.Saved(result.documentId)
+                is SideloadResult.Failed ->
+                    if (result.reason == SideloadFailure.InvalidEpub) ImportOutcome.Invalid else ImportOutcome.Failed
+            }
+        },
+        wake = { ConversionScheduler.now(appContext) },
+        metered = { appContext.getSystemService(ConnectivityManager::class.java).isActiveNetworkMetered },
+    )
+
+    /** The default network, shared by everything that waits for one. */
+    private val network: StateFlow<NetworkCapabilities?> =
+        defaultNetwork(appContext).stateIn(libraryUploaderScope, SharingStarted.Eagerly, null)
 
     val aiRepository: AiRepository = AiRepository(
         client = aiClient,
@@ -278,6 +398,10 @@ class AppContainer internal constructor(context: Context, private val db: EReade
             initialValue = false,
         )
 
+    /** The limits while "Think it through" on highlights is offered, else null. */
+    val highlightsDiscussLimits: StateFlow<DiscussLimits?> = aiRepository.highlightsDiscussLimits
+        .stateIn(libraryUploaderScope, SharingStarted.Eagerly, null)
+
     val libraryInsightsViewModelFactory: LibraryInsightsViewModelFactory =
         LibraryInsightsViewModelFactory(
             ai = aiRepository,
@@ -287,11 +411,36 @@ class AppContainer internal constructor(context: Context, private val db: EReade
             aiEnabledFlow = aiEnabledFlow,
         )
 
+    /** Found and tidied book details and covers, kept beside each library book. */
+    val bookDetailsRepository: BookDetailsRepository = BookDetailsRepository(
+        client = aiClient,
+        ai = aiRepository,
+        documents = documentRepository,
+        dao = db.bookDetailsDao(),
+        coversDir = booksDir,
+        // Open Library is a third party: no account login on this client.
+        openLibraryHttp = OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .build(),
+        showTidied = libraryPreferencesStore.flow
+            .map { it.tidyDetails }
+            .stateIn(libraryUploaderScope, SharingStarted.Eagerly, libraryPreferencesStore.flow.value.tidyDetails),
+        owner = credentialStore.accountFlow.map { it?.detailsOwner() },
+        unmetered = network
+            .map { it?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == true }
+            .stateIn(libraryUploaderScope, SharingStarted.Eagerly, false),
+        prefs = appContext.getSharedPreferences("book_details", Context.MODE_PRIVATE),
+        scope = libraryUploaderScope,
+    )
+
     val bookDetailViewModelFactory: BookDetailViewModelFactory = BookDetailViewModelFactory(
         documents = documentRepository,
         progress = progressRepository,
         ai = aiRepository,
+        details = bookDetailsRepository,
         openOpfBytes = ::readOpfBytes,
+        readingStats = readingStats,
     )
 
     val insightAuditViewModelFactory: InsightAuditViewModelFactory =
@@ -368,6 +517,7 @@ class AppContainer internal constructor(context: Context, private val db: EReade
                             author = c.authors.firstOrNull(),
                             downloadUrl = c.opdsHref,
                             localPath = file.absolutePath,
+                            catalogId = c.catalogId,
                             coverPath = coverFile?.absolutePath,
                             downloadedAt = System.currentTimeMillis(),
                             seriesName = opf.seriesName,
@@ -408,6 +558,17 @@ class AppContainer internal constructor(context: Context, private val db: EReade
         SyncEnqueuer.enqueue(appContext)
     }
 
+    /**
+     * Before saved catalogs a catalog-only device was signed in as its catalog, and its highlights
+     * and reading-pause notes were kept under that sign-in. They belong to the device now.
+     */
+    private suspend fun releaseLegacyCatalogOwner() {
+        val legacy = credentialStore.legacyCatalogOwner() ?: return
+        highlightSyncer.releaseOwnership(legacy.highlightScope())
+        memoryBookmarkDao.moveAccount(memoryAccountKey(legacy.baseUrl, legacy.subject), DEVICE_MEMORY_KEY)
+        credentialStore.forgetLegacyCatalogOwner()
+    }
+
     private suspend fun readOpfBytes(doc: Document): ByteArray? = withContext(Dispatchers.IO) {
         runCatching {
             java.util.zip.ZipFile(doc.localPath).use { zip ->
@@ -445,7 +606,24 @@ class AppContainer internal constructor(context: Context, private val db: EReade
             client = libraryClient,
             dao = db.documentDao(),
             credentials = CredentialsProvider { credentialStore.getAccount()?.quireServerUrlOrNull() != null },
+            // Only a server that syncs catalogs is new enough to take `catalog_id` in a batch.
+            sendCatalogIds = { credentialStore.catalogRevision.value != null },
         )
+        ConversionDependencies.holder = ConversionDependencies.Holder(conversionRepository) {
+            appContext.getString(R.string.convert_notification)
+        }
+        // Signing out forgets the account's PDF conversions; another account's wait for it a few days.
+        libraryUploaderScope.launch {
+            var signedIn: String? = null
+            credentialStore.accountFlow.map { it?.detailsOwner() }.distinctUntilChanged().collect { owner ->
+                val left = signedIn
+                signedIn = owner
+                if (owner == null && left != null) {
+                    runCatching { conversionRepository.forgetOwner(left) }
+                        .onFailure { android.util.Log.w("AppContainer", "Couldn't forget PDF conversions", it) }
+                }
+            }
+        }
         // Once per launch, follow the server if it has moved to another address.
         libraryUploaderScope.launch {
             try {
@@ -453,12 +631,17 @@ class AppContainer internal constructor(context: Context, private val db: EReade
                     credentialStore,
                     ConnectServerViewModel.defaultOnboardingClient(),
                     memoryBookmarkDao::moveAccount,
+                    conversionRepository::moveOwner,
                 ).follow()
             } catch (e: android.database.SQLException) {
                 android.util.Log.w("AppContainer", "Couldn't follow the server address", e)
             }
         }
         libraryUploaderScope.launch {
+            // Any failure, not only the database's: the catalog sync below must still start. The
+            // owner stays recorded, so the next app start tries again.
+            runCatching { releaseLegacyCatalogOwner() }
+                .onFailure { android.util.Log.w("AppContainer", "Couldn't move the old catalog's highlights to the device", it) }
             credentialStore.accountFlow.collect { account ->
                 if (account is AccountCredentials.Bearer) {
                     try {
@@ -467,14 +650,33 @@ class AppContainer internal constructor(context: Context, private val db: EReade
                         // Keep the pending migration persisted for retry on the next app start.
                         android.util.Log.w("AppContainer", "Couldn't transfer highlight ownership", e)
                     }
+                    // On app start and on every sign-in; usually an empty 304.
+                    catalogSyncRepository.pull()
                 }
             }
         }
+        // The AI features read the server's AI config and the reader's opt-in from here: fetch them
+        // at start and for each account, not only when Settings happens to be built. Another
+        // account starts from nothing, so the last one's never gates it, and a config that could
+        // not be fetched (offline at start) is fetched again once a network is back.
+        libraryUploaderScope.launch {
+            credentialStore.accountFlow.map { it?.detailsOwner() }.distinctUntilChanged().collectLatest { owner ->
+                aiRepository.forget()
+                if (owner == null) return@collectLatest
+                aiRepository.refresh()
+                network.map { it?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true }
+                    .distinctUntilChanged()
+                    .collect { online -> if (online && aiRepository.config.value == null) aiRepository.refresh() }
+            }
+        }
+        // Quietly fill in missing book details and covers, once per book, while AI is on and on Wi-Fi.
+        libraryUploaderScope.launch { bookDetailsRepository.followLibrary() }
         // Discard queued promotions when either connection changes ownership.
         libraryUploaderScope.launch {
             var seen = catalogInsightScope()
-            credentialStore.accountFlow.collect { account ->
-                val next = account?.catalogInsightScope()
+            combine(credentialStore.accountFlow, credentialStore.activeCatalog) { account, active ->
+                account?.catalogInsightScope(active?.catalog)
+            }.collect { next ->
                 if (next != seen) {
                     seen = next
                     catalogInsightStash.clearAll()
@@ -488,14 +690,18 @@ class BookDetailViewModelFactory(
     private val documents: DocumentRepository,
     private val progress: ProgressRepository,
     private val ai: AiRepository,
+    private val details: BookDetailsRepository,
     private val openOpfBytes: suspend (Document) -> ByteArray?,
+    private val readingStats: ReadingStatsRepository,
 ) {
     fun create(documentId: Long) = BookDetailViewModel(
         documentId = documentId,
         documents = documents,
         progress = progress,
         ai = ai,
+        details = details,
         openOpfBytes = openOpfBytes,
+        readingStats = readingStats,
     )
 }
 

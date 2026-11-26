@@ -24,7 +24,7 @@ from collections.abc import Callable
 from copy import copy
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from sqlalchemy import (
     Integer,
@@ -89,6 +89,9 @@ from quire_server.db.models import (
     Progress,
     ReaderProfile,
 )
+
+if TYPE_CHECKING:
+    from quire_server.core.ai.retrieval import OpenLibraryBook
 
 logger = logging.getLogger(__name__)
 
@@ -283,6 +286,10 @@ class _RetrieverLike(Protocol):
     async def lookup_book_language(self, isbn: str) -> str | None: ...
 
     async def work_exists(self, *, title: str, author: str) -> bool | None: ...
+
+    async def lookup_openlibrary_book(
+        self, *, author: str | None, title: str, isbn: str | None
+    ) -> OpenLibraryBook | None: ...
 
 
 class _ProfileRetrieverLike(Protocol):
@@ -631,8 +638,8 @@ class InsightOrchestrator:
         """
         if kind in ("insight", "promote") and book_insight_id is None:
             raise ValueError(f"kind={kind!r} requires non-null book_insight_id")
-        if kind == "profile" and book_insight_id is not None:
-            raise ValueError("kind='profile' requires book_insight_id IS NULL")
+        if kind in ("profile", "details", "cover_art", "discuss") and book_insight_id is not None:
+            raise ValueError(f"kind={kind!r} requires book_insight_id IS NULL")
         session.add(
             AIGenerationLog(
                 kind=kind,
@@ -727,32 +734,14 @@ class InsightOrchestrator:
                 # Errors don't produce an ai_generation_log row (no FK target).
                 # The structured log line is the operator-facing audit trail;
                 # request_id is attached by RequestIdLogFilter (record.request_id).
-                latency_ms = int((time.monotonic() - t0) * 1000)
-                # Issue #102: the same hint the HTTP response carries, so the
-                # container log alone is enough to fix the deploy. prompt_chars
-                # answers "was the prompt too big for this model" without a
-                # debugger: retrieval off (QUIRE_SERVER_AI_SOURCES=) shrinks it.
-                hint = (
-                    describe(e, timeout_s=self._ai_timeout_s, model=self.model_id).hint
-                    if isinstance(e, ProviderError)
-                    else None
+                await self._record_call_failure(
+                    e,
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    prompt_version=self.prompt_version,
+                    started=t0,
+                    prompt_chars=len(user_prompt),
                 )
-                logger.warning(
-                    "event=ai.generate.error tenant_id=%s subject=%s model=%s "
-                    "prompt_version=%s latency_ms=%d error_class=%s "
-                    "prompt_chars=%d hint=%s",
-                    tenant_id,
-                    user_id,
-                    self.model_id,
-                    self.prompt_version,
-                    latency_ms,
-                    type(e).__name__,
-                    len(user_prompt),
-                    hint or "none",
-                )
-                # PR5: surface provider reachability to GET /ai/v1/health.
-                if self._health is not None:
-                    await self._health.record_provider_failure(error_class=type(e).__name__)
                 raise
             # PR5: chat_structured succeeded → provider is reachable now.
             if self._health is not None:
@@ -876,6 +865,96 @@ class InsightOrchestrator:
         await session.commit()
         await session.refresh(row)
         return row
+
+    async def _record_call_failure(
+        self,
+        e: Exception,
+        *,
+        tenant_id: str,
+        user_id: str,
+        prompt_version: str,
+        started: float,
+        prompt_chars: int,
+    ) -> None:
+        latency_ms = int((time.monotonic() - started) * 1000)
+        # Issue #102: the same hint the HTTP response carries, so the
+        # container log alone is enough to fix the deploy. prompt_chars
+        # answers "was the prompt too big for this model" without a
+        # debugger: retrieval off (QUIRE_SERVER_AI_SOURCES=) shrinks it.
+        hint = (
+            describe(e, timeout_s=self._ai_timeout_s, model=self.model_id).hint
+            if isinstance(e, ProviderError)
+            else None
+        )
+        logger.warning(
+            "event=ai.generate.error tenant_id=%s subject=%s model=%s "
+            "prompt_version=%s latency_ms=%d error_class=%s "
+            "prompt_chars=%d hint=%s",
+            tenant_id,
+            user_id,
+            self.model_id,
+            prompt_version,
+            latency_ms,
+            type(e).__name__,
+            prompt_chars,
+            hint or "none",
+        )
+        # PR5: surface provider reachability to GET /ai/v1/health.
+        if self._health is not None:
+            await self._health.record_provider_failure(error_class=type(e).__name__)
+
+    async def generate_structured(
+        self,
+        session: AsyncSession,
+        *,
+        kind: str,
+        prompt_version: str,
+        system: str,
+        user: str,
+        schema: type,
+        user_id: str,
+        tenant_id: str,
+        is_regen: bool,
+    ):
+        """One model call outside the insight card, under the same guards.
+
+        It counts against the reader's daily and monthly allowance (as a
+        regeneration when ``is_regen``), waits for the process-wide rate and
+        the concurrency cap, and stages the ``kind`` row of
+        ``ai_generation_log``, which the caller commits with its result.
+        Book details (``core/ai/details.py``) use it.
+        """
+        await self._reserve_budget(session, user_id=user_id, is_regen=is_regen)
+        await self._bucket.acquire()
+        async with self._sem:
+            t0 = time.monotonic()
+            try:
+                out = await self.ai.chat_structured(
+                    system=system, user=user, schema=schema, timeout_s=self._ai_timeout_s
+                )
+            except Exception as e:
+                await self._record_call_failure(
+                    e,
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    prompt_version=prompt_version,
+                    started=t0,
+                    prompt_chars=len(user),
+                )
+                raise
+            if self._health is not None:
+                await self._health.record_provider_success(model_id=self.model_id)
+        await self._log_generation(
+            session,
+            kind=kind,
+            book_insight_id=None,
+            subject=user_id,
+            tenant_id=tenant_id,
+            status="miss",
+            latency_ms=int((time.monotonic() - t0) * 1000),
+            prompt_version=prompt_version,
+        )
+        return out
 
     async def _reserve_budget(
         self,
@@ -1190,7 +1269,10 @@ class InsightOrchestrator:
         # so two requests for the same book via different alias schemes
         # serialize through one lock after `_resolve_canonical` runs.
         canonical_value = ident.metadata_id or ident.content_hash or ""
-        key = f"{canonical_value}|{tone}|{language}"
+        return await self.lock_for(f"{canonical_value}|{tone}|{language}")
+
+    async def lock_for(self, key: str) -> asyncio.Lock:
+        """The in-process singleflight lock for one cache key."""
         async with self._locks_master:
             lock = self._locks.get(key)
             if lock is None:

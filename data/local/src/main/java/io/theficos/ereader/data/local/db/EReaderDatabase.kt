@@ -15,8 +15,12 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         InsightEntity::class,
         HighlightEntity::class,
         MemoryBookmark::class,
+        BookDetailsEntity::class,
+        ConversionJobEntity::class,
+        ReadingSessionEntity::class,
+        BookWordCountEntity::class,
     ],
-    version = 13,
+    version = 17,
     exportSchema = true,
 )
 abstract class EReaderDatabase : RoomDatabase() {
@@ -27,6 +31,9 @@ abstract class EReaderDatabase : RoomDatabase() {
     abstract fun memoryBookmarkDao(): MemoryBookmarkDao
     abstract fun highlightDao(): HighlightDao
     abstract fun highlightSyncDao(): HighlightSyncDao
+    abstract fun bookDetailsDao(): BookDetailsDao
+    abstract fun conversionJobDao(): ConversionJobDao
+    abstract fun readingSessionDao(): ReadingSessionDao
 
     companion object {
         internal val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -249,6 +256,84 @@ abstract class EReaderDatabase : RoomDatabase() {
             }
         }
 
+        /** Which saved catalog each book came from; unknown for every book downloaded before. */
+        internal val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE documents ADD COLUMN catalogId TEXT")
+            }
+        }
+
+        /** Found and tidied details per book, beside the book's own; nothing existing changes. */
+        internal val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS book_details (
+                        documentId INTEGER NOT NULL,
+                        responseJson TEXT,
+                        coverPath TEXT,
+                        useOriginal INTEGER NOT NULL,
+                        retryAt INTEGER,
+                        PRIMARY KEY(documentId),
+                        FOREIGN KEY(documentId) REFERENCES documents(id) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                """.trimIndent())
+            }
+        }
+
+        /** PDF conversions the reader started, so they survive the app closing; nothing existing changes. */
+        internal val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS conversion_jobs (
+                        id TEXT NOT NULL,
+                        owner TEXT NOT NULL,
+                        idempotencyKey TEXT NOT NULL,
+                        fileName TEXT NOT NULL,
+                        sha256 TEXT NOT NULL,
+                        bytes INTEGER NOT NULL,
+                        sourcePath TEXT,
+                        jobId TEXT,
+                        stage TEXT NOT NULL,
+                        problem TEXT,
+                        jobJson TEXT,
+                        retryAt INTEGER,
+                        failures INTEGER NOT NULL,
+                        documentId INTEGER,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL,
+                        allowMetered INTEGER NOT NULL,
+                        PRIMARY KEY(id)
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_conversion_jobs_owner ON conversion_jobs (owner)")
+            }
+        }
+
+        /** Reading statistics, kept on the device only; nothing existing changes. */
+        internal val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS reading_sessions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        bookKey TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        author TEXT,
+                        startedAt INTEGER NOT NULL,
+                        endedAt INTEGER NOT NULL,
+                        utcOffsetSeconds INTEGER NOT NULL,
+                        activeSeconds INTEGER NOT NULL,
+                        progressionRead REAL NOT NULL,
+                        wordsRead INTEGER
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_reading_sessions_bookKey ON reading_sessions (bookKey)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_reading_sessions_startedAt ON reading_sessions (startedAt)")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS book_word_counts (bookKey TEXT NOT NULL, words INTEGER NOT NULL, PRIMARY KEY(bookKey))"
+                )
+            }
+        }
+
         fun build(context: Context): EReaderDatabase =
             Room.databaseBuilder(context, EReaderDatabase::class.java, "ereader.db")
                 .addMigrations(
@@ -264,6 +349,10 @@ abstract class EReaderDatabase : RoomDatabase() {
                     MIGRATION_10_11,
                     MIGRATION_11_12,
                     MIGRATION_12_13,
+                    MIGRATION_13_14,
+                    MIGRATION_14_15,
+                    MIGRATION_15_16,
+                    MIGRATION_16_17,
                 )
                 .build()
     }

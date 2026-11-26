@@ -55,6 +55,12 @@ def install_web_account(app: FastAPI, settings: Settings, identity: IdentitySett
             "migration": login == "transition" and settings.self_migration_enabled,
             "catalogUrl": settings.web_catalog_url,
             "guestReading": settings.web_guest_reading,
+            # Saved catalogs need a Quire session on this host and a catalog key.
+            "catalogSync": native and request.app.state.catalog_secrets is not None,
+            # ...and the server fetching them for the browser, which it cannot do itself.
+            "catalogProxy": native
+            and request.app.state.catalog_secrets is not None
+            and settings.catalog_proxy_enabled,
             "accountManagement": (
                 identity.public_url + "/cloud/account" if native and identity.oidc_issuer else None
             ),
@@ -83,7 +89,9 @@ def install_web_account(app: FastAPI, settings: Settings, identity: IdentitySett
         if expected is None or not (
             path
             in {"/auth/v1/me", "/auth/v1/logout", "/auth/v1/account/export", "/quire/v1/session"}
-            or path.startswith(("/sync/v1/", "/library/v1/", "/ai/v1/"))
+            or path.startswith(
+                ("/sync/v1/", "/library/v1/", "/ai/v1/", "/catalogs/v1/", "/convert/v1/")
+            )
         ):
             return await call_next(request)
         try:

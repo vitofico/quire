@@ -1,5 +1,6 @@
 package io.theficos.ereader.ui.library
 
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -56,6 +57,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -66,23 +69,35 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import io.theficos.ereader.core.model.Document
+import io.theficos.ereader.data.library.convert.ConversionRepository
 import io.theficos.ereader.data.sync.SyncEnqueuer
 import io.theficos.ereader.sideload.SideloadFailure
 import io.theficos.ereader.sideload.SideloadImporter
 import io.theficos.ereader.sideload.SideloadResult
+import io.theficos.ereader.ui.bookdetail.shownCoverNote
+import io.theficos.ereader.ui.bookdetail.titleNote
+import io.theficos.ereader.ui.bookdetail.withNote
 import io.theficos.ereader.ui.components.CoverImage
 import io.theficos.ereader.ui.components.MarbledInk
 import io.theficos.ereader.ui.components.QuireLoading
 import io.theficos.ereader.ui.components.CoverInfoButton
 import io.theficos.ereader.ui.components.SectionLabel
 import io.theficos.ereader.ui.components.rememberSaveEpubAs
+import io.theficos.ereader.ui.convert.ConversionsBanner
+import io.theficos.ereader.ui.convert.PDF_TYPE
+import io.theficos.ereader.ui.convert.OwnViewModels
+import io.theficos.ereader.ui.convert.PdfConvertPrompt
+import io.theficos.ereader.ui.convert.isPdf
+import io.theficos.ereader.ui.convert.showsBanner
 import io.theficos.quire.R
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -113,8 +128,11 @@ fun LibraryScreen(
     onOpenBook: (documentId: Long) -> Unit,
     onShowDetails: (documentId: Long) -> Unit = {},
     onShowStats: () -> Unit = {},
+    onShowReadingStats: () -> Unit = {},
     onShowInsights: () -> Unit = {},
     sideloadImporter: SideloadImporter? = null,
+    conversions: ConversionRepository? = null,
+    onShowConversions: () -> Unit = {},
     contentPadding: PaddingValues,
 ) {
     val context = LocalContext.current
@@ -126,8 +144,8 @@ fun LibraryScreen(
     val showAbandoned by viewModel.showAbandoned.collectAsState()
     val showFinished by viewModel.showFinished.collectAsState()
     var menuFor by remember { mutableStateOf<LibraryRow?>(null) }
-    var pendingDelete by remember { mutableStateOf<Document?>(null) }
-    var pendingRestart by remember { mutableStateOf<Document?>(null) }
+    var pendingDelete by remember { mutableStateOf<LibraryRow?>(null) }
+    var pendingRestart by remember { mutableStateOf<LibraryRow?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var searchActive by rememberSaveable { mutableStateOf(false) }
@@ -136,6 +154,11 @@ fun LibraryScreen(
     val restoreRunning by viewModel.restoreRunning.collectAsState()
     val restoreProgress by viewModel.restoreProgress.collectAsState()
     val saveEpubAs = rememberSaveEpubAs(snackbarHostState)
+    val conversionRows by remember(conversions) { conversions?.conversions ?: flowOf(emptyList()) }
+        .collectAsState(emptyList())
+    // A picked PDF and how many have been picked, so the same file picked again asks afresh.
+    var pickedPdf by rememberSaveable { mutableStateOf<Uri?>(null) }
+    var pdfPicks by rememberSaveable { mutableIntStateOf(0) }
 
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
@@ -158,7 +181,12 @@ fun LibraryScreen(
     // — the button is suppressed in that case.
     val importLauncher = if (sideloadImporter != null) {
         rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-            if (uri != null) {
+            if (uri != null && conversions != null &&
+                isPdf(context.contentResolver.getType(uri), SideloadImporter.queryDisplayName(context.contentResolver, uri))
+            ) {
+                pdfPicks += 1
+                pickedPdf = uri
+            } else if (uri != null) {
                 scope.launch {
                     val displayName = SideloadImporter.queryDisplayName(context.contentResolver, uri)
                     val result = sideloadImporter.import(uri, displayName)
@@ -178,7 +206,28 @@ fun LibraryScreen(
     } else null
 
     val launchPicker: (() -> Unit)? = importLauncher?.let { l ->
-        { l.launch(IMPORT_MIME_FILTER) }
+        { l.launch(if (conversions != null) IMPORT_MIME_FILTER + PDF_TYPE else IMPORT_MIME_FILTER) }
+    }
+    if (conversions != null) {
+        pickedPdf?.let { uri ->
+            // Each pick its own view model, cleared with its dialog.
+            key(pdfPicks) {
+                OwnViewModels {
+                    PdfConvertPrompt(
+                        uri, conversions,
+                        onDismiss = { pickedPdf = null },
+                        onShowConversions = {
+                            pickedPdf = null
+                            onShowConversions()
+                        },
+                        onOpenBook = { id ->
+                            pickedPdf = null
+                            onOpenBook(id)
+                        },
+                    )
+                }
+            }
+        }
     }
 
     // Room's first answer has its own loading state, so an existing library never flashes empty.
@@ -201,6 +250,7 @@ fun LibraryScreen(
                 restoreRunning = restoreRunning,
                 restoreProgress = restoreProgress,
                 onRestore = { viewModel.restoreInProgressBooks() },
+                banner = { ConversionsBanner(conversionRows, onShowConversions, Modifier.padding(top = 16.dp)) },
             )
             SnackbarHost(
                 hostState = snackbarHostState,
@@ -331,8 +381,29 @@ fun LibraryScreen(
                                     onShowStats()
                                 },
                             )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.stats_title)) },
+                                onClick = {
+                                    moreMenuOpen = false
+                                    onShowReadingStats()
+                                },
+                            )
+                            if (conversions != null) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.convert_title)) },
+                                    onClick = {
+                                        moreMenuOpen = false
+                                        onShowConversions()
+                                    },
+                                )
+                            }
                         }
                     }
+                }
+            }
+            if (conversionRows.showsBanner) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    ConversionsBanner(conversionRows, onShowConversions)
                 }
             }
             cont?.let { row ->
@@ -382,12 +453,13 @@ fun LibraryScreen(
                 ) {
                     Box(modifier = Modifier.fillMaxWidth()) {
                         CoverImage(
-                            source = row.document.coverPath,
-                            title = row.document.title,
-                            author = row.document.author,
+                            source = row.shown.coverPath,
+                            title = row.shown.title,
+                            author = row.shown.author,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .aspectRatio(2f / 3f),
+                            contentDescription = withNote(row.shown.title, row.found?.let { shownCoverNote(row.document, it) }),
                         )
                         // Top-left, like the catalog's: the book's details, whether or not
                         // there is a server behind them to add AI insights.
@@ -435,12 +507,15 @@ fun LibraryScreen(
                             }
                         }
                     }
+                    val spokenTitle = withNote(row.shown.title, row.found?.let { titleNote(row.document, it) })
                     Text(
-                        text = row.document.title,
+                        text = row.shown.title,
                         style = MaterialTheme.typography.titleMedium,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 6.dp),
+                        modifier = Modifier
+                            .padding(top = 6.dp)
+                            .semantics { contentDescription = spokenTitle },
                     )
                 }
             }
@@ -480,7 +555,7 @@ fun LibraryScreen(
         ) {
             Column(modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
                 Text(
-                    text = doc.title,
+                    text = row.shown.title,
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -497,7 +572,7 @@ fun LibraryScreen(
                 }
                 TextButton(
                     onClick = {
-                        pendingRestart = doc
+                        pendingRestart = row
                         menuFor = null
                     },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -548,7 +623,7 @@ fun LibraryScreen(
                 }
                 TextButton(
                     onClick = {
-                        pendingDelete = doc
+                        pendingDelete = row
                         menuFor = null
                     },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -563,14 +638,14 @@ fun LibraryScreen(
         }
     }
 
-    pendingRestart?.let { doc ->
+    pendingRestart?.let { row ->
         var alsoDelete by remember { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { pendingRestart = null },
             title = { Text(stringResource(R.string.common_restart_book_2)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(stringResource(R.string.library_will_be_marked_as_unread_and_synced, doc.title))
+                    Text(stringResource(R.string.library_will_be_marked_as_unread_and_synced, row.shown.title))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = alsoDelete, onCheckedChange = { alsoDelete = it })
                         Text(stringResource(R.string.library_also_delete_the_downloaded_copy), modifier = Modifier.padding(start = 8.dp))
@@ -579,7 +654,7 @@ fun LibraryScreen(
             },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.restartFromUi(doc, alsoDelete, context)
+                    viewModel.restartFromUi(row.document, alsoDelete, context)
                     pendingRestart = null
                 }) { Text(stringResource(R.string.common_restart)) }
             },
@@ -589,14 +664,14 @@ fun LibraryScreen(
         )
     }
 
-    pendingDelete?.let { doc ->
+    pendingDelete?.let { row ->
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
             title = { Text(stringResource(R.string.common_delete_book)) },
-            text = { Text(stringResource(R.string.library_will_be_removed_from_your_library_and, doc.title)) },
+            text = { Text(stringResource(R.string.library_will_be_removed_from_your_library_and, row.shown.title)) },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.delete(doc)
+                    viewModel.delete(row.document)
                     pendingDelete = null
                 }) { Text(stringResource(R.string.common_delete)) }
             },
@@ -615,6 +690,7 @@ private fun EmptyState(
     restoreRunning: Boolean = false,
     restoreProgress: io.theficos.ereader.domain.restore.RestoreProgress? = null,
     onRestore: () -> Unit = {},
+    banner: @Composable () -> Unit = {},
 ) {
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
@@ -646,6 +722,7 @@ private fun EmptyState(
                     Text(text = stringResource(R.string.common_import_epub), modifier = Modifier.padding(start = 8.dp))
                 }
             }
+            banner()
             // Task 6: empty-state restore prompt — only when an account is
             // connected and the library is empty (reconnected on a new device).
             if (canRestore) {

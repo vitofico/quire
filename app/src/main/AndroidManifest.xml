@@ -1,11 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <!-- Kotlin packages stay io.theficos.ereader.*; android namespace is io.theficos.quire.
          Component android:name attributes must be fully-qualified (io.theficos.ereader.Foo),
          not relative (.Foo) — relative names resolve against the namespace and won't match. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- The automatic book details pass waits for an unmetered network. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    <!-- Optional new-book alerts and reading reminder; asked only when one is switched on. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Optional quiet while reading; the reader grants Do Not Disturb access in system settings. -->
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
 
     <application
         android:name="io.theficos.ereader.EReaderApp"
@@ -57,6 +64,27 @@
                 <data android:scheme="content" />
                 <data android:scheme="file" />
                 <data android:mimeType="application/epub+zip" />
+            </intent-filter>
+        </activity>
+
+        <!-- PDFs: a dialog over the sending app; the server converts them to EPUB. -->
+        <activity
+            android:name="io.theficos.ereader.sideload.ConvertPdfActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Quire.Translucent"
+            android:label="@string/convert_share_label">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/pdf" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:mimeType="application/pdf" />
             </intent-filter>
         </activity>
 

@@ -769,3 +769,77 @@ async def test_library_replay_keys_are_account_scoped(app_under_test, cwa_users)
             )
             assert response.status_code == 200, response.text
             assert response.json()["created"] == 1
+
+
+CATALOG = "3f2b9c1e-8d4a-4f6b-9a7e-2c5d1e0b4a93"
+
+
+async def test_sync_catalog_id_round_trips_omission_keeps_null_clears(app_under_test, unique_user):
+    transport = ASGITransport(app=app_under_test)
+    headers = _basic(*unique_user)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        r = await c.post("/library/v1/sync", json={"items": [_entry()]}, headers=headers)
+        assert r.json()["created"] == 1
+
+        # Setting only `catalog_id` is a real change, not a diff-skip.
+        r = await c.post(
+            "/library/v1/sync", json={"items": [_entry(catalog_id=CATALOG)]}, headers=headers
+        )
+        assert r.json()["updated"] == 1
+        r = await c.post(
+            "/library/v1/sync", json={"items": [_entry(catalog_id=CATALOG)]}, headers=headers
+        )
+        assert r.json()["skipped"] == 1
+        item = (await c.get("/library/v1/items", headers=headers)).json()["items"][0]
+        assert item["catalog_id"] == CATALOG
+
+        # Old client replaying without the field: nothing changed, so it is
+        # skipped and the stored value survives.
+        before = item["updated_at"]
+        r = await c.post("/library/v1/sync", json={"items": [_entry()]}, headers=headers)
+        assert r.json()["skipped"] == 1
+        item = (await c.get("/library/v1/items", headers=headers)).json()["items"][0]
+        assert item["catalog_id"] == CATALOG
+        assert item["updated_at"] == before
+
+        # An old client changing another field still keeps it.
+        r = await c.post(
+            "/library/v1/sync", json={"items": [_entry(title="Foundation II")]}, headers=headers
+        )
+        assert r.json()["updated"] == 1
+        item = (await c.get("/library/v1/items", headers=headers)).json()["items"][0]
+        assert item["catalog_id"] == CATALOG
+
+        # Explicit null clears.
+        r = await c.post(
+            "/library/v1/sync",
+            json={"items": [_entry(title="Foundation II", catalog_id=None)]},
+            headers=headers,
+        )
+        assert r.json()["updated"] == 1
+        item = (await c.get("/library/v1/items", headers=headers)).json()["items"][0]
+        assert item["catalog_id"] is None
+
+
+async def test_sync_dedup_catalog_id_duplicates(app_under_test, unique_user):
+    """Identical duplicates collapse; omitted versus set is a conflicting truth."""
+    transport = ASGITransport(app=app_under_test)
+    headers = _basic(*unique_user)
+    same = [_entry(catalog_id=CATALOG), _entry(catalog_id=CATALOG)]
+    mixed = [_entry(), _entry(catalog_id=CATALOG)]
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        r = await c.post("/library/v1/sync", json={"items": same}, headers=headers)
+        assert r.json()["created"] == 1
+        r = await c.post("/library/v1/sync", json={"items": mixed}, headers=headers)
+        assert r.status_code == 422
+        assert r.json()["detail"]["error"] == "duplicate_identity_hash_conflict"
+
+
+async def test_sync_rejects_invalid_catalog_id(app_under_test, unique_user):
+    transport = ASGITransport(app=app_under_test)
+    headers = _basic(*unique_user)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        r = await c.post(
+            "/library/v1/sync", json={"items": [_entry(catalog_id="nope")]}, headers=headers
+        )
+        assert r.status_code == 422

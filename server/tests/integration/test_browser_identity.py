@@ -284,6 +284,9 @@ PRIVATE_ROWS = {
     "insight_identity_aliases": "user_id",
     "ai_generation_log": "subject",
     "reader_profiles": "subject",
+    "account_catalogs": "user_id",
+    "book_details_reader": "user_id",
+    "convert_jobs": "user_id",
 }
 
 
@@ -412,6 +415,15 @@ async def test_export_close_purge_isolation_and_shared_cache(
                 "INSERT INTO reader_profiles "
                 "(tenant_id, subject, payload, schema_version, model_id, prompt_version) "
                 "VALUES ('local', :id, '{}', 1, 'synthetic', '1')",
+                "INSERT INTO account_catalogs (user_id, id, name, kind, host, secret, position) "
+                "VALUES (:id, gen_random_uuid(), 'Witness', 'opds', 'https://example.org', "
+                "'k1:witness', 0)",
+                "INSERT INTO book_details_reader (user_id, identity_hash, key) "
+                "VALUES (:id, repeat('a', 64), repeat('b', 64))",
+                "INSERT INTO convert_jobs (id, user_id, idempotency_key, mode, source_sha256, "
+                "source_bytes, state, attempt, created_at, updated_at, expires_at) "
+                "VALUES (gen_random_uuid(), :id, 'witness-key', 'local', repeat('c', 64), 1, "
+                "'created', 1, now(), now(), now() + interval '1 day')",
             ):
                 await session.execute(text(statement), {"id": owner})
             await session.execute(

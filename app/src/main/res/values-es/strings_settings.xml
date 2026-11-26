@@ -3,9 +3,7 @@
     <string name="settings_couldn_t_delete_reader_profile">"No se pudo eliminar el perfil lector: %1$s"</string>
     <string name="settings_quire_server_url_optional">"URL del servidor Quire (opcional)"</string>
     <string name="settings_only_set_this_if_sync_ai_run">"Configúralo solo si la sincronización o la IA usan una dirección diferente a la de tus libros."</string>
-    <string name="settings_connect_to_any_opds_catalog_such_as">"Conecta con cualquier catálogo OPDS, como Kavita. Rellena esta sección en lugar de la de calibre-web, no ambas."</string>
     <string name="settings_connected_to_an_opds_catalog_your_place">"Conectado a un catálogo OPDS. Tu posición de lectura solo se guarda en este dispositivo y las funciones de IA están desactivadas: ambas cosas requieren un servidor Quire."</string>
-    <string name="settings_this_opds_catalog_has_no_quire_server">"Este catálogo OPDS no dispone de un servidor Quire con el que sincronizar."</string>
     <string name="settings_configure_a_server_above_to_enable_sync">"Configura un servidor arriba para activar la sincronización."</string>
     <string name="settings_re_pull_everything_on_the_next_sync">"Volver a obtener todos los datos en la próxima sincronización. Se conservan tus libros y tu progreso."</string>
     <string name="settings_remove_all_downloaded_books">"Eliminar todos los libros descargados"</string>
@@ -25,7 +23,8 @@
     <string name="settings_provider_not_yet_checked">"Proveedor: aún no comprobado"</string>
     <string name="settings_provider_reachable">"Proveedor: accesible%1$s%2$s"</string>
     <string name="settings_provider_unreachable">"Proveedor: inaccesible. %1$s%2$s"</string>
-    <string name="settings_enter_a_full_catalog_url_starting_with">"Introduce una URL completa del catálogo que empiece por http:// o https://"</string>
     <string name="settings_last_synced_sentence">"Última sincronización: %1$s."</string>
     <string name="settings_last_attempt_failed_sentence">"Último intento fallido: %1$s"</string>
+    <string name="settings_tidy_book_details">"Ordenar los detalles de los libros"</string>
+    <string name="settings_tidy_book_details_description">"Completa portadas, autores y descripciones que faltan con Open Library. La IA ordena los títulos que parecen nombres de archivo, aunque Open Library conozca el libro, crea una portada sencilla cuando no se encuentra una real y escribe una breve descripción donde no hay ninguna. Cada ordenación cuenta para tu cupo de IA. Los libros se revisan solo con Wi-Fi, hasta 25 al día. Cada libro conserva sus propios detalles y puedes volver a ellos desde el menú del libro."</string>
 </resources>

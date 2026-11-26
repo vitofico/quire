@@ -1,10 +1,14 @@
 package io.theficos.ereader.data.ai
 
 import io.theficos.ereader.core.metadata.MetadataBundle
+import io.theficos.ereader.core.model.Document
 import io.theficos.ereader.core.model.DocumentIdentity
 import io.theficos.ereader.data.local.db.InsightDao
 import io.theficos.ereader.data.local.db.InsightEntity
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
@@ -51,6 +55,10 @@ class AiRepository(
     private val _prefs = MutableStateFlow<AiPreferences?>(null)
     val preferences: StateFlow<AiPreferences?> = _prefs.asStateFlow()
 
+    /** The limits while thinking through highlights is offered, else null; see [discussLimits]. */
+    val highlightsDiscussLimits: Flow<DiscussLimits?> =
+        combine(_config, _prefs, ::discussLimits).distinctUntilChanged()
+
     private val refreshMutex = Mutex()
     @Volatile private var changingProvider = false
 
@@ -58,6 +66,12 @@ class AiRepository(
     suspend fun refresh() = refreshMutex.withLock {
         runCatching { client.getConfig() }.getOrNull()?.let { _config.value = it }
         runCatching { client.getPreferences() }.getOrNull()?.let { _prefs.value = it }
+    }
+
+    /** Drops the config and preferences, as for another account, until [refresh] fetches its own. */
+    suspend fun forget() = refreshMutex.withLock {
+        _config.value = null
+        _prefs.value = null
     }
 
     suspend fun setProvider(providerId: String) = refreshMutex.withLock {
@@ -143,6 +157,9 @@ class AiRepository(
             // AiHttpException (401, 409, 5xx) intentionally propagates — see KDoc.
         }
     }
+
+    /** One question about the selected highlights; nothing of it is cached or stored. */
+    suspend fun discussHighlights(request: DiscussRequest): DiscussAnswer = client.discussHighlights(request)
 
     /**
      * Issue #102: drop the insight on the server, then this book's local
@@ -350,6 +367,10 @@ fun interface ProfilePreflightLibrary {
     /** Returns true on success; false signals a non-fatal failure (e.g. 401). */
     suspend fun runOnce(): Boolean
 }
+
+/** The identity a library book goes by on the AI surface; insights and book details both send it. */
+fun Document.aiIdentity(): DocumentIdentity =
+    DocumentIdentity(metadataId = identity.metadataId, contentHash = identity.contentHash)
 
 /** Best-effort ISO-8601 → epoch millis. Returns null on malformed input. */
 internal fun parseIsoMillis(iso: String?): Long? {

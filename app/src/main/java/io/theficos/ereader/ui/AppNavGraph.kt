@@ -1,5 +1,7 @@
 package io.theficos.ereader.ui
 
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.map
 import android.content.Intent
 import android.net.Uri
@@ -16,15 +18,20 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -35,6 +42,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import io.theficos.ereader.di.AppContainer
+import io.theficos.ereader.notify.OpenRequest
 import io.theficos.ereader.ui.bookdetail.BookDetailScreen
 import io.theficos.ereader.ui.bookdetail.BookDetailSheet
 import io.theficos.ereader.ui.bookdetail.BookDetailViewModel
@@ -44,6 +52,8 @@ import io.theficos.ereader.ui.catalog.CatalogScreen
 import io.theficos.ereader.ui.catalog.CatalogViewModel
 import io.theficos.ereader.ui.catalogdetail.CatalogDetailScreen
 import io.theficos.ereader.ui.catalogdetail.CatalogDetailViewModel
+import io.theficos.ereader.ui.convert.ConversionsScreen
+import io.theficos.ereader.ui.convert.ConversionsViewModel
 import io.theficos.ereader.ui.library.LibraryInsightsScreen
 import io.theficos.ereader.ui.library.LibraryInsightsViewModel
 import io.theficos.ereader.ui.library.LibraryScreen
@@ -59,6 +69,7 @@ import io.theficos.ereader.ui.onboarding.QuireSignInScreen
 import io.theficos.ereader.ui.onboarding.ConnectServerViewModel
 import io.theficos.ereader.ui.onboarding.WelcomeScreen
 import io.theficos.ereader.ui.onboarding.pickStartDestination
+import io.theficos.ereader.ui.reader.HighlightsDiscussionViewModel
 import io.theficos.ereader.ui.reader.ReaderScreen
 import io.theficos.ereader.ui.reader.ReaderViewModel
 import io.theficos.ereader.ui.scan.ScanResultScreen
@@ -66,10 +77,14 @@ import io.theficos.ereader.ui.scan.ScanResultViewModel
 import io.theficos.ereader.ui.scan.ScanScreen
 import io.theficos.ereader.ui.scan.ScanViewModel
 import io.theficos.ereader.ui.settings.LicensesScreen
+import io.theficos.ereader.ui.settings.CatalogUploadQuestion
+import io.theficos.ereader.ui.settings.CatalogsViewModel
 import io.theficos.ereader.ui.settings.SettingsScreen
 import io.theficos.ereader.ui.settings.SettingsViewModel
 import io.theficos.ereader.ui.settings.WHATS_NEW_LATEST_ENTRY_ID
 import io.theficos.ereader.ui.settings.WhatsNewScreen
+import io.theficos.ereader.ui.stats.ReadingStatsScreen
+import io.theficos.ereader.ui.stats.ReadingStatsViewModel
 import io.theficos.ereader.ui.theme.AppTheme
 import io.theficos.quire.R
 import kotlinx.coroutines.launch
@@ -82,15 +97,18 @@ fun AppNavGraph(
     container: AppContainer,
     appTheme: AppTheme,
     nav: NavHostController = rememberNavController(),
+    /** Notification taps: a book to open at its place, or a catalog to browse. */
+    openRequests: Flow<OpenRequest> = emptyFlow(),
 ) {
-    // First-launch gating (A-2). Computed once per composition — the
-    // navgraph rebuilds when the configured account or welcome marker
-    // changes (via Compose recomposition driven by AppContainer state), and
-    // anyway we only need to pick a start destination on cold launch.
-    val startDestination = pickStartDestination(
-        hasAccount = container.credentialStore.getAccount() != null,
-        welcomeCompleted = container.welcomePreferencesStore.isCompleted(),
-    )
+    // First-launch gating (A-2), picked once on cold launch. Recomputing it would hand the
+    // NavHost a new graph when signing in after onboarding, which empties the back stack.
+    val startDestination = remember {
+        pickStartDestination(
+            hasAccount = container.credentialStore.getAccount() != null ||
+                container.credentialStore.catalogSession() != null,
+            welcomeCompleted = container.welcomePreferencesStore.isCompleted(),
+        )
+    }
     // Re-auth gating for NativeAuth (Bearer) sessions. The store raises this
     // when the session token expires or a request comes back 401 — there's no
     // refresh token, so the only recovery is signing in again. We probe expiry
@@ -106,23 +124,49 @@ fun AppNavGraph(
     }
     // A device still syncing with its Calibre login asks once per launch whether the
     // reader already has a Quire account (signed in silently) or may create one.
+    var legacyMigration = ConnectServerViewModel.LegacyMigration.UNKNOWN
     if (container.credentialStore.accountFlow.collectAsState().value is AccountCredentials.Basic) {
         val claim: ConnectServerViewModel = viewModel(
             key = "legacy-claim",
-            factory = viewModelFactory {
-                initializer {
-                    ConnectServerViewModel(
-                        credentialStore = container.credentialStore,
-                        legacyHighlightScopeFor = container::legacyHighlightScopeFor,
-                    )
-                }
-            },
+            factory = viewModelFactory { initializer { connectServerViewModel(container) } },
         )
         LaunchedEffect(Unit) { claim.claimLegacyAccount() }
-        val offered by claim.migrationOffered.collectAsState()
-        LaunchedEffect(offered) {
-            if (offered && container.welcomePreferencesStore.takeMigrationPrompt()) {
+        val migration by claim.legacyMigration.collectAsState()
+        legacyMigration = migration
+        LaunchedEffect(migration) {
+            if (migration == ConnectServerViewModel.LegacyMigration.OFFERED &&
+                container.welcomePreferencesStore.takeMigrationPrompt()
+            ) {
                 nav.navigate("quire-sign-in") { launchSingleTop = true }
+            }
+        }
+    }
+    // One list for the whole app: Settings edits it, and the sign-in question can come up anywhere.
+    val catalogsVm: CatalogsViewModel = viewModel(
+        key = "catalogs",
+        factory = viewModelFactory {
+            initializer {
+                CatalogsViewModel(container.credentialStore, container.catalogSyncRepository, openCatalogs = container.openCatalogs)
+            }
+        },
+    )
+    CatalogUploadQuestion(catalogsVm)
+    // The tab the home screen should switch to the next time it composes.
+    var pendingTab by remember { mutableStateOf<Tab?>(null) }
+    LaunchedEffect(openRequests) {
+        openRequests.collect { request ->
+            when (request) {
+                is OpenRequest.Book -> nav.navigate("reader/${request.id}") {
+                    popUpTo("home")
+                }
+                is OpenRequest.Catalog -> {
+                    container.credentialStore.setActiveCatalog(request.id)
+                    pendingTab = Tab.CATALOG
+                    nav.navigate("home") {
+                        popUpTo("home")
+                        launchSingleTop = true
+                    }
+                }
             }
         }
     }
@@ -143,14 +187,7 @@ fun AppNavGraph(
         }
         composable("connect-server") {
             val vm: ConnectServerViewModel = viewModel(
-                factory = viewModelFactory {
-                    initializer {
-                        ConnectServerViewModel(
-                            credentialStore = container.credentialStore,
-                            legacyHighlightScopeFor = container::legacyHighlightScopeFor,
-                        )
-                    }
-                },
+                factory = viewModelFactory { initializer { connectServerViewModel(container) } },
             )
             InsetSurface {
                 ConnectServerScreen(
@@ -170,14 +207,7 @@ fun AppNavGraph(
         }
         composable("quire-sign-in") {
             val vm: ConnectServerViewModel = viewModel(
-                factory = viewModelFactory {
-                    initializer {
-                        ConnectServerViewModel(
-                            credentialStore = container.credentialStore,
-                            legacyHighlightScopeFor = container::legacyHighlightScopeFor,
-                        )
-                    }
-                },
+                factory = viewModelFactory { initializer { connectServerViewModel(container) } },
             )
             InsetSurface {
                 QuireSignInScreen(
@@ -213,6 +243,7 @@ fun AppNavGraph(
                             libraryPreferencesStore = container.libraryPreferencesStore,
                             credentialStore = container.credentialStore,
                             restoreInProgress = { onProgress -> container.runRestoreInProgress(onProgress) },
+                            shownDetails = container.bookDetailsRepository.shown,
                         )
                     }
                 },
@@ -234,6 +265,8 @@ fun AppNavGraph(
                             catalogInsightStash = container.catalogInsightStash,
                             insightSyncRepository = container.insightSyncRepository,
                             subjectProvider = container::catalogInsightScope,
+                            pullCatalogs = { container.catalogSyncRepository.pull() },
+                            shownDetails = container.bookDetailsRepository.shown,
                         )
                     }
                 },
@@ -252,23 +285,30 @@ fun AppNavGraph(
                             insightSyncRepository = container.insightSyncRepository,
                             insightDao = container.insightDao,
                             restoreInProgress = { onProgress -> container.runRestoreInProgress(onProgress) },
+                            libraryPreferencesStore = container.libraryPreferencesStore,
+                            hasStoredDetails = container.bookDetailsRepository.hasStored,
+                            readingStats = container.readingStats,
                         )
                     }
                 },
             )
-            MainScaffold { tab, padding ->
+            MainScaffold(requestedTab = pendingTab, onTabRequestHandled = { pendingTab = null }) { tab, padding ->
                 when (tab) {
                     Tab.LIBRARY -> LibraryScreen(
                         viewModel = libVm,
                         onOpenBook = { id -> nav.navigate("reader/$id") },
                         onShowDetails = { id -> nav.navigate("book/$id") },
                         onShowStats = { nav.navigate("library/stats") },
+                        onShowReadingStats = { nav.navigate("library/reading-stats") },
                         onShowInsights = { nav.navigate("library/insights") },
                         sideloadImporter = container.sideloadImporter,
+                        conversions = container.conversionRepository,
+                        onShowConversions = { nav.navigate("library/conversions") },
                         contentPadding = padding,
                     )
                     Tab.CATALOG -> CatalogScreen(
                         viewModel = catVm,
+                        catalogsViewModel = catalogsVm,
                         contentPadding = padding,
                         onShowDetails = { pub ->
                             val key = container.catalogDetailRegistry.put(pub)
@@ -280,11 +320,14 @@ fun AppNavGraph(
                         val lastSeen by container.whatsNewPreferencesStore.lastSeenEntryId.collectAsState()
                         SettingsScreen(
                             viewModel = setVm,
+                            catalogsViewModel = catalogsVm,
                             contentPadding = padding,
+                            legacyMigration = legacyMigration,
                             onQuireSignIn = { nav.navigate("quire-sign-in") { launchSingleTop = true } },
                             onNavigateToLicenses = { nav.navigate("licenses") },
                             hasUnreadUpdates = lastSeen != WHATS_NEW_LATEST_ENTRY_ID,
                             onNavigateToWhatsNew = { nav.navigate("whats-new") { launchSingleTop = true } },
+                            notificationFeatures = container.notificationFeatures,
                         )
                     }
                 }
@@ -307,14 +350,46 @@ fun AppNavGraph(
                             bookmarks = container.memoryBookmarkDao,
                             accountChanges = container.credentialStore.accountFlow.map { account ->
                                 account?.let { io.theficos.ereader.ui.reader.memoryAccountKey(it.baseUrl, it.subject) }
-                                    ?: "device-local"
+                                    ?: io.theficos.ereader.di.DEVICE_MEMORY_KEY
                             },
                             accountKey = {
                                 container.credentialStore.getAccount()?.let {
                                     io.theficos.ereader.ui.reader.memoryAccountKey(it.baseUrl, it.subject)
-                                } ?: "device-local"
+                                } ?: io.theficos.ereader.di.DEVICE_MEMORY_KEY
                             },
                             highlightRepository = container.highlightRepository,
+                            stats = container.readingStats,
+                        )
+                    }
+                },
+            )
+            // Quiet while reading and the reminder's "read today" follow this entry's lifecycle:
+            // shown while the book is on screen; hidden when it is closed, covered by another
+            // screen, or the app goes to the background. Keyed per entry, so a second reader
+            // opened from a notification is counted on its own.
+            val features = container.notificationFeatures
+            val entryKey = backStack.id
+            val entryLifecycle = backStack.lifecycle
+            DisposableEffect(entryLifecycle) {
+                val observer = LifecycleEventObserver { _, event ->
+                    when (event) {
+                        Lifecycle.Event.ON_START -> features.onReaderShown(entryKey, docId)
+                        Lifecycle.Event.ON_STOP -> features.onReaderHidden(entryKey)
+                        else -> Unit
+                    }
+                }
+                entryLifecycle.addObserver(observer)
+                onDispose {
+                    entryLifecycle.removeObserver(observer)
+                    features.onReaderHidden(entryKey)
+                }
+            }
+            val discussion: HighlightsDiscussionViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer {
+                        HighlightsDiscussionViewModel(
+                            limits = container.highlightsDiscussLimits,
+                            discuss = container.aiRepository::discussHighlights,
                         )
                     }
                 },
@@ -332,6 +407,7 @@ fun AppNavGraph(
                     // while the book is open, and cleared with it.
                     BookDetailSheet(viewModel = bookDetailViewModel(container, docId), onDismiss = onDismiss)
                 },
+                discussion = discussion,
             )
         }
         composable(
@@ -458,6 +534,22 @@ fun AppNavGraph(
                 onBack = { nav.popBackStack() },
             )
         }
+        composable("library/reading-stats") {
+            val vm: ReadingStatsViewModel = viewModel(
+                factory = viewModelFactory { initializer { ReadingStatsViewModel(container.readingStats) } },
+            )
+            ReadingStatsScreen(viewModel = vm, onBack = { nav.popBackStack() })
+        }
+        composable("library/conversions") {
+            val vm: ConversionsViewModel = viewModel(
+                factory = viewModelFactory { initializer { ConversionsViewModel(container.conversionRepository) } },
+            )
+            ConversionsScreen(
+                viewModel = vm,
+                onBack = { nav.popBackStack() },
+                onOpenBook = { id -> nav.navigate("reader/$id") },
+            )
+        }
         composable("library/insights") {
             val vm: LibraryInsightsViewModel = viewModel(
                 factory = viewModelFactory { initializer { container.libraryInsightsViewModelFactory.create() } },
@@ -485,6 +577,7 @@ fun AppNavGraph(
                 // (the Library is the only entry point and the user can reach
                 // Settings from the bottom-nav).
                 onOpenSettings = { nav.popBackStack() },
+                onShowReadingStats = { nav.navigate("library/reading-stats") },
             )
         }
     }
@@ -521,6 +614,12 @@ private fun CatalogDetailUnavailable(onBack: () -> Unit) {
         }
     }
 }
+
+private fun connectServerViewModel(container: AppContainer) = ConnectServerViewModel(
+    credentialStore = container.credentialStore,
+    catalogs = container.catalogSyncRepository,
+    legacyHighlightScopeFor = container::legacyHighlightScopeFor,
+)
 
 /** A book-details view model owned by the current back-stack entry, so it is cleared with it. */
 @Composable

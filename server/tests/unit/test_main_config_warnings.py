@@ -95,6 +95,27 @@ def test_ai_enabled_without_provider_warns(monkeypatch):
     assert getattr(app.state, "ai_orchestrator", None) is None
 
 
+def test_cover_artwork_without_a_provider_warns(monkeypatch):
+    monkeypatch.setenv("QUIRE_SERVER_COVER_ART_ENABLED", "true")
+    monkeypatch.setenv("QUIRE_SERVER_COVER_ART_MODEL", "art-model")
+    assert _create_app().state.config_warnings == [
+        "Cover artwork is enabled without QUIRE_SERVER_COVER_ART_BASE_URL; covers stay "
+        "drawn. Set it or set QUIRE_SERVER_COVER_ART_ENABLED=false"
+    ]
+
+
+def test_cover_artwork_without_ai_warns(monkeypatch):
+    monkeypatch.setenv("QUIRE_SERVER_COVER_ART_ENABLED", "true")
+    monkeypatch.setenv("QUIRE_SERVER_COVER_ART_BASE_URL", "https://art.example.test/v1")
+    monkeypatch.setenv("QUIRE_SERVER_COVER_ART_MODEL", "art-model")
+    app = _create_app()
+    assert app.state.config_warnings == [
+        "QUIRE_SERVER_COVER_ART_ENABLED needs QUIRE_SERVER_AI_ENABLED and "
+        "QUIRE_SERVER_DETAILS_ENABLED; covers stay drawn"
+    ]
+    assert getattr(app.state, "cover_artist", None) is None
+
+
 def test_blank_compose_fallback_counts_as_unset(monkeypatch):
     monkeypatch.setenv("QUIRE_SERVER_AI_ENABLED", "true")
     monkeypatch.setenv("QUIRE_SERVER_AI_BASE_URL", "")

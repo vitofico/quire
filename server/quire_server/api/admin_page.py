@@ -379,6 +379,33 @@ def _migrations_section(status: dict) -> str:
     )
 
 
+def _catalogs_section(status: dict) -> str:
+    catalogs = status["catalogs"]
+    source = catalogs["key_source"]
+    if source == "none":
+        body = (
+            "<p>Off: the server has no key to encrypt saved catalog logins with, so readers "
+            "cannot save catalogs to their account. Set <code>QUIRE_SERVER_CATALOG_KEYS</code>, "
+            "or make the folder of <code>QUIRE_SERVER_CATALOG_KEY_FILE</code> writable, and "
+            "restart.</p>"
+        )
+    elif source == "environment":
+        body = "<p>On. The key comes from <code>QUIRE_SERVER_CATALOG_KEYS</code>.</p>"
+    else:
+        path = _setting(status, "QUIRE_SERVER_CATALOG_KEY_FILE")
+        body = (
+            f"<p>On. The key comes from the key file <code>{_e(path)}</code>.</p>"
+            '<p class="note">Back that file up together with the database. A database '
+            "restored without it cannot read the saved logins, and readers have to enter "
+            "them again.</p>"
+        )
+    saved = "unreadable" if catalogs["saved"] is None else catalogs["saved"]
+    return (
+        f"<section><h2>Synced catalogs</h2>{body}"
+        f'<p class="meta">Catalogs saved, all accounts together: {_e(saved)}</p></section>'
+    )
+
+
 def _settings_section(status: dict) -> str:
     rows = "".join(
         f'<tr class="{_e(row["source"])}"><td><code>{_e(row["name"])}</code></td>'
@@ -428,6 +455,6 @@ def render_page(
         '<button class="quiet" type="submit">Apply</button></form></header>'
         f"{_warnings_section(status)}{_ai_section(status, probe, csrf_field)}"
         f"{_editable_section(status, settings_notice, csrf_field)}"
-        f"{_migrations_section(status)}{_settings_section(status)}"
+        f"{_migrations_section(status)}{_catalogs_section(status)}{_settings_section(status)}"
         "</main></body></html>"
     )

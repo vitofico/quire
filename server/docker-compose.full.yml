@@ -82,6 +82,13 @@ services:
     # an Ollama running on the Docker host, on Linux as well as Docker Desktop.
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # Holds the key that encrypts saved catalog logins, created on first
+    # start. Back it up together with the database (docs/configuration.md).
+    volumes:
+      - quire_keys:/var/lib/quire
+      # PDF conversion's job folder, shared with quire-convert below. Unused
+      # unless QUIRE_SERVER_CONVERT_ENABLED=true.
+      - quire_convert:/var/lib/quire-convert
     command: >
       sh -c "python /app/scripts/migrate.py &&
              uvicorn quire_server.main:app --host 0.0.0.0 --port 8000"
@@ -122,8 +129,38 @@ services:
       - caddy_data:/data
       - caddy_config:/config
 
+  # PDF to EPUB conversion (docs/configuration.md, "PDF conversion"). Off
+  # unless started with `--profile convert` and QUIRE_SERVER_CONVERT_ENABLED=true
+  # in .env. It shares one folder with the server and nothing else: no
+  # network, no database, a read-only root filesystem.
+  quire-convert:
+    image: ${QUIRE_CONVERT_IMAGE:-ghcr.io/vitofico/quire-convert:latest}
+    profiles: ["convert"]
+    # The worker exits after every job, so each conversion starts in a fresh
+    # container: nothing a PDF leaves running outlives its job.
+    restart: always
+    depends_on:
+      - quire-server
+    network_mode: none
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m
+    volumes:
+      - quire_convert:/jobs
+    init: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    # One conversion at a time; Calibre and EPUBCheck peak around 1 to 2 GB on
+    # a long book. Raise both for very large PDFs.
+    mem_limit: 3g
+    cpus: 2
+    pids_limit: 256
+
 volumes:
   pg_data:
+  quire_keys:
+  quire_convert:
   calibre_config:
   caddy_data:
   caddy_config:

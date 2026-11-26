@@ -12,12 +12,14 @@ import kotlinx.coroutines.flow.asStateFlow
  * `showAbandoned` toggle so the library home can hide abandoned books by
  * default. The underlying store is still `SharedPreferences` per Lock #17.
  * `showFinished` (issue #141) does the same for finished books, but defaults
- * to showing them.
+ * to showing them. `tidyDetails` lets the server find and tidy book details and covers
+ * and shows them on the shelf; on by default, and only in effect with AI turned on.
  */
 data class LibraryPreferences(
     val sort: LibrarySort,
     val showAbandoned: Boolean,
     val showFinished: Boolean,
+    val tidyDetails: Boolean,
 )
 
 class LibraryPreferencesStore(context: Context) {
@@ -42,13 +44,23 @@ class LibraryPreferencesStore(context: Context) {
         _flow.value = _flow.value.copy(showFinished = showFinished)
     }
 
+    fun updateTidyDetails(tidyDetails: Boolean) {
+        prefs.edit().putBoolean(KEY_TIDY_DETAILS, tidyDetails).apply()
+        _flow.value = _flow.value.copy(tidyDetails = tidyDetails)
+    }
+
     private fun load(): LibraryPreferences {
         val raw = prefs.getString(KEY_SORT, LibrarySort.RECENTLY_READ.name)
             ?: LibrarySort.RECENTLY_READ.name
         val sort = runCatching { LibrarySort.valueOf(raw) }.getOrDefault(LibrarySort.RECENTLY_READ)
         val showAbandoned = prefs.getBoolean(KEY_SHOW_ABANDONED, false)
         val showFinished = prefs.getBoolean(KEY_SHOW_FINISHED, true)
-        return LibraryPreferences(sort = sort, showAbandoned = showAbandoned, showFinished = showFinished)
+        return LibraryPreferences(
+            sort = sort,
+            showAbandoned = showAbandoned,
+            showFinished = showFinished,
+            tidyDetails = prefs.getBoolean(KEY_TIDY_DETAILS, true),
+        )
     }
 
     private companion object {
@@ -56,5 +68,6 @@ class LibraryPreferencesStore(context: Context) {
         // Lock #17: exact key — dot separator, not underscore.
         const val KEY_SHOW_ABANDONED = "library.show_abandoned"
         const val KEY_SHOW_FINISHED = "library.show_finished"
+        const val KEY_TIDY_DETAILS = "library.tidy_details"
     }
 }

@@ -31,6 +31,31 @@ beside them in reader/src/main/assets/fonts/ as OFL-<family>.txt.
     (upstream: https://software.sil.org/charis/)
 The app's own screens use the same bundled Lora.
 
+The server draws designed covers with these fonts, all unmodified, in
+server/quire_server/assets/fonts/ beside their license texts:
+  - Lora 3.008 and Literata 3.103, the same files the reader bundles
+    (see above), with OFL-Lora.txt and OFL-Literata.txt.
+  - Noto Sans 2.015, Copyright 2022 The Noto Project Authors, under the
+    SIL Open Font License 1.1. NotoSans.ttf (renamed from
+    NotoSans[wdth,wght].ttf) from
+    https://github.com/google/fonts/tree/8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5/ofl/notosans
+    with OFL-NotoSans.txt.
+  - Noto Naskh Arabic 2.021, Copyright 2022 The Noto Project Authors,
+    under the SIL Open Font License 1.1. NotoNaskhArabic.ttf (renamed
+    from NotoNaskhArabic[wght].ttf) from
+    https://github.com/google/fonts/tree/ad2e6647e3d97ad5a8b6b5f95042f99161af5915/ofl/notonaskharabic
+    with OFL-NotoNaskhArabic.txt.
+  - Droid Sans Fallback 1.00c, Copyright Google Corporation 2006-2010,
+    under the Apache License 2.0. DroidSansFallbackFull.ttf from the
+    Debian package fonts-droid-fallback 6.0.1r16-1.1 (Android Open Source
+    Project), with LICENSE-DroidSansFallback.txt.
+  - Nanum Gothic 3.020, Copyright 2010 NHN Corporation, with Reserved
+    Font Names "Nanum" and "NanumGothic" among others, under the SIL Open
+    Font License 1.1. NanumGothic.ttf (renamed from
+    NanumGothic-Regular.ttf) from
+    https://github.com/google/fonts/tree/1c96438dec81b2b5078557d91315e31fb29b9462/ofl/nanumgothic
+    with OFL-NanumGothic.txt.
+
 The reader also offers OpenDyslexic 2.001 by Abelardo Gonzalez, whose
 regular face ships unmodified inside the Readium navigator as
 readium/fonts/OpenDyslexic-Regular.otf. The reader bundles the matching

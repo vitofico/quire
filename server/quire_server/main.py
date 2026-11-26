@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import warnings
 from contextlib import AsyncExitStack
 from datetime import timedelta
@@ -200,6 +201,42 @@ def _build_ai_authenticator(settings: Settings, validator, auth_backend, session
     )
 
 
+CONVERT_UPLOAD = re.compile(r"/convert/v1/jobs/[0-9a-fA-F-]{32,36}/source")
+
+
+def _install_convert(app: FastAPI, settings, session_factory) -> None:
+    """Mount ``/convert/v1`` and its sweep, unless the job folder cannot be used."""
+    from quire_server.core import convert
+
+    folder = convert.Folder(settings.convert_dir)
+    try:
+        folder.prepare()
+    except OSError as exc:
+        message = (
+            "PDF conversion is off: QUIRE_SERVER_CONVERT_DIR cannot be prepared "
+            f"({type(exc).__name__}); mount a writable folder there"
+        )
+        logger.error(message)
+        app.state.config_warnings.append(message)
+        return
+    from quire_server.api.convert import router as convert_router
+
+    app.state.convert_folder = folder
+    app.state.hosting_capabilities["pdf_conversion"] = True
+    app.include_router(convert_router, prefix="/convert/v1")
+    tasks: list[asyncio.Task] = []
+
+    async def start() -> None:
+        tasks.append(asyncio.create_task(convert.run_sweeps(session_factory, folder, settings)))
+
+    async def stop() -> None:
+        for task in tasks:
+            task.cancel()
+
+    app.router.add_event_handler("startup", start)
+    app.router.add_event_handler("shutdown", stop)
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     from quire_server.core.ai.monthly_policy import MonthlyPolicy, PolicySettings
@@ -247,6 +284,21 @@ def create_app() -> FastAPI:
     app.state.canonical_url = settings.canonical_url
     app.state.identity_factory = session_factory
     app.state.native_login_guard = LoginGuard()
+    # Synced catalogs are on when `catalog_secrets` is not None. With no key
+    # configured, the first start creates one, but only once the database
+    # confirms no saved catalog needs a key this server lacks.
+    from quire_server.core.catalog_secrets import create_catalog_key, load_catalog_secrets
+
+    app.state.catalog_secrets, app.state.catalog_key_source = load_catalog_secrets(settings)
+    if app.state.catalog_secrets is None:
+
+        async def create_catalog_key_on_start() -> None:
+            async with session_factory() as session:
+                created = await create_catalog_key(settings, session)
+            if created is not None:
+                app.state.catalog_secrets, app.state.catalog_key_source = created, "file"
+
+        app.router.add_event_handler("startup", create_catalog_key_on_start)
     hosted_policy = (
         MonthlyPolicy(policy_settings, httpx.AsyncClient(), session_factory)
         if policy_settings.url
@@ -257,8 +309,10 @@ def create_app() -> FastAPI:
         "progress_metadata_sync": settings.progress_enabled,
         "ai_enabled": settings.ai_enabled,
         "ai_policy_enabled": bool(policy_settings.url),
+        "book_details": settings.ai_enabled and settings.details_enabled,
         "browser_pairing": bool(identity_settings.public_url),
         "identity_provider_onboarding": bool(identity_settings.oidc_issuer),
+        "pdf_conversion": False,
     }
 
     httpx_client = httpx.AsyncClient(timeout=settings.cwa_probe_timeout_s)
@@ -332,6 +386,13 @@ def create_app() -> FastAPI:
 
         app.include_router(browser_router, prefix="/auth/v1")
         app.include_router(lifecycle_router)
+        from quire_server.api.catalogs import router as catalogs_router
+        from quire_server.core.catalog_proxy import FetchSlots, LoginBackoff, RateWindow
+
+        app.include_router(catalogs_router, prefix="/catalogs/v1")
+        app.state.catalog_proxy_limit = RateWindow(settings.catalog_proxy_rate_per_min)
+        app.state.catalog_proxy_slots = FetchSlots(4, settings.catalog_proxy_max_concurrent)
+        app.state.catalog_proxy_backoff = LoginBackoff()
         if settings.auth_backend == "transition" and settings.self_migration_enabled:
             from quire_server.api.calibre_migration import router as migration_router
 
@@ -368,9 +429,24 @@ def create_app() -> FastAPI:
                 "/auth/v1/migrate/claim",
             }
             legacy_ai = request.url.path.startswith("/ai/") and settings.ai_auth_mode == "token"
+            # A saved-catalog fetch writes nothing and can wait long on another
+            # site, so it must not hold a fence slot (and its connection) all
+            # that time. The auth backend still refuses a closed account or a
+            # revoked or expired session, and the route reads its row and lets
+            # the connection go before it contacts the catalog.
+            catalog_fetch = (
+                request.method == "GET"
+                and request.url.path.startswith("/catalogs/v1/catalogs/")
+                and request.url.path.endswith("/fetch")
+            )
+            # A PDF upload can take minutes; the route reads its row, lets the
+            # connection go while the body arrives, then checks the row again.
+            convert_upload = request.method == "PUT" and CONVERT_UPLOAD.fullmatch(request.url.path)
             if (
                 issuance
                 or legacy_ai
+                or catalog_fetch
+                or convert_upload
                 or request.url.path in {"/", "/quire"}
                 or (
                     request.url.path.startswith("/quire/")
@@ -399,13 +475,18 @@ def create_app() -> FastAPI:
                         )
                     ).scalar_one_or_none()
                     if row is None or row.closed_at is not None:
-                        return JSONResponse({"detail": "account_closed"}, status_code=401)
+                        return JSONResponse(
+                            {"detail": "account_closed"},
+                            status_code=401,
+                            headers={"Cache-Control": "no-store"},
+                        )
                     if (
                         hosted_policy
                         and request.method not in {"GET", "HEAD", "OPTIONS"}
                         and (
                             request.url.path.startswith("/sync/")
                             or request.url.path.startswith("/library/")
+                            or request.url.path == "/convert/v1/jobs"
                         )
                         and not await hosted_policy.allow_sync(user.user_id)
                     ):
@@ -421,9 +502,12 @@ def create_app() -> FastAPI:
                     and exc.status_code == 401
                 ):
                     headers = {"WWW-Authenticate": 'Basic realm="Quire Server", charset="UTF-8"'}
-                return JSONResponse(
+                response = JSONResponse(
                     {"detail": exc.detail}, status_code=exc.status_code, headers=headers
                 )
+                # An answer about this login is never one to cache.
+                response.headers["Cache-Control"] = "no-store"
+                return response
 
     if settings.progress_enabled:
         # Lazy import: only pull progress + library routers when progress mode
@@ -464,6 +548,10 @@ def create_app() -> FastAPI:
         runtime = RuntimeSettings(settings)
         app.state.runtime_settings = runtime
         ai_router_deps = [Depends(refresh_runtime_settings)]
+        from quire_server.core.rate_limit import RateLimit
+
+        # Questions about highlights, per reader per minute.
+        app.state.discuss_limit = RateLimit()
 
         if settings.ai_base_url and settings.ai_model:
             # Lazy imports: only pull AI modules when AI mode is on AND configured.
@@ -592,11 +680,55 @@ def create_app() -> FastAPI:
             app.state.ai_health = AiHealthState()
             app.include_router(ai_router, prefix="/ai/v1", dependencies=ai_router_deps)
 
+        if settings.details_enabled:
+            # Book details and designed covers share the AI router's auth,
+            # opt-in and allowance; with AI unconfigured they answer 503.
+            from quire_server.api.details import CoverCache
+            from quire_server.api.details import router as details_router
+            from quire_server.core.ai.details import RecentFailures
+
+            app.state.details_cover_limit = RateLimit()
+            app.state.details_lookup_limit = RateLimit()
+            app.state.details_covers = CoverCache()
+            app.state.details_failures = RecentFailures()
+            app.state.cover_artist = None
+            if (
+                settings.cover_art_enabled
+                and settings.cover_art_base_url
+                and settings.cover_art_model
+            ):
+                from quire_server.core.cover_art import CoverArtist, ImageProvider
+
+                key = settings.cover_art_api_key
+                artist = CoverArtist(
+                    ImageProvider(
+                        base_url=settings.cover_art_base_url,
+                        api_key=key.get_secret_value() if key else None,
+                        model=settings.cover_art_model,
+                        size=settings.cover_art_size,
+                        quality=settings.cover_art_quality,
+                        timeout_s=settings.cover_art_timeout_s,
+                    ),
+                    session_factory,
+                    daily_budget=settings.cover_art_daily_budget,
+                )
+                app.state.cover_artist = artist
+                resources.push_async_callback(artist.aclose)
+            app.include_router(details_router, prefix="/details/v1", dependencies=ai_router_deps)
+
+    if settings.convert_enabled:
+        _install_convert(app, settings, session_factory)
+
     # Middleware: registered LAST is OUTERMOST in ASGI execution order.
     # We want RequestID outermost so it can attach X-Request-ID to ANY
     # response (including 413s from RequestSize). So add RequestSize first,
     # then RequestID.
-    app.add_middleware(RequestSizeMiddleware, max_bytes=settings.max_request_bytes)
+    app.add_middleware(
+        RequestSizeMiddleware,
+        max_bytes=settings.max_request_bytes,
+        # The PDF upload is the one body allowed past the global limit.
+        routes=[("PUT", CONVERT_UPLOAD, settings.convert_max_bytes)],
+    )
     app.add_middleware(RequestIDMiddleware)
 
     from quire_server.web import install_web

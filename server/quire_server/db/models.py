@@ -14,6 +14,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     Numeric,
     String,
     UniqueConstraint,
@@ -231,6 +232,79 @@ class ExternalSourceCacheEntry(Base):
     )
 
 
+# Cache-integrity invariant: shared cache, MUST NOT carry tenant columns.
+# See the comment above BookInsight for the full rule. One row is the tidied
+# record of one book as one set of fields describes it: `key` hashes the
+# canonical identity together with those fields (see core/ai/details.py), so a
+# reader who sends false fields only ever writes a row nobody else reads.
+# Migration `ai_012`.
+class BookDetails(Base):
+    __tablename__ = "book_details"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    # "metadata_id:..." or "content_hash:...", kept to trace a row to its book.
+    identity: Mapped[str] = mapped_column(String, nullable=False)
+    # The tidied title, authors and description a reader sent, guarded; no
+    # account id is stored, so the row is shared like ``book_insights``.
+    record: Mapped[dict] = mapped_column(JSON, nullable=False)
+    design: Mapped[dict] = mapped_column(JSON, nullable=False)
+    model_id: Mapped[str] = mapped_column(String, nullable=False)
+    prompt_version: Mapped[str] = mapped_column(String, nullable=False)
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class BookCoverArt(Base):
+    """The painted background of a designed cover, one per shared details
+    record, and the single attempt that made it (ai_013). No user column:
+    like the record it is shared by every reader of the same book."""
+
+    __tablename__ = "book_cover_art"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'painted', 'failed')", name="ck_book_cover_art_status"
+        ),
+        CheckConstraint(
+            "(status = 'painted') = (image IS NOT NULL AND digest IS NOT NULL)",
+            name="ck_book_cover_art_image",
+        ),
+        CheckConstraint(
+            "image IS NULL OR octet_length(image) <= 524288", name="ck_book_cover_art_size"
+        ),
+    )
+
+    key: Mapped[str] = mapped_column(
+        String(64), ForeignKey("book_details.key", ondelete="CASCADE"), primary_key=True
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    # JPEG, 600 x 900, the title band left to the renderer.
+    image: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True, deferred=True)
+    digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    model_id: Mapped[str] = mapped_column(String, nullable=False)
+    error_class: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    attempted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class BookDetailsReader(Base):
+    """Which shared record a reader was last given for a book, so another
+    device that sends different fields for the same book is answered with it
+    instead of a second tidy. Private to the reader: it only ever chooses
+    among records for that reader's own lookups."""
+
+    __tablename__ = "book_details_reader"
+
+    user_id: Mapped[str] = mapped_column(String, primary_key=True)
+    # SHA-256 of the canonical identity ("metadata_id:..." or "content_hash:...").
+    identity_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    key: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class AIUsageDaily(Base):
     __tablename__ = "ai_usage_daily"
 
@@ -260,10 +334,15 @@ class AIGenerationLog(Base):
       'promote' — catalog→EPUB identity copy (PR-ζ, wired in pr-β);
                   book_insight_id NOT NULL (points at the copied row at the
                   ``to`` identity). weight=0 against the daily quota.
+      'details': one tidy of a book's details (ai_012); book_insight_id NULL.
+      'cover_art': one painting of a cover's artwork (ai_013); book_insight_id
+                  NULL. Never charged to the reader.
+      'discuss': one question about the reader's highlights (ai_014);
+                  book_insight_id NULL. Nothing of the question is stored.
 
     Cross-field invariant enforced by ``ck_ai_generation_log_kind_fk``:
-    profile rows MUST have book_insight_id NULL; insight/promote rows MUST
-    have it non-null. ``_log_generation()`` raises ValueError BEFORE the DB
+    profile, details, cover_art and discuss rows MUST have book_insight_id NULL; insight/promote
+    rows MUST have it non-null. ``_log_generation()`` raises ValueError BEFORE the DB
     round-trip if a caller violates this.
 
     ``status`` is permissive ('hit' | 'miss' | 'error'):
@@ -279,11 +358,12 @@ class AIGenerationLog(Base):
             name="ck_ai_generation_log_status",
         ),
         CheckConstraint(
-            "kind IN ('insight', 'profile', 'promote')",
+            "kind IN ('insight', 'profile', 'promote', 'details', 'cover_art', 'discuss')",
             name="ck_ai_generation_log_kind",
         ),
         CheckConstraint(
-            "(kind = 'profile' AND book_insight_id IS NULL) "
+            "(kind IN ('profile', 'details', 'cover_art', 'discuss') "
+            "AND book_insight_id IS NULL) "
             "OR (kind IN ('insight', 'promote') AND book_insight_id IS NOT NULL)",
             name="ck_ai_generation_log_kind_fk",
         ),
@@ -438,6 +518,9 @@ class LibraryItem(Base):
         JSONB, nullable=False, server_default=text("'[]'::jsonb"), default=list
     )
     opds_href: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Client-chosen UUID of the saved catalog the book came from. Loose
+    # reference on purpose: no foreign key to any catalogs table.
+    catalog_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -605,3 +688,75 @@ class NativeSession(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     kind: Mapped[str] = mapped_column(String, nullable=False, default="api", server_default="api")
     device_name: Mapped[str | None] = mapped_column(String)
+
+
+# Synced catalogs — `catalogs` branch, always materialized like `auth`.
+class AccountCatalog(Base):
+    """A book catalog saved to a Quire account and synced to its devices.
+
+    The full address goes inside ``secret`` with the login, because some
+    catalogs (Kavita) embed an account key in the URL path. ``host`` is
+    scheme and host only, safe to show and to log. ``secret`` is sealed by
+    ``core.catalog_secrets`` and bound to this row's ``(user_id, id)``.
+    """
+
+    __tablename__ = "account_catalogs"
+    __table_args__ = (
+        CheckConstraint("kind IN ('calibre', 'opds')", name="ck_account_catalogs_kind"),
+    )
+
+    # The account's storage user id, as in every other user-scoped table.
+    user_id: Mapped[str] = mapped_column(String, primary_key=True)
+    # Chosen by the client, so a retried create lands on the same row.
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    name: Mapped[str] = mapped_column(String(60), nullable=False)
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    host: Mapped[str] = mapped_column(String, nullable=False)
+    secret: Mapped[str] = mapped_column(String, nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ConvertJob(Base):
+    """A PDF to EPUB conversion started from an app (``/convert/v1``).
+
+    The PDF and the EPUB live in the conversion folder (``core.convert``), never
+    here. ``failure_code`` is set when ``state`` is ``failed``; ``summary`` holds
+    what the owner is shown (review pages, issue counts, a short reason).
+    """
+
+    __tablename__ = "convert_jobs"
+    __table_args__ = (
+        UniqueConstraint("user_id", "idempotency_key", name="uq_convert_jobs_user_key"),
+        CheckConstraint(
+            "state IN ('created', 'queued', 'running', 'ready', 'review', 'failed', "
+            "'cancelled', 'acknowledged', 'expired')",
+            name="ck_convert_jobs_state",
+        ),
+        Index("ix_convert_jobs_user_created", "user_id", "created_at"),
+        Index("ix_convert_jobs_state", "state"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    # The owner's storage user id, as in every other user-scoped table.
+    user_id: Mapped[str] = mapped_column(String, nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    mode: Mapped[str] = mapped_column(String, nullable=False)
+    source_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    engine_revision: Mapped[str | None] = mapped_column(String, nullable=True)
+    state: Mapped[str] = mapped_column(String, nullable=False)
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False)
+    failure_code: Mapped[str | None] = mapped_column(String, nullable=True)
+    result_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    result_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    summary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

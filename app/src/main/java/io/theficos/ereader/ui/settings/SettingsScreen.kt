@@ -57,18 +57,20 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import io.theficos.ereader.auth.AccountCredentials
 import io.theficos.ereader.data.ai.AiHealthResponse
 import io.theficos.ereader.data.ai.RetrievalSourceHealth
+import io.theficos.ereader.notify.NotificationFeatures
 import io.theficos.ereader.reader.ReaderFontFamily
 import io.theficos.ereader.reader.ReaderTheme
 import io.theficos.ereader.ui.components.InkBackground
 import io.theficos.ereader.ui.components.QuireCard
 import io.theficos.ereader.ui.components.RadioOptionRow
 import io.theficos.ereader.ui.components.SectionLabel
+import io.theficos.ereader.ui.stats.ClearStatisticsDialog
 import io.theficos.ereader.ui.displayLabel
+import io.theficos.ereader.ui.onboarding.ConnectServerViewModel
 import io.theficos.ereader.ui.onboarding.PairingQr
 import io.theficos.ereader.ui.reader.displayLabel
 import io.theficos.ereader.ui.theme.AppTheme
@@ -118,16 +120,19 @@ private val LANGUAGE_OPTIONS: List<Pair<String, String>> = listOf(
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel,
+    catalogsViewModel: CatalogsViewModel,
     contentPadding: PaddingValues,
     hasUnreadUpdates: Boolean,
     onNavigateToWhatsNew: () -> Unit,
     onNavigateToLicenses: () -> Unit = {},
     onQuireSignIn: () -> Unit = {},
+    legacyMigration: ConnectServerViewModel.LegacyMigration = ConnectServerViewModel.LegacyMigration.UNKNOWN,
+    notificationFeatures: NotificationFeatures,
 ) {
     val account by viewModel.account.collectAsState()
     val needsReauth by viewModel.needsReauth.collectAsState()
     val calibre by viewModel.calibre.collectAsState()
-    val opds by viewModel.opds.collectAsState()
+    val catalogs by catalogsViewModel.catalogs.collectAsState()
     val reader by viewModel.readerPreferences.collectAsState()
     val appTheme by viewModel.appTheme.collectAsState()
     val backgroundStyle by viewModel.backgroundStyle.collectAsState()
@@ -196,38 +201,41 @@ fun SettingsScreen(
         QuireAccountSettings(
             account = account,
             needsReauth = needsReauth,
+            legacyMigration = legacyMigration,
+            hasCatalogs = catalogs.isNotEmpty(),
             onSignIn = onQuireSignIn,
-            onDisconnect = viewModel::disconnectQuire,
+            onSignOut = viewModel::signOut,
             pairing = viewModel.pairing.collectAsState().value,
             onAddDevice = viewModel::showPairingCode,
             onDismissPairing = viewModel::hidePairingCode,
         )
 
-        SectionLabel(stringResource(R.string.quire_account_calibre_catalog))
-        QuireCard(modifier = Modifier.fillMaxWidth()) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
-                    value = calibre.baseUrl,
-                    onValueChange = viewModel::onBaseUrlChange,
-                    label = { Text(stringResource(R.string.common_calibre_web_url)) },
-                    isError = calibre.error != null,
-                    supportingText = calibre.error?.let { message -> { Text(message.asString()) } },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = calibre.username,
-                    onValueChange = viewModel::onUsernameChange,
-                    label = { Text(stringResource(R.string.common_username)) },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = calibre.password,
-                    onValueChange = viewModel::onPasswordChange,
-                    label = { Text(stringResource(R.string.common_password)) },
-                    visualTransformation = PasswordVisualTransformation(),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                if (account is AccountCredentials.Basic) {
+        if (account is AccountCredentials.Basic) {
+            // The legacy sign-in keeps its own form: this catalog is also the sync account.
+            SectionLabel(stringResource(R.string.quire_account_legacy_sign_in))
+            QuireCard(modifier = Modifier.fillMaxWidth()) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(
+                        value = calibre.baseUrl,
+                        onValueChange = viewModel::onBaseUrlChange,
+                        label = { Text(stringResource(R.string.common_calibre_web_url)) },
+                        isError = calibre.error != null,
+                        supportingText = calibre.error?.let { message -> { Text(message.asString()) } },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = calibre.username,
+                        onValueChange = viewModel::onUsernameChange,
+                        label = { Text(stringResource(R.string.common_username)) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = calibre.password,
+                        onValueChange = viewModel::onPasswordChange,
+                        label = { Text(stringResource(R.string.common_password)) },
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                     OutlinedTextField(
                         value = calibre.quireServerUrl,
                         onValueChange = viewModel::onQuireServerUrlChange,
@@ -238,96 +246,17 @@ fun SettingsScreen(
                         },
                         modifier = Modifier.fillMaxWidth(),
                     )
-                }
-                if (calibre.isActive) {
-                    Text(
-                        stringResource(R.string.quire_account_using_calibre),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Button(
-                    onClick = viewModel::saveCalibre,
-                    enabled = calibre.baseUrl.isNotBlank() && calibre.username.isNotBlank() && calibre.password.isNotBlank(),
-                ) {
-                    Text(if (calibre.saved) stringResource(R.string.common_saved) else stringResource(R.string.common_save))
-                }
-                if (calibre.isActive && account !is AccountCredentials.Basic) {
-                    TextButton(onClick = viewModel::disconnectCatalog) {
-                        Text(stringResource(R.string.quire_account_remove_catalog))
+                    Button(
+                        onClick = viewModel::saveCalibre,
+                        enabled = calibre.baseUrl.isNotBlank() && calibre.username.isNotBlank() && calibre.password.isNotBlank(),
+                    ) {
+                        Text(if (calibre.saved) stringResource(R.string.common_saved) else stringResource(R.string.common_save))
                     }
                 }
             }
         }
 
-        SectionLabel(stringResource(R.string.common_opds_catalog))
-        QuireCard(modifier = Modifier.fillMaxWidth()) {
-            var revealUrl by rememberSaveable { mutableStateOf(false) }
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    stringResource(R.string.settings_connect_to_any_opds_catalog_such_as),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                OutlinedTextField(
-                    value = opds.catalogUrl,
-                    onValueChange = viewModel::onOpdsCatalogUrlChange,
-                    label = { Text(stringResource(R.string.common_catalog_url)) },
-                    isError = opds.error != null,
-                    supportingText = opds.error?.let { msg -> { Text(msg.asString()) } },
-                    // Some catalogs put an account key in the URL, so it is
-                    // masked like a password until the user asks to see it.
-                    visualTransformation = if (revealUrl) {
-                        VisualTransformation.None
-                    } else {
-                        PasswordVisualTransformation()
-                    },
-                    trailingIcon = {
-                        TextButton(onClick = { revealUrl = !revealUrl }) {
-                            Text(if (revealUrl) stringResource(R.string.common_hide) else stringResource(R.string.common_show))
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = opds.username,
-                    onValueChange = viewModel::onOpdsUsernameChange,
-                    label = { Text(stringResource(R.string.common_username_optional)) },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = opds.password,
-                    onValueChange = viewModel::onOpdsPasswordChange,
-                    label = { Text(stringResource(R.string.common_password_optional)) },
-                    visualTransformation = PasswordVisualTransformation(),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                if (account is AccountCredentials.Basic || opds.isActive) {
-                    Text(
-                        stringResource(
-                            if (account is AccountCredentials.Basic) R.string.quire_account_legacy_catalog_hint
-                            else R.string.quire_account_using_opds,
-                        ),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Button(
-                    onClick = viewModel::saveOpds,
-                    enabled = account !is AccountCredentials.Basic && opds.catalogUrl.isNotBlank() &&
-                        (opds.catalogUrl.startsWith("http://", ignoreCase = true) ||
-                            opds.catalogUrl.startsWith("https://", ignoreCase = true)) &&
-                        opds.username.isBlank() == opds.password.isBlank(),
-                ) {
-                    Text(if (opds.saved) stringResource(R.string.common_saved) else stringResource(R.string.common_save))
-                }
-                if (opds.isActive) {
-                    TextButton(onClick = viewModel::disconnectCatalog) {
-                        Text(stringResource(R.string.quire_account_remove_catalog))
-                    }
-                }
-            }
-        }
+        CatalogsSettings(catalogsViewModel)
 
         SectionLabel(stringResource(R.string.common_reader_defaults))
         QuireCard(modifier = Modifier.fillMaxWidth()) {
@@ -382,6 +311,10 @@ fun SettingsScreen(
             }
         }
 
+        ReadingStatsSettings(viewModel)
+
+        NotificationsSettings(notificationFeatures, catalogNames = catalogs.associate { it.id to it.name })
+
         SectionLabel(stringResource(R.string.common_sync))
         QuireCard(modifier = Modifier.fillMaxWidth()) {
             val syncState by viewModel.sync.collectAsState()
@@ -390,11 +323,7 @@ fun SettingsScreen(
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (!syncState.hasCredentials) {
                     Text(
-                        if (opds.isActive) {
-                            stringResource(R.string.settings_this_opds_catalog_has_no_quire_server)
-                        } else {
-                            stringResource(R.string.settings_configure_a_server_above_to_enable_sync)
-                        },
+                        stringResource(R.string.settings_configure_a_server_above_to_enable_sync),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -500,6 +429,7 @@ fun SettingsScreen(
         }
 
         SectionLabel(stringResource(R.string.common_ai_features))
+        val hasStoredDetails by viewModel.hasStoredDetails.collectAsState()
         QuireCard(modifier = Modifier.fillMaxWidth()) {
             if (!isConnected || needsReauth || aiState.config?.configured != true) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -509,6 +439,10 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (hasStoredDetails) {
+                        Spacer(Modifier.height(12.dp))
+                        TidyDetailsSwitch(viewModel)
+                    }
                 }
             } else {
                 val cfg = aiState.config!!
@@ -588,6 +522,11 @@ fun SettingsScreen(
                                 Text(stringResource(R.string.settings_ai_provider_change_failed), color = MaterialTheme.colorScheme.error)
                             }
                         }
+                    }
+
+                    // Also with AI off while found details are stored, so they can be put away.
+                    if ((enabled && cfg.detailsSupported) || hasStoredDetails) {
+                        TidyDetailsSwitch(viewModel)
                     }
 
                     if (enabled) {
@@ -737,13 +676,16 @@ fun SettingsScreen(
 private fun QuireAccountSettings(
     account: AccountCredentials?,
     needsReauth: Boolean,
+    legacyMigration: ConnectServerViewModel.LegacyMigration,
+    hasCatalogs: Boolean,
     onSignIn: () -> Unit,
-    onDisconnect: () -> Unit,
+    onSignOut: (keepCatalogs: Boolean) -> Unit,
     pairing: PairingState,
     onAddDevice: () -> Unit,
     onDismissPairing: () -> Unit,
 ) {
     val native = account as? AccountCredentials.Bearer
+    val legacy = account is AccountCredentials.Basic
     var confirmDisconnect by remember { mutableStateOf(false) }
     SectionLabel(stringResource(R.string.quire_account_title))
     QuireCard(modifier = Modifier.fillMaxWidth()) {
@@ -753,7 +695,12 @@ private fun QuireAccountSettings(
                     when {
                         native != null && needsReauth -> R.string.quire_account_expired
                         native != null -> R.string.quire_account_connected
-                        account is AccountCredentials.Basic -> R.string.quire_account_legacy
+                        // Calibre-Web sign-in is being phased out: say what to do about it.
+                        legacy && legacyMigration == ConnectServerViewModel.LegacyMigration.OFFERED ->
+                            R.string.quire_account_legacy_retiring_create
+                        legacy && legacyMigration == ConnectServerViewModel.LegacyMigration.UNAVAILABLE ->
+                            R.string.quire_account_legacy_retiring_admin
+                        legacy -> R.string.quire_account_legacy
                         else -> R.string.quire_account_sign_in_description
                     },
                 ),
@@ -765,13 +712,23 @@ private fun QuireAccountSettings(
             }
             if (native == null || needsReauth) {
                 Button(onClick = onSignIn) {
-                    Text(stringResource(if (needsReauth) R.string.quire_account_sign_in_again else R.string.quire_account_sign_in))
+                    Text(
+                        stringResource(
+                            when {
+                                needsReauth -> R.string.quire_account_sign_in_again
+                                // The sign-in screen offers creating the account, from the same check.
+                                legacy && legacyMigration == ConnectServerViewModel.LegacyMigration.OFFERED ->
+                                    R.string.quire_migration_title
+                                else -> R.string.quire_account_sign_in
+                            },
+                        ),
+                    )
                 }
             }
             if (native != null && !needsReauth) {
                 Button(onClick = onAddDevice) { Text(stringResource(R.string.quire_pairing_add_device)) }
             }
-            if (native != null) {
+            if (native != null || legacy) {
                 TextButton(onClick = { confirmDisconnect = true }) {
                     Text(stringResource(R.string.quire_account_sign_out))
                 }
@@ -799,16 +756,35 @@ private fun QuireAccountSettings(
             },
         )
     }
-    if (confirmDisconnect && native != null) {
+    if (confirmDisconnect && (native != null || legacy)) {
+        // A real sign-out asks what happens to the saved logins; an expired session never comes here.
         AlertDialog(
             onDismissRequest = { confirmDisconnect = false },
             title = { Text(stringResource(R.string.quire_account_sign_out)) },
-            text = { Text(stringResource(R.string.quire_account_sign_out_confirm)) },
+            text = {
+                Text(stringResource(if (hasCatalogs) R.string.quire_account_sign_out_catalogs else R.string.quire_account_sign_out_confirm))
+            },
             confirmButton = {
-                TextButton(onClick = {
-                    confirmDisconnect = false
-                    onDisconnect()
-                }) { Text(stringResource(R.string.quire_account_sign_out)) }
+                if (hasCatalogs) {
+                    Column(horizontalAlignment = Alignment.End) {
+                        TextButton(onClick = {
+                            confirmDisconnect = false
+                            onSignOut(true)
+                        }) { Text(stringResource(R.string.catalogs_keep)) }
+                        TextButton(
+                            onClick = {
+                                confirmDisconnect = false
+                                onSignOut(false)
+                            },
+                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                        ) { Text(stringResource(R.string.catalogs_remove_all)) }
+                    }
+                } else {
+                    TextButton(onClick = {
+                        confirmDisconnect = false
+                        onSignOut(true)
+                    }) { Text(stringResource(R.string.quire_account_sign_out)) }
+                }
             },
             dismissButton = {
                 TextButton(onClick = { confirmDisconnect = false }) {
@@ -1005,5 +981,85 @@ private fun ThemeSwatch(palette: Palette, selected: Boolean, enabled: Boolean, o
             fontWeight = if (selected) FontWeight.SemiBold else null,
             color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
         )
+    }
+}
+
+/** "Record reading statistics", and clearing what is stored. Turning it off offers to clear. */
+@Composable
+private fun ReadingStatsSettings(viewModel: SettingsViewModel) {
+    val flow = viewModel.recordReadingStats ?: return
+    val recording by flow.collectAsState()
+    var offerClear by rememberSaveable { mutableStateOf(false) }
+    var confirmClear by rememberSaveable { mutableStateOf(false) }
+    SectionLabel(stringResource(R.string.stats_title))
+    QuireCard(modifier = Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            SettingsSwitchRow(
+                title = stringResource(R.string.settings_record_stats),
+                description = stringResource(
+                    R.string.settings_record_stats_description,
+                    stringResource(R.string.common_more),
+                    stringResource(R.string.stats_title),
+                ),
+                checked = recording,
+                onCheckedChange = { on ->
+                    viewModel.setRecordReadingStats(on)
+                    if (!on) offerClear = true
+                },
+            )
+            TextButton(
+                onClick = { confirmClear = true },
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            ) { Text(stringResource(R.string.stats_clear)) }
+        }
+    }
+    if (offerClear) {
+        AlertDialog(
+            onDismissRequest = { offerClear = false },
+            title = { Text(stringResource(R.string.settings_stats_off_title)) },
+            text = { Text(stringResource(R.string.settings_stats_off_body)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.clearReadingStats()
+                        offerClear = false
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text(stringResource(R.string.stats_clear_confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { offerClear = false }) { Text(stringResource(R.string.settings_stats_keep)) }
+            },
+        )
+    }
+    if (confirmClear) {
+        ClearStatisticsDialog(
+            onConfirm = {
+                viewModel.clearReadingStats()
+                confirmClear = false
+            },
+            onDismiss = { confirmClear = false },
+        )
+    }
+}
+
+/** "Tidy up book details", on or off. */
+@Composable
+private fun TidyDetailsSwitch(viewModel: SettingsViewModel) {
+    val tidyDetails by viewModel.tidyDetails.collectAsState()
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+            Text(stringResource(R.string.settings_tidy_book_details), style = MaterialTheme.typography.titleMedium)
+            Text(
+                stringResource(R.string.settings_tidy_book_details_description),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(checked = tidyDetails, onCheckedChange = viewModel::setTidyDetails)
     }
 }

@@ -129,6 +129,8 @@ class LibraryUploader(
             // this is always 1; a future hash-function bump will set it to
             // the version that was current when this row was hashed.
             identityHashVersion = identityHashVersion,
+            // Older servers ignore it here, so the single-item upload always carries it.
+            catalogId = catalogId,
         )
 
     private companion object {

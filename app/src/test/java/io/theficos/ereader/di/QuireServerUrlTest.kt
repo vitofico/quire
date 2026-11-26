@@ -30,14 +30,14 @@ class QuireServerUrlTest {
         val account = AccountCredentials.OpdsOnly("https://kavita.example/api/opds/KEY")
         assertThat(account.quireServerUrlOrNull()).isNull()
     }
-    @Test fun `promotion scope distinguishes independent catalog login and Quire endpoint`() {
+
+    @Test fun `promotion scope distinguishes the catalog login and the Quire endpoint`() {
         val catalog = AccountCredentials.OpdsOnly("https://books.example/opds?key=secret", "alice", "password")
-        val native = AccountCredentials.Bearer("https://quire.example", "alice@example.com", "token",
-            catalog = catalog, accountId = "native:12")
-        val scope = native.catalogInsightScope()
+        val native = AccountCredentials.Bearer("https://quire.example", "alice@example.com", "token", accountId = "native:12")
+        val scope = native.catalogInsightScope(catalog)
         assertThat(scope).hasLength(64)
-        assertThat(native.copy(token = "refreshed").catalogInsightScope()).isEqualTo(scope)
-        assertThat(native.copy(catalog = catalog.copy(username = "bob")).catalogInsightScope()).isNotEqualTo(scope)
-        assertThat(native.copy(baseUrl = "https://other-quire.example").catalogInsightScope()).isNotEqualTo(scope)
+        assertThat(native.copy(token = "refreshed").catalogInsightScope(catalog)).isEqualTo(scope)
+        assertThat(native.catalogInsightScope(catalog.copy(username = "bob"))).isNotEqualTo(scope)
+        assertThat(native.copy(baseUrl = "https://other-quire.example").catalogInsightScope(catalog)).isNotEqualTo(scope)
     }
 }

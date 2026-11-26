@@ -7,6 +7,7 @@ COPY web/ ./
 COPY core/identity/src/test/resources/identity/ /app/core/identity/src/test/resources/identity/
 COPY reader/src/main/assets/ /app/reader/src/main/assets/
 COPY branding/ /app/branding/
+COPY catalogs/ /app/catalogs/
 ARG QUIRE_VERSION=dev
 RUN QUIRE_VERSION="$QUIRE_VERSION" pnpm build \
  && mkdir /app/web-licenses \
@@ -28,8 +29,10 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# Pillow's wheels carry Raqm but load FriBiDi at run time; with it the
+# designed covers shape Arabic and other right-to-left scripts.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential libpq-dev postgresql-client \
+        build-essential libpq-dev postgresql-client libfribidi0 \
  && rm -rf /var/lib/apt/lists/*
 
 # Match the supported PostgreSQL 16 server; newer dump output may not restore

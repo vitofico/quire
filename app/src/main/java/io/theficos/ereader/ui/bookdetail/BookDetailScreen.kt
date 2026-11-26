@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -28,6 +30,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -36,16 +39,21 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.theficos.ereader.data.ai.shownWith
 import io.theficos.ereader.ui.components.BookDescription
 import io.theficos.ereader.ui.components.BookHeader
 import io.theficos.ereader.ui.components.QuireCard
 import io.theficos.ereader.ui.components.SectionLabel
+import io.theficos.ereader.ui.stats.formatDuration
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -75,7 +83,12 @@ fun BookDetailScreen(
                     }
                 },
                 actions = {
-                    if (state.insight !is InsightUiState.Hidden) {
+                    val details = state.details
+                    val hasInsight = state.insight !is InsightUiState.Hidden
+                    // The stored answer, offered even with AI off so found details can always be put away,
+                    // but only while switching to or from it changes something the reader can see.
+                    val switchable = details.stored?.takeIf { doc != null && differsFromOriginal(doc, state.metadata, it) }
+                    if (hasInsight || details.available || switchable != null) {
                         IconButton(onClick = { menuExpanded = true }) {
                             Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.common_more))
                         }
@@ -83,14 +96,41 @@ fun BookDetailScreen(
                             expanded = menuExpanded,
                             onDismissRequest = { menuExpanded = false },
                         ) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.common_inspect_insight)) },
-                                enabled = doc != null,
-                                onClick = {
-                                    menuExpanded = false
-                                    doc?.let { onInspectInsight(it.id) }
-                                },
-                            )
+                            if (hasInsight) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.common_inspect_insight)) },
+                                    enabled = doc != null,
+                                    onClick = {
+                                        menuExpanded = false
+                                        doc?.let { onInspectInsight(it.id) }
+                                    },
+                                )
+                            }
+                            if (details.available) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.details_improve)) },
+                                    enabled = doc != null && !details.improving && details.preview == null,
+                                    onClick = {
+                                        menuExpanded = false
+                                        viewModel.improveDetails()
+                                    },
+                                )
+                            }
+                            if (switchable != null) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            stringResource(
+                                                if (switchable.useOriginal) R.string.details_use_found else R.string.details_use_original,
+                                            ),
+                                        )
+                                    },
+                                    onClick = {
+                                        menuExpanded = false
+                                        viewModel.useOriginalDetails(!switchable.useOriginal)
+                                    },
+                                )
+                            }
                         }
                     }
                 },
@@ -108,6 +148,19 @@ fun BookDetailScreen(
                 .padding(horizontal = 16.dp),
         )
     }
+    val preview = state.details.preview
+    if (preview != null && doc != null) {
+        DetailsPreviewSheet(
+            preview = preview,
+            shown = doc.shownWith(state.details.shown),
+            ownCover = doc.coverPath,
+            onToggle = viewModel::toggleChange,
+            onChooseCover = viewModel::chooseCover,
+            onKeepCover = viewModel::keepNewCover,
+            onApply = viewModel::applyPreview,
+            onCancel = viewModel::cancelPreview,
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -118,8 +171,11 @@ fun BookDetailContent(
     onRetryInsight: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val document = state.document ?: return
-    val metadata = state.metadata
+    val own = state.document ?: return
+    val found = state.details.shown
+    // The found details over the book's own, when the reader kept them.
+    val document = own.shownWith(found)
+    val metadata = found?.let { foundMetadata(state.metadata, own, it) } ?: state.metadata
     val progress = state.progress
     val context = LocalContext.current
     val locale = LocalConfiguration.current.locales[0]
@@ -139,6 +195,7 @@ fun BookDetailContent(
         },
         formatSize = { Formatter.formatShortFileSize(context, it) },
         displayLocale = locale,
+        origins = found?.response?.origins.orEmpty(),
     )
 
     Column(modifier = modifier) {
@@ -150,7 +207,25 @@ fun BookDetailContent(
                 document.seriesName?.takeIf { it.isNotBlank() } ?: metadata?.seriesName,
                 document.seriesIndex ?: metadata?.seriesPosition?.toDouble(),
             )?.asString(),
+            notes = found?.let { headerNotes(own, it) }.orEmpty().map { stringResource(it) },
         )
+
+        if (state.details.improving) {
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.details_improving), style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        if (state.details.outcome.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = state.details.outcome.map { it.asString() }.joinToString(" "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
         Spacer(Modifier.height(16.dp))
         if (progress != null && progress.percent > 0 &&
@@ -171,6 +246,16 @@ fun BookDetailContent(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        state.timeLeftSeconds?.takeIf { progress != null && progress.percent > 0 }?.let { left ->
+            Text(
+                text = stringResource(R.string.stats_time_left, formatDuration(left, locale, rough = true)),
+                modifier = Modifier.semantics {
+                    contentDescription = context.getString(R.string.stats_time_left, formatDuration(left, locale, wide = true, rough = true))
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
         if (onOpenReader != null) {
             Spacer(Modifier.height(16.dp))
@@ -189,7 +274,26 @@ fun BookDetailContent(
 
         if (!metadata?.description.isNullOrBlank()) {
             Spacer(Modifier.height(24.dp))
-            BookDescription(metadata?.description)
+            val foundDescription = found != null && usesFoundDescription(found)
+            if (foundDescription) {
+                found?.response?.origins?.get("description")?.let(::originNote)?.let { note ->
+                    Text(
+                        text = stringResource(note),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                }
+            }
+            BookDescription(metadata?.description, plainText = foundDescription)
+        }
+
+        found?.let(::openLibraryLink)?.let { link ->
+            val uriHandler = LocalUriHandler.current
+            Spacer(Modifier.height(8.dp))
+            TextButton(onClick = { uriHandler.openUri(link) }) {
+                Text(stringResource(R.string.details_view_on_open_library))
+            }
         }
 
         Spacer(Modifier.height(24.dp))
@@ -205,14 +309,22 @@ fun BookDetailContent(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.width(96.dp),
                         )
-                        Text(
-                            text = fact.value,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.weight(1f),
-                            maxLines = if (fact.label == R.string.book_subjects) 3 else Int.MAX_VALUE,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = fact.value,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = if (fact.label == R.string.book_subjects) 3 else Int.MAX_VALUE,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            fact.note?.let { note ->
+                                Text(
+                                    text = stringResource(note),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        }
                     }
                 }
             }

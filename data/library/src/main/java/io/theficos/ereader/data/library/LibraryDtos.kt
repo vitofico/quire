@@ -1,5 +1,7 @@
 package io.theficos.ereader.data.library
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -60,6 +62,11 @@ data class LibraryItemRequest(
     // `contentHash`. Defaults to `1` for wire back-compat with an older
     // server that doesn't yet emit the field (F-1 lands it server-side).
     @SerialName("identity_hash_version") val identityHashVersion: Int = 1,
+    // The saved catalog the book came from. Never sent as null: the server keeps the stored value
+    // when the field is absent and clears it only on an explicit null.
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @SerialName("catalog_id") val catalogId: String? = null,
 )
 
 /**
@@ -97,6 +104,7 @@ data class LibraryItemResponse(
     // Phase-0 / F-2: defaults to `1` so an older server (pre-F-1) decodes
     // safely — every hash on the wire today is v1.
     @SerialName("identity_hash_version") val identityHashVersion: Int = 1,
+    @SerialName("catalog_id") val catalogId: String? = null,
 )
 
 /**

@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="discuss_select">"Seleccionar"</string>
+    <string name="discuss_cancel_selection">"Cancelar selección"</string>
+    <string name="discuss_selected_count">"Seleccionados: %1$d"</string>
+    <string name="discuss_title">"Profundizar"</string>
+    <plurals name="discuss_select_limit">
+        <item quantity="one">"Puedes seleccionar hasta %1$d pasaje."</item>
+        <item quantity="many">"Puedes seleccionar hasta %1$d pasajes."</item>
+        <item quantity="other">"Puedes seleccionar hasta %1$d pasajes."</item>
+    </plurals>
+    <string name="discuss_nothing_saved">"Aquí no se guarda nada. Al cerrar esta pantalla se descarta la conversación."</string>
+    <string name="discuss_selected_passages">"Pasajes seleccionados"</string>
+    <string name="discuss_passage">"Pasaje %1$d"</string>
+    <string name="discuss_passage_excerpt">"Pasaje %1$d: %2$s"</string>
+    <string name="discuss_clipped">"Algunos pasajes largos se han acortado para ajustarse al límite del servidor."</string>
+    <string name="discuss_include_notes">"Incluir mis notas"</string>
+    <string name="discuss_privacy_notes">"Se envía al proveedor de IA de tu servidor: los pasajes seleccionados y tus notas, tus preguntas y las respuestas anteriores, con los títulos y autores de los libros."</string>
+    <string name="discuss_privacy">"Se envía al proveedor de IA de tu servidor: los pasajes seleccionados, tus preguntas y las respuestas anteriores, con los títulos y autores de los libros."</string>
+    <string name="discuss_based_on">"Basado en los pasajes"</string>
+    <string name="discuss_passages_heading">"Pasajes"</string>
+    <string name="discuss_share">"Compartir"</string>
+    <string name="discuss_copy">"Copiar"</string>
+    <string name="discuss_copied">"Copiado."</string>
+    <string name="discuss_thinking">"Pensando…"</string>
+    <string name="discuss_answer_ready">"Respuesta lista"</string>
+    <string name="discuss_starter_connects">"¿Qué los une?"</string>
+    <string name="discuss_starter_disagree">"¿En qué discrepan?"</string>
+    <string name="discuss_starter_note">"Resumir como nota"</string>
+    <string name="discuss_your_question">"Tu pregunta"</string>
+    <string name="discuss_follow_up">"Otra pregunta"</string>
+    <string name="discuss_ask">"Preguntar"</string>
+    <string name="discuss_questions_left">"Preguntas restantes: %1$d"</string>
+    <string name="discuss_limit_reached">"Esta conversación ha llegado al límite de preguntas."</string>
+    <string name="discuss_start_again">"Empezar de nuevo"</string>
+    <string name="discuss_share_failed">"Quire no ha podido copiar ni compartir esta respuesta."</string>
+    <string name="discuss_not_offered">"Este servidor no responde ahora a preguntas sobre resaltados."</string>
+    <string name="discuss_too_large">"Estos pasajes y preguntas son demasiado largos en conjunto. Selecciona menos pasajes o empieza de nuevo."</string>
+    <string name="discuss_refused">"El servidor no ha podido usar estos pasajes o esta pregunta."</string>
+    <string name="discuss_provider_gone">"El proveedor de IA seleccionado se ha eliminado. Elige otro en Ajustes."</string>
+    <string name="discuss_failed">"No se ha podido obtener una respuesta. Inténtalo de nuevo más tarde."</string>
+</resources>

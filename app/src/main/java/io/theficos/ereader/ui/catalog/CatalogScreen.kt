@@ -15,6 +15,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridScope
@@ -36,6 +40,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -46,6 +52,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -60,11 +67,17 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.theficos.ereader.auth.SavedCatalog
+import io.theficos.ereader.data.ai.BookDetails
 import io.theficos.ereader.data.opds.OpdsPublication
+import io.theficos.ereader.ui.bookdetail.coverNote
+import io.theficos.ereader.ui.bookdetail.withNote
 import io.theficos.ereader.ui.components.catalogCoverRequest
 import io.theficos.ereader.ui.components.CoverImage
 import io.theficos.ereader.ui.components.CoverInfoButton
 import io.theficos.ereader.ui.components.SectionLabel
+import io.theficos.ereader.ui.components.QuireCard
+import io.theficos.ereader.ui.settings.CatalogsViewModel
 import io.theficos.ereader.ui.components.QuireLoading
 import io.theficos.quire.R
 
@@ -72,14 +85,21 @@ import io.theficos.quire.R
 @Composable
 fun CatalogScreen(
     viewModel: CatalogViewModel,
+    /** Offers the open catalogs while the reader has none. */
+    catalogsViewModel: CatalogsViewModel,
     contentPadding: PaddingValues,
     onShowDetails: (OpdsPublication) -> Unit = {},
     onScan: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsState()
     val downloadedUrls by viewModel.downloadedUrls.collectAsState()
+    val storedCovers by viewModel.storedCovers.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val catalogs by viewModel.catalogs.collectAsState()
+    val active by viewModel.activeCatalog.collectAsState()
     val context = LocalContext.current
+
+    LaunchedEffect(Unit) { viewModel.onOpened() }
 
     val canGoBack = when (val s = state) {
         is CatalogUiState.Loaded -> s.canGoBack
@@ -88,48 +108,100 @@ fun CatalogScreen(
     }
     BackHandler(enabled = canGoBack) { viewModel.back() }
 
-    Box(modifier = Modifier.fillMaxSize().padding(contentPadding)) {
-        when (val s = state) {
-            CatalogUiState.Idle -> {}
-            CatalogUiState.Loading -> QuireLoading(Modifier.align(Alignment.Center))
-            is CatalogUiState.Error -> CatalogError(
-                state = s,
-                onRetry = viewModel::retry,
-                onBack = { viewModel.back() },
-                modifier = Modifier.align(Alignment.Center),
-            )
-            is CatalogUiState.Loaded -> {
-                val sort by viewModel.sort.collectAsState()
-                PullToRefreshBox(
-                    isRefreshing = isRefreshing,
-                    onRefresh = { viewModel.refresh() },
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    Loaded(
-                        state = s,
-                        downloadedUrls = downloadedUrls,
-                        sort = sort,
-                        onSort = viewModel::setSort,
-                        onNavigate = viewModel::load,
-                        onBack = viewModel::back,
-                        onSearch = viewModel::search,
-                        onDownload = { pub -> viewModel.download(pub, context) },
-                        onShowDetails = onShowDetails,
-                    )
+    Column(modifier = Modifier.fillMaxSize().padding(contentPadding)) {
+        // Above every state, so a catalog that fails to load can still be switched away from.
+        if (catalogs.size > 1) {
+            CatalogSwitcher(catalogs = catalogs, activeId = active?.id, onSelect = viewModel::selectCatalog)
+        }
+        Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+            if (catalogs.isEmpty()) {
+                NoCatalog(catalogsViewModel)
+            } else when (val s = state) {
+                CatalogUiState.Idle -> {}
+                CatalogUiState.Loading -> QuireLoading(Modifier.align(Alignment.Center))
+                is CatalogUiState.Error -> CatalogError(
+                    state = s,
+                    onRetry = viewModel::retry,
+                    onBack = { viewModel.back() },
+                    modifier = Modifier.align(Alignment.Center),
+                )
+                is CatalogUiState.Loaded -> {
+                    val sort by viewModel.sort.collectAsState()
+                    PullToRefreshBox(
+                        isRefreshing = isRefreshing,
+                        onRefresh = { viewModel.refresh() },
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        Loaded(
+                            state = s,
+                            downloadedUrls = downloadedUrls,
+                            storedCovers = storedCovers,
+                            sort = sort,
+                            onSort = viewModel::setSort,
+                            onNavigate = viewModel::load,
+                            onBack = viewModel::back,
+                            onSearch = viewModel::search,
+                            onDownload = { pub -> viewModel.download(pub, context) },
+                            onShowDetails = onShowDetails,
+                        )
+                    }
                 }
             }
-        }
 
-        // Scan a book: reachable from any catalog state. Overlaid as a FAB so
-        // it survives Loading/Error states (the Loaded grid has no Scaffold
-        // slot of its own).
-        FloatingActionButton(
-            onClick = onScan,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(16.dp),
-        ) {
-            Icon(Icons.Default.QrCodeScanner, contentDescription = stringResource(R.string.common_scan_a_book))
+            // Scan a book: reachable from any catalog state. Overlaid as a FAB so
+            // it survives Loading/Error states (the Loaded grid has no Scaffold
+            // slot of its own).
+            FloatingActionButton(
+                onClick = onScan,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp),
+            ) {
+                Icon(Icons.Default.QrCodeScanner, contentDescription = stringResource(R.string.common_scan_a_book))
+            }
+        }
+    }
+}
+
+/** A reader without a catalog yet: the free ones to start with, and where to add their own. */
+@Composable
+private fun NoCatalog(catalogsViewModel: CatalogsViewModel) {
+    Column(
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            // Clear of the scan button over the bottom corner.
+            .padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 88.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Text(
+            stringResource(R.string.open_catalogs_no_catalog),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        QuireCard(modifier = Modifier.fillMaxWidth()) { OpenCatalogsSection(catalogsViewModel) }
+    }
+}
+
+/** One chip per saved catalog, in the list's order. Choosing one browses it from its root. */
+@Composable
+private fun CatalogSwitcher(catalogs: List<SavedCatalog>, activeId: String?, onSelect: (String) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp)
+            .padding(top = 8.dp)
+            .selectableGroup(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        catalogs.forEach { catalog ->
+            FilterChip(
+                selected = catalog.id == activeId,
+                onClick = { if (catalog.id != activeId) onSelect(catalog.id) },
+                label = { Text(catalog.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                leadingIcon = if (catalog.id == activeId) {
+                    { Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(FilterChipDefaults.IconSize)) }
+                } else null,
+            )
         }
     }
 }
@@ -163,6 +235,7 @@ internal fun CatalogError(
 private fun Loaded(
     state: CatalogUiState.Loaded,
     downloadedUrls: Set<String>,
+    storedCovers: Map<String, BookDetails>,
     sort: CatalogSort,
     onSort: (CatalogSort) -> Unit,
     onNavigate: (String) -> Unit,
@@ -226,13 +299,16 @@ private fun Loaded(
                     ),
                 ) {
                     Box {
+                        val catalogCover = catalogCoverRequest(pub.coverUrl)
+                        val found = storedCovers[pub.epubDownloadHref].takeIf { catalogCover == null }
                         CoverImage(
-                            source = catalogCoverRequest(pub.coverUrl),
+                            source = catalogCover ?: found?.coverPath,
                             title = pub.title,
                             author = pub.author,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .aspectRatio(2f / 3f),
+                            contentDescription = withNote(pub.title, found?.let(::coverNote)),
                         )
                         when {
                             downloading -> CircularProgressIndicator(

@@ -7,7 +7,7 @@ from typing import Literal
 from urllib.parse import urlsplit
 
 from dotenv import dotenv_values
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ENV_PREFIX = "QUIRE_SERVER_"
@@ -191,6 +191,9 @@ class Settings(BaseSettings):
     # counter (no DB row); pod restart resets — acceptable because cost of
     # a promote is dominated by the row-copy, not LLM. 0 disables the limit.
     ai_promote_daily_limit: int = 100
+    # Questions each reader may ask per minute about their highlights
+    # (POST /ai/v1/highlights/discuss), counted in each server process.
+    ai_discuss_rate_per_min: int = Field(10, ge=1)
 
     # pr-β (Bundle 3, coordinator §3.11): per-user, per-UTC-day cap on
     # POST /ai/v1/profile/refresh. Counted against ai_usage_daily.profile_count.
@@ -201,6 +204,29 @@ class Settings(BaseSettings):
     # answers off-schema, and each attempt gets this budget, so a refresh can
     # take up to twice this value.
     ai_profile_timeout_s: float = 90.0
+
+    # Book details and covers (`/details/v1/*`): fill a book's missing details
+    # from Open Library, tidy them with one model call and draw a cover for a
+    # book that has none. Part of AI: served only when `ai_enabled` is true.
+    details_enabled: bool = True
+    # Per-reader ceilings per minute, counted in each server process: drawn
+    # covers, and lookups plus tidies together.
+    details_cover_rate_per_min: int = 30
+    details_lookup_rate_per_min: int = 30
+    # Painted cover artwork, off by default: an image model paints the
+    # background of a drawn cover after a lookup, outside the request, and the
+    # server still sets the title and author on it. Its own OpenAI-compatible
+    # images provider (`POST {base}/images/generations`), since a chat router
+    # may not route images. Needs `details_enabled`. `daily_budget` caps the
+    # paintings across the whole server per UTC day.
+    cover_art_enabled: bool = False
+    cover_art_base_url: str | None = None
+    cover_art_api_key: SecretStr | None = None
+    cover_art_model: str | None = None
+    cover_art_size: str = Field(default="1024x1536", pattern=r"^(?:auto|\d{3,4}x\d{3,4})$")
+    cover_art_quality: str | None = Field(default=None, pattern=r"^[a-z]{1,16}$")
+    cover_art_daily_budget: int = Field(default=20, ge=0, le=100_000)
+    cover_art_timeout_s: float = Field(default=120.0, gt=0, le=600)
 
     # ---------------------------------------------------------------------
     # PR-B: AI auth abstraction (seam-only). Sync routes unaffected.
@@ -286,6 +312,40 @@ class Settings(BaseSettings):
     # case-insensitively. Empty (the default) mounts none of the admin routes.
     admin_users: str = ""
 
+    # Synced catalogs: the keys that encrypt saved catalog logins at rest.
+    # JSON object mapping key id to a base64 32-byte key, the same shape as
+    # `ai_token_secrets`. The first entry encrypts; every entry decrypts.
+    # Kept as text and parsed in `core.catalog_secrets`: a pydantic error on
+    # a dict field quotes the raw value, which would print the key at boot.
+    catalog_keys: SecretStr | None = None
+    # Used when `catalog_keys` is unset; created on first start if missing.
+    # Empty means no key file: the keys must come from `catalog_keys`.
+    catalog_key_file: str = "/var/lib/quire/catalog.key"
+    # Accept plain-http catalog addresses (a catalog on the home network).
+    catalog_allow_http: bool = False
+    # Quire Web opens a saved catalog through `/catalogs/v1/catalogs/{id}/fetch`,
+    # the server fetching on the browser's behalf. Off leaves sync for phones.
+    catalog_proxy_enabled: bool = True
+    # Let that fetch reach RFC 1918, CGNAT and IPv6 ULA addresses (a catalog
+    # on the home network). Loopback and link-local stay refused.
+    catalog_proxy_allow_private: bool = False
+    # Fetches per account per minute. A catalog page costs one plus one per cover.
+    catalog_proxy_rate_per_min: int = Field(120, ge=1)
+    # Fetches in flight at once, all accounts together (each account: 4).
+    catalog_proxy_max_concurrent: int = Field(8, ge=1)
+
+    # PDF to EPUB conversion (`/convert/v1/*`). The server takes the upload and
+    # keeps every job's state; a separate worker container runs the converter
+    # on a folder both of them mount. Off by default.
+    convert_enabled: bool = False
+    convert_dir: str = "/var/lib/quire-convert"
+    convert_max_bytes: int = Field(100 * 1024 * 1024, ge=1)
+    convert_max_pages: int = Field(1000, ge=1)
+    convert_time_limit_s: int = Field(1200, ge=60)
+    # Jobs per account not yet finished, and jobs per account per rolling day.
+    convert_max_active_per_owner: int = Field(2, ge=1)
+    convert_daily_limit: int = Field(10, ge=1)
+
     @field_validator("mcp_public_url")
     @classmethod
     def _mcp_public_origin(cls, value: str | None) -> str | None:
@@ -314,7 +374,16 @@ class Settings(BaseSettings):
             authority = authority.rsplit(":", 1)[0]
         return f"https://{authority}"
 
-    @field_validator("ai_base_url", "ai_api_key", "ai_model", mode="before")
+    @field_validator(
+        "ai_base_url",
+        "ai_api_key",
+        "ai_model",
+        "cover_art_base_url",
+        "cover_art_api_key",
+        "cover_art_model",
+        "cover_art_quality",
+        mode="before",
+    )
     @classmethod
     def _blank_means_unset(cls, value: object) -> object:
         """Treat an empty or whitespace-only string as ``None``.
@@ -446,6 +515,26 @@ def config_warnings(settings: Settings) -> list[str]:
             out.append(
                 "QUIRE_SERVER_AI_SOURCES contains a name Quire does not recognise, so that name "
                 f"is ignored; the known names are {' and '.join(KNOWN_AI_SOURCES)}"
+            )
+    if settings.cover_art_enabled:
+        missing = [
+            name
+            for name, value in (
+                ("QUIRE_SERVER_COVER_ART_BASE_URL", settings.cover_art_base_url),
+                ("QUIRE_SERVER_COVER_ART_MODEL", settings.cover_art_model),
+            )
+            if not value
+        ]
+        if missing:
+            out.append(
+                f"Cover artwork is enabled without {' and '.join(missing)}; covers stay "
+                f"drawn. Set {'it' if len(missing) == 1 else 'them'} or set "
+                "QUIRE_SERVER_COVER_ART_ENABLED=false"
+            )
+        elif not (settings.ai_enabled and settings.details_enabled):
+            out.append(
+                "QUIRE_SERVER_COVER_ART_ENABLED needs QUIRE_SERVER_AI_ENABLED and "
+                "QUIRE_SERVER_DETAILS_ENABLED; covers stay drawn"
             )
     if not settings.progress_enabled and not settings.ai_enabled:
         out.append(

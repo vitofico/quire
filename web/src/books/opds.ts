@@ -41,20 +41,27 @@ export interface OpdsFeed {
   latest: string | null
 }
 
+export type CatalogRequest = (url: string, init?: RequestInit) => Promise<Response>
+
 interface CatalogOptions {
   url: string
   authorization?: string
-  request?: (url: string, init?: RequestInit) => Promise<Response>
+  /** Fetches the catalog's own origin in place of the browser, which then never contacts it. */
+  request?: CatalogRequest
 }
 
-function safeUrl(href: string, base: string): URL | null {
+/** A failure a `request` already explained; shown as it is. */
+export class CatalogProblem extends Error {}
+
+/** Plain http is fine on Quire's own origin, or on an origin a `request` reaches for the browser. */
+function safeUrl(href: string, base: string, relayed?: string): URL | null {
   if (!href.trim()) return null
   try {
     const url = new URL(href, base)
     if (url.username || url.password) return null
     if (url.protocol === 'https:') return url
-    if (url.protocol === 'http:' && url.origin === new URL(base).origin &&
-        typeof location !== 'undefined' && url.origin === location.origin) return url
+    if (url.protocol === 'http:' && (url.origin === relayed || url.origin === new URL(base).origin &&
+        typeof location !== 'undefined' && url.origin === location.origin)) return url
   } catch {
     return null
   }
@@ -94,17 +101,17 @@ function rel(link: Element): string {
   return link.getAttribute('rel') ?? 'alternate'
 }
 
-function hrefOf(link: Element | undefined, base: string): string | null {
+function hrefOf(link: Element | undefined, base: string, relayed?: string): string | null {
   const href = link?.getAttribute('href')
   if (!link || !href) return null
   try {
-    return safeUrl(new URL(href, baseOf(link, base)).href, base)?.href ?? null
+    return safeUrl(new URL(href, baseOf(link, base)).href, base, relayed)?.href ?? null
   } catch {
     return null
   }
 }
 
-export function parseOpdsFeed(source: string, url: string): OpdsFeed {
+export function parseOpdsFeed(source: string, url: string, relayed?: string): OpdsFeed {
   const root = xmlDocument(source).documentElement
   if (!['feed', 'entry'].includes(root.localName) || (root.namespaceURI && root.namespaceURI !== ATOM)) {
     throw new Error('Expected an OPDS Atom feed')
@@ -123,8 +130,8 @@ export function parseOpdsFeed(source: string, url: string): OpdsFeed {
     title: field(root, 'title') ?? '',
     navigation: [],
     publications: [],
-    next: hrefOf(links.find(link => rel(link) === 'next'), url),
-    previous: hrefOf(links.find(link => ['previous', 'prev'].includes(rel(link))), url),
+    next: hrefOf(links.find(link => rel(link) === 'next'), url, relayed),
+    previous: hrefOf(links.find(link => ['previous', 'prev'].includes(rel(link))), url, relayed),
     search,
     latest: null,
   }
@@ -134,12 +141,12 @@ export function parseOpdsFeed(source: string, url: string): OpdsFeed {
     const entryLinks = children(entry, 'link')
     const acquisition = entryLinks.find(link => [EPUB_TYPE, 'application/epub'].includes(mediaType(link)) &&
       [ACQUISITION, ACQUISITION + '/open-access'].includes(rel(link)))
-    const epubHref = hrefOf(acquisition, url)
+    const epubHref = hrefOf(acquisition, url, relayed)
     if (!epubHref) {
       const navigation = entryLinks.find(link => mediaType(link) === 'application/atom+xml' &&
         (['subsection', 'alternate', 'related'].includes(rel(link)) ||
           /^http:\/\/opds-spec\.org\/(sort\/|featured|recommended|shelf|subscriptions)/.test(rel(link))))
-      const href = hrefOf(navigation, url)
+      const href = hrefOf(navigation, url, relayed)
       if (!href) continue
       feed.navigation.push({ title, href })
       // OPDS marks it with sort/new; Calibre-Web and calibre's server only use the /new path.
@@ -160,8 +167,8 @@ export function parseOpdsFeed(source: string, url: string): OpdsFeed {
       authors: children(entry, 'author').flatMap(author => field(author, 'name') ?? []),
       description: description?.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() || null,
       epubHref,
-      coverHref: hrefOf(cover, url),
-      detailHref: hrefOf(detail, url),
+      coverHref: hrefOf(cover, url, relayed),
+      detailHref: hrefOf(detail, url, relayed),
       metadataId: [DC_TERMS, DC].flatMap(namespace => Array.from(entry.getElementsByTagNameNS(namespace, 'identifier')))
         .map(identifier => identifier.textContent?.trim()).find(Boolean) ?? null,
       calibreBookId: new URL(epubHref).pathname.match(/\/opds\/download\/(\d+)\/[^/]+\/?$/)?.[1] ?? null,
@@ -182,7 +189,10 @@ async function limitedBody(response: Response, limit: number): Promise<Blob> {
   let size = 0
   try {
     while (true) {
-      const { done, value } = await reader.read()
+      const { done, value } = await reader.read().catch((reason: unknown) => {
+        // The connection broke mid-body: say so rather than the browser's bare "network error".
+        throw reason instanceof TypeError ? new Error('The catalog stopped sending before the end. Try again.') : reason
+      })
       if (done) break
       size += value.byteLength
       if (size > limit) {
@@ -202,14 +212,20 @@ function searchHref(link: OpdsSearch, query: string): string {
     .replace(/\{[^{}]+\?\}/g, ''), link.base).href
 }
 
+function originOf(url: string): string | undefined {
+  try { return new URL(url, typeof location === 'undefined' ? undefined : location.href).origin } catch { return undefined }
+}
+
 export function makeCatalogClient(options: CatalogOptions) {
-  const base = safeUrl(options.url, typeof location === 'undefined' ? options.url : location.href)
+  const relayed = options.request ? originOf(options.url) : undefined
+  const base = safeUrl(options.url, typeof location === 'undefined' ? options.url : location.href, relayed)
   if (!base) throw new Error('Enter a secure catalog URL')
   const root = base.href
   const origin = base.origin
+  const safe = (href: string) => safeUrl(href, root, relayed)
 
   async function get(href: string, accept: string, signal?: AbortSignal): Promise<Response> {
-    const url = safeUrl(href, root)
+    const url = safe(href)
     if (!url) throw new Error('Invalid catalog link')
     const headers = new Headers({ Accept: accept })
     const catalogRequest = url.origin === origin ? options.request : undefined
@@ -226,7 +242,7 @@ export function makeCatalogClient(options: CatalogOptions) {
         referrerPolicy: 'no-referrer',
       })
     } catch (error) {
-      if (signal?.aborted) throw error
+      if (signal?.aborted || error instanceof CatalogProblem) throw error
       throw new Error('The browser could not reach this catalog. Check its address and browser access settings, or import an EPUB file.')
     }
     if (response.status === 401 || response.status === 403) {
@@ -242,7 +258,7 @@ export function makeCatalogClient(options: CatalogOptions) {
 
   async function feed(href = root, signal?: AbortSignal): Promise<OpdsFeed> {
     const response = await get(href, 'application/atom+xml, application/xml, text/xml', signal)
-    return parseOpdsFeed(await (await limitedBody(response, MAX_FEED_SIZE)).text(), response.url || href)
+    return parseOpdsFeed(await (await limitedBody(response, MAX_FEED_SIZE)).text(), response.url || href, relayed)
   }
 
   let home: Promise<OpdsFeed> | undefined
@@ -259,7 +275,7 @@ export function makeCatalogClient(options: CatalogOptions) {
   }
 
   async function cover(href: string, signal?: AbortSignal): Promise<Blob> {
-    const coverUrl = safeUrl(href, root)
+    const coverUrl = safe(href)
     if (!coverUrl || ((options.request || options.authorization) && coverUrl.origin !== origin)) {
       throw new Error('This catalog cover is unavailable')
     }
@@ -277,7 +293,7 @@ export function makeCatalogClient(options: CatalogOptions) {
     async coverOf(title: string, epubHref: string, signal?: AbortSignal): Promise<Blob | undefined> {
       const link = (await (home ??= feed())).search
       if (!link) return
-      const wanted = safeUrl(epubHref, root)?.href
+      const wanted = safe(epubHref)?.href
       const match = (await search(link, title, signal)).publications.find(book => book.epubHref === wanted)
       return match?.coverHref ? cover(match.coverHref, signal) : undefined
     },

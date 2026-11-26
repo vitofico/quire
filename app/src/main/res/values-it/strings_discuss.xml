@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="discuss_select">"Seleziona"</string>
+    <string name="discuss_cancel_selection">"Annulla selezione"</string>
+    <string name="discuss_selected_count">"Selezionati: %1$d"</string>
+    <string name="discuss_title">"Approfondisci"</string>
+    <plurals name="discuss_select_limit">
+        <item quantity="one">"Puoi selezionare fino a %1$d brano."</item>
+        <item quantity="many">"Puoi selezionare fino a %1$d brani."</item>
+        <item quantity="other">"Puoi selezionare fino a %1$d brani."</item>
+    </plurals>
+    <string name="discuss_nothing_saved">"Qui non viene salvato nulla. Chiudendo questa schermata la conversazione va persa."</string>
+    <string name="discuss_selected_passages">"Brani selezionati"</string>
+    <string name="discuss_passage">"Brano %1$d"</string>
+    <string name="discuss_passage_excerpt">"Brano %1$d: %2$s"</string>
+    <string name="discuss_clipped">"Alcuni brani lunghi sono stati accorciati per rientrare nel limite del server."</string>
+    <string name="discuss_include_notes">"Includi le mie note"</string>
+    <string name="discuss_privacy_notes">"Inviati al fornitore di IA del tuo server: i brani selezionati e le tue note, le tue domande e le risposte precedenti, con titoli e autori dei libri."</string>
+    <string name="discuss_privacy">"Inviati al fornitore di IA del tuo server: i brani selezionati, le tue domande e le risposte precedenti, con titoli e autori dei libri."</string>
+    <string name="discuss_based_on">"Basato sui brani"</string>
+    <string name="discuss_passages_heading">"Brani"</string>
+    <string name="discuss_share">"Condividi"</string>
+    <string name="discuss_copy">"Copia"</string>
+    <string name="discuss_copied">"Copiato."</string>
+    <string name="discuss_thinking">"Sto pensando…"</string>
+    <string name="discuss_answer_ready">"Risposta pronta"</string>
+    <string name="discuss_starter_connects">"Cosa li collega?"</string>
+    <string name="discuss_starter_disagree">"Su cosa non sono d’accordo?"</string>
+    <string name="discuss_starter_note">"Riassumi in una nota"</string>
+    <string name="discuss_your_question">"La tua domanda"</string>
+    <string name="discuss_follow_up">"Altra domanda"</string>
+    <string name="discuss_ask">"Chiedi"</string>
+    <string name="discuss_questions_left">"Domande rimaste: %1$d"</string>
+    <string name="discuss_limit_reached">"Questa conversazione ha raggiunto il limite di domande."</string>
+    <string name="discuss_start_again">"Ricomincia"</string>
+    <string name="discuss_share_failed">"Quire non è riuscito a copiare o condividere questa risposta."</string>
+    <string name="discuss_not_offered">"Questo server al momento non risponde a domande sulle evidenziazioni."</string>
+    <string name="discuss_too_large">"Questi brani e domande insieme sono troppo lunghi. Seleziona meno brani o ricomincia."</string>
+    <string name="discuss_refused">"Il server non è riuscito a usare questi brani o questa domanda."</string>
+    <string name="discuss_provider_gone">"Il fornitore di IA selezionato è stato rimosso. Scegline un altro nelle Impostazioni."</string>
+    <string name="discuss_failed">"Impossibile ottenere una risposta. Riprova più tardi."</string>
+</resources>

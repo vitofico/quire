@@ -41,7 +41,7 @@ class MigrationTest {
             } catch (e: IllegalStateException) {
                 throw AssertionError("The production Room builder must open existing version-two data", e)
             }
-            assertThat(sqlite.version).isEqualTo(13)
+            assertThat(sqlite.version).isEqualTo(17)
             assertThat(db.documentDao().findById(1)?.title).isEqualTo("Book")
             val progress = checkNotNull(db.progressDao().findByDocument(1))
             assertThat(progress.locator).isEqualTo("loc")
@@ -367,7 +367,7 @@ class MigrationTest {
         val db = EReaderDatabase.build(context)
         try {
             val sqlite = db.openHelper.writableDatabase
-            assertThat(sqlite.version).isEqualTo(13)
+            assertThat(sqlite.version).isEqualTo(17)
             sqlite.query("SELECT identityHashVersion FROM book_insights").use { rows ->
                 assertThat(rows.count).isEqualTo(0)
             }
@@ -381,6 +381,115 @@ class MigrationTest {
         } finally {
             db.close()
             context.deleteDatabase(filename)
+        }
+    }
+
+    @Test fun `migrate 13 to 14 adds a catalogId that is null for every existing book`() {
+        helper.createDatabase(DB, 13).use { db ->
+            db.execSQL(
+                "INSERT INTO documents (id, metadataId, contentHash, title, author, downloadUrl, localPath, coverPath, downloadedAt, identityHashVersion) " +
+                    "VALUES (3, 'm3', 'h3', 'Before', NULL, 'u', 'p', NULL, 30, 1)"
+            )
+        }
+
+        helper.runMigrationsAndValidate(DB, 14, true, EReaderDatabase.MIGRATION_13_14).use { db ->
+            db.query("SELECT title, catalogId FROM documents WHERE id=3").use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.getString(0)).isEqualTo("Before")
+                assertThat(c.isNull(1)).isTrue()
+            }
+            db.execSQL(
+                "INSERT INTO documents (id, metadataId, contentHash, title, author, downloadUrl, localPath, coverPath, downloadedAt, identityHashVersion, catalogId) " +
+                    "VALUES (4, 'm4', 'h4', 'After', NULL, 'u', 'p', NULL, 40, 1, 'c0ffee00-0000-4000-8000-000000000001')"
+            )
+            db.query("SELECT catalogId FROM documents WHERE id=4").use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.getString(0)).isEqualTo("c0ffee00-0000-4000-8000-000000000001")
+            }
+        }
+    }
+
+    @Test fun `migrate 14 to 15 adds book details beside every book, untouched`() {
+        helper.createDatabase(DB, 14).use { db ->
+            db.execSQL(
+                "INSERT INTO documents (id, metadataId, contentHash, title, author, downloadUrl, localPath, coverPath, downloadedAt, identityHashVersion) " +
+                    "VALUES (5, 'm5', 'h5', 'dune_frank_herbert', NULL, 'u', 'p', NULL, 50, 1)"
+            )
+        }
+
+        helper.runMigrationsAndValidate(DB, 15, true, EReaderDatabase.MIGRATION_14_15).use { db ->
+            db.query("SELECT COUNT(*) FROM book_details").use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.getInt(0)).isEqualTo(0)
+            }
+            db.execSQL(
+                "INSERT INTO book_details (documentId, responseJson, coverPath, useOriginal, retryAt) " +
+                    "VALUES (5, '{}', NULL, 0, NULL)"
+            )
+            db.query("SELECT d.title, b.responseJson FROM documents d JOIN book_details b ON b.documentId = d.id").use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.getString(0)).isEqualTo("dune_frank_herbert")
+                assertThat(c.getString(1)).isEqualTo("{}")
+            }
+        }
+    }
+
+    @Test fun `migrate 15 to 16 adds conversion jobs and leaves the library untouched`() {
+        helper.createDatabase(DB, 15).use { db ->
+            db.execSQL(
+                "INSERT INTO documents (id, metadataId, contentHash, title, author, downloadUrl, localPath, coverPath, downloadedAt, identityHashVersion) " +
+                    "VALUES (7, 'm7', 'h7', 'Book', NULL, 'u', 'p', NULL, 70, 1)"
+            )
+        }
+
+        helper.runMigrationsAndValidate(DB, 16, true, EReaderDatabase.MIGRATION_15_16).use { db ->
+            db.query("SELECT COUNT(*) FROM conversion_jobs").use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.getInt(0)).isEqualTo(0)
+            }
+            db.execSQL(
+                "INSERT INTO conversion_jobs (id, owner, idempotencyKey, fileName, sha256, bytes, sourcePath, jobId, stage, " +
+                    "problem, jobJson, retryAt, failures, documentId, createdAt, updatedAt, allowMetered) " +
+                    "VALUES ('c1', 'o', 'key-0001', 'f.pdf', 'aa', 10, NULL, NULL, 'upload', NULL, NULL, NULL, 0, NULL, 1, 1, 0)"
+            )
+            db.query("SELECT stage FROM conversion_jobs WHERE id = 'c1'").use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.getString(0)).isEqualTo("upload")
+            }
+            db.query("SELECT title FROM documents WHERE id = 7").use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.getString(0)).isEqualTo("Book")
+            }
+        }
+    }
+
+    @Test fun `migrate 16 to 17 adds reading sessions beside the library, untouched`() {
+        helper.createDatabase(DB, 16).use { db ->
+            db.execSQL(
+                "INSERT INTO documents (id, metadataId, contentHash, title, author, downloadUrl, localPath, coverPath, downloadedAt, identityHashVersion) " +
+                    "VALUES (8, 'm8', 'h8', 'Book', 'Author', 'u', 'p', NULL, 80, 1)"
+            )
+            db.execSQL("INSERT INTO progress (id, documentId, locator, percent, updatedAt, localUpdatedAt, syncedAt) VALUES (8, 8, 'loc', 0.25, 5, 5, 5)")
+        }
+
+        helper.runMigrationsAndValidate(DB, 17, true, EReaderDatabase.MIGRATION_16_17).use { db ->
+            db.query("SELECT COUNT(*) FROM reading_sessions").use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.getInt(0)).isEqualTo(0)
+            }
+            db.execSQL(
+                "INSERT INTO reading_sessions (bookKey, title, author, startedAt, endedAt, utcOffsetSeconds, activeSeconds, " +
+                    "progressionRead, wordsRead) VALUES ('h8', 'Book', 'Author', 1000, 61000, 3600, 60, 0.05, NULL)"
+            )
+            db.execSQL("INSERT INTO book_word_counts (bookKey, words) VALUES ('h8', 90000)")
+            // No foreign key: the statistics outlive the book they were read from.
+            db.execSQL("DELETE FROM documents WHERE id = 8")
+            db.query("SELECT title, utcOffsetSeconds, wordsRead FROM reading_sessions WHERE bookKey = 'h8'").use { c ->
+                assertThat(c.moveToFirst()).isTrue()
+                assertThat(c.getString(0)).isEqualTo("Book")
+                assertThat(c.getInt(1)).isEqualTo(3600)
+                assertThat(c.isNull(2)).isTrue()
+            }
         }
     }
 

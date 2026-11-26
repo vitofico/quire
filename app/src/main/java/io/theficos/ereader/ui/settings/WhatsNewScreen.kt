@@ -41,7 +41,7 @@ import io.theficos.ereader.ui.components.SectionLabel
 import io.theficos.quire.R
 
 // Change this when a new entry becomes the lead story. Editing copy keeps its ID.
-internal const val WHATS_NEW_LATEST_ENTRY_ID = "reading-pause"
+internal const val WHATS_NEW_LATEST_ENTRY_ID = "notifications"
 
 @Composable
 internal fun WhatsNewSettingsRow(unread: Boolean, onOpen: () -> Unit) {
@@ -107,6 +107,80 @@ internal fun WhatsNewScreen(onBack: () -> Unit) {
             ) {
                 UpdateEntry(
                     group = stringResource(R.string.whats_new_latest),
+                    title = stringResource(R.string.whats_new_notifications_title),
+                    description = stringResource(
+                        R.string.whats_new_notifications_description,
+                        stringResource(R.string.common_settings),
+                        stringResource(R.string.notify_section_title),
+                    ),
+                )
+                HorizontalDivider()
+                UpdateEntry(
+                    group = stringResource(R.string.whats_new_earlier),
+                    title = stringResource(R.string.whats_new_highlights_discuss_title),
+                    description = stringResource(
+                        R.string.whats_new_highlights_discuss_description,
+                        stringResource(R.string.common_more),
+                        stringResource(R.string.reader_highlights_title),
+                        stringResource(R.string.discuss_select),
+                    ),
+                )
+                UpdateEntry(
+                    group = null,
+                    title = stringResource(R.string.whats_new_details_preview_title),
+                    description = stringResource(
+                        R.string.whats_new_details_preview_description,
+                        stringResource(R.string.common_more),
+                        stringResource(R.string.details_improve),
+                    ),
+                )
+                UpdateEntry(
+                    group = null,
+                    title = stringResource(R.string.whats_new_reading_stats_title),
+                    description = stringResource(
+                        R.string.whats_new_reading_stats_description,
+                        stringResource(R.string.common_more),
+                        stringResource(R.string.stats_title),
+                    ),
+                )
+                UpdateEntry(
+                    group = null,
+                    title = stringResource(R.string.whats_new_open_catalogs_title),
+                    description = stringResource(
+                        R.string.whats_new_open_catalogs_description,
+                        stringResource(R.string.common_settings),
+                        stringResource(R.string.catalogs_title),
+                    ),
+                )
+                UpdateEntry(
+                    group = null,
+                    title = stringResource(R.string.whats_new_pdf_conversion_title),
+                    description = stringResource(
+                        R.string.whats_new_pdf_conversion_description,
+                        stringResource(R.string.common_more),
+                        stringResource(R.string.convert_title),
+                    ),
+                )
+                UpdateEntry(
+                    group = null,
+                    title = stringResource(R.string.whats_new_book_details_title),
+                    description = stringResource(
+                        R.string.whats_new_book_details_description,
+                        stringResource(R.string.common_settings),
+                        stringResource(R.string.settings_tidy_book_details),
+                    ),
+                )
+                UpdateEntry(
+                    group = null,
+                    title = stringResource(R.string.whats_new_catalogs_title),
+                    description = stringResource(
+                        R.string.whats_new_catalogs_description,
+                        stringResource(R.string.common_settings),
+                        stringResource(R.string.catalogs_title),
+                    ),
+                )
+                UpdateEntry(
+                    group = null,
                     title = stringResource(R.string.whats_new_reading_pause_title),
                     description = stringResource(
                         R.string.whats_new_reading_pause_description,
@@ -114,9 +188,8 @@ internal fun WhatsNewScreen(onBack: () -> Unit) {
                         stringResource(R.string.reader_pause_title),
                     ),
                 )
-                HorizontalDivider()
                 UpdateEntry(
-                    group = stringResource(R.string.whats_new_earlier),
+                    group = null,
                     title = stringResource(R.string.whats_new_highlights_title),
                     description = stringResource(
                         R.string.whats_new_highlights_description,
@@ -130,9 +203,9 @@ internal fun WhatsNewScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun UpdateEntry(group: String, title: String, description: String) {
+private fun UpdateEntry(group: String?, title: String, description: String) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        SectionLabel(group, modifier = Modifier.semantics { heading() })
+        if (group != null) SectionLabel(group, modifier = Modifier.semantics { heading() })
         Text(title, style = MaterialTheme.typography.titleMedium)
         Text(description, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }

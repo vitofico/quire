@@ -43,6 +43,15 @@ data class AiConfig(
     @SerialName("profile_timeout_s") val profileTimeoutS: Int? = null,
     val providers: List<AiProviderOption> = emptyList(),
     @SerialName("provider_id") val providerId: String = "default",
+    // True when the server offers book details and covers (`/details/v1`). Older servers omit it.
+    @SerialName("details_supported") val detailsSupported: Boolean = false,
+    // True when `/details/v1` takes `cover_choice`; a server without the field rejects it with 422.
+    @SerialName("cover_choice_supported") val coverChoiceSupported: Boolean = false,
+    // True when this server paints cover artwork, the only time `cover_choice: "paint"` may be sent.
+    @SerialName("cover_painting_supported") val coverPaintingSupported: Boolean = false,
+    // True when the server answers `POST /ai/v1/highlights/discuss`, whose limits come with it. Older servers omit both.
+    @SerialName("highlights_discuss") val highlightsDiscuss: Boolean = false,
+    @SerialName("highlights_discuss_limits") val highlightsDiscussLimits: DiscussLimits? = null,
 )
 
 @Serializable

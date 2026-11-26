@@ -116,6 +116,15 @@ def run_migrations(cfg: Config, *, progress_enabled: bool, ai_enabled: bool) -> 
     if "auth" in labels:
         _upgrade_branch(cfg, "auth")
 
+    # Synced catalogs belong to accounts, which exist in every mode, so the
+    # branch is foundational like ``auth``.
+    if "catalogs" in labels:
+        _upgrade_branch(cfg, "catalogs")
+
+    # PDF conversions are an account's data too, whether conversion is on or not.
+    if "convert" in labels:
+        _upgrade_branch(cfg, "convert")
+
     if progress_enabled and "progress" in labels:
         _upgrade_branch(cfg, "progress")
     elif progress_enabled:

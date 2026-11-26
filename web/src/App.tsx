@@ -4,6 +4,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -15,10 +16,19 @@ import {
   bookDocument,
   type Highlight,
   type LocalBook,
+  type Replica,
   type ShelfBook,
 } from './data'
 import { openEpub, type Epub } from './books/epub'
 import { makeCatalogClient } from './books/opds'
+import {
+  listSavedCatalogs,
+  needsLogin,
+  savedCatalogHome,
+  savedCatalogRequest,
+  type SavedCatalog,
+} from './books/saved'
+import { OpenCatalogs } from './books/OpenCatalogsPanel'
 import { OfflineSettings } from './OfflineSettings'
 import { BookDetails } from './BookDetails'
 import { Passages } from './Passages'
@@ -28,6 +38,11 @@ import { useReplica } from './useReplica'
 import noticesUrl from './legal/notices.txt?url'
 import { translator, languages } from './language'
 import { catalogInsightIdentity, promotePreview } from './discovery/api'
+import { missingProvider, useAiState } from './discovery/aiState'
+import { bookIdentity, fillDetails } from './details'
+import { TidyDetails } from './TidyDetails'
+import { ConversionList, useConversions } from './Conversions'
+import { isPdf } from './convert'
 import { allowsBasic, allowsNative } from './account/useAccount'
 import { Welcome } from './Welcome'
 import { Icon, type IconName } from './icons'
@@ -72,6 +87,15 @@ function publicAcquisition(href?: string | null) {
       : undefined
   } catch {
     return undefined
+  }
+}
+/** The server's own catalog, named for its chip. */
+function catalogLabel(url: string, t: (key: string) => string) {
+  try {
+    const parsed = new URL(url, location.origin)
+    return parsed.origin === location.origin ? t('This server') : parsed.host
+  } catch {
+    return t('Catalog')
   }
 }
 function getRoute() {
@@ -222,14 +246,86 @@ function Workspace({
     [catalogDraft, setCatalogDraft] = useState('')
   const catalogUrl =
     active.catalogUrl || catalogOverride || bootstrap?.catalogUrl || ''
+  // Catalogs saved to the Quire account. The browser cannot reach them
+  // itself, so it browses them only when the server fetches for it.
+  const savedListed =
+    active.mode === 'connected' &&
+    active.identity?.backend === 'native' &&
+    bootstrap?.catalogSync === true &&
+    !!active.request
+  const savedBrowsable = savedListed && bootstrap?.catalogProxy === true
+  const [saved, setSaved] = useState<SavedCatalog[]>([]),
+    [chosenCatalog, setChosenCatalog] = useState('')
+  const viewingCatalog = route.view === 'catalog'
+  useEffect(() => {
+    if (!savedListed || !active.request) {
+      setSaved([])
+      return
+    }
+    // Asked again each time the catalog view opens, so a catalog added on a
+    // phone shows up. A failed refresh keeps the list already shown.
+    const stop = new AbortController()
+    listSavedCatalogs(active.request, stop.signal).then(setSaved, () => undefined)
+    return () => stop.abort()
+  }, [savedListed, active.request, viewingCatalog])
+  const activeSaved = savedBrowsable
+    ? (saved.find((c) => c.id === chosenCatalog) ?? (catalogUrl ? undefined : saved[0]))
+    : undefined
+  const savedRequest = useMemo(
+    () =>
+      activeSaved && active.request
+        ? savedCatalogRequest(active.request, activeSaved)
+        : undefined,
+    // A refreshed list is new objects: only a different catalog needs a new client.
+    [active.request, activeSaved?.id, activeSaved?.host],
+  )
+  // On a phone the chips scroll sideways: keep the chosen one in sight.
+  const switcherRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    switcherRef.current
+      ?.querySelector('[aria-pressed="true"]')
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [activeSaved?.id, viewingCatalog])
+  // After adding an open catalog, focus moves to the catalog it opened.
+  const [focusCatalog, setFocusCatalog] = useState('')
+  const chooseCatalog = (id: string) => {
+    setChosenCatalog(id)
+    setFocusCatalog('')
+    replica?.setPreference('savedCatalog', id).catch(() => undefined)
+  }
+  /** The catalog to download `b` from again: the saved one it came from, or the server's own. */
+  const catalogFor = (b: LocalBook) => {
+    if (!b.opds_href) return
+    try {
+      if (b.catalog_id) {
+        const c = saved.find((item) => item.id === b.catalog_id)
+        return c && savedBrowsable && !c.needs_login && active.request
+          ? makeCatalogClient({
+              url: savedCatalogHome(c),
+              request: savedCatalogRequest(active.request, c),
+            })
+          : undefined
+      }
+      return catalogUrl
+        ? makeCatalogClient({ url: catalogUrl, request: active.catalogRequest })
+        : undefined
+    } catch {
+      return undefined
+    }
+  }
   const [drag, setDrag] = useState(false)
   // Books synced from another device carry no cover. Ask the catalog once per visit and keep the answer.
   const coverless = useRef(new Set<string>())
+  const [catalogChecked, setCatalogChecked] = useState(0)
+  const awaitsCatalogCover = (b: ShelfBook) =>
+    !!catalogUrl &&
+    !!b.opds_href &&
+    !b.catalog_id &&
+    !(b.cover instanceof Blob) &&
+    !coverless.current.has(b.key)
   useEffect(() => {
-    const missing = snapshot.books.filter(
-      (b) => b.opds_href && !(b.cover instanceof Blob) && !coverless.current.has(b.key),
-    )
-    if (!replica || !catalogUrl || !missing.length) return
+    const missing = snapshot.books.filter(awaitsCatalogCover)
+    if (!replica || !missing.length) return
     const stop = new AbortController()
     void (async () => {
       const catalog = makeCatalogClient({ url: catalogUrl, request: active.catalogRequest })
@@ -244,6 +340,8 @@ function Workspace({
           return
         }
       }
+      // Books the catalog has no cover for can now be looked up.
+      setCatalogChecked((n) => n + 1)
     })()
     return () => stop.abort()
   }, [replica, snapshot.books, catalogUrl, active.catalogRequest])
@@ -254,6 +352,35 @@ function Workspace({
   const current = book && findProgress(book, snapshot.progress)
   const editionConflict = book?.editionConflict
   const aiAvailable = bootstrap?.aiAvailable === true && !!active.request
+  // Finding and tidying details, and thinking through highlights, need the
+  // server's feature and the reader's AI opt-in.
+  const { settings: ai } = useAiState(active.request, aiAvailable)
+  const aiReady =
+    ai?.config.configured && ai.preferences.ai_enabled && !missingProvider(ai.config, ai.preferences)
+  const detailsRequest =
+    aiReady && ai.config.details_supported && active.capabilities?.book_details !== false
+      ? active.request
+      : undefined
+  const discussLimits = aiReady && ai.config.highlights_discuss ? ai.config.highlights_discuss_limits : undefined
+  const discuss = discussLimits && active.request ? { request: active.request, limits: discussLimits } : undefined
+  const detailsFor =
+    route.view === 'book' ? (book ? [book] : []) : route.view === 'library' ? snapshot.books : []
+  useEffect(() => {
+    if (!replica || !detailsRequest) return
+    // Wait for a catalog's own cover before asking for one to be found or drawn.
+    const fill = () =>
+      fillDetails(replica, detailsRequest, detailsFor.filter((b) => !awaitsCatalogCover(b)), route.view === 'book')
+    const stop = fill()
+    window.addEventListener('online', fill)
+    return () => {
+      stop()
+      window.removeEventListener('online', fill)
+    }
+  }, [replica, detailsRequest, snapshot.books, route.view, route.id, catalogChecked])
+  const loadCover = useCallback(
+    async (key: string) => replica?.getFoundCover(key),
+    [replica],
+  )
   const passages = snapshot.highlights.filter((h) => !h.deleted_at)
   useEffect(() => {
     alive.current = true
@@ -299,6 +426,12 @@ function Workspace({
           if (live && v) setCatalogOverride(v)
         })
         .catch((e) => report(String(e)))
+    replica
+      ?.getPreference<string>('savedCatalog')
+      .then((v) => {
+        if (live && typeof v === 'string') setChosenCatalog(v)
+      })
+      .catch(() => undefined)
     return () => {
       live = false
     }
@@ -335,6 +468,13 @@ function Workspace({
       if (alive.current) setWorking(false)
     }
   }
+  // A book dropped in while the browser is still opening its storage waits for it.
+  const awaitingStorage = useRef<((replica: Replica) => void)[]>([])
+  useEffect(() => {
+    if (replica) awaitingStorage.current.splice(0).forEach((resume) => resume(replica))
+  }, [replica])
+  const storage = () =>
+    replica ?? new Promise<Replica>((resume) => awaitingStorage.current.push(resume))
   function choose(match?: string) {
     if (!replica) {
       report('Storage is unavailable.')
@@ -351,11 +491,16 @@ function Workspace({
     acquisition?: string | null,
     match?: string,
     catalogCover?: Blob,
+    catalogId: string | null = null,
+    /** On another edition with this identifier: ask, keep this copy in this browser, or refuse. */
+    conflict: 'ask' | 'keep' | 'refuse' = 'ask',
   ) {
-    if (!replica) throw new Error('Storage is unavailable.')
+    const replica = await storage()
     const parsed = await openEpub(blob),
       m = parsed.metadata
     const cover = m.coverHref && parsed.bytes(m.coverHref)
+    const known = snapshot.books.find((b) => b.key === parsed.identity.content_hash)
+    const fetched = publicAcquisition(acquisition)
     const record: LocalBook = {
       ...parsed.identity,
       key: parsed.identity.content_hash,
@@ -369,10 +514,8 @@ function Workspace({
       description: m.description,
       publisher: m.publisher,
       sizeBytes: blob.size,
-      opds_href:
-        publicAcquisition(acquisition) ??
-        snapshot.books.find((b) => b.key === parsed.identity.content_hash)
-          ?.opds_href,
+      opds_href: fetched ?? known?.opds_href,
+      catalog_id: fetched ? catalogId : known?.catalog_id,
       cover: cover
         ? new Blob([new Uint8Array(cover)], {
             type: parsed.mediaType(m.coverHref!) ?? 'image/jpeg',
@@ -385,10 +528,11 @@ function Workspace({
       if (
         !(e instanceof EditionConflict) ||
         match ||
-        !(await ask(
+        conflict === 'refuse' ||
+        (conflict === 'ask' && !(await ask(
           t('Another edition has this identifier. Keep this copy only in this browser?'),
           { confirm: t('Keep in this browser'), cancel: t('Cancel') },
-        ))
+        )))
       )
         throw e
       await replica.putBook(record, blob, { localOnly: true })
@@ -407,15 +551,36 @@ function Workspace({
         .catch(() => {})
     return record.key
   }
+  const importLatest = useRef(imported)
+  importLatest.current = imported
+  const conversions = useConversions({
+    namespace: active.namespace,
+    store: replica,
+    request: active.mode === 'connected' ? active.request : undefined,
+    capability: active.capabilities?.pdf_conversion,
+    // A conversion finishes in the background: it never asks, the list offers the choice.
+    importEpub: (epub, keepLocal) =>
+      importLatest.current(epub, null, undefined, undefined, null, keepLocal ? 'keep' : 'refuse'),
+  })
   async function importFiles(files: File[], match?: string) {
+    const pdfs = files.filter(isPdf), epubs = files.filter((picked) => !isPdf(picked))
+    if (pdfs.length && match) {
+      report('Choose an EPUB to replace this edition.')
+    } else if (pdfs.length) {
+      // A PDF becomes an EPUB on the server first: the reader confirms it in the conversions list.
+      const refusal = await conversions.choose(pdfs, await storage())
+      if (refusal) report(refusal)
+      // The list is on the shelf.
+      else if (!epubs.length && alive.current) go('library')
+    }
     let key = ''
-    for (const picked of files) {
+    for (const picked of epubs) {
       key = await imported(picked, null, match)
     }
     if (alive.current && key)
       go(
-        files.length === 1 ? 'book' : 'library',
-        files.length === 1 ? key : undefined,
+        epubs.length === 1 ? 'book' : 'library',
+        epubs.length === 1 ? key : undefined,
       )
   }
   async function clearNamespace(ns: string, discardPending = false) {
@@ -444,13 +609,11 @@ function Workspace({
     go('read', id)
   }
   const download = async (b: ShelfBook) => {
-    if (!catalogUrl || !b.opds_href)
+    const catalog = catalogFor(b)
+    if (!catalog || !b.opds_href)
       throw new Error('Choose a catalog before downloading this book.')
-    const blob = await makeCatalogClient({
-      url: catalogUrl,
-      request: active.catalogRequest,
-    }).acquire(b.opds_href)
-    await imported(blob, b.opds_href, b.key)
+    const blob = await catalog.acquire(b.opds_href)
+    await imported(blob, b.opds_href, b.key, undefined, b.catalog_id ?? null)
   }
   const storeHighlight = async (h: Highlight) => {
     if (!replica) throw new Error('Storage is unavailable.')
@@ -593,6 +756,7 @@ function Workspace({
       <>
         <BookDetails
           book={book}
+          loadCover={loadCover}
           progress={current}
           t={t}
           conflict={
@@ -613,6 +777,12 @@ function Workspace({
             )
           }
           back={back}
+          tidy={
+            <TidyDetails
+              key={book.key} book={book} store={replica} request={detailsRequest} loadCover={loadCover} t={t}
+              coverChoice={ai?.config.cover_choice_supported} painting={ai?.config.cover_painting_supported}
+            />
+          }
           actions={
             <div className="actions">
               {book.hasDownload ? (
@@ -621,7 +791,7 @@ function Workspace({
                 </button>
               ) : (
                 <>
-                  {book.opds_href && catalogUrl && (
+                  {catalogFor(book) && (
                     <button
                       className="primary large"
                       disabled={working}
@@ -631,7 +801,7 @@ function Workspace({
                     </button>
                   )}
                   <button
-                    className={book.opds_href && catalogUrl ? undefined : 'primary large'}
+                    className={catalogFor(book) ? undefined : 'primary large'}
                     onClick={() => choose(book.key)}
                   >
                     {t('Open your copy')}
@@ -697,13 +867,7 @@ function Workspace({
             t={t}
             request={active.request}
             aiAvailable={aiAvailable}
-            identity={{
-              ...bookDocument(book),
-              isbn: book.isbn,
-              opds_href: book.opds_href
-                ? catalogInsightIdentity(book.opds_href).opds_href
-                : undefined,
-            }}
+            identity={bookIdentity(book)}
             metadata={{
               ...book,
               author: authors(book),
@@ -736,6 +900,7 @@ function Workspace({
         report={report}
         books={snapshot.books}
         passages={passages}
+        discuss={discuss}
         open={(book, h) =>
           book.hasDownload ? read(book.key, h) : details(book.key)
         }
@@ -759,6 +924,7 @@ function Workspace({
             await replica?.setPreference('catalog', v.href)
             setCatalogOverride(v.href)
             setCatalogDraft('')
+            chooseCatalog('')
           })
         }}
       >
@@ -771,7 +937,83 @@ function Workspace({
         <button disabled={!catalogDraft.trim()}>{t('Open catalog')}</button>
       </form>
     )
-    content = catalogUrl ? (
+    const choices = [
+      ...(catalogUrl ? [{ id: '', name: catalogLabel(catalogUrl, t) }] : []),
+      ...(savedBrowsable ? saved : []),
+    ]
+    const switcher = choices.length > 1 && (
+      <div className="chips" role="group" aria-label={t('Catalogs')} ref={switcherRef}>
+        {choices.map((c) => (
+          <button
+            key={c.id}
+            className="chip"
+            aria-pressed={(activeSaved?.id ?? '') === c.id}
+            onClick={() => chooseCatalog(c.id)}
+          >
+            {c.name}
+          </button>
+        ))}
+      </div>
+    )
+    const savedHint =
+      savedListed &&
+      (!saved.length ? (
+        <p className="hint">{t('Catalogs you add here or in the Quire app on Android are kept in your Quire account and appear on all your devices.')}</p>
+      ) : !savedBrowsable ? (
+        <p className="hint">
+          {t('Your saved catalogs open in the Quire app on Android. This server does not open them in the browser.')}
+        </p>
+      ) : null)
+    const open = savedBrowsable && active.request && (
+      <OpenCatalogs
+        language={lang}
+        saved={saved}
+        request={active.request}
+        t={t}
+        onAdded={(c) => {
+          setSaved((list) => (list.some((item) => item.id === c.id) ? list : [...list, c]))
+          chooseCatalog(c.id)
+          setNotice(t('{name} added.').replace('{name}', c.name))
+          setFocusCatalog(c.id)
+        }}
+      />
+    )
+    // While a catalog is open, the other ways to add one wait behind a summary.
+    const otherSource = (!active.catalogUrl || open) && (
+      <details className="catalog-source">
+        <summary>{t('Use a different catalog')}</summary>
+        {!active.catalogUrl && source}
+        {open}
+      </details>
+    )
+    content = activeSaved ? (
+      <>
+        {activeSaved.needs_login ? (
+          <section className="catalog">
+            <h1>{activeSaved.name}</h1>
+            {switcher}
+            <p role="alert">{t(needsLogin)}</p>
+          </section>
+        ) : (
+          <Catalog
+            key={'saved:' + activeSaved.id + ':' + activeSaved.updated_at}
+            focusHeading={focusCatalog === activeSaved.id}
+            url={savedCatalogHome(activeSaved)}
+            request={savedRequest}
+            apiRequest={active.request}
+            aiAvailable={aiAvailable}
+            t={t}
+            onImport={() => choose()}
+            onAcquire={(blob, p, cover) =>
+              imported(blob, p.epubHref, undefined, cover, activeSaved.id)
+            }
+          >
+            {switcher}
+          </Catalog>
+        )}
+        {otherSource}
+      </>
+    ) : catalogUrl ? (
       <>
         <Catalog
           key={catalogUrl + ':' + (active.catalogRevision ?? 0)}
@@ -787,13 +1029,11 @@ function Workspace({
           signInCatalog={account.signInCatalog}
           signOutCatalog={account.signOutCatalog}
           catalogAuthenticated={active.catalogAuthenticated}
-        />
-        {!active.catalogUrl && (
-          <details className="catalog-source">
-            <summary>{t('Use a different catalog')}</summary>
-            {source}
-          </details>
-        )}
+        >
+          {switcher}
+        </Catalog>
+        {otherSource}
+        {savedHint}
       </>
     ) : (
       <>
@@ -805,6 +1045,8 @@ function Workspace({
           </p>
           {source}
         </section>
+        {savedHint}
+        {open}
       </>
     )
   } else if (route.view === 'discover') {
@@ -974,9 +1216,20 @@ function Workspace({
           art={art === 'on'}
           t={t}
           data={snapshot}
+          loadCover={loadCover}
           choose={() => choose()}
           read={read}
           details={details}
+          pdf={conversions.offered}
+          conversions={
+            <ConversionList
+              items={conversions.items}
+              queue={conversions.queue}
+              limits={conversions.limits}
+              pick={() => choose()}
+              t={t}
+            />
+          }
         />
       </>
     )
@@ -1033,7 +1286,7 @@ function Workspace({
           type="file"
           disabled={!replica || account.status === 'loading'}
           hidden
-          accept=".epub,application/epub+zip"
+          accept={'.epub,application/epub+zip' + (conversions.offered ? ',.pdf,application/pdf' : '')}
           multiple
           onChange={(e) => {
             const files = Array.from(e.target.files ?? [])

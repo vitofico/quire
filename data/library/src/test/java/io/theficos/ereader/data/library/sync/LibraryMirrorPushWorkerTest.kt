@@ -59,11 +59,12 @@ class LibraryMirrorPushWorkerTest {
         LibraryMirrorPushDependencies.holder = null
     }
 
-    private fun installDeps(hasAccount: Boolean = true) {
+    private fun installDeps(hasAccount: Boolean = true, sendCatalogIds: Boolean = false) {
         LibraryMirrorPushDependencies.holder = LibraryMirrorPushDependencies.Holder(
             client = client,
             dao = dao,
             credentials = CredentialsProvider { hasAccount },
+            sendCatalogIds = { sendCatalogIds },
         )
     }
 
@@ -103,6 +104,24 @@ class LibraryMirrorPushWorkerTest {
     }
 
     // -------------------- success / wire shape --------------------
+
+    @Test
+    fun `catalog_id goes only to a server that syncs catalogs and is never sent as null`() = runTest {
+        dao.rows.add(docEntity(id = 1, contentHash = "h1").copy(catalogId = "3f2b9c1e-8d4a-4f6b-9a7e-2c5d1e0b4a93"))
+        dao.rows.add(docEntity(id = 2, contentHash = "h2"))
+        for (gate in listOf(false, true)) {
+            installDeps(sendCatalogIds = gate)
+            server.enqueue(MockResponse().setResponseCode(200).setBody(summaryBody(2)))
+            buildWorker().doWork()
+            val items = Json.parseToJsonElement(server.awaitRequest().body.readUtf8())
+                .jsonObject["items"]!!.jsonArray.map { it.jsonObject }
+            // An older server rejects the whole batch for the unknown field.
+            assertThat(items[0]["catalog_id"]?.jsonPrimitive?.content)
+                .isEqualTo(if (gate) "3f2b9c1e-8d4a-4f6b-9a7e-2c5d1e0b4a93" else null)
+            // Absent keeps the server's value; null would clear it.
+            assertThat(items[1].containsKey("catalog_id")).isFalse()
+        }
+    }
 
     @Test
     fun `success path pushes one chunk with exactly the X-1 wire shape`() = runTest {
@@ -389,6 +408,8 @@ private class FakeDocumentDao : DocumentDao {
     override suspend fun markLibrarySynced(id: Long, at: Long): Unit = throw nope("markLibrarySynced")
     override suspend fun setCoverPathIfMissing(id: Long, coverPath: String): Int =
         throw nope("setCoverPathIfMissing")
+
+    override suspend fun replaceCatalogId(from: String, to: String) = throw nope("replaceCatalogId")
 
     private fun nope(name: String) =
         UnsupportedOperationException("FakeDocumentDao.$name not implemented for this test")

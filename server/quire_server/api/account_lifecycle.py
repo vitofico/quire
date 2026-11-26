@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, HTTPException, Request, Response
 from sqlalchemy import select, text
 
+from quire_server.api.catalogs import exported_catalog
 from quire_server.db.models import CalibreAccountBinding, NativeUser
 
 router = APIRouter()
@@ -23,6 +24,9 @@ PRIVATE = {
     "insight_identity_aliases": "user_id",
     "ai_generation_log": "subject",
     "reader_profiles": "subject",
+    "account_catalogs": "user_id",
+    "book_details_reader": "user_id",
+    "convert_jobs": "user_id",
 }
 TENANT_SCOPED = {"ai_generation_log", "reader_profiles"}
 
@@ -83,6 +87,11 @@ async def export(request: Request, response: Response):
                     .all()
                 )
                 data[table] = [dict(row) for row in rows]
+        # Saved catalog logins leave readable: the reader has no use for ciphertext.
+        data["account_catalogs"] = [
+            exported_catalog(request.app.state.catalog_secrets, row)
+            for row in data.get("account_catalogs", [])
+        ]
         if await exists(session, "progress"):
             data["progress"] = [
                 dict(row)

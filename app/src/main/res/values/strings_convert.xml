@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The share sheet's label for PDFs. -->
+    <string name="convert_share_label">"Convert to EPUB"</string>
+    <string name="convert_title">"PDF conversions"</string>
+    <string name="convert_dialog_title">"Convert to EPUB"</string>
+    <string name="convert_untitled_pdf">"Untitled PDF"</string>
+    <string name="convert_checking">"Checking your Quire server…"</string>
+    <string name="convert_preparing">"Preparing the PDF…"</string>
+    <string name="convert_confirm">"%1$s (%2$s) is converted to EPUB on your Quire server. Nothing is sent anywhere else. The book appears in your library when it’s ready."</string>
+    <string name="convert_confirm_unknown_size">"%1$s is converted to EPUB on your Quire server. Nothing is sent anywhere else. The book appears in your library when it’s ready."</string>
+    <string name="convert_metered">"You’re on a metered connection. This sends %1$s."</string>
+    <string name="convert_metered_unknown_size">"You’re on a metered connection. This sends the whole PDF."</string>
+    <string name="convert_action">"Convert"</string>
+    <string name="convert_too_large">"This PDF is %1$s. Your server converts PDFs up to %2$s."</string>
+    <string name="convert_too_large_unknown">"This PDF is larger than your server converts (up to %1$s)."</string>
+    <string name="convert_no_server">"Quire reads EPUB books. Your Quire server can turn a PDF into one, but this device isn’t connected to a Quire server."</string>
+    <string name="convert_not_offered">"Your Quire server doesn’t convert PDFs. A newer server, or one with conversion turned on, can."</string>
+    <string name="convert_unavailable">"Your server’s converter isn’t running right now. Try again later."</string>
+    <string name="convert_signed_out">"You’re signed out of your Quire server. Sign in again in Settings to convert PDFs."</string>
+    <string name="convert_unreachable">"Couldn’t reach your Quire server. Check your connection and try again."</string>
+    <string name="convert_unreadable">"Couldn’t read this PDF."</string>
+    <string name="convert_no_space">"There isn’t enough free space on this device to copy the PDF. Free up some space and try again."</string>
+    <string name="convert_started">"Converting on your server. Follow it in %1$s → %2$s in the library."</string>
+    <string name="convert_already_converting">"This PDF is already being converted."</string>
+    <string name="convert_already_in_library">"This PDF is already in your library as a book."</string>
+    <string name="convert_show">"Show"</string>
+    <string name="convert_open_book">"Open book"</string>
+    <string name="convert_remove">"Remove"</string>
+    <string name="convert_empty">"No conversions yet. Share a PDF with Quire, or add one with + in the library, and your Quire server turns it into an EPUB."</string>
+    <plurals name="convert_banner_active">
+        <item quantity="one">"Converting %1$d PDF"</item>
+        <item quantity="other">"Converting %1$d PDFs"</item>
+    </plurals>
+    <string name="convert_banner_attention">"A PDF conversion needs a look"</string>
+
+    <!-- Where a conversion is. -->
+    <string name="convert_status_uploading">"Sending to your server"</string>
+    <string name="convert_status_queued">"Waiting for the converter"</string>
+    <string name="convert_status_converting">"Converting"</string>
+    <string name="convert_status_importing">"Adding to your library"</string>
+    <string name="convert_status_ready">"In your library"</string>
+    <string name="convert_status_review">"In your library. Some pages may not have converted well."</string>
+    <string name="convert_status_failed">"Didn’t convert"</string>
+    <string name="convert_status_cancelled">"Cancelled"</string>
+    <plurals name="convert_review_pages">
+        <item quantity="one">"Check page %1$s."</item>
+        <item quantity="other">"Check pages %1$s."</item>
+    </plurals>
+
+    <!-- What a conversion waits for. -->
+    <string name="convert_wait_network">"Couldn’t reach your server. Trying again shortly."</string>
+    <string name="convert_wait_busy">"Your server is converting other PDFs of yours. Trying again shortly."</string>
+    <string name="convert_wait_daily_limit">"You’ve reached today’s conversion limit on your server. Trying again at %1$s."</string>
+    <string name="convert_wait_daily_limit_date">"You’ve reached today’s conversion limit on your server. Trying again on %1$s."</string>
+    <string name="convert_wait_signed_out">"Signed out of your Quire server. Sign in again in Settings to carry on."</string>
+    <string name="convert_wait_upload_in_progress">"Another upload of this PDF is under way. Checking again shortly."</string>
+    <string name="convert_wait_open_app">"Open Quire to continue the upload."</string>
+    <string name="convert_wait_unmetered">"Waiting for Wi-Fi to send the PDF."</string>
+    <string name="convert_wait_converter">"Your server’s converter isn’t running yet. Trying again shortly."</string>
+
+    <!-- Why a conversion failed. -->
+    <string name="convert_failed_encrypted">"This PDF is encrypted or password-protected, so it can’t be converted."</string>
+    <string name="convert_failed_too_many_pages">"This PDF has more pages than your server converts."</string>
+    <string name="convert_failed_unreadable_pdf">"Your server couldn’t read this file as a PDF."</string>
+    <string name="convert_failed_unsupported">"Your server can’t convert this kind of PDF."</string>
+    <string name="convert_failed_conversion">"The conversion didn’t work."</string>
+    <string name="convert_failed_timed_out">"The conversion took too long."</string>
+    <string name="convert_failed_server">"Something went wrong on your server."</string>
+    <string name="convert_failed_plan">"Your hosting plan doesn’t include converting PDFs."</string>
+    <string name="convert_failed_too_large">"This PDF is larger than your server converts."</string>
+    <string name="convert_failed_not_a_pdf">"This file isn’t a PDF."</string>
+    <string name="convert_failed_unavailable">"Your server’s converter isn’t running. Try again later."</string>
+    <string name="convert_failed_source_missing">"Quire no longer has its copy of this PDF. Share the PDF again to convert it."</string>
+    <string name="convert_failed_upload">"Sending the PDF to your server didn’t finish."</string>
+    <string name="convert_failed_download">"Getting the book from your server didn’t finish."</string>
+    <string name="convert_failed_import">"The book couldn’t be saved on this device."</string>
+    <string name="convert_failed_invalid_epub">"The book your server made doesn’t open as an EPUB."</string>
+    <string name="convert_failed_gone">"Your server no longer has this conversion."</string>
+    <string name="convert_failed_off">"Your Quire server no longer converts PDFs."</string>
+    <string name="convert_failed_refused">"Your server turned this conversion down."</string>
+    <string name="convert_notification">"Converting a PDF"</string>
+</resources>

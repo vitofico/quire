@@ -20,6 +20,8 @@ exists.
 - [Deploy modes](#deploy-modes)
 - [Remote MCP access](#remote-mcp-access)
 - [AI provider](#ai-provider)
+- [Synced catalogs](#synced-catalogs)
+- [PDF conversion](#pdf-conversion)
 - [Status page](#status-page)
 - [Docker Compose variables](#docker-compose-variables)
 - [Advanced](#advanced)
@@ -90,6 +92,7 @@ What that does depends on the setting:
 | `QUIRE_SERVER_AI_SOURCES` | Retrieval off. The default applies only when the line is missing. |
 | `QUIRE_SERVER_AI_PROMPT_VERSION` | The built-in prompt version, the same as the default. |
 | Numbers, `true`/`false` settings, fixed-choice settings, `QUIRE_SERVER_AI_TOKEN_SECRETS` | The server refuses to start. |
+| `QUIRE_SERVER_CATALOG_KEYS` | Unset, the same as no line. |
 | `QUIRE_SERVER_LOG_LEVEL` | `INFO`, the same as the default. |
 | Other text settings | Empty text, taken literally, which breaks whatever uses it. |
 
@@ -601,6 +604,21 @@ at zero when the container restarts. `0` turns the limit off.
 When to change it: only if readers get 429 answers from
 `/ai/v1/insights/promote`.
 
+#### `QUIRE_SERVER_AI_DISCUSS_RATE_PER_MIN`
+
+- Type: whole number, 1 or more
+- Default: `10`
+- Example: `QUIRE_SERVER_AI_DISCUSS_RATE_PER_MIN=20`
+
+How many questions each reader may ask per minute about highlights they
+picked (`POST /ai/v1/highlights/discuss`). Each question is one model call
+and also counts against `QUIRE_SERVER_AI_DAILY_BUDGET`. The count is kept in
+memory in each server process. Over it, the server answers 429 with a
+`Retry-After` header. The apps read the value from `GET /ai/v1/config`.
+
+When to change it: rarely. A conversation is at most six questions, so the
+default only stops a runaway client.
+
 #### `QUIRE_SERVER_AI_PROFILE_REFRESH_DAILY_LIMIT`
 
 - Type: whole number
@@ -617,6 +635,177 @@ limit off.
 
 When to change it: raise it while you try out models; lower it on a paid
 provider to cap what each reader can spend.
+
+### Book details and covers
+
+When a book has no cover, no description or a title that is really a file
+name, the server can look it up on Open Library, tidy its details with one
+model call and draw a plain typographic cover for it
+(`/details/v1/*`, see [the API reference](sync-api.md#book-details-and-covers-details-v1)).
+A tidy counts as one generation against
+[`QUIRE_SERVER_AI_DAILY_BUDGET`](#quire_server_ai_daily_budget); a book
+tidied once is served from the database to every reader with the same
+details. The Open Library lookup makes no model call and costs nothing.
+
+#### `QUIRE_SERVER_DETAILS_ENABLED`
+
+- Type: `true` or `false`
+- Default: `true`
+- Example: `QUIRE_SERVER_DETAILS_ENABLED=false`
+
+Switches the book details endpoints. They are part of AI, so they exist only
+when [`QUIRE_SERVER_AI_ENABLED`](#quire_server_ai_enabled) is `true` too.
+With `false`, every `/details/v1` address answers 404 and `/ai/v1/config`
+reports `details_supported: false`, so the apps hide the feature.
+
+When to change it: set `false` to keep AI insights without spending model
+calls on book details.
+
+#### `QUIRE_SERVER_DETAILS_COVER_RATE_PER_MIN`
+
+- Type: whole number, 1 or more
+- Default: `30`
+- Example: `QUIRE_SERVER_DETAILS_COVER_RATE_PER_MIN=120`
+
+How many drawn covers each reader may fetch per minute. Drawing one takes
+the server a fraction of a second, and the apps keep every cover they get,
+so a reader only reaches this when a whole library without covers loads at
+once. Over it, the server answers 429 with a `Retry-After` header.
+
+When to change it: raise it if the apps show missing covers on a first
+sync of a large library.
+
+#### `QUIRE_SERVER_DETAILS_LOOKUP_RATE_PER_MIN`
+
+- Type: whole number, 1 or more
+- Default: `30`
+- Example: `QUIRE_SERVER_DETAILS_LOOKUP_RATE_PER_MIN=60`
+
+How many book details requests (`/details/v1/lookup` and
+`/details/v1/tidy` together) each reader may make per minute. Each one can
+reach Open Library, and a tidy spends a generation, so the ceiling is
+checked before either. The apps ask for the details of one book at a time,
+as it is opened or imported. Over it, the server answers 429 with a
+`Retry-After` header.
+
+When to change it: raise it if a first sync of a large library is slow to
+fill in details.
+
+Both ceilings are counted in each server process, in memory: with several
+workers or replicas a reader can reach the limit once per process, and a
+restart starts the count afresh.
+
+### Painted cover artwork
+
+Generated covers can be drawn on a painted background from an image model.
+It is off by default and needs both
+[`QUIRE_SERVER_AI_ENABLED`](#quire_server_ai_enabled) and
+[`QUIRE_SERVER_DETAILS_ENABLED`](#quire_server_details_enabled). The image
+provider is set separately from the chat provider: any service with an
+OpenAI-compatible `POST {base}/images/generations` endpoint that answers
+with base64 image data (`b64_json`), as the GPT image models do. An answer
+that gives an image address instead is recorded as a failed painting: the
+server never fetches an address a provider points it at. The server
+paints in the background, one cover at a time and once per book, and
+only when a signed-in reader who opted in to AI asks for a painted cover.
+The title and author are still set by the server, never by the model. How clients see
+it is in [the API reference](sync-api.md#painted-cover-artwork).
+
+What leaves the server: each painting sends the book's title, up to eight
+subjects and the first 600 characters or so of its description to the
+image provider, inside a prompt asking for an illustration with no text.
+Nothing about the reader is sent: no account, name or address. Tell your
+readers if your privacy notice lists where book data goes.
+
+Cost: at most [`QUIRE_SERVER_COVER_ART_DAILY_BUDGET`](#quire_server_cover_art_daily_budget)
+paintings a day (UTC) across the whole server, counting failures and
+paintings still in progress. The budget is shared, not per reader, so one
+reader asking for many painted covers can use up the day's budget. They
+are logged in `ai_generation_log` with kind `cover_art` and are not
+charged to any reader's allowance. Artwork is stored in the database (one
+JPEG of at most about 400 KB per book) for as long as the book's details
+record exists, and goes with it.
+
+#### `QUIRE_SERVER_COVER_ART_ENABLED`
+
+- Type: `true` or `false`
+- Default: `false`
+- Example: `QUIRE_SERVER_COVER_ART_ENABLED=true`
+
+Turns on painted artwork for generated covers. With `false`, or when the
+provider below is not set, covers are drawn exactly as without the feature.
+Artwork painted earlier stays stored but is no longer offered.
+
+When to change it: set `true`, with the three settings below, to give
+generated covers a painted background.
+
+#### `QUIRE_SERVER_COVER_ART_BASE_URL`
+
+- Type: URL
+- Default: none
+- Example: `QUIRE_SERVER_COVER_ART_BASE_URL=https://api.openai.com/v1`
+
+The image provider's base address; the server calls
+`{base}/images/generations`. Required for the feature.
+
+#### `QUIRE_SERVER_COVER_ART_API_KEY`
+
+- Type: secret
+- Default: none
+- Example: `QUIRE_SERVER_COVER_ART_API_KEY=sk-...`
+
+Sent as `Authorization: Bearer <key>` to the image provider only. Leave it
+unset for a provider that needs no key.
+
+#### `QUIRE_SERVER_COVER_ART_MODEL`
+
+- Type: text
+- Default: none
+- Example: `QUIRE_SERVER_COVER_ART_MODEL=gpt-image-1`
+
+The image model to ask for. Required for the feature.
+
+#### `QUIRE_SERVER_COVER_ART_SIZE`
+
+- Type: `WIDTHxHEIGHT` or `auto`
+- Default: `1024x1536`
+- Example: `QUIRE_SERVER_COVER_ART_SIZE=1024x1024`
+
+The size to request. Covers are portrait, so pick the provider's portrait
+size; whatever comes back is cropped to the cover's 2:3 shape. With `auto`
+no size is sent.
+
+#### `QUIRE_SERVER_COVER_ART_QUALITY`
+
+- Type: lowercase word
+- Default: none (the provider's default)
+- Example: `QUIRE_SERVER_COVER_ART_QUALITY=low`
+
+Passed through as the request's `quality`. A lower quality is cheaper and
+is usually enough under a title band.
+
+#### `QUIRE_SERVER_COVER_ART_DAILY_BUDGET`
+
+- Type: whole number, 0 or more
+- Default: `20`
+- Example: `QUIRE_SERVER_COVER_ART_DAILY_BUDGET=100`
+
+How many paintings the server attempts per UTC day, across all readers.
+Books looked up after it is spent keep their drawn covers and may be painted
+on a later day. `0` paints nothing.
+
+When to change it: raise it once you know what a painting costs with your
+provider.
+
+#### `QUIRE_SERVER_COVER_ART_TIMEOUT_S`
+
+- Type: seconds, more than 0 and at most 600
+- Default: `120`
+- Example: `QUIRE_SERVER_COVER_ART_TIMEOUT_S=60`
+
+How long one painting may take. Image models are slow, and the painting
+never holds up a request, so the default is generous. A painting that
+times out may be tried again a day later.
 
 ### What has no setting
 
@@ -638,6 +827,350 @@ These are fixed in the code today, so there is no variable to look for:
 - **The model server's own behaviour,** such as how long Ollama keeps a model
   loaded. Set that on the model server (see
   [CPU-only local models](#cpu-only-local-models)).
+
+## Synced catalogs
+
+A reader signed in with a Quire account can save several book catalogs
+(an address, plus a login when the catalog needs one) and find them on every
+device. The server stores each address and login encrypted with a key that
+is kept outside the database, so a database dump or backup on its own
+exposes nothing usable. Someone who takes over the running server has the
+key too. The status page shows where the key comes from and how many
+catalogs are saved; the routes are in
+[Saved catalogs](sync-api.md#saved-catalogs-catalogsv1).
+
+Nothing needs setting up. At start the server takes the key from
+`QUIRE_SERVER_CATALOG_KEYS` if it is set, otherwise from the key file at
+`QUIRE_SERVER_CATALOG_KEY_FILE`. If neither exists and the file's folder is
+writable, it creates a random key there, readable by the server's own user
+only, and uses it from then on. Both compose files mount a small volume,
+`quire_keys`, at `/var/lib/quire` for this, so the key appears on first
+start and survives upgrades. With no key, or when creating one fails (the
+database cannot be reached, the file cannot be written), the server still
+starts, catalog sync is off, and the server
+logs one line at start that begins `Catalog sync is off` and names the
+setting; nothing is ever stored unencrypted.
+
+**Back up the key file together with the database.** A database restored
+without it still works, but every saved catalog login is unreadable and
+readers are asked to enter them again. When the server finds saved catalogs
+and no key, it does not create a new one: restore the file, or supply the
+key through `QUIRE_SERVER_CATALOG_KEYS`.
+
+**Several server copies need the environment route.** Each copy would
+otherwise create its own key file and could not read the others' rows. Give
+every copy the same `QUIRE_SERVER_CATALOG_KEYS` from your secret store.
+
+### `QUIRE_SERVER_CATALOG_KEYS`
+
+- Type: JSON object that maps a key id (1 to 32 letters, digits, `-` or `_`)
+  to a base64-encoded 32-byte key
+- Default: unset
+- Example: `QUIRE_SERVER_CATALOG_KEYS='{"key-2026-11": "<output of openssl rand -base64 32>"}'`
+
+The keys for saved catalog logins. When set, the key file is not read or
+created. The first entry encrypts; every entry can decrypt. To rotate, put
+the new key first and keep the old ones: a catalog moves to the first key
+the next time a reader saves it, even with no change. A catalog nobody saves
+stays on its old key, so remove an old key only once no row uses it; this
+query lists the key ids still in use:
+`SELECT split_part(secret, ':', 1) AS key_id, count(*) FROM account_catalogs GROUP BY 1`.
+A catalog whose key was removed is listed with `needs_login` until its login
+is entered again. A value that does not parse stops the server at boot with a message
+naming this setting (never the key). An empty line counts as unset. To move
+from the key file to this setting, its content is already in this format:
+`QUIRE_SERVER_CATALOG_KEYS=$(cat /var/lib/quire/catalog.key)`.
+
+When to change it: on Kubernetes, for several server copies, or to keep the
+key in a secret store.
+
+### `QUIRE_SERVER_CATALOG_KEY_FILE`
+
+- Type: file path inside the container
+- Default: `/var/lib/quire/catalog.key`
+- Example: `QUIRE_SERVER_CATALOG_KEY_FILE=/var/lib/quire/catalog.key`
+
+Where the server reads, and on first start creates, its catalog key when
+`QUIRE_SERVER_CATALOG_KEYS` is unset. The file holds the same JSON as that
+setting. The server never overwrites it. If it exists but cannot be read or
+parsed, the server stops at boot. Empty means no key file, so the key must
+come from `QUIRE_SERVER_CATALOG_KEYS`.
+
+When to change it: only to keep the key on a volume mounted elsewhere.
+
+### `QUIRE_SERVER_CATALOG_ALLOW_HTTP`
+
+- Type: `true` or `false`
+- Default: `false`
+- Example: `QUIRE_SERVER_CATALOG_ALLOW_HTTP=true`
+
+Saved catalog addresses must use `https`, because the login travels with
+every request. `true` also accepts plain `http`, for a catalog on your home
+network.
+
+When to change it: only for a catalog you reach over a network you trust.
+
+### `QUIRE_SERVER_CATALOG_PROXY_ENABLED`
+
+- Type: `true` or `false`
+- Default: `true`
+- Example: `QUIRE_SERVER_CATALOG_PROXY_ENABLED=false`
+
+A browser cannot read most third-party catalogs, so Quire Web opens a saved
+catalog through the server: the server fetches each page, cover and book with
+the saved login and passes the answer on
+([`/fetch`](sync-api.md#get-catalogsv1catalogsidfetch)). Every book a reader
+downloads that way passes through the server's bandwidth. `false` turns that
+off on its own: phones keep syncing their catalogs, and Quire Web shows only
+the server's own catalog. The catalog key must be present either way.
+
+With it on, any signed-in account can make the server fetch from any public
+host it saves as a catalog, with the server's own address as the sender. On a
+public service where anyone can sign up, weigh keeping it off.
+
+When to change it: on a server that should not carry readers' downloads from
+other sites, or one open to accounts you do not know.
+
+### `QUIRE_SERVER_CATALOG_PROXY_ALLOW_PRIVATE`
+
+- Type: `true` or `false`
+- Default: `false`
+- Example: `QUIRE_SERVER_CATALOG_PROXY_ALLOW_PRIVATE=true`
+
+By default the server fetches a saved catalog only from a globally routable
+address, so a reader cannot use it to reach machines inside the server's own
+network. `true` also allows exactly these ranges, for a catalog on your home
+network or a Tailscale address:
+
+- RFC 1918 private IPv4: `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`
+- CGNAT: `100.64.0.0/10`
+- IPv6 unique local: `fc00::/7`
+
+Everything else that is not globally routable stays refused whatever this
+says: loopback (`127.0.0.0/8`, `::1`), link-local (`169.254.0.0/16`,
+`fe80::/10`, which holds the cloud metadata services), IPv6 site-local
+(`fec0::/10`), IPv4-compatible and IPv4-mapped IPv6 (`::/96`,
+`::ffff:0:0/96`), documentation and benchmark ranges, multicast, unspecified
+and broadcast addresses, and the metadata services that sit inside an allowed
+range (`100.100.100.200`, `fd00:ec2::254`). So a catalog in another container
+on the same Docker network works with `true`, while one on the host's own
+loopback (`localhost`) does not: publish it on a private address instead. A
+catalog on plain `http` also needs
+[`QUIRE_SERVER_CATALOG_ALLOW_HTTP`](#quire_server_catalog_allow_http).
+
+When to change it: on a self-hosted server whose readers save catalogs on the
+local network. Leave it `false` on a server open to people you do not know.
+
+### `QUIRE_SERVER_CATALOG_PROXY_RATE_PER_MIN`
+
+- Type: whole number, 1 or more
+- Default: `120`
+- Example: `QUIRE_SERVER_CATALOG_PROXY_RATE_PER_MIN=60`
+
+How many saved-catalog fetches one account may make per minute, counted per
+server process. A catalog page costs one fetch plus one per cover on it.
+Past the limit the server answers `429` with `Retry-After` until the minute
+is over.
+
+When to change it: lower it on a shared server to bound what one account can
+make the server fetch.
+
+### `QUIRE_SERVER_CATALOG_PROXY_MAX_CONCURRENT`
+
+- Type: whole number, 1 or more
+- Default: `8`
+- Example: `QUIRE_SERVER_CATALOG_PROXY_MAX_CONCURRENT=4`
+
+How many saved-catalog fetches the server runs at once, all accounts
+together, counted per server process. One account may run 4 at a time. Past
+either limit the server answers `429` (`too_many_fetches`) at once instead of
+queueing. A fetch holds no database connection while it waits for the
+catalog, so this bounds open connections to other sites, not the database.
+
+When to change it: lower it on a small server, raise it on one with many
+readers browsing saved catalogs at once.
+
+## PDF conversion
+
+Readers can turn a PDF into an EPUB from the app: the app uploads the PDF,
+the server queues it, and a separate worker container converts it with
+Calibre, Poppler and EPUBCheck (`quire-convert` from `converter/`). Nothing
+leaves the server and no model is used, so it works with AI switched off.
+The routes are in [PDF conversion](sync-api.md#pdf-conversion-convert-v1).
+It is off by default.
+
+**How the two containers work together.** The server and the worker share
+one folder and nothing else. The worker has no network, no database and no
+login of any account: it picks up a queued PDF from the folder, converts it,
+leaves the EPUB and a short report there, and exits; the container restarts
+it for the next job. The server keeps every job's state in the database and
+clears the folder: the PDF goes as soon as the job finishes, the EPUB when
+the reader acknowledges it or 24 hours after the job was created. A job
+nobody uploads a PDF for expires after an hour.
+
+**What the server checks, and what it does not.** The server treats
+everything the worker writes as untrusted, because a crafted PDF could take
+over Calibre inside the worker. It reads only regular files of a bounded
+size (never a link, a FIFO or a folder), checks the report field by field,
+copies the EPUB into a file of its own while hashing it, and keeps it only if
+the size and SHA-256 match the report and the zip looks like a plain EPUB:
+`mimetype` first with the EPUB media type, no entry name that leaves the
+book, at most 10,000 entries, and an unpacked size of at most 5 times the
+EPUB size ceiling (which is twice `QUIRE_SERVER_CONVERT_MAX_BYTES`). It does
+not check the book's content: an EPUB that passes is still a file from an
+untrusted PDF, and the apps open it like any sideloaded book.
+
+The worker exits after each job so that nothing a PDF starts outlives its
+job; on Linux it also adopts and kills every process the conversion leaves.
+What remains: while one job runs, a conversion that took over the worker can
+read the other PDFs queued at that moment and write results for them (which
+the server then checks as above). Running a container or a user id per job
+would close that; Quire does not do it yet, so keep the caps per account and
+the daily limit low on a server with untrusted accounts.
+
+**Turning it on with Docker Compose.** Both compose files already mount the
+`quire_convert` volume on the server and define the worker under the
+`convert` profile, with `restart: always` (the worker stops after every
+job). Add `QUIRE_SERVER_CONVERT_ENABLED=true` to `.env`, then start with the
+profile:
+
+```sh
+docker compose --profile convert up -d
+```
+
+The app shows the option once the worker has checked in (within a few
+seconds). The server logs one line at start that begins
+`PDF conversion is off` when the folder cannot be used, and `/health` repeats
+it. The compose default pulls `ghcr.io/vitofico/quire-convert:latest`, which
+works only while that package is public on GitHub; a fork publishes its own
+and sets `QUIRE_CONVERT_IMAGE`.
+
+**The worker container** (`ghcr.io/vitofico/quire-convert`, built from
+`converter/Dockerfile`, amd64 only) runs as user 1000 with a read-only root
+filesystem. It needs the shared folder mounted at `/jobs` (writable) and a
+writable `/tmp` (a 512 MB tmpfs is enough). It needs no network at all:
+`network_mode: none` in compose. It converts one book and exits; give it
+2 CPUs and 3 GB of memory (the compose files do), more for very long books.
+For more throughput, run more worker containers on the same folder: each
+job is claimed by exactly one of them. Docker waits a little longer before
+each restart when containers stop within ten seconds of starting, so a run
+of quick failures (encrypted PDFs, say) is picked up seconds to a minute
+apart.
+
+**Folder ownership and size.** The server creates the layout on start. The
+three subfolders the worker writes to (`running`, `done`, `workers`) are
+open to every user and sticky, so the worker can run as any user id and
+nobody removes another's entries; the uploads and finished books
+(`incoming`, `store`) are readable by the server's user only. The server
+image runs as root, so it can always clear what the worker leaves. If you
+run the server as another user, give it and the worker the same group (the
+worker makes its files group-writable). Mount the folder into these two
+containers only, and prefer a volume with a size limit, so a worker that
+fills `done/` cannot fill the server's disk.
+
+**On Kubernetes or another proxy.** Run the worker as a second container in
+the server's pod: the pod's `restartPolicy: Always` restarts it after every
+job the same way compose does, though Kubernetes waits longer between
+restarts (from ten seconds up to five minutes) when they come quickly, so
+`available` may read `false` for a while after a run of quick jobs. Do not
+set `shareProcessNamespace` on that pod: the worker's processes must end
+with its container. Mount one `ReadWriteOnce` volume into both containers
+(or a `ReadWriteMany` volume when they run apart), and let the reverse proxy
+pass request bodies up to `QUIRE_SERVER_CONVERT_MAX_BYTES` on
+`PUT /convert/v1/jobs/*/source` (nginx: `client_max_body_size`; Caddy has no
+limit by default). The server drops an upload that sends nothing for 60
+seconds; the proxy's read timeout should be at least that. The worker's
+memory and CPU limits go on its container; it needs no Service, ingress,
+Secret or network policy beyond denying all traffic.
+
+### `QUIRE_SERVER_CONVERT_ENABLED`
+
+- Type: `true` or `false`
+- Default: `false`
+- Example: `QUIRE_SERVER_CONVERT_ENABLED=true`
+
+Mounts `/convert/v1` and starts the server's clean-up pass. Off, every
+conversion route is a 404 and the apps do not show the option. The table
+`convert_jobs` exists either way, because account export and deletion read
+it. With conversion off nothing clears the job folder: deleting an account
+removes its job rows, but files from before (at most a day's worth) stay
+until conversion is on again or the folder is deleted.
+
+When to change it: to offer PDF conversion, together with running the
+worker.
+
+### `QUIRE_SERVER_CONVERT_DIR`
+
+- Type: folder path inside the container
+- Default: `/var/lib/quire-convert`
+- Example: `QUIRE_SERVER_CONVERT_DIR=/var/lib/quire-convert`
+
+The folder shared with the worker. The worker sees the same folder at
+`/jobs`. If the server cannot create its layout there, conversion stays off
+and the server logs why.
+
+When to change it: only to mount the shared volume elsewhere.
+
+### `QUIRE_SERVER_CONVERT_MAX_BYTES`
+
+- Type: whole number of bytes
+- Default: `104857600` (100 MiB)
+- Example: `QUIRE_SERVER_CONVERT_MAX_BYTES=209715200`
+
+The largest PDF the server accepts. The upload route alone is held to this
+instead of `QUIRE_SERVER_MAX_REQUEST_BYTES`, with or without a
+`Content-Length` header. A reverse proxy in front must allow bodies this
+large on that route. The EPUB a worker returns may be at most twice this
+size; a larger one fails the job with `invalid_result`.
+
+When to change it: for readers with larger scans, or to save disk space.
+
+### `QUIRE_SERVER_CONVERT_MAX_PAGES`
+
+- Type: whole number
+- Default: `1000`
+- Example: `QUIRE_SERVER_CONVERT_MAX_PAGES=2000`
+
+The most pages a PDF may have. The worker checks it before converting and
+fails the job with `too_many_pages`.
+
+When to change it: together with the time limit, for very long books.
+
+### `QUIRE_SERVER_CONVERT_TIME_LIMIT_S`
+
+- Type: whole number of seconds, at least 60
+- Default: `1200` (20 minutes)
+- Example: `QUIRE_SERVER_CONVERT_TIME_LIMIT_S=1800`
+
+How long one conversion may run. Past it the worker stops the conversion
+and the job fails with `timed_out`. A worker that goes silent for this long
+plus five minutes is presumed gone: the job runs once more, then fails with
+`worker_lost`.
+
+When to change it: when long books fail with `timed_out` on a slow machine.
+
+### `QUIRE_SERVER_CONVERT_MAX_ACTIVE_PER_OWNER`
+
+- Type: whole number, at least 1
+- Default: `2`
+- Example: `QUIRE_SERVER_CONVERT_MAX_ACTIVE_PER_OWNER=3`
+
+How many unfinished conversions (waiting for the PDF, queued or running) one
+account may have at once. One more gets `429 too_many_active_jobs`.
+
+When to change it: rarely; the worker converts one book at a time anyway.
+
+### `QUIRE_SERVER_CONVERT_DAILY_LIMIT`
+
+- Type: whole number, at least 1
+- Default: `10`
+- Example: `QUIRE_SERVER_CONVERT_DAILY_LIMIT=25`
+
+How many conversions one account may start in any 24 hours, cancelled and
+failed ones included. One more gets `429 daily_limit_reached` with the wait
+in `Retry-After`.
+
+When to change it: to share the worker more or less generously.
 
 ## Status page
 
@@ -714,6 +1247,7 @@ the compose files. They are not server settings. `POSTGRES_PASSWORD` is under
 | `CADDY_HTTPS_PORT`, `CADDY_HTTP_PORT` | `docker-compose.full.yml` | `443`, `80` |
 | `PUID`, `PGID` | `docker-compose.full.yml`, for calibre-web | `1000` |
 | `TZ` | `docker-compose.full.yml` for calibre-web; the server, through `.env` | `UTC` |
+| `QUIRE_CONVERT_IMAGE` | both compose files, for the conversion worker | `ghcr.io/vitofico/quire-convert:latest` |
 
 ### `QUIRE_SERVER_PORT`
 
@@ -792,6 +1326,19 @@ server does is in UTC, including when the AI budgets reset.
 
 When to change it: for calibre-web's sake. The server works the same either
 way.
+
+### `QUIRE_CONVERT_IMAGE`
+
+- Read by: `docker-compose.yml` and `docker-compose.full.yml`
+- Type: image reference
+- Default: `ghcr.io/vitofico/quire-convert:latest`
+- Example: `QUIRE_CONVERT_IMAGE=ghcr.io/vitofico/quire-convert@sha256:<digest>`
+
+The image of the PDF conversion worker, used only with `--profile convert`
+(see [PDF conversion](#pdf-conversion)). Every build on `main` that changes
+the converter is published under its commit sha and `latest`.
+
+When to change it: to pin a release by digest, like `QUIRE_SERVER_IMAGE`.
 
 ## Advanced
 
@@ -928,7 +1475,9 @@ Quire Server.
 - Example: `QUIRE_SERVER_MAX_REQUEST_BYTES=4194304`
 
 The largest request body the server accepts; larger ones get 413. GET, HEAD,
-OPTIONS and DELETE requests are not checked.
+OPTIONS and DELETE requests are not checked. The PDF upload of
+[PDF conversion](#pdf-conversion) has its own limit,
+`QUIRE_SERVER_CONVERT_MAX_BYTES`.
 
 When to change it: if a library sync from the app fails with 413.
 

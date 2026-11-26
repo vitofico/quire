@@ -9,4 +9,20 @@
     <string name="whats_new_reading_pause_description">Mientras lees, abre %1$s → %2$s para guardar tu posición con una nota opcional.</string>
     <string name="whats_new_highlights_title">Encuentra tus pasajes guardados</string>
     <string name="whats_new_highlights_description">En un libro, abre %1$s → %2$s para volver a los pasajes que has resaltado.</string>
+    <string name="whats_new_catalogs_title">Todos tus catálogos, en todos tus dispositivos</string>
+    <string name="whats_new_catalogs_description">Guarda varios catálogos en %1$s → %2$s y cambia entre ellos mientras exploras. Con la sesión iniciada en Quire, la lista te acompaña en tus otros dispositivos.</string>
+    <string name="whats_new_book_details_title">Detalles de libros más ordenados</string>
+    <string name="whats_new_book_details_description">Los libros con un nombre de archivo como título, o sin portada, autor o descripción, ahora reciben sus detalles de Open Library u ordenados por IA, con una etiqueta que indica su origen. Funciona con Wi-Fi, hasta 25 libros al día. Desactívalo en %1$s → %2$s, o vuelve a los detalles originales de un libro desde su menú.</string>
+    <string name="whats_new_pdf_conversion_title">Convierte PDF en libros</string>
+    <string name="whats_new_pdf_conversion_description">Comparte un PDF con Quire, o añádelo con + en la biblioteca, y tu servidor Quire lo convierte en un EPUB en tu biblioteca. Se convierte en tu propio servidor y no se envía a ningún otro sitio. Síguelo en %1$s → %2$s en la biblioteca.</string>
+    <string name="whats_new_notifications_title">Notificaciones, si las quieres</string>
+    <string name="whats_new_notifications_description">Activa avisos de libros nuevos en tus catálogos, un recordatorio de lectura diario o No molestar mientras hay un libro abierto, en %1$s → %2$s. Los tres siguen desactivados hasta que los enciendas.</string>
+    <string name="whats_new_open_catalogs_title">Libros gratuitos para empezar</string>
+    <string name="whats_new_open_catalogs_description">Añade con un toque un catálogo gratuito y legal de clásicos en %1$s → %2$s, o desde la pestaña Catálogo si aún no tienes ninguno. Los de tu idioma aparecen primero.</string>
+    <string name="whats_new_reading_stats_title">Descubre cómo lees</string>
+    <string name="whats_new_reading_stats_description">Quire ahora cuenta cuánto, cuándo y a qué velocidad lees. Se guarda en este dispositivo y en la copia de seguridad de tu teléfono, y nunca se envía al servidor de Quire ni a la IA. Consulta tus rachas, tu velocidad y cuánto le queda a un libro en la biblioteca, en %1$s → %2$s. Puedes desactivarlo en Ajustes.</string>
+    <string name="whats_new_details_preview_title">Mira qué cambia al mejorar los datos</string>
+    <string name="whats_new_details_preview_description">En %1$s → %2$s de un libro, ves cada cambio junto a los datos actuales, conservas los que quieras y eliges la portada: la del libro, una de Open Library o una dibujada por Quire.</string>
+    <string name="whats_new_highlights_discuss_title">Profundiza en tus resaltados</string>
+    <string name="whats_new_highlights_discuss_description">En %1$s → %2$s de un libro, elige %3$s, marca algunos pasajes y pregunta qué los une. La IA de tu servidor Quire responde en pocas líneas que puedes compartir como nota. No se guarda nada de la conversación.</string>
 </resources>
