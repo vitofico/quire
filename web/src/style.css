@@ -879,8 +879,10 @@ input.switch:checked::after {
   align-items: center;
   gap: 0.75rem;
 }
+/* The slider gives way before its row does: a range input has its own minimum width in some browsers. */
 .range input {
-  width: min(14rem, 60vw);
+  flex: 0 1 min(14rem, 60vw);
+  min-width: 0;
 }
 .range output {
   min-width: 3.5rem;
