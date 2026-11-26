@@ -60,6 +60,11 @@ class OpdsClientTest {
                         .setBody(resource("/opds/flibusta-style.xml"))
                     "/sort-new-root" -> MockResponse().setHeader("Content-Type", "application/atom+xml")
                         .setBody(resource("/opds/catalog-root-sort-new.xml"))
+                    "/calibre-server/opds" -> MockResponse().setHeader("Content-Type", "application/atom+xml")
+                        .setBody(resource("/opds/calibre-server-root.xml"))
+                    "/open/textos-info", "/open/ebooks-libres-et-gratuits", "/open/bibliotheque-numerique-romande" ->
+                        MockResponse().setHeader("Content-Type", "application/atom+xml")
+                            .setBody(resource("/opds/open-${path.orEmpty().removePrefix("/open/")}-root.xml"))
                     "/opds/unauthorized" -> MockResponse().setResponseCode(401)
                     "/gutenberg-style" -> MockResponse().setHeader("Content-Type", "application/atom+xml")
                         .setBody(resource("/opds/gutenberg-style-nav.xml"))
@@ -334,6 +339,20 @@ class OpdsClientTest {
         assertThat(client.fetch(server.url("/opds/with-search").toString()).latestHref)
             .isEqualTo(server.url("/opds/new").toString())
         assertThat(client.fetch(server.url("/gutenberg-style").toString()).latestHref).isNull()
+    }
+
+    @Test fun `the newest-books feed is found by the calibre content server path`() = runTest {
+        val feed = client.fetch(server.url("/calibre-server/opds").toString())
+        assertThat(feed.latestHref).isEqualTo(server.url("/opds/navcatalog/4f6e6577657374").toString())
+    }
+
+    @Test fun `the packaged open catalogs' root feeds, as fetched on 2026-11-26`() = runTest {
+        // catalogs/open-catalogs.json: only textos.info links its newest books. The other two
+        // have no sort/new link and no known path, so the new-books check names them as not checked.
+        assertThat(client.fetch(server.url("/open/textos-info").toString()).latestHref)
+            .isEqualTo("https://www.textos.info/novedades.atom")
+        assertThat(client.fetch(server.url("/open/ebooks-libres-et-gratuits").toString()).latestHref).isNull()
+        assertThat(client.fetch(server.url("/open/bibliotheque-numerique-romande").toString()).latestHref).isNull()
     }
 
     @Test fun `each publication carries its Atom entry id`() = runTest {

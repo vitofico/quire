@@ -370,7 +370,12 @@ class OpdsClient(
         private const val DC_ELEMENTS_NS = "http://purl.org/dc/elements/1.1/"
 
         private const val SORT_NEW_REL = "http://opds-spec.org/sort/new"
-        private val LATEST_PATHS = setOf("new", "recently-added")
+        /**
+         * Last path segments of a newest-books navigation entry, for servers with no sort/new
+         * link: Calibre-Web's `/opds/new`, Kavita's `/recently-added`, and the calibre content
+         * server's `/opds/navcatalog/4f6e6577657374` (hex of its internal "Onewest" key).
+         */
+        private val LATEST_PATHS = setOf("new", "recently-added", "4f6e6577657374")
 
         private const val THUMBNAIL_REL = "http://opds-spec.org/image/thumbnail"
 
