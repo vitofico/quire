@@ -46,6 +46,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,6 +68,7 @@ import io.theficos.ereader.ui.components.InkBackground
 import io.theficos.ereader.ui.components.QuireCard
 import io.theficos.ereader.ui.components.RadioOptionRow
 import io.theficos.ereader.ui.components.SectionLabel
+import io.theficos.ereader.ui.stats.ClearStatisticsDialog
 import io.theficos.ereader.ui.displayLabel
 import io.theficos.ereader.ui.onboarding.ConnectServerViewModel
 import io.theficos.ereader.ui.onboarding.PairingQr
@@ -308,6 +310,8 @@ fun SettingsScreen(
                 }
             }
         }
+
+        ReadingStatsSettings(viewModel)
 
         NotificationsSettings(notificationFeatures, catalogNames = catalogs.associate { it.id to it.name })
 
@@ -976,6 +980,77 @@ private fun ThemeSwatch(palette: Palette, selected: Boolean, enabled: Boolean, o
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = if (selected) FontWeight.SemiBold else null,
             color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+        )
+    }
+}
+
+/** "Record reading statistics", and clearing what is stored. Turning it off offers to clear. */
+@Composable
+private fun ReadingStatsSettings(viewModel: SettingsViewModel) {
+    val flow = viewModel.recordReadingStats ?: return
+    val recording by flow.collectAsState()
+    var offerClear by rememberSaveable { mutableStateOf(false) }
+    var confirmClear by rememberSaveable { mutableStateOf(false) }
+    SectionLabel(stringResource(R.string.stats_title))
+    QuireCard(modifier = Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+                    Text(stringResource(R.string.settings_record_stats), style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        stringResource(
+                            R.string.settings_record_stats_description,
+                            stringResource(R.string.common_more),
+                            stringResource(R.string.stats_title),
+                        ),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = recording,
+                    onCheckedChange = { on ->
+                        viewModel.setRecordReadingStats(on)
+                        if (!on) offerClear = true
+                    },
+                )
+            }
+            TextButton(
+                onClick = { confirmClear = true },
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            ) { Text(stringResource(R.string.stats_clear)) }
+        }
+    }
+    if (offerClear) {
+        AlertDialog(
+            onDismissRequest = { offerClear = false },
+            title = { Text(stringResource(R.string.settings_stats_off_title)) },
+            text = { Text(stringResource(R.string.settings_stats_off_body)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.clearReadingStats()
+                        offerClear = false
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text(stringResource(R.string.stats_clear_confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { offerClear = false }) { Text(stringResource(R.string.settings_stats_keep)) }
+            },
+        )
+    }
+    if (confirmClear) {
+        ClearStatisticsDialog(
+            onConfirm = {
+                viewModel.clearReadingStats()
+                confirmClear = false
+            },
+            onDismiss = { confirmClear = false },
         )
     }
 }

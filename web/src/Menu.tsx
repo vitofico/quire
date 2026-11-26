@@ -13,14 +13,16 @@ export function Menu({ label, children }: { label: string; children: ReactNode }
     }
     const escape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
+      // Used here: a panel listening for Escape further out stays open.
+      event.preventDefault()
       setOpen(false)
       toggle.current?.focus()
     }
     document.addEventListener('pointerdown', outside)
-    document.addEventListener('keydown', escape)
+    document.addEventListener('keydown', escape, true)
     return () => {
       document.removeEventListener('pointerdown', outside)
-      document.removeEventListener('keydown', escape)
+      document.removeEventListener('keydown', escape, true)
     }
   }, [open])
   return (

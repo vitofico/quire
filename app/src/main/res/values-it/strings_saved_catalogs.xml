@@ -50,4 +50,14 @@
     <string name="quire_account_legacy_retiring_admin">L’accesso con Calibre-Web sta per essere ritirato. Chiedi al tuo amministratore di attivare gli account Quire.</string>
     <string name="quire_account_legacy_sign_in">Accesso Calibre-Web</string>
     <string name="catalog_needs_login">Inserisci di nuovo l’indirizzo e i dati di accesso di %1$s in Impostazioni → Cataloghi.</string>
+    <string name="open_catalogs_title">Cataloghi aperti</string>
+    <string name="open_catalogs_privacy">Libri gratuiti e legali per iniziare. Aggiungendone uno, questo dispositivo si collega direttamente al sito di quel catalogo.</string>
+    <string name="open_catalogs_add">Aggiungi</string>
+    <string name="open_catalogs_add_named">Aggiungi %1$s</string>
+    <string name="open_catalogs_added">Aggiunto</string>
+    <string name="open_catalogs_public_domain">Pubblico dominio</string>
+    <string name="open_catalogs_open_licence">Licenza aperta</string>
+    <string name="open_catalogs_public_domain_us">Pubblico dominio negli USA</string>
+    <string name="open_catalogs_synced">Viene salvato anche nel tuo account Quire, come ogni catalogo.</string>
+    <string name="open_catalogs_no_catalog">Ancora nessun catalogo. Aggiungi uno di questi cataloghi gratuiti per trovare libri, oppure il tuo in Impostazioni → Cataloghi.</string>
 </resources>

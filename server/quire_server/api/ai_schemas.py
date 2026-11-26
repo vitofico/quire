@@ -635,6 +635,12 @@ class ConfigResponse(BaseModel):
     # True when /details/v1 is mounted: book details and designed covers.
     # Older servers omit it.
     details_supported: bool = False
+    # True when /details/v1 takes `cover_choice`; older servers reject the
+    # field, so clients send it only when this is true.
+    cover_choice_supported: bool = False
+    # True when `cover_choice: "paint"` can be served: the cover artist is
+    # configured. Older servers omit it.
+    cover_painting_supported: bool = False
     # True when /convert/v1 is mounted: PDF to EPUB conversion. Works without
     # AI too; `GET /convert/v1/capabilities` is the full answer.
     conversion_supported: bool = False

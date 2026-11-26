@@ -821,8 +821,16 @@ so a stored password is never sent somewhere it was not entered for. Keeping
 it also needs the stored value, so on a row that cannot be decrypted that
 save is `409 needs_login`: send the password again.
 
+`unique_url` is an optional boolean, `false` by default. When it is `true` and
+the id is new, a catalog whose stored address equals `url` (both trimmed) is
+not saved a second time: the answer is `409` with
+`{"detail": "catalog_exists", "id": "<the existing id>"}`. Quire Web sets it
+when adding a suggested open catalog. Without it, as older apps send, the same
+address can be saved under two ids.
+
 | Status | `detail` | When |
 |---|---|---|
+| 409 | `catalog_exists` | `unique_url` is `true`, the id is new and the account already holds this address; the body names its `id`. |
 | 409 | `catalog_limit_reached` | Creating a 21st catalog. An account holds at most 20; replacing one at the limit is fine. |
 | 409 | `needs_login` | `password` omitted and the stored one cannot be read. |
 | 422 | `invalid_name` | `name` is blank after trimming (at most 60 characters). |
@@ -1074,6 +1082,8 @@ Returns the user-visible AI configuration. Public to authed users.
   "generation_timeout_s": 120,
   "profile_timeout_s": 90,
   "details_supported": true,
+  "cover_choice_supported": true,
+  "cover_painting_supported": false,
   "conversion_supported": false,
   "highlights_discuss": true,
   "highlights_discuss_limits": {
@@ -1128,6 +1138,15 @@ profile-refresh wait off `generation_timeout_s`.
 need `configured` and the reader's opt-in. Older servers omit the field and
 clients read it as false. Browser clients find the same flag as
 `capabilities.book_details` in the session response.
+
+`cover_choice_supported` is true when `/details/v1` accepts the
+[`cover_choice`](#post-detailsv1lookup-and-post-detailsv1tidy) field, that
+is whenever `details_supported` is. Older servers omit it and reject a body
+that carries the field with 422, so a client sends `cover_choice` only when
+this flag is true. `cover_painting_supported` is true only when, in
+addition, the server has an image provider for
+[painted cover artwork](#painted-cover-artwork); only then may a client send
+`cover_choice: "paint"`. Both are false when omitted.
 
 `conversion_supported` is true when the server mounts
 [`/convert/v1`](#pdf-conversion-convert-v1). Conversion does not need AI,
@@ -1892,8 +1911,11 @@ and no stored record exists for the same input:
   client nor Open Library has a description.
 
 Otherwise the answer is the client's fields plus what the find added, with
-`tidy: "not_needed"`. `POST /details/v1/tidy` always tidies, for a reader
-who asks.
+`tidy: "not_needed"`. `cover_choice` never causes a tidy: a lookup with any
+choice spends a generation exactly when the same lookup with `"keep"`
+would, so a client may send a stored choice on its automatic lookups
+without making them cost more. `POST /details/v1/tidy` always tidies, for
+a reader who asks.
 
 A stored record is served with the Open Library result found when it was
 tidied, so serving it makes no Open Library request. When a tidy fails
@@ -1921,7 +1943,8 @@ different key. So the server also keeps, per reader, a pointer from the
 book's canonical identity to the record that reader was last given
 (`book_details_reader`). A `/lookup` checks it first, before Open Library
 or the model: when the pointed record exists, the answer is that record,
-with `cached: true` and `tidy: "done"`, free, even though the fields sent
+with `cached: true` and `tidy: "done"` (or `"not_needed"` when the record
+says what the fields sent already say), free, even though the fields sent
 differ. Every lookup that serves or stores a record, and every `/tidy`,
 moves the pointer to that record. The pointer belongs to one reader and
 only ever picks among records made for their own lookups, so it cannot
@@ -1948,7 +1971,8 @@ Body:
     "publisher": null
   },
   "source": "file",
-  "cover": null
+  "cover": null,
+  "cover_choice": "keep"
 }
 ```
 
@@ -1963,7 +1987,34 @@ Body:
   `"catalog"` (its catalog entry). It is echoed as the origin of the
   fields the client sent.
 - `cover`: `"file"` or `"catalog"` when the client already shows a real
-  cover, else `null`. A generated cover never replaces a real one.
+  cover, else `null`. With `cover_choice` `"keep"` a found or generated
+  cover never replaces a real one; only a reader's explicit choice does.
+- `cover_choice` (optional, default `"keep"`; send it only when
+  [`cover_choice_supported`](#get-aiv1config) is true): the cover the
+  reader asked for.
+  - `"keep"`: the client's own cover; without one, Open Library's, else a
+    generated one. This is the behaviour of servers without the field.
+  - `"find"`: Open Library's cover, even when the client has its own; when
+    Open Library has none, a generated one. The server asks Open Library
+    even if the book lacks nothing else. A stored record that was made
+    without asking Open Library is asked about once, the first time it is
+    served for `"find"`, and the answer is kept with the record (no model
+    call either way).
+  - `"draw"`: the generated cover, drawn by the server from the tidy's
+    design, even when the client or Open Library has a cover.
+  - `"paint"`: the generated cover on painted artwork
+    ([below](#painted-cover-artwork)). Allowed only when
+    `cover_painting_supported` is true, else the request answers 409
+    `cover_art_unavailable` before anything else happens.
+
+  A choice that cannot be served falls back in the order generated cover,
+  then the client's own: `"find"`, `"draw"` or `"paint"` on a `/lookup`
+  that has no record to serve and did not tidy (`tidy` `"not_needed"`,
+  `"quota_exceeded"` or `"failed"`) answer with the client's own cover, or
+  `source: null` without one. The
+  cover choice is not part of the record key: every choice of the same
+  book is served from the same record, so trying choices one after another
+  with `/lookup` after a `/tidy` costs no generation.
 
 Response:
 
@@ -2015,21 +2066,38 @@ Response:
   when Open Library matched.
   `cover` is `"file"`/`"catalog"` for the client's own, `"openlibrary"`,
   or `"ai"` for a generated cover.
-- `cover`: the cover to show, in the order the client's own, Open
-  Library's, then a generated one. `source` is `null` when there is none
-  (no tidy ran). For a generated cover, `url` is a server path such as
+- `cover`: the cover to show, as `cover_choice` asks: with `"keep"` in the
+  order the client's own, Open Library's, then a generated one. `source`
+  is `null` when there is none (no tidy ran). For a generated cover, `url` is a server path such as
   `/details/v1/covers/<key>?v=<etag>` and `generated` is true, so the
   client can label it. Two more flags, both false unless the server paints
   cover artwork ([below](#painted-cover-artwork)): `painted` when the
   cover is drawn on painted artwork, and `painting` when artwork for it is
   on its way, so a later lookup will answer with a new `url`.
-- `tidy`: `"done"` when the answer includes a tidy, `"not_needed"` when
-  nothing called for one, and on a lookup `"quota_exceeded"` or
-  `"failed"` when one was due but the allowance was spent or the model
-  call failed. A lookup never fails because of the tidy: it answers with
-  what the find gave.
+- `tidy`: `"done"` when the answer includes a tidy that changed something,
+  `"not_needed"` when nothing called for one or when the answer's `title`,
+  `authors`, `series_name`, `series_index` and `description` all equal
+  what the client sent (after the whitespace and blank-value rules above),
+  and on a lookup `"quota_exceeded"` or `"failed"` when one was due but
+  the allowance was spent or the model call failed. A `/tidy`, forced, and
+  a stored record served from the reader's pointer answer `"not_needed"`
+  by the same rule, even though a model call was made and counted: the
+  server's checks often keep a clean book's title and authors as they
+  were, and then there is nothing for the reader to see. A description
+  that the find filled from Open Library counts as a change. `tidy` says
+  nothing about the cover: a `"not_needed"` answer can still carry a new
+  found or generated cover. A lookup never fails because of the tidy: it
+  answers with what the find gave.
 - `cached`: true when the tidy was served from the shared store, at no
   cost, including a record found through the reader's pointer.
+
+A client that shows a `/tidy` answer as a preview, for the reader to
+accept or reject, must remember a rejected answer's `key` on the device.
+The `/tidy` has already moved the reader's pointer to that record, and the
+pointer is per reader, not per device, so every later `/lookup` of the
+book is served that record. When a lookup answers with a remembered
+rejected `key`, the client keeps showing the book's own title, authors,
+series and description. The Web app does this.
 - `openlibrary_url`: the matched Open Library work, for attribution;
   `null` when nothing matched.
 
@@ -2049,7 +2117,8 @@ is filled only from the edition of the book's own ISBN.
 | 404 | | The feature is off (`QUIRE_SERVER_DETAILS_ENABLED=false`) or AI is off. |
 | 409 | `{"detail": "ai_not_opted_in"}` | The reader has not opted in to AI. |
 | 409 | `{"detail": "ai_provider_unavailable"}` | The reader picked a provider this server no longer has. |
-| 422 | | The body fails validation, or no canonical identity resolves. |
+| 409 | `{"detail": "cover_art_unavailable"}` | `cover_choice` is `"paint"` and this server paints no artwork (`cover_painting_supported` is false). Checked first, so it costs nothing. Ask again with `"draw"`. |
+| 422 | | The body fails validation (an unknown `cover_choice` included), or no canonical identity resolves. |
 | 429 | `{"detail": "details_rate_limited"}`, `Retry-After` | The reader made more than `QUIRE_SERVER_DETAILS_LOOKUP_RATE_PER_MIN` lookups and tidies together in the last minute (counted per server process). Checked before Open Library or the model is reached, so it costs nothing. The `detail` code is stable. |
 | 429 | quota body, `Retry-After` | `/tidy` only: the daily allowance or the regeneration limit is spent ([quota model](#quota-model)), or the hosted monthly allowance (`{"detail": "monthly_ai_quota_exhausted"}`). |
 | 502, 504 | [provider error](#ai-provider-errors) | `/tidy` only: the model call failed. |
@@ -2101,23 +2170,38 @@ subjects and a trimmed description. The server still sets the title and
 author itself, on a solid band over the lower part of the artwork, so the
 type keeps the design's contrast whatever the painting looks like.
 
-Painting never happens on a request. A lookup or tidy that answers with a
-generated cover queues a painting and answers at once with the drawn cover
-and `cover.painting: true`. When the artwork is stored, the next lookup of
-that book answers with a new `url` (a new `?v=`) and `cover.painted: true`;
-that lookup is served from the stored record, so it costs nothing. Each
-book is painted once and the artwork is shared by every reader of the
-record, like the record itself.
+A cover is painted only for a reader who asks for it, with
+`cover_choice: "paint"` on a `/lookup` or `/tidy`; nothing is painted for
+`"keep"`, `"find"` or `"draw"`. Painting never happens on the request. A
+`"paint"` request that answers with a generated cover queues a painting
+when one is due and answers at once with the drawn cover and
+`cover.painting: true`. When the artwork is stored, the next `"paint"`
+lookup of that book answers with a new `url` (a new `?v=`) and
+`cover.painted: true`; that lookup is served from the stored record, so it
+costs nothing. Each book is painted once and the artwork is shared by
+every reader who asks for a painted cover of the record, like the record
+itself. A client that never sends `cover_choice`, as clients from before
+the field do, never receives a painted cover.
+
+The artwork is keyed by the shared record, so a painting may already exist
+when a reader did not ask for one. Such a reader (`"keep"` with no cover of
+their own, or `"draw"`) still gets the drawn cover: `url` is the drawn
+cover's address and `painted` and `painting` are false. Both addresses are
+served ([covers](#get-detailsv1coverskey)), so each reader keeps the
+picture they chose.
 
 A painting that fails (the provider refused, timed out or answered with no
 usable image) is not retried on every lookup: after a timeout or a busy or
 unavailable provider a later lookup may try again a day later, otherwise
 after 30 days. The server paints at most `QUIRE_SERVER_COVER_ART_DAILY_BUDGET`
-covers a day in all. None of this is charged to the reader's allowance.
+covers a day in all; a `"paint"` request made once the day's budget is
+spent, or for a book whose painting failed and may not be tried again yet,
+answers with the drawn cover and `painting: false`, `painted: false`. None
+of this is charged to the reader's allowance.
 
-`painting: true` means "ask again later": look the book up again (an hour
-is plenty), which is free because the record is stored, and fetch the new
-`url` when it changed. A client that keeps the first cover it was given and
+`painting: true` means "ask again later": look the book up again with
+`cover_choice: "paint"` (an hour is plenty), which is free because the
+record is stored, and fetch the new `url` when it changed. A client that keeps the first cover it was given and
 never looks the book up again keeps showing the drawn cover.
 
 The artwork comes only as base64 image data in the provider's answer; the

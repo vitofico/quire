@@ -17,4 +17,8 @@
     <string name="whats_new_pdf_conversion_description">Comparte un PDF con Quire, o añádelo con + en la biblioteca, y tu servidor Quire lo convierte en un EPUB en tu biblioteca. Se convierte en tu propio servidor y no se envía a ningún otro sitio. Síguelo en %1$s → %2$s en la biblioteca.</string>
     <string name="whats_new_notifications_title">Notificaciones, si las quieres</string>
     <string name="whats_new_notifications_description">Activa avisos de libros nuevos en tus catálogos, un recordatorio de lectura diario o No molestar mientras hay un libro abierto, en %1$s → %2$s. Los tres siguen desactivados hasta que los enciendas.</string>
+    <string name="whats_new_open_catalogs_title">Libros gratuitos para empezar</string>
+    <string name="whats_new_open_catalogs_description">Añade con un toque un catálogo gratuito y legal de clásicos en %1$s → %2$s, o desde la pestaña Catálogo si aún no tienes ninguno. Los de tu idioma aparecen primero.</string>
+    <string name="whats_new_reading_stats_title">Descubre cómo lees</string>
+    <string name="whats_new_reading_stats_description">Quire ahora cuenta cuánto, cuándo y a qué velocidad lees. Se guarda en este dispositivo y en la copia de seguridad de tu teléfono, y nunca se envía al servidor de Quire ni a la IA. Consulta tus rachas, tu velocidad y cuánto le queda a un libro en la biblioteca, en %1$s → %2$s. Puedes desactivarlo en Ajustes.</string>
 </resources>

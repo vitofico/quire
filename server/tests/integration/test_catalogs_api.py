@@ -363,6 +363,36 @@ async def test_the_limit_holds_under_concurrent_creates(client_factory, app, ses
     assert await session.scalar(select(func.count()).select_from(AccountCatalog)) == 20
 
 
+async def test_a_new_entry_for_a_held_address_names_the_existing_one_when_asked(
+    client_factory, app, session
+):
+    async with catalogs(client_factory) as client:
+        auth = await bearer(app)
+        first = uuid4()
+        open_catalog = {"name": "Shelf", "kind": "opds", "url": "https://shelf.example.org/opds"}
+        assert (await client.put(path(first), headers=auth, json=open_catalog)).status_code == 200
+
+        again = await client.put(
+            path(uuid4()),
+            headers=auth,
+            json=open_catalog | {"url": " https://shelf.example.org/opds ", "unique_url": True},
+        )
+        assert again.status_code == 409, again.text
+        assert again.json() == {"detail": "catalog_exists", "id": str(first)}
+        # Another address on the same host, and the same entry saved again, are not duplicates.
+        other = await client.put(
+            path(uuid4()),
+            headers=auth,
+            json=open_catalog | {"url": "https://shelf.example.org/opds/fr", "unique_url": True},
+        )
+        assert other.status_code == 200, other.text
+        same = await client.put(path(first), headers=auth, json=open_catalog | {"unique_url": True})
+        assert same.status_code == 200, same.text
+        # Without the opt-in, as older apps send it, a second entry is still saved.
+        assert (await client.put(path(uuid4()), headers=auth, json=open_catalog)).status_code == 200
+        assert len((await listed(client, auth))["catalogs"]) == 3
+
+
 async def test_reorder_needs_exactly_the_current_set(client_factory, app, session):
     async with catalogs(client_factory) as client:
         auth = await bearer(app)

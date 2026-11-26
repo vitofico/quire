@@ -82,6 +82,8 @@ import io.theficos.ereader.ui.settings.SettingsScreen
 import io.theficos.ereader.ui.settings.SettingsViewModel
 import io.theficos.ereader.ui.settings.WHATS_NEW_LATEST_ENTRY_ID
 import io.theficos.ereader.ui.settings.WhatsNewScreen
+import io.theficos.ereader.ui.stats.ReadingStatsScreen
+import io.theficos.ereader.ui.stats.ReadingStatsViewModel
 import io.theficos.ereader.ui.theme.AppTheme
 import io.theficos.quire.R
 import kotlinx.coroutines.launch
@@ -142,7 +144,9 @@ fun AppNavGraph(
     val catalogsVm: CatalogsViewModel = viewModel(
         key = "catalogs",
         factory = viewModelFactory {
-            initializer { CatalogsViewModel(container.credentialStore, container.catalogSyncRepository) }
+            initializer {
+                CatalogsViewModel(container.credentialStore, container.catalogSyncRepository, openCatalogs = container.openCatalogs)
+            }
         },
     )
     CatalogUploadQuestion(catalogsVm)
@@ -282,6 +286,7 @@ fun AppNavGraph(
                             restoreInProgress = { onProgress -> container.runRestoreInProgress(onProgress) },
                             libraryPreferencesStore = container.libraryPreferencesStore,
                             hasStoredDetails = container.bookDetailsRepository.hasStored,
+                            readingStats = container.readingStats,
                         )
                     }
                 },
@@ -293,6 +298,7 @@ fun AppNavGraph(
                         onOpenBook = { id -> nav.navigate("reader/$id") },
                         onShowDetails = { id -> nav.navigate("book/$id") },
                         onShowStats = { nav.navigate("library/stats") },
+                        onShowReadingStats = { nav.navigate("library/reading-stats") },
                         onShowInsights = { nav.navigate("library/insights") },
                         sideloadImporter = container.sideloadImporter,
                         conversions = container.conversionRepository,
@@ -301,6 +307,7 @@ fun AppNavGraph(
                     )
                     Tab.CATALOG -> CatalogScreen(
                         viewModel = catVm,
+                        catalogsViewModel = catalogsVm,
                         contentPadding = padding,
                         onShowDetails = { pub ->
                             val key = container.catalogDetailRegistry.put(pub)
@@ -350,6 +357,7 @@ fun AppNavGraph(
                                 } ?: io.theficos.ereader.di.DEVICE_MEMORY_KEY
                             },
                             highlightRepository = container.highlightRepository,
+                            stats = container.readingStats,
                         )
                     }
                 },
@@ -511,6 +519,12 @@ fun AppNavGraph(
                 onBack = { nav.popBackStack() },
             )
         }
+        composable("library/reading-stats") {
+            val vm: ReadingStatsViewModel = viewModel(
+                factory = viewModelFactory { initializer { ReadingStatsViewModel(container.readingStats) } },
+            )
+            ReadingStatsScreen(viewModel = vm, onBack = { nav.popBackStack() })
+        }
         composable("library/conversions") {
             val vm: ConversionsViewModel = viewModel(
                 factory = viewModelFactory { initializer { ConversionsViewModel(container.conversionRepository) } },
@@ -548,6 +562,7 @@ fun AppNavGraph(
                 // (the Library is the only entry point and the user can reach
                 // Settings from the bottom-nav).
                 onOpenSettings = { nav.popBackStack() },
+                onShowReadingStats = { nav.navigate("library/reading-stats") },
             )
         }
     }
