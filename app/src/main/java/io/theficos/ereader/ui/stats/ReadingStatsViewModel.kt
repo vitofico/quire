@@ -22,9 +22,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class ReadingStatsUiState(val stats: ReadingStats, val recording: Boolean)
 
@@ -79,22 +79,27 @@ class ReadingStatsViewModel(
         }
     }
 
-    /** Null until the first computation, which runs off the main thread. */
+    /**
+     * Null until the first computation. Only the computation runs off the main thread: the
+     * state itself is published on the main thread. A `flowOn` here would move `stateIn`'s
+     * own coroutine to that dispatcher too, so the screen's state would change from a
+     * background thread while the screen was composing.
+     */
     val state: StateFlow<ReadingStatsUiState?> = combine(
         repository.sessions, repository.bookProgress, repository.wordCounts, repository.recording, days,
     ) { sessions, progress, counts, recording, _ ->
-        ReadingStatsUiState(
-            stats = readingStats(
+        val stats = withContext(Dispatchers.Default) {
+            readingStats(
                 sessions = sessions,
                 progress = progress,
                 wordCounts = counts.associate { it.bookKey to it.words },
                 nowMs = nowMs(),
                 zone = zone(),
                 firstDayOfWeek = firstDayOfWeek(),
-            ),
-            recording = recording,
-        )
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+            )
+        }
+        ReadingStatsUiState(stats = stats, recording = recording)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val _library = MutableStateFlow(cachedOrLoading(owner()))
     val library: StateFlow<LibraryStatsUiState> = _library.asStateFlow()
