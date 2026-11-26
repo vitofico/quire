@@ -140,7 +140,8 @@ Sign in under **Settings → Account** to sync your shelf, progress and highligh
   server sync, the library mirror and AI features stay off.
 - **From a free catalog:** under **Open catalogs**, add a free, legal
   catalog of public-domain books in one tap, with those in your language
-  first. The built-in list currently holds Spanish and French catalogs.
+  first. The built-in list currently holds Project Gutenberg, with its German
+  and Italian books as entries of their own, and Spanish and French catalogs.
   Quire offers them in Settings → Catalogs, on an empty Catalog tab and in
   Quire Web. The device, or on the web your Quire server, then contacts that
   catalog's site.

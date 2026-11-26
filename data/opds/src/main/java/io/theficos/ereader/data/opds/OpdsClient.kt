@@ -290,13 +290,15 @@ class OpdsClient(
             val href = el.getAttribute("href").takeIf { it.isNotBlank() } ?: continue
             val absolute = absolutize(feedUrl, href)
             if (el.getAttribute("rel") == SORT_NEW_REL) return absolute
-            if (byPath == null && parent == "entry" &&
-                absolute.toHttpUrlOrNull()?.pathSegments?.lastOrNull { it.isNotEmpty() } in LATEST_PATHS
-            ) {
-                byPath = absolute
-            }
+            if (byPath == null && parent == "entry" && isLatestByAddress(absolute)) byPath = absolute
         }
         return byPath
+    }
+
+    private fun isLatestByAddress(address: String): Boolean {
+        val url = address.toHttpUrlOrNull() ?: return false
+        return url.pathSegments.lastOrNull { it.isNotEmpty() } in LATEST_PATHS ||
+            url.queryParameter("sort_order") == "release_date"
     }
 
     private fun parseSearchLink(doc: Document?, feedUrl: String): OpdsSearchLink? {
@@ -374,6 +376,7 @@ class OpdsClient(
          * Last path segments of a newest-books navigation entry, for servers with no sort/new
          * link: Calibre-Web's `/opds/new`, Kavita's `/recently-added`, and the calibre content
          * server's `/opds/navcatalog/4f6e6577657374` (hex of its internal "Onewest" key).
+         * Project Gutenberg's Latest entry is matched by its `sort_order=release_date` query instead.
          */
         private val LATEST_PATHS = setOf("new", "recently-added", "4f6e6577657374")
 
