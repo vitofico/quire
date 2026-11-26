@@ -13,6 +13,7 @@ import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.Test
+import java.util.concurrent.TimeUnit
 
 class HighlightsDiscussTest {
     private val limits = DiscussLimits(
@@ -127,7 +128,7 @@ class HighlightsDiscussTest {
                 """{"configured":true,"model_id":"m","highlights_discuss":true,"highlights_discuss_limits":{"max_highlights":20,"max_text_chars":2000,"max_note_chars":1000,"max_title_chars":500,"max_authors":10,"max_author_chars":200,"max_question_chars":1000,"max_answer_chars":4000,"max_questions":6,"max_total_chars":60000,"questions_per_minute":10}}""",
             ))
             assertThat(client.getConfig().highlightsDiscussLimits?.maxQuestions).isEqualTo(6)
-            server.takeRequest()
+            server.takeRequest(5, TimeUnit.SECONDS)!!
 
             server.enqueue(MockResponse().setBody("""{"answer":"Both are about control.","cited":[2,1]}"""))
             val request = discussDraft(
@@ -136,7 +137,7 @@ class HighlightsDiscussTest {
             ).request
             val answer = client.discussHighlights(request)
             assertThat(answer).isEqualTo(DiscussAnswer("Both are about control.", listOf(2, 1)))
-            val sent = server.takeRequest()
+            val sent = server.takeRequest(5, TimeUnit.SECONDS)!!
             assertThat(sent.method).isEqualTo("POST")
             assertThat(sent.path).isEqualTo("/ai/v1/highlights/discuss")
             val body = Json.parseToJsonElement(sent.body.readUtf8()).jsonObject
