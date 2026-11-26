@@ -155,8 +155,9 @@ class BookDetailsRepositoryTest {
 
     private fun lookups() = received.filter { it.path == "/details/v1/lookup" }
 
-    /** The shelf's answer for [id], once it shows. */
-    private suspend fun shownFor(id: Long): BookDetails = withTimeout(5_000) { repo.shown.first { id in it } }.getValue(id)
+    /** The shelf's answer for [id], once it shows and meets [until]. */
+    private suspend fun shownFor(id: Long, until: (BookDetails) -> Boolean = { true }): BookDetails =
+        withTimeout(5_000) { repo.shown.first { it[id]?.let(until) == true } }.getValue(id)
 
     private suspend fun waitFor(condition: suspend () -> Boolean) = withTimeout(5_000) {
         while (!condition()) delay(10)
@@ -234,7 +235,7 @@ class BookDetailsRepositoryTest {
         val doc = book()
         answer("/details/v1/tidy", """{"detail":"monthly_ai_quota_exhausted"}""", code = 429)
 
-        val error = runCatching { repo.tidy(doc.id) }.exceptionOrNull()
+        val error = runCatching { repo.propose(doc.id) }.exceptionOrNull()
         assertThat((error as AiHttpException).code).isEqualTo(429)
         assertThat(repo.runAutoPass()).isEqualTo(now + 24 * 3_600_000L)
 
@@ -433,7 +434,7 @@ class BookDetailsRepositoryTest {
         assertThat(doc.shownWith(shownFor(doc.id)).coverPath).isEqualTo(cover.path)
     }
 
-    @Test fun `an explicit tidy wins over a background lookup still under way`() = runBlocking {
+    @Test fun `an applied tidy wins over a background lookup still under way`() = runBlocking {
         val doc = book()
         holdLookup = CountDownLatch(1)
         answer("/details/v1/lookup", details(title = "From the background"))
@@ -441,11 +442,158 @@ class BookDetailsRepositoryTest {
 
         val pass = async(Dispatchers.IO) { repo.runAutoPass() }
         while (lookups().isEmpty()) Thread.yield()
-        repo.tidy(doc.id)
+        val proposal = repo.propose(doc.id)
+        repo.apply(proposal, DETAILS_FIELDS, COVER_KEEP, repo.coverPreview(proposal, COVER_KEEP))
         holdLookup!!.countDown()
         pass.await()
 
         assertThat(db.bookDetailsDao().find(doc.id)!!.responseJson).contains("From the tidy")
+    }
+
+    @Test fun `a lookup begun before a preview opened cannot bring back what the reader rejected`() = runBlocking {
+        val doc = book()
+        holdLookup = CountDownLatch(1)
+        answer("/details/v1/lookup", details(title = "From the background"))
+        answer("/details/v1/tidy", details(title = "From the tidy"))
+
+        val pass = async(Dispatchers.IO) { repo.runAutoPass() }
+        while (lookups().isEmpty()) Thread.yield()
+        val proposal = repo.propose(doc.id)
+        holdLookup!!.countDown()
+        pass.await()
+        assertThat(db.bookDetailsDao().find(doc.id)).isNull()
+
+        repo.close(proposal)
+        waitFor { db.bookDetailsDao().find(doc.id) != null }
+        val stored = repo.observe(doc.id).first { it != null }!!
+        assertThat(stored.response.declined).isEqualTo("k1")
+        assertThat(doc.shownWith(stored).title).isEqualTo("dune_frank_herbert")
+    }
+
+    @Test fun `a rejected record served again by a later lookup shows none of its changes`() = runBlocking {
+        val doc = book()
+        answer("/details/v1/tidy", details(title = "Dune"))
+        repo.close(repo.propose(doc.id))
+        waitFor { db.bookDetailsDao().find(doc.id) != null }
+
+        // The tidy moved the reader's pointer: the lookup serves the same record, with its cover.
+        answer("/details/v1/lookup", details(title = "Dune", cover = """{"source":"generated","url":"$generatedCover","generated":true}"""))
+        answer(generatedCover, "drawn")
+        repo.runAutoPass()
+
+        assertThat(lookups()).hasSize(1)
+        val stored = db.bookDetailsDao().find(doc.id)!!
+        assertThat(stored.responseJson).contains("Dune")
+        val shown = doc.shownWith(shownFor(doc.id) { it.coverPath != null })
+        assertThat(shown.title).isEqualTo("dune_frank_herbert")
+        assertThat(shown.author).isNull()
+        assertThat(File(shown.coverPath!!).readText()).isEqualTo("drawn")
+    }
+
+    @Test fun `applying keeps only the ticked fields, and a field the catalog changed since shows the catalog's`() = runBlocking {
+        val doc = book(author = "herbert")
+        answer("/details/v1/tidy", details(title = "Dune"))
+
+        val proposal = repo.propose(doc.id)
+        val applied = repo.apply(proposal, listOf(FIELD_AUTHORS, FIELD_SERIES, FIELD_DESCRIPTION), COVER_KEEP, null)!!
+
+        assertThat(doc.shownWith(applied).title).isEqualTo("dune_frank_herbert")
+        assertThat(doc.shownWith(applied).author).isEqualTo("Frank Herbert")
+        assertThat(doc.copy(author = "F. Herbert").shownWith(applied).author).isEqualTo("F. Herbert")
+        assertThat(doc.shownWith(shownFor(doc.id)).author).isEqualTo("Frank Herbert")
+    }
+
+    private fun offerCoverChoice(painting: Boolean = true) = runBlocking {
+        answer("/ai/v1/config", """{"configured":true,"details_supported":true,"cover_choice_supported":true,"cover_painting_supported":$painting}""")
+        answer("/ai/v1/preferences", """{"ai_enabled":true,"style":{"tone":"neutral","language":"auto"}}""")
+        ai.refresh()
+        received.clear()
+    }
+
+    private fun sentChoice(request: RecordedRequest) =
+        Json.parseToJsonElement(request.body.clone().readUtf8()).jsonObject["cover_choice"]?.jsonPrimitive?.content
+
+    @Test fun `a painted cover replaces the book's own, is asked for only on apply, and checked again in an hour`() = runBlocking {
+        offerCoverChoice()
+        val own = File(dir, "own.jpg").apply { writeText("own") }
+        val doc = book(title = "Dune", author = "Frank Herbert", cover = own.path)
+        answer("/details/v1/tidy", details(cover = """{"source":"catalog","url":null,"generated":false}"""))
+        answer("/details/v1/lookup", drawnCover(painting = false))
+        answer(generatedCover, "drawn")
+        answer("/details/v1/lookup", drawnCover(painting = true))
+
+        val proposal = repo.propose(doc.id)
+        assertThat(sentChoice(received.first { it.path == "/details/v1/tidy" })).isNull()
+        val preview = repo.coverPreview(proposal, COVER_PAINT)
+        assertThat(sentChoice(lookups().single())).isEqualTo(COVER_DRAW)
+        val applied = repo.apply(proposal, DETAILS_FIELDS, COVER_PAINT, preview)!!
+
+        assertThat(lookups().map(::sentChoice)).containsExactly(COVER_DRAW, COVER_PAINT).inOrder()
+        assertThat(applied.response.cover.painting).isTrue()
+        assertThat(File(doc.shownWith(shownFor(doc.id)).coverPath!!).readText()).isEqualTo("drawn")
+
+        val painted = generatedCover.replace("v=7", "v=8")
+        answer("/details/v1/lookup", drawnCover(url = painted, painting = false))
+        answer(painted, "painted")
+        now += 3_600_000L
+        repo.runAutoPass()
+
+        assertThat(sentChoice(lookups().last())).isEqualTo(COVER_PAINT)
+        waitFor { File(doc.shownWith(shownFor(doc.id)).coverPath!!).readText() == "painted" }
+
+        // Back to the original shows the book's own cover again.
+        repo.setUseOriginal(doc.id, true)
+        withTimeout(5_000) { repo.shown.first { doc.id !in it } }
+        assertThat(doc.shownWith(repo.shown.value[doc.id]).coverPath).isEqualTo(own.path)
+    }
+
+    @Test fun `a server that stopped painting keeps the drawn cover and is asked for it from then on`() = runBlocking {
+        offerCoverChoice()
+        val doc = book()
+        answer("/details/v1/tidy", drawnCover(painting = false))
+        answer(generatedCover, "drawn")
+        answer("/details/v1/lookup", drawnCover(painting = false))
+        answer("/details/v1/lookup", drawnCover(painting = true))
+        val proposal = repo.propose(doc.id)
+        repo.apply(proposal, DETAILS_FIELDS, COVER_PAINT, repo.coverPreview(proposal, COVER_PAINT))
+
+        answer("/details/v1/lookup", """{"detail":"cover_art_unavailable"}""", code = 409)
+        now += 3_600_000L
+        repo.runAutoPass()
+
+        val stored = shownFor(doc.id) { it.response.coverChoice != COVER_PAINT }
+        assertThat(stored.response.coverChoice).isEqualTo(COVER_DRAW)
+        assertThat(File(doc.shownWith(stored).coverPath!!).readText()).isEqualTo("drawn")
+        assertThat(db.bookDetailsDao().find(doc.id)!!.retryAt).isNull()
+    }
+
+    @Test fun `a server that takes no cover choice is never sent one`() = runBlocking {
+        val doc = book()
+        answer("/details/v1/tidy", drawnCover(painting = false))
+        answer(generatedCover, "drawn")
+
+        val proposal = repo.propose(doc.id)
+        repo.apply(proposal, DETAILS_FIELDS, COVER_KEEP, repo.coverPreview(proposal, COVER_KEEP))
+
+        val body = received.first { it.path == "/details/v1/tidy" }.body.readUtf8()
+        assertThat(body).doesNotContain("cover_choice")
+        assertThat(File(doc.shownWith(shownFor(doc.id)).coverPath!!).readText()).isEqualTo("drawn")
+    }
+
+    @Test fun `a cover preview that fails leaves the cover as it is and the text changes still apply`() = runBlocking {
+        offerCoverChoice()
+        val own = File(dir, "own.jpg").apply { writeText("own") }
+        val doc = book(cover = own.path)
+        answer("/details/v1/tidy", details(title = "Dune"))
+        answer("/details/v1/lookup", drawnCover(painting = false))
+        // The drawn cover's image is not served: its download fails.
+
+        val proposal = repo.propose(doc.id)
+        runCatching { repo.coverPreview(proposal, COVER_DRAW) }.also { assertThat(it.isFailure).isTrue() }
+        val applied = repo.apply(proposal, DETAILS_FIELDS, COVER_KEEP, null)!!
+
+        assertThat(doc.shownWith(applied).title).isEqualTo("Dune")
+        assertThat(doc.shownWith(applied).coverPath).isEqualTo(own.path)
     }
 
     @Test fun `use original hides the found details from the shelf and is remembered`() = runBlocking {
@@ -538,14 +686,14 @@ class BookDetailsRepositoryTest {
         assertThat(lookups()).hasSize(BookDetailsRepository.DAILY_LOOKUPS + 1)
     }
 
-    @Test fun `the automatic pass waits for an unmetered network, an explicit tidy does not`() = runBlocking {
+    @Test fun `the automatic pass waits for an unmetered network, an Improve details does not`() = runBlocking {
         val doc = book()
         unmetered.value = false
         answer("/details/v1/tidy", details())
 
         assertThat(repo.runAutoPass()).isNull()
         assertThat(lookups()).isEmpty()
-        assertThat(repo.tidy(doc.id).book.title).isEqualTo("Dune")
+        assertThat(repo.propose(doc.id).answer.book.title).isEqualTo("Dune")
     }
 
     @Test fun `another account or server drops the stored details and their covers`() = runBlocking {

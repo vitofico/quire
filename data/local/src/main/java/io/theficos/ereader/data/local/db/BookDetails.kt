@@ -20,9 +20,12 @@ import kotlinx.coroutines.flow.Flow
 )
 data class BookDetailsEntity(
     @PrimaryKey val documentId: Long,
-    /** The server's answer as received, with its key, field origins and cover; null when none was asked for. */
+    /**
+     * The server's answer as received, with its key, field origins and cover, and the reader's
+     * choices kept with it; null when none was asked for.
+     */
     val responseJson: String?,
-    /** Local copy of the answer's cover, only for a book with no cover of its own. */
+    /** Local copy of the answer's cover, for a book with no cover of its own or whose reader chose another. */
     val coverPath: String?,
     /** The reader chose the book's own details over the found ones. */
     val useOriginal: Boolean,

@@ -1,10 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="details_tidy">"Tidy details"</string>
-    <string name="details_use_original">"Use original details"</string>
-    <string name="details_use_found">"Use found details"</string>
-    <string name="details_tidying">"Tidying details…"</string>
-    <string name="details_tidied">"Details tidied."</string>
+    <string name="details_use_original">"Use original"</string>
+    <string name="details_use_found">"Use improved details"</string>
     <string name="details_nothing_to_tidy">"These details already look right."</string>
     <string name="details_allowance_used">"You’ve used up your AI allowance for now."</string>
     <string name="details_allowance_used_until">"You’ve used up your AI allowance. It renews on %1$s."</string>
@@ -18,4 +15,32 @@
     <string name="details_generated_cover">"Generated cover"</string>
     <string name="details_cover_from_open_library">"Cover from Open Library"</string>
     <string name="details_view_on_open_library">"View on Open Library"</string>
+    <string name="details_improve">"Improve details"</string>
+    <string name="details_improving">"Improving details…"</string>
+    <string name="details_preview_hint">"Tick the changes to keep. The rest stays as it is."</string>
+    <string name="details_current">"Current"</string>
+    <string name="details_proposed">"Proposed"</string>
+    <string name="details_empty">"Empty"</string>
+    <string name="details_authors">"Authors"</string>
+    <string name="details_description">"Description"</string>
+    <string name="details_cover">"Cover"</string>
+    <string name="details_cover_keep">"Keep this book’s cover"</string>
+    <string name="details_cover_find">"Find a cover"</string>
+    <string name="details_cover_find_hint">"From Open Library when it has one, else drawn by Quire."</string>
+    <string name="details_cover_draw">"Quire’s drawn cover"</string>
+    <string name="details_cover_paint">"A painted cover"</string>
+    <string name="details_cover_paint_hint">"Painting takes a while: the drawn cover shows until the painting arrives."</string>
+    <string name="details_apply">"Apply"</string>
+    <string name="details_updated">"Updated: %1$s."</string>
+    <string name="details_changed_title">"title"</string>
+    <string name="details_changed_authors">"authors"</string>
+    <string name="details_changed_series">"series"</string>
+    <string name="details_changed_description">"description"</string>
+    <string name="details_list_two">"%1$s and %2$s"</string>
+    <string name="details_list_three">"%1$s, %2$s and %3$s"</string>
+    <string name="details_list_four">"%1$s, %2$s, %3$s and %4$s"</string>
+    <string name="details_new_cover">"New cover."</string>
+    <string name="details_painting_on_its_way">"A painted cover is on its way."</string>
+    <string name="details_no_painting_today">"No painting today: the drawn cover stays."</string>
+    <string name="details_nothing_changed">"Nothing changed."</string>
 </resources>

@@ -15,4 +15,6 @@
     <string name="whats_new_book_details_description">Bücher mit einem Dateinamen als Titel oder ohne Cover, Autor oder Beschreibung bekommen ihre Details jetzt aus Open Library oder von KI aufgeräumt, mit einem Hinweis, woher sie stammen. Das geschieht im WLAN, höchstens 25 Bücher am Tag. Abschalten kannst du das unter %1$s → %2$s, und über das Menü eines Buchs kommst du zu seinen Originaldetails zurück.</string>
     <string name="whats_new_pdf_conversion_title">Aus PDFs werden Bücher</string>
     <string name="whats_new_pdf_conversion_description">Teile ein PDF mit Quire oder füge es in der Bibliothek mit + hinzu, und dein Quire-Server wandelt es in ein EPUB in deiner Bibliothek um. Die Umwandlung geschieht auf deinem eigenen Server, nichts wird anderswohin geschickt. Verfolgen kannst du sie in der Bibliothek unter %1$s → %2$s.</string>
+    <string name="whats_new_details_preview_title">Sieh, was das Verbessern der Angaben ändert</string>
+    <string name="whats_new_details_preview_description">Unter %1$s → %2$s in einem Buch siehst du jede Änderung neben den aktuellen Angaben, behältst die gewünschten und wählst das Cover: das des Buchs, eins von Open Library oder eins, das Quire zeichnet.</string>
 </resources>

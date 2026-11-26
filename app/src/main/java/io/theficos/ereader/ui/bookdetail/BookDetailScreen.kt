@@ -84,7 +84,9 @@ fun BookDetailScreen(
                     val details = state.details
                     val hasInsight = state.insight !is InsightUiState.Hidden
                     val stored = details.stored
-                    if (hasInsight || details.available || stored != null) {
+                    // Offered even with AI off, so found details can always be put away; only when it changes something.
+                    val switchable = stored != null && doc != null && differsFromOriginal(doc, state.metadata, stored)
+                    if (hasInsight || details.available || switchable) {
                         IconButton(onClick = { menuExpanded = true }) {
                             Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.common_more))
                         }
@@ -104,16 +106,15 @@ fun BookDetailScreen(
                             }
                             if (details.available) {
                                 DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.details_tidy)) },
-                                    enabled = doc != null && !details.tidying,
+                                    text = { Text(stringResource(R.string.details_improve)) },
+                                    enabled = doc != null && !details.improving && details.preview == null,
                                     onClick = {
                                         menuExpanded = false
-                                        viewModel.tidyDetails()
+                                        viewModel.improveDetails()
                                     },
                                 )
                             }
-                            // Offered even with AI off, so found details can always be put away.
-                            if (stored != null) {
+                            if (stored != null && switchable) {
                                 DropdownMenuItem(
                                     text = {
                                         Text(
@@ -143,6 +144,19 @@ fun BookDetailScreen(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp),
+        )
+    }
+    val preview = state.details.preview
+    if (preview != null && doc != null) {
+        DetailsPreviewSheet(
+            preview = preview,
+            shown = doc.shownWith(state.details.shown),
+            ownCover = doc.coverPath,
+            onToggle = viewModel::toggleChange,
+            onChooseCover = viewModel::chooseCover,
+            onKeepCover = viewModel::keepNewCover,
+            onApply = viewModel::applyPreview,
+            onCancel = viewModel::cancelPreview,
         )
     }
 }
@@ -194,18 +208,18 @@ fun BookDetailContent(
             notes = found?.let { headerNotes(own, it) }.orEmpty().map { stringResource(it) },
         )
 
-        if (state.details.tidying) {
+        if (state.details.improving) {
             Spacer(Modifier.height(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                 Spacer(Modifier.width(8.dp))
-                Text(stringResource(R.string.details_tidying), style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.details_improving), style = MaterialTheme.typography.bodySmall)
             }
         }
-        state.details.outcome?.let { outcome ->
+        if (state.details.outcome.isNotEmpty()) {
             Spacer(Modifier.height(12.dp))
             Text(
-                text = outcome.asString(),
+                text = state.details.outcome.map { it.asString() }.joinToString(" "),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

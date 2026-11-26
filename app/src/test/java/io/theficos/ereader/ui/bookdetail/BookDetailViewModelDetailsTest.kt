@@ -11,6 +11,13 @@ import io.theficos.ereader.data.ai.AiClient
 import io.theficos.ereader.data.ai.AiHttpException
 import io.theficos.ereader.data.ai.AiRepository
 import io.theficos.ereader.data.ai.BookDetailsRepository
+import io.theficos.ereader.data.ai.COVER_DRAW
+import io.theficos.ereader.data.ai.COVER_KEEP
+import io.theficos.ereader.data.ai.COVER_PAINT
+import io.theficos.ereader.data.ai.FIELD_AUTHORS
+import io.theficos.ereader.data.ai.FIELD_DESCRIPTION
+import io.theficos.ereader.data.ai.FIELD_SERIES
+import io.theficos.ereader.data.ai.FIELD_TITLE
 import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.ProgressRepository
 import io.theficos.ereader.data.local.db.EReaderDatabase
@@ -126,20 +133,63 @@ class BookDetailViewModelDetailsTest {
     private val tidied = """{"key":"k","book":{"title":"Dune","authors":["Frank Herbert"]},""" +
         """"origins":{"title":"ai","authors":"openlibrary"},"tidy":"done"}"""
 
-    @Test fun `Tidy details shows its progress, then the tidied book and how it went`() = runTest {
+    @Test fun `Improve details shows its progress, then a preview, and says what changed`() = runTest {
         answer("/details/v1/tidy", tidied)
         val vm = viewModel()
         vm.state.first { it.details.available }
 
-        vm.tidyDetails()
-        assertThat(vm.state.value.details.tidying).isTrue()
+        vm.improveDetails()
+        assertThat(vm.state.value.details.improving).isTrue()
         holdTidy.countDown()
-        val done = vm.state.first { it.details.outcome != null && it.details.stored != null }
+        val preview = vm.state.first { it.details.preview?.cover?.preview != null }.details.preview!!
 
-        assertThat(done.details.tidying).isFalse()
-        assertThat(done.details.outcome!!.asString(englishContext())).isEqualTo("Details tidied.")
-        assertThat(done.details.shown!!.response.book.title).isEqualTo("Dune")
+        assertThat(preview.changes.map { it.field }).containsExactly(FIELD_TITLE, FIELD_AUTHORS).inOrder()
+        assertThat(preview.changes.first().current).isEqualTo("dune_frank_herbert")
+        assertThat(preview.changes.first().proposed).isEqualTo("Dune")
+        assertThat(preview.coverOptions).isEmpty()
+        assertThat(details.observe(bookId).first()).isNull()
+
+        vm.toggleChange(FIELD_AUTHORS)
+        vm.applyPreview()
+        val done = vm.state.first { it.details.preview == null && it.details.outcome.isNotEmpty() && it.details.shown != null }
+
+        assertThat(done.details.outcome.joinToString(" ") { it.asString(englishContext()) }).isEqualTo("Updated: title.")
+        assertThat(done.details.shown!!.response.accepted).containsExactly(FIELD_TITLE, FIELD_SERIES, FIELD_DESCRIPTION)
         assertThat(done.document!!.title).isEqualTo("dune_frank_herbert")
+    }
+
+    @Test fun `with nothing to change and no cover to choose there is no preview`() = runTest {
+        answer("/details/v1/tidy", """{"key":"k","book":{"title":"dune_frank_herbert"},"origins":{"title":"file"},"tidy":"not_needed"}""")
+        holdTidy.countDown()
+        val vm = viewModel()
+        vm.state.first { it.details.available }
+
+        vm.improveDetails()
+        val done = vm.state.first { it.details.outcome.isNotEmpty() }
+
+        assertThat(done.details.preview).isNull()
+        assertThat(done.details.outcome.single().asString(englishContext())).isEqualTo("These details already look right.")
+    }
+
+    @Test fun `the cover choices offered follow the server and the book`() = runTest {
+        answer("/ai/v1/config", """{"configured":true,"details_supported":true,"cover_choice_supported":true,"cover_painting_supported":true}""")
+        answer("/ai/v1/preferences", """{"ai_enabled":true,"style":{"tone":"neutral","language":"auto"}}""")
+        ai.refresh()
+        answer("/details/v1/tidy", """{"key":"k","book":{"title":"dune_frank_herbert"},"tidy":"not_needed"}""")
+        holdTidy.countDown()
+        val vm = viewModel()
+        vm.state.first { it.details.available }
+
+        vm.improveDetails()
+        val preview = vm.state.first { it.details.preview != null }.details.preview!!
+
+        // No cover of its own: the first choice already finds one.
+        assertThat(preview.coverOptions).containsExactly(COVER_KEEP, COVER_DRAW, COVER_PAINT).inOrder()
+        assertThat(preview.changes).isEmpty()
+        vm.cancelPreview()
+        assertThat(vm.state.value.details.preview).isNull()
+        val declined = details.observe(bookId).first { it != null }!!
+        assertThat(declined.response.declined).isEqualTo("k")
     }
 
     @Test fun `a spent allowance says when it renews`() = runTest {
@@ -148,10 +198,10 @@ class BookDetailViewModelDetailsTest {
         val vm = viewModel()
         vm.state.first { it.details.available }
 
-        vm.tidyDetails()
-        val failed = vm.state.first { it.details.outcome != null }
+        vm.improveDetails()
+        val failed = vm.state.first { it.details.outcome.isNotEmpty() }
 
-        assertThat(failed.details.outcome!!.asString(englishContext()))
+        assertThat(failed.details.outcome.single().asString(englishContext()))
             .isEqualTo("You’ve used up your AI allowance. It renews on 2026-12-01.")
         assertThat(failed.details.stored).isNull()
     }
@@ -161,7 +211,9 @@ class BookDetailViewModelDetailsTest {
         holdTidy.countDown()
         val vm = viewModel()
         vm.state.first { it.details.available }
-        vm.tidyDetails()
+        vm.improveDetails()
+        vm.state.first { it.details.preview?.canApply == true }
+        vm.applyPreview()
         vm.state.first { it.details.shown != null }
 
         vm.useOriginalDetails(true)
