@@ -61,6 +61,7 @@ import io.theficos.ereader.ui.onboarding.QuireSignInScreen
 import io.theficos.ereader.ui.onboarding.ConnectServerViewModel
 import io.theficos.ereader.ui.onboarding.WelcomeScreen
 import io.theficos.ereader.ui.onboarding.pickStartDestination
+import io.theficos.ereader.ui.reader.HighlightsDiscussionViewModel
 import io.theficos.ereader.ui.reader.ReaderScreen
 import io.theficos.ereader.ui.reader.ReaderViewModel
 import io.theficos.ereader.ui.scan.ScanResultScreen
@@ -332,6 +333,16 @@ fun AppNavGraph(
                     }
                 },
             )
+            val discussion: HighlightsDiscussionViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer {
+                        HighlightsDiscussionViewModel(
+                            limits = container.highlightsDiscussLimits,
+                            discuss = container.aiRepository::discussHighlights,
+                        )
+                    }
+                },
+            )
             val highlightsOpened by container.whatsNewPreferencesStore.highlightsOpened.collectAsState()
             ReaderScreen(
                 viewModel = vm,
@@ -345,6 +356,7 @@ fun AppNavGraph(
                     // while the book is open, and cleared with it.
                     BookDetailSheet(viewModel = bookDetailViewModel(container, docId), onDismiss = onDismiss)
                 },
+                discussion = discussion,
             )
         }
         composable(

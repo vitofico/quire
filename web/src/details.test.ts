@@ -470,6 +470,11 @@ describe('stored details', () => {
 describe('improving details on request', () => {
   const t = (key: string) => key
   const drawnUrl = `/details/v1/covers/${'c'.repeat(64)}?v=e1`
+  /** What the reader sees of a book: its details as shown and its found cover. */
+  const seen = (details?: BookDetails) => {
+    const { details: _, ...shown } = withDetails({ ...messy, details })
+    return { ...shown, cover: foundCover({ ...messy, details }) }
+  }
 
   it('keeps only the accepted improvements, and a field the book changed since shows the book\'s value', async () => {
     const store = memoryStore()
@@ -590,6 +595,44 @@ describe('improving details on request', () => {
     expect(details.accepted).toEqual([])
     expect(withDetails({ ...messy, details })).toMatchObject({ title: messy.title, authors: messy.authors })
     expect(originLabel({ ...messy, details }, 'title', t)).toBeNull()
+  })
+
+  it('cancelling a tidy that returned the record already shown keeps every detail, now and on the next lookup', async () => {
+    const store = memoryStore()
+    const shown: BookDetails = { attempted_at: 0, answer: answer(), cover_url: drawnUrl, basis: detailsBody(messy).book }
+    const book = { ...messy, details: shown }
+    const before = seen(shown)
+    const request = vi.fn(async () => Response.json(answer({ cached: true })))
+    const proposal = await proposeDetails(store, request, book)
+    proposal.close()
+    await settle()
+    const after = store.saved.get('hash-1') ?? shown
+    expect(seen(after)).toEqual(before)
+    // A re-check served the same record, as a missing cover or a painting would ask for.
+    const details = (await fetchDetails(store, request, { ...messy, details: after }))!
+    expect(seen(details)).toEqual(before)
+  })
+
+  it('a tidy closed with nothing to change records no rejection', async () => {
+    const store = memoryStore()
+    const book = { ...messy, details: { attempted_at: 0, answer: answer({ key: 'a'.repeat(64) }), cover_url: drawnUrl } }
+    const proposal = await proposeDetails(store, vi.fn(async () => Response.json(answer())), book)
+    proposal.close(false)
+    await settle()
+    expect(store.saved.get('hash-1')?.declined).toBeUndefined()
+  })
+
+  it('a rejected record served by a later lookup, as a quota retry is, keeps the details shown before and takes only its cover', async () => {
+    const store = memoryStore()
+    const earlier = answer({ key: 'a'.repeat(64), book: { ...answer().book, title: 'Dune (found)' }, cover: noCover, origins: { title: 'openlibrary' }, tidy: 'quota_exceeded' })
+    const book = { ...messy, details: { attempted_at: 0, answer: earlier, accepted: ['title' as const], basis: detailsBody(messy).book, declined: 'k'.repeat(64) } }
+    const before = seen(book.details)
+    const request = vi.fn(async (path: string) => path === '/details/v1/lookup' ? Response.json(answer({ cached: true })) : png())
+    const details = (await fetchDetails(store, request, book))!
+    expect(seen(details)).toEqual({ ...before, cover: drawnUrl })
+    expect(details).toMatchObject({ accepted: ['title'], retry_at: undefined, answer: { tidy: 'done' } })
+    expect(foundCover({ ...messy, details })).toBe(drawnUrl)
+    expect(originLabel({ ...messy, details }, 'cover', t)).toBe('Tidied by AI')
   })
 
   it('a lookup queued before the preview opened neither overwrites what the reader applied nor brings back what they rejected', async () => {

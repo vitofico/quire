@@ -19,4 +19,8 @@
     <string name="whats_new_open_catalogs_description">Ajoutez d’un geste un catalogue gratuit et légal de classiques dans %1$s → %2$s, ou depuis l’onglet Catalogue tant que vous n’en avez aucun. Ceux dans votre langue apparaissent en premier.</string>
     <string name="whats_new_reading_stats_title">Découvrez comment vous lisez</string>
     <string name="whats_new_reading_stats_description">Quire compte désormais combien de temps, quand et à quelle vitesse vous lisez. Les données restent sur cet appareil et dans la sauvegarde de votre téléphone, et ne sont jamais envoyées au serveur de Quire ni à l’IA. Retrouvez vos séries, votre vitesse et le temps restant d’un livre dans la bibliothèque, sous %1$s → %2$s. Vous pouvez le désactiver dans les paramètres.</string>
+    <string name="whats_new_details_preview_title">Voyez ce que change l’amélioration des informations</string>
+    <string name="whats_new_details_preview_description">Dans %1$s → %2$s d’un livre, voyez chaque modification à côté des informations actuelles, gardez celles que vous voulez et choisissez la couverture : celle du livre, une d’Open Library ou une dessinée par Quire.</string>
+    <string name="whats_new_highlights_discuss_title">Approfondissez vos surlignages</string>
+    <string name="whats_new_highlights_discuss_description">Dans %1$s → %2$s d’un livre, choisissez %3$s, cochez quelques passages et demandez ce qui les relie. L’IA de votre serveur Quire répond en quelques lignes que vous pouvez partager comme note. Rien de la conversation n’est enregistré.</string>
 </resources>

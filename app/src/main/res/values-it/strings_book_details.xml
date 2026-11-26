@@ -1,11 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="details_tidy">"Riordina i dettagli"</string>
-    <string name="details_use_original">"Usa i dettagli originali"</string>
-    <string name="details_use_found">"Usa i dettagli trovati"</string>
-    <string name="details_tidying">"Riordino dei dettagli…"</string>
-    <string name="details_tidied">"Dettagli riordinati."</string>
-    <string name="details_nothing_to_tidy">"Questi dettagli sembrano già corretti."</string>
+    <string name="details_use_original">"Usa gli originali"</string>
+    <string name="details_use_found">"Usa i dati migliorati"</string>
+    <string name="details_nothing_to_tidy">"Questi dati sembrano già corretti."</string>
     <string name="details_allowance_used">"Hai esaurito la tua quota di IA per ora."</string>
     <string name="details_allowance_used_until">"Hai esaurito la tua quota di IA. Si rinnova il %1$s."</string>
     <string name="details_ai_not_available">"L’IA non è disponibile per il tuo account in questo momento. Controlla le funzioni IA nelle Impostazioni."</string>
@@ -18,4 +15,32 @@
     <string name="details_generated_cover">"Copertina generata"</string>
     <string name="details_cover_from_open_library">"Copertina da Open Library"</string>
     <string name="details_view_on_open_library">"Vedi su Open Library"</string>
+    <string name="details_improve">"Migliora i dati"</string>
+    <string name="details_improving">"Miglioramento dei dati…"</string>
+    <string name="details_preview_hint">"Spunta le modifiche da tenere. Il resto resta com’è."</string>
+    <string name="details_current">"Attuale"</string>
+    <string name="details_proposed">"Proposto"</string>
+    <string name="details_empty">"Vuoto"</string>
+    <string name="details_authors">"Autori"</string>
+    <string name="details_description">"Descrizione"</string>
+    <string name="details_cover">"Copertina"</string>
+    <string name="details_cover_keep">"Mantieni la copertina del libro"</string>
+    <string name="details_cover_find">"Cerca una copertina"</string>
+    <string name="details_cover_find_hint">"Da Open Library se ne ha una, altrimenti la disegna Quire."</string>
+    <string name="details_cover_draw">"Copertina disegnata da Quire"</string>
+    <string name="details_cover_paint">"Una copertina dipinta"</string>
+    <string name="details_cover_paint_hint">"Per dipingerla ci vuole un po’: finché non arriva si vede la copertina disegnata."</string>
+    <string name="details_apply">"Applica"</string>
+    <string name="details_updated">"Aggiornato: %1$s."</string>
+    <string name="details_changed_title">"titolo"</string>
+    <string name="details_changed_authors">"autori"</string>
+    <string name="details_changed_series">"serie"</string>
+    <string name="details_changed_description">"descrizione"</string>
+    <string name="details_list_two">"%1$s e %2$s"</string>
+    <string name="details_list_three">"%1$s, %2$s e %3$s"</string>
+    <string name="details_list_four">"%1$s, %2$s, %3$s e %4$s"</string>
+    <string name="details_new_cover">"Nuova copertina."</string>
+    <string name="details_painting_on_its_way">"Una copertina dipinta è in arrivo."</string>
+    <string name="details_no_painting_today">"Oggi non si può dipingere: resta la copertina disegnata."</string>
+    <string name="details_nothing_changed">"Non è cambiato nulla."</string>
 </resources>

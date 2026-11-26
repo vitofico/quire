@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="discuss_select">"Auswählen"</string>
+    <string name="discuss_cancel_selection">"Auswahl aufheben"</string>
+    <string name="discuss_selected_count">"Ausgewählt: %1$d"</string>
+    <string name="discuss_title">"Durchdenken"</string>
+    <plurals name="discuss_select_limit">
+        <item quantity="one">"Du kannst bis zu %1$d Passage auswählen."</item>
+        <item quantity="other">"Du kannst bis zu %1$d Passagen auswählen."</item>
+    </plurals>
+    <string name="discuss_nothing_saved">"Hier wird nichts gespeichert. Wenn du diesen Bildschirm schließt, wird das Gespräch verworfen."</string>
+    <string name="discuss_selected_passages">"Ausgewählte Passagen"</string>
+    <string name="discuss_passage">"Passage %1$d"</string>
+    <string name="discuss_passage_excerpt">"Passage %1$d: %2$s"</string>
+    <string name="discuss_clipped">"Einige lange Passagen wurden gekürzt, damit sie in das Limit des Servers passen."</string>
+    <string name="discuss_include_notes">"Meine Notizen einbeziehen"</string>
+    <string name="discuss_privacy_notes">"Wird an den KI-Anbieter deines Servers gesendet: die ausgewählten Passagen und deine Notizen, deine Fragen und die bisherigen Antworten, samt Titeln und Autoren der Bücher."</string>
+    <string name="discuss_privacy">"Wird an den KI-Anbieter deines Servers gesendet: die ausgewählten Passagen, deine Fragen und die bisherigen Antworten, samt Titeln und Autoren der Bücher."</string>
+    <string name="discuss_based_on">"Gestützt auf die Passagen"</string>
+    <string name="discuss_passages_heading">"Passagen"</string>
+    <string name="discuss_share">"Teilen"</string>
+    <string name="discuss_copy">"Kopieren"</string>
+    <string name="discuss_copied">"Kopiert."</string>
+    <string name="discuss_thinking">"Denkt nach…"</string>
+    <string name="discuss_answer_ready">"Antwort bereit"</string>
+    <string name="discuss_starter_connects">"Was verbindet sie?"</string>
+    <string name="discuss_starter_disagree">"Worin widersprechen sie sich?"</string>
+    <string name="discuss_starter_note">"Als Notiz zusammenfassen"</string>
+    <string name="discuss_your_question">"Deine Frage"</string>
+    <string name="discuss_follow_up">"Nachfrage"</string>
+    <string name="discuss_ask">"Fragen"</string>
+    <string name="discuss_questions_left">"Verbleibende Fragen: %1$d"</string>
+    <string name="discuss_limit_reached">"Dieses Gespräch hat die maximale Zahl an Fragen erreicht."</string>
+    <string name="discuss_start_again">"Neu beginnen"</string>
+    <string name="discuss_share_failed">"Quire konnte diese Antwort nicht kopieren oder teilen."</string>
+    <string name="discuss_not_offered">"Dieser Server beantwortet gerade keine Fragen zu Markierungen."</string>
+    <string name="discuss_too_large">"Diese Passagen und Fragen sind zusammen zu lang. Wähle weniger Passagen aus oder beginne neu."</string>
+    <string name="discuss_refused">"Der Server konnte diese Passagen oder diese Frage nicht verwenden."</string>
+    <string name="discuss_provider_gone">"Der ausgewählte KI-Anbieter wurde entfernt. Wähle in den Einstellungen einen anderen."</string>
+    <string name="discuss_failed">"Es kam keine Antwort. Versuche es später erneut."</string>
+</resources>
