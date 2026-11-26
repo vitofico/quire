@@ -57,7 +57,7 @@ credentials are included. See the [screenshot notes](docs/assets/README.md).
   the book title and author. [Highlights work offline and sync with Quire Server](docs/reader-highlights.md),
   including when you remove a download and later import the same book again.
   Quire Server also offers [read-only Agent/MCP access](docs/agent-access.md) to
-  authorized stored highlights; device-local memory bookmarks are never exposed.
+  your synced highlights and library; device-local memory bookmarks are never exposed.
 - **Leave yourself a way back.** Open **More → Pause & resume** in the reader
   to save a memory bookmark with an optional sentence or question and nearby
   passage context. Return explicitly, edit the note, replace its location or
@@ -72,9 +72,23 @@ credentials are included. See the [screenshot notes](docs/assets/README.md).
 - **Keep a useful shelf.** Search, sort, continue reading, and filter finished
   or abandoned books. With Quire Server, Library Stats brings together reading
   counts and authors.
+- **See how you read.** Open **More → Reading statistics** in the library for
+  reading time today, this week, this month and overall, streaks, books
+  finished, a chart by day or month, the hours and weekdays you read most, your
+  speed in words per minute with a weekly trend, and per book the sessions and
+  roughly how long is left at your pace. Recording is on by default and can be
+  switched off in Settings. The [statistics](docs/reading-statistics.md) stay on
+  the device and in your phone's own backup, never on Quire Server or with AI.
 - **Know what is in a book.** Tap its info icon or long-press it for the
   description, series, publisher, language, subjects, ISBN, progress and file size.
-  Imported EPUB metadata stays with the book.
+  Imported EPUB metadata stays with the book. With AI on, **Improve details**
+  proposes tidier details and a new cover for you to accept field by field
+  (see [AI, on your terms](#ai-on-your-terms)).
+- **Hear from Quire only if you ask.** Under **Settings → Notifications and
+  quiet**, switch on a notification when a saved catalog has new books, a
+  daily reading reminder at the time and on the days you choose, or Do Not
+  Disturb (priority only) while a book is open. All three are off until you
+  turn them on. See [Notifications and quiet](docs/notifications.md).
 
 Under **Settings → Appearance**, follow the system or stay light or dark.
 Choose Paper or Sage for light mode, and Ink or Midnight for dark mode.
@@ -112,7 +126,7 @@ actual Sherlock Holmes page in Sepia and Literata. Open a full-size example:
 
 ## Read in your browser
 
-Open `/quire/` on an installation of Quire Server that includes the web client. A server with a hostname of its own can serve the reader at the root instead (`QUIRE_SERVER_WEB_AT_ROOT`), and old `/quire/` links keep working. Choose **Import EPUB** to read a local book, or connect an OPDS feed from **Catalog**. The library and reader work offline after the browser caches the app and the book. Browser storage belongs to the current browser profile.
+Open `/quire/` on an installation of Quire Server that includes the web client. A server with a hostname of its own can serve the reader at the root instead (`QUIRE_SERVER_WEB_AT_ROOT`), and old `/quire/` links keep working. Choose **Import EPUB** to read a local book (**Import EPUB or PDF** when the server converts PDFs), or connect an OPDS feed from **Catalog**. The library and reader work offline after the browser caches the app and the book. Browser storage belongs to the current browser profile.
 
 Sign in under **Settings → Account** to sync your shelf, progress and highlighted passages with Android. Books imported on another device appear with **Open your copy**, and show their cover once you have signed in to the catalog they came from. Select the same EPUB or download it from the catalog to resume reading. The private pause bookmark stays on the device where you saved it. [Browser setup and deployment](server/README.md)
 
@@ -126,14 +140,19 @@ Sign in under **Settings → Account** to sync your shelf, progress and highligh
   server sync, the library mirror and AI features stay off.
 - **From a free catalog:** under **Open catalogs**, add a free, legal
   catalog of public-domain books in one tap, with those in your language
-  first. Quire offers them in Settings → Catalogs, on an empty Catalog tab and
-  in Quire Web. The device, or on the web your Quire server, then contacts that
+  first. The built-in list currently holds Spanish and French catalogs.
+  Quire offers them in Settings → Catalogs, on an empty Catalog tab and in
+  Quire Web. The device, or on the web your Quire server, then contacts that
   catalog's site.
 - **Across devices:** add a compatible **Quire Server** to sync reading state
   and your per-user library mirror. The calibre-web integration keeps
   calibre-web as the source of books and Quire Server as the source of reading
   state. Onboarding supports calibre-web credentials and compatible Quire
   Server account sign-in, according to the server you run.
+- **From a PDF:** share a PDF with Quire on Android, or add one with **+** in
+  the library or in Quire Web, and a Quire Server with conversion turned on
+  turns it into an EPUB in your library. Follow it under **More → PDF
+  conversions** on Android. See [Turn a PDF into an EPUB](#turn-a-pdf-into-an-epub).
 
 On first launch, **Skip — use offline only** opens the local library. Tap **+**
 to import an EPUB with Android's file picker; opening an EPUB shared by another
@@ -179,8 +198,14 @@ The exit code is the verdict: `0` ready, `2` needs review, `3` unsupported
 (scans, multi-column or right-to-left layouts, equations), `1` failed.
 `quire-convert deliver` saves a converted book to Calibre-Web. The tool needs
 Python 3.12, Calibre's `ebook-convert`, the Poppler utilities and Java 17 for
-EPUBCheck. It runs on your computer; the Android app and Quire Server do not
-convert PDFs.
+EPUBCheck.
+
+The apps use the same converter through Quire Server. The server queues the
+uploaded PDF and a separate worker container (`ghcr.io/vitofico/quire-convert`,
+no network access) converts it; the app then downloads the EPUB and lists any
+pages that need a look. No model is used and nothing leaves the server, so it
+works with AI switched off. Conversion is off by default: the
+[PDF conversion setup](docs/configuration.md#pdf-conversion) turns it on.
 
 Quire is the native Kotlin / Compose / Readium client. Quire Server is an
 optional FastAPI service backed by Postgres, available as
@@ -205,17 +230,35 @@ With AI enabled and opted into, Quire can provide:
   suggestions from your library, OpenLibrary discovery and the model.
 - **Your preferred voice:** adjustable tone and language, plus regeneration
   with feedback. Shared instance caches avoid repeating the same generation.
-- **Think through your highlights (Quire Web):** in Highlights choose
-  **Select**, tick a few passages from any books and ask a question about
-  them. The short answer names the passages it used, takes a few follow-ups,
-  and leaves as a plain-text note through Share or Copy. Nothing is saved, and
-  only the selected passages, your notes on them (optional) and the books'
-  titles and authors are sent.
+- **Better book details and covers:** when a title is really a file name, or
+  a book lacks a cover or description, the server looks it up on Open Library
+  and the model tidies the title, authors, series and description. **Improve
+  details** shows each proposed change beside the current one, so you keep
+  only what you tick. For the cover, keep the book's own, find one (from Open
+  Library when it has one, else drawn by Quire), use Quire's drawn cover, or
+  ask for a painted one when the administrator has set up an image provider.
+  On Android, books with missing details are also looked up in the
+  background on Wi-Fi, up to 25 a day, and can go back to their original
+  details.
+- **Think through your highlights:** choose **Select** in Highlights (on
+  Android, a book's **More → Highlights**; in Quire Web, across books), tick a
+  few passages and ask a question about them. The short answer names the
+  passages it used, takes a few follow-ups, and leaves as a plain-text note
+  through Share or Copy. Nothing is saved, and only the selected passages, your
+  notes on them (optional) and the books' titles and authors are sent.
 
 ISBN scanning also looks up a physical book through OpenLibrary. A compatible
 Quire Server can return an already-owned check and a deterministic reader-affinity
 score based on your library, **without an LLM call**. A generated insight is
 an optional follow-up. ISBN metadata and cover lookups are separate from AI opt-in.
+
+You can also bring your own assistant. Quire Server's read-only MCP endpoint
+(`/mcp`) gives an MCP client seven tools on your account: `list_highlights`,
+`search_highlights`, `get_highlight`, `get_highlights`,
+`list_highlighted_books`, `list_library` and `get_book`. They read highlights,
+your shelf with reading progress and tidied book details; none can change
+anything, and the server makes no model call for them. See
+[Agent access](docs/agent-access.md).
 
 Administrators can set per-user budgets and run sync-only, AI-only or full
 server deployments. See [AI configuration](docs/configuration.md) and the
@@ -233,7 +276,11 @@ server deployments. See [AI configuration](docs/configuration.md) and the
 - When AI is enabled and you opt in, Quire Server contacts the configured
   model endpoint and the public Wikipedia and OpenLibrary APIs for grounding
   and discovery. The endpoint may be local or a third-party provider chosen
-  by your administrator.
+  by your administrator. Improving book details sends the book's details to
+  that endpoint; a painted cover sends the title, a few subjects and the start
+  of the description to the image provider the administrator configured.
+- PDF conversion happens on your Quire Server; the PDF goes nowhere else.
+- Reading statistics stay on the device and in its own Android backup.
 - Memory bookmarks and their notes stay in the device database, separate from
   reading-progress and highlight sync. They make no AI calls or book uploads.
 - Stored credentials are encrypted with keys protected by **Android Keystore**,
@@ -299,13 +346,16 @@ auth/                 Encrypted credentials for catalog and server accounts
 core/identity/        Document identity: hash + dc:identifier normalization
 core/model/           Domain types (Document, Progress, Bookmark)
 data/local/           Room database, DAOs
-data/opds/            calibre-web OPDS client
+core/metadata/        EPUB metadata, cover and ISBN extraction
+data/ai/              quire-server AI and book details client
+data/opds/            OPDS 1.x catalog client
 data/sync/            quire-server REST client + WorkManager job
-data/library/         quire-server /library/v1 HTTP client (stats today)
+data/library/         quire-server library mirror, stats and PDF conversion client
 reader/               Readium navigator integration
 server/               quire-server (Python / FastAPI)
 web/                  Quire Web (React), shipped inside the server image
-converter/            quire-convert: checked PDF to EPUB conversion (Python CLI)
+converter/            quire-convert: checked PDF to EPUB conversion (CLI and server worker)
+catalogs/             Built-in list of open OPDS catalogs
 docs/                 Architecture, development, sync API reference
 scripts/dgradle       Gradle wrapper that runs inside the project's Docker image
 Dockerfile            Reproducible Android build environment (linux/amd64)
@@ -313,15 +363,19 @@ Dockerfile            Reproducible Android build environment (linux/amd64)
 
 ## Documentation
 
-- [Migrate from Calibre-Web login to a Quire account](docs/independent-login-migration.md) — keep your reading history and continue downloading books from Calibre-Web.
-- [`docs/architecture.md`](docs/architecture.md) — components, document
+- [Migrate from Calibre-Web login to a Quire account](docs/independent-login-migration.md): keep your reading history and continue downloading books from Calibre-Web.
+- [`docs/architecture.md`](docs/architecture.md): components, document
   identity, sync model, conflict resolution, auth.
-- [`docs/development.md`](docs/development.md) — module layout, build
+- [`docs/development.md`](docs/development.md): module layout, build
   commands, testing, CI, releases.
-- [`docs/sync-api.md`](docs/sync-api.md) — REST surface of Quire Server.
+- [`docs/sync-api.md`](docs/sync-api.md): REST surface of Quire Server.
 - [Reader highlights](docs/reader-highlights.md) and
-  [Pause and return](docs/reader-pause.md) — separate saved-passage workflows.
-- [Agent access](docs/agent-access.md) — read-only highlight REST/MCP setup.
+  [Pause and return](docs/reader-pause.md): separate saved-passage workflows.
+- [Agent access](docs/agent-access.md): read-only highlight and library MCP
+  setup, plus the highlight REST API.
+- [Reading statistics](docs/reading-statistics.md) and
+  [Notifications and quiet](docs/notifications.md): what Android records and
+  when it notifies.
 
 ## Make Quire speak your language
 
@@ -337,7 +391,7 @@ welcome to contribute and review the wording.
 See [`CONTRIBUTING.md`](CONTRIBUTING.md). TL;DR: gitmoji + conventional
 commits, `scripts/dgradle test` and `cd server && uv run pytest` must
 pass, no telemetry / analytics PRs. External contributors also need to
-sign the [Quire CLA](CLA.md) on the PR before it can be merged — see
+sign the [Quire CLA](CLA.md) on the PR before it can be merged; see
 CONTRIBUTING.md for the one-line comment.
 
 ## Security
