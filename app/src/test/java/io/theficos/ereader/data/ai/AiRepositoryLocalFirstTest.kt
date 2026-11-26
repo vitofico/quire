@@ -41,7 +41,7 @@ class AiRepositoryLocalFirstTest {
             http = OkHttpClient.Builder().callTimeout(5, TimeUnit.SECONDS).build(),
         )
         dao = FakeInsightDao()
-        repo = AiRepository(client = client, insightDao = dao, clock = { 1_000_000L })
+        repo = AiRepository(client = client, insightDao = dao, clock = { 1_000_000L }, appLanguage = { "en" })
     }
 
     @After fun tearDown() {
@@ -74,7 +74,7 @@ class AiRepositoryLocalFirstTest {
         modelId: String = "llama3.1",
         promptVersion: String = "4",
         tone: String = "neutral",
-        language: String = "auto",
+        language: String = "en",
         payloadJson: String = """{"schema_version":4}""",
     ) {
         dao.seed(
@@ -130,7 +130,7 @@ class AiRepositoryLocalFirstTest {
         assertThat(server.awaitRequest().path).isEqualTo("/ai/v1/config")
         assertThat(repo.config.value?.providerId).isEqualTo("openai")
         // The old generation stays saved, available when its model is selected again.
-        assertThat(dao.getByIdentity("m1", "llama3.1", "4", "neutral", "auto")).isNotNull()
+        assertThat(dao.getByIdentity("m1", "llama3.1", "4", "neutral", "en")).isNotNull()
     }
 
     @Test fun `lookupInsight short-circuits on cache hit`() = runTest {
@@ -153,7 +153,7 @@ class AiRepositoryLocalFirstTest {
         val resp = repo.lookupInsight(identity, bundle)
         assertThat(resp.modelId).isEqualTo("llama3.1")
         // Wrote back to local cache.
-        val cached = dao.getByIdentity("m1", "llama3.1", "4", "neutral", "auto")
+        val cached = dao.getByIdentity("m1", "llama3.1", "4", "neutral", "en")
         assertThat(cached).isNotNull()
         assertThat(cached!!.promptVersion).isEqualTo("4")
     }
@@ -176,7 +176,7 @@ class AiRepositoryLocalFirstTest {
         val resp = repo.getCachedInsight(identity)
         assertThat(resp).isNotNull()
         // The write-back is the v2 fix: getCachedInsight() MUST cache successful gets.
-        val cached = dao.getByIdentity("m1", "llama3.1", "4", "neutral", "auto")
+        val cached = dao.getByIdentity("m1", "llama3.1", "4", "neutral", "en")
         assertThat(cached).isNotNull()
     }
 
@@ -290,8 +290,8 @@ class AiRepositoryLocalFirstTest {
         val resp = repo.lookupInsight(identity, bundle)
         assertThat(resp.promptVersion).isEqualTo("5")
         // Both old and new rows coexist on disk.
-        assertThat(dao.getByIdentity("m1", "llama3.1", "4", "neutral", "auto")).isNotNull()
-        assertThat(dao.getByIdentity("m1", "llama3.1", "5", "neutral", "auto")).isNotNull()
+        assertThat(dao.getByIdentity("m1", "llama3.1", "4", "neutral", "en")).isNotNull()
+        assertThat(dao.getByIdentity("m1", "llama3.1", "5", "neutral", "en")).isNotNull()
     }
 
     @Test fun `AiConfig defaults promptVersion to 1 when server omits the field`() = runTest {

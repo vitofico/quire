@@ -42,6 +42,18 @@ class AiClientTest {
     fun tearDown() = server.shutdown()
 
     @Test
+    fun `every call tells the server the app language`() = runTest {
+        val italian = AiClient(
+            baseUrlProvider = { server.url("").toString().trimEnd('/') },
+            http = OkHttpClient.Builder().callTimeout(5, TimeUnit.SECONDS).build(),
+            language = { "it" },
+        )
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"ai_enabled":true,"style":{"tone":"neutral"}}"""))
+        italian.getPreferences()
+        assertThat(server.takeRequest(5, TimeUnit.SECONDS)!!.getHeader("Accept-Language")).isEqualTo("it")
+    }
+
+    @Test
     fun `getConfig parses response with quota fields`() = runTest {
         server.enqueue(
             MockResponse().setResponseCode(200).setBody(

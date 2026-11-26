@@ -228,7 +228,7 @@ test('transition mode checks native cookies separately from Basic and remembers 
     expect(headers.get('Authorization')).toBeNull()
     expect(init?.credentials).toBe('same-origin')
     if (path === '/auth/v1/browser/login') {
-      expect(JSON.parse(String(init?.body))).toMatchObject({ email: 'reader@example.test', password: 'native-secret' })
+      expect(JSON.parse(String(init?.body))).toMatchObject({ email: 'reader@example.test', password: 'native-secret' }) // pragma: allowlist secret
       cookie = true
       return Response.json({ account_id: 'native:42' })
     }
@@ -257,7 +257,7 @@ test('transition mode checks native cookies separately from Basic and remembers 
 test.each([
   '/quire/',
   'http://reader.example.test/quire/',
-  'https://user:secret@reader.example.test/quire/',
+  'https://user:secret@reader.example.test/quire/', // pragma: allowlist secret
   'https://reader.example.test/quire/?from=legacy',
   'https://reader.example.test/other/',
 ])('does not expose an unsafe isolated native sign-in destination %s', async nativeWebUrl => {
@@ -321,4 +321,24 @@ test('a Calibre-Web reader creates a Quire account from the browser and lands si
 
   render(<AccountSettings account={{ ...result.current, active: { ...result.current.active, mode: 'local' } }} pending={0} sync={async () => {}} clear={async () => {}} />)
   expect(screen.getByText('Move a Calibre-Web account to Quire')).toBeTruthy()
+})
+
+test('names the app’s language to the server, so AI insights are written in it', async () => {
+  document.documentElement.lang = 'it'
+  const seen: Headers[] = []
+  vi.stubGlobal('fetch', vi.fn(async (path: string | URL, options?: RequestInit) => {
+    if (path === '/quire/v1/bootstrap') return Response.json(config)
+    if (path === '/quire/v1/session') return Response.json({ version: 1, user: { backend: 'calibreweb', id: 'alice' } })
+    seen.push(new Headers(options?.headers))
+    return Response.json({})
+  }))
+  try {
+    const { result } = renderHook(() => useAccount())
+    await waitFor(() => expect(result.current.status).toBe('ready'))
+    await act(async () => { await result.current.signInBasic('Alice', 'password', false, true) })
+    await result.current.active.request!('/ai/v1/profile')
+    expect(seen.at(-1)?.get('Accept-Language')).toBe('it')
+  } finally {
+    document.documentElement.lang = ''
+  }
 })

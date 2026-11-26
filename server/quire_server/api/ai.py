@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from quire_server.api.ai_auth import AiPrincipal, get_ai_principal
 from quire_server.api.ai_schemas import (
+    ISO_639_1_CODES,
     AiHealthResponse,
     AIProviderView,
     AiStyle,
@@ -155,6 +156,31 @@ def _style_from_pref(pref: UserAIPreference) -> AiStyle:
         return AiStyle.model_validate(filtered)
     except Exception:
         return AiStyle()
+
+
+def _app_language(request: Request) -> str | None:
+    """The first language the app asks for in ``Accept-Language``, as an ISO
+    639-1 code, or ``None`` when it sends none Quire can write in."""
+    first = request.headers.get("accept-language", "").split(",")[0]
+    code = first.split(";")[0].strip().split("-")[0].lower()
+    return code if code in ISO_639_1_CODES else None
+
+
+def _effective_style(pref: UserAIPreference | None, request: Request) -> AiStyle:
+    """The reader's style with ``auto`` resolved to the app's language.
+
+    ``auto`` (the reader never picked an insight language) means the language
+    the app is shown in, which the Android app and Quire Web send as
+    ``Accept-Language``. The resolved code is what the prompt asks for AND what
+    the cache is keyed on, so changing the app's language never serves an
+    insight cached in the old one. A caller that sends no usable language
+    keeps ``auto``, which asks for the book's own language.
+    """
+    style = _style_from_pref(pref) if pref is not None else AiStyle()
+    if style.language != "auto":
+        return style
+    language = _app_language(request)
+    return style if language is None else style.model_copy(update={"language": language})
 
 
 def _truncate(value: str | None, *, limit: int) -> str | None:
@@ -451,7 +477,7 @@ async def lookup_insight(
             body.identity,
             bundle,
             user_id=principal.subject,
-            style=_style_from_pref(pref),
+            style=_effective_style(pref, request),
             tenant_id=principal.tenant_id,
         )
     except QuotaExceeded as exc:
@@ -490,7 +516,7 @@ async def regenerate_insight(
             bundle,
             user_id=principal.subject,
             reason=body.reason,
-            style=_style_from_pref(pref),
+            style=_effective_style(pref, request),
             tenant_id=principal.tenant_id,
         )
     except QuotaExceeded as exc:
@@ -518,7 +544,7 @@ async def get_insight(
             select(UserAIPreference).where(UserAIPreference.user_id == principal.subject)
         )
     ).scalar_one_or_none()
-    style = _style_from_pref(pref) if pref is not None else AiStyle()
+    style = _effective_style(pref, request)
     out = await orch.get(
         session,
         body.identity,
@@ -572,9 +598,9 @@ async def promote_insight(
         )
     except QuotaExceeded as exc:
         raise _quota_http_exception(exc) from exc
-    style = _style_from_pref(pref)
+    style = _effective_style(pref, request)
     tone = body.tone or style.tone
-    language = body.language or style.language
+    language = body.language if body.language not in (None, "auto") else style.language
     try:
         result = await orch.promote_insight(
             session,
@@ -619,7 +645,7 @@ async def sync_insights(
     if orch is None:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="ai_disabled")
     pref = await _require_opt_in(session, principal.subject)
-    style = _style_from_pref(pref)
+    style = _effective_style(pref, request)
 
     if (since_ts is None) != (since_id is None):
         raise HTTPException(
@@ -810,13 +836,17 @@ router.add_api_route(
 
 @router.get("/profile", response_model=ReaderProfileResponse)
 async def get_profile(
+    request: Request,
     principal: Annotated[AiPrincipal, Depends(get_ai_principal)],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> ReaderProfileResponse:
     """Cache-only profile read.
 
     No opt-in gate (opted-out users can still read their last generation),
-    no LLM call. 404 when no row exists. Refresh / generation lives in
+    no LLM call. 404 when no row exists, and also when its prose is in
+    another language than the reader's insight language now resolves to: the
+    reader gets the "generate" state, as a book insight cached in another
+    language is a cache miss. Refresh / generation lives in
     pr-β's `POST /ai/v1/profile/refresh`.
     """
     row = (
@@ -829,8 +859,19 @@ async def get_profile(
     ).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no_profile")
+    payload = ReaderProfilePayload.model_validate(row.payload)
+    pref = (
+        await session.execute(
+            select(UserAIPreference).where(UserAIPreference.user_id == principal.subject)
+        )
+    ).scalar_one_or_none()
+    language = _effective_style(pref, request).language
+    # Profiles from before READER_PROFILE_PROMPT_VERSION 2 asked for no
+    # language and were written in English. A stats-only profile has no prose.
+    if payload.narrative and language != "auto" and (payload.language or "en") != language:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no_profile")
     return ReaderProfileResponse(
-        payload=ReaderProfilePayload.model_validate(row.payload),
+        payload=payload,
         schema_version=row.schema_version,
         model_id=row.model_id,
         prompt_version=row.prompt_version,
@@ -874,9 +915,13 @@ async def refresh_profile(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"error": "profile_requires_progress_data"},
         )
-    await _require_opt_in(session, principal.subject)
+    pref = await _require_opt_in(session, principal.subject)
     try:
-        payload = await orch.refresh_profile(principal=principal, session=session)
+        payload = await orch.refresh_profile(
+            principal=principal,
+            session=session,
+            language=_effective_style(pref, request).language,
+        )
     except QuotaExceeded as exc:
         raise _quota_http_exception(exc) from exc
     except ProfileGenerationError as exc:

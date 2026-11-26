@@ -85,7 +85,7 @@ function PreferenceForm({ request, config, preferences, t }: {
           </select>
         </label>
         <label>
-          {t("Insight language (auto or a two-letter language code)")}
+          {t("Insight language (auto follows the app’s language, or a two-letter language code)")}
           <input value={draft.style.language} maxLength={4} onChange={(event) => setDraft({ ...draft, style: { ...draft.style, language: event.target.value.toLowerCase() } })} />
         </label>
         <button disabled={busy || !validLanguage || (draft.ai_enabled && missingProvider(config, draft)) || JSON.stringify(draft) === JSON.stringify(preferences)}>

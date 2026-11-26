@@ -25,6 +25,8 @@
     <string name="whats_new_details_preview_description">Unter %1$s → %2$s in einem Buch siehst du jede Änderung neben den aktuellen Angaben, behältst die gewünschten und wählst das Cover: das des Buchs, eins von Open Library oder eins, das Quire zeichnet.</string>
     <string name="whats_new_highlights_discuss_title">Markierungen durchdenken</string>
     <string name="whats_new_highlights_discuss_description">Wähle in einem Buch unter %1$s → %2$s „%3$s“, markiere ein paar Passagen und frage, was sie verbindet. Die KI deines Quire-Servers antwortet in wenigen Zeilen, die du als Notiz teilen kannst. Vom Gespräch wird nichts gespeichert.</string>
+    <string name="whats_new_insight_language_title">Einblicke in deiner Sprache</string>
+    <string name="whats_new_insight_language_description">Buch- und Bibliothekseinblicke werden jetzt in der Sprache der App geschrieben, sofern du keine andere gewählt hast, und auch die Themen der Bücher erscheinen in deiner Sprache. Außerdem kannst du einen offenen Katalog direkt in der Liste entfernen, in der du ihn hinzugefügt hast.</string>
     <string name="whats_new_unified_stats_title">Alle Statistiken an einem Ort</string>
     <string name="whats_new_unified_stats_description">Bibliotheksstatistik und Lesestatistik sind jetzt ein Bildschirm, in der Bibliothek unter %1$s → %2$s. Die Zahlen deiner Bibliothek, häufigste Autoren und Themen stehen neben Lesezeit, Serien und Tempo und bleiben auch bei ausgeschalteter Aufzeichnung sichtbar.</string>
     <string name="whats_new_gutenberg_title">Project Gutenberg mit einem Tippen</string>

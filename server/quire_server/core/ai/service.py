@@ -74,6 +74,7 @@ from quire_server.core.ai.prompts import (
     SYSTEM_PROMPT,
     _normalize_book_language,
     compose_user_prompt,
+    profile_language_directive,
 )
 from quire_server.core.ai.provider_errors import describe
 from quire_server.core.ai.themes import normalize_theme
@@ -1672,6 +1673,7 @@ class InsightOrchestrator:
         *,
         principal: _PrincipalLike,
         session: AsyncSession,
+        language: str = "auto",
     ) -> ReaderProfilePayload:
         """Compute (or short-circuit) the reader profile and persist it.
 
@@ -1790,6 +1792,9 @@ class InsightOrchestrator:
                     lib_candidates=lib_candidates,
                     dis_candidates=dis_candidates,
                 )
+                directive = profile_language_directive(language)
+                if directive is not None:
+                    user_prompt = f"{directive}\n\n{user_prompt}"
 
                 try:
                     llm_output: ReaderProfilePromptOutput = await asyncio.wait_for(
@@ -1859,6 +1864,7 @@ class InsightOrchestrator:
                     discovery_recommendations=discovery_recs,
                     ai_suggested_recommendations=ai_suggested_recs,
                     input_fingerprint=fingerprint,
+                    language=None if language == "auto" else language,
                 )
 
                 await self._upsert_reader_profile(session, principal, payload)

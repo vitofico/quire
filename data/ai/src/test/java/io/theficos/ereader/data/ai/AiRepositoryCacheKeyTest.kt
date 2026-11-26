@@ -19,7 +19,7 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33])
 class AiRepositoryCacheKeyTest {
-    @Test fun `local cache requires each model prompt and style key to match`() = runTest {
+    @Test fun `local cache requires each model prompt and style key to match, auto meaning the app language`() = runTest {
         val db = Room.inMemoryDatabaseBuilder(
             ApplicationProvider.getApplicationContext(), EReaderDatabase::class.java,
         ).allowMainThreadQueries().build()
@@ -34,6 +34,7 @@ class AiRepositoryCacheKeyTest {
                         OkHttpClient.Builder().callTimeout(5, TimeUnit.SECONDS).build(),
                     ),
                     dao,
+                    appLanguage = { "de" },
                 )
                 server.enqueue(MockResponse().setBody(
                     """{"configured":true,"model_id":"current-model","prompt_version":"4"}""",
@@ -46,7 +47,7 @@ class AiRepositoryCacheKeyTest {
 
                 val exact = InsightEntity(
                     identityKey = "exact", metadataId = "exact", contentHash = "exact-hash",
-                    modelId = "current-model", promptVersion = "4", tone = "neutral", language = "auto",
+                    modelId = "current-model", promptVersion = "4", tone = "neutral", language = "de",
                     payloadJson = """{"schema_version":4}""", sourcesJson = "[]",
                     schemaVersion = 4, serverId = 1, generatedAt = 1_000, syncedAt = 1_100,
                 )
@@ -59,6 +60,8 @@ class AiRepositoryCacheKeyTest {
                     "prompt" to exact.copy(promptVersion = "3"),
                     "tone" to exact.copy(tone = "scholarly"),
                     "language" to exact.copy(language = "it"),
+                    // Cached before the app language was part of the key: it may be in any language.
+                    "auto" to exact.copy(language = "auto"),
                 )
                 for ((dimension, stale) in mismatches) {
                     val hash = "$dimension-hash"

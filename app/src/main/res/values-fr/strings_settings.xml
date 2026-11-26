@@ -18,7 +18,9 @@
     <string name="settings_external_sources_used">"Sources externes utilisées : %1$s."</string>
     <string name="settings_nothing_is_sent_until_you_opt_in">"Rien n’est envoyé sans votre accord."</string>
     <string name="settings_how_book_insights_are_written">"La façon dont les analyses des livres sont rédigées."</string>
-    <string name="settings_language_the_model_writes_insights_in_auto">"Langue utilisée par le modèle pour les analyses. Automatique suit la langue du livre."</string>
+    <!-- The code of the language this translation is in: insights follow it while the insight language is Auto. -->
+    <string name="settings_app_language_code">fr</string>
+    <string name="settings_language_the_model_writes_insights_in_auto">"Langue utilisée par le modèle pour les analyses des livres et de la bibliothèque. Automatique suit la langue de l\'application."</string>
     <string name="settings_removes_the_ai_generated_profile_from_the">"Supprime du serveur le profil généré par l’IA. Un nouveau profil sera créé lors de la prochaine actualisation des analyses."</string>
     <string name="settings_provider_not_yet_checked">"Fournisseur : pas encore vérifié"</string>
     <string name="settings_provider_reachable">"Fournisseur : accessible%1$s%2$s"</string>

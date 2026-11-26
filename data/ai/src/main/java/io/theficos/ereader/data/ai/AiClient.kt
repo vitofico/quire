@@ -29,13 +29,22 @@ import okhttp3.Response
  *
  * Auth: relies on the OkHttpClient already having AccountAuthInterceptor wired
  * (the same one used by :data:sync). The interceptor emits Basic or Bearer
- * per the configured account scheme. This client does not add headers.
+ * per the configured account scheme. This client adds only `Accept-Language`:
+ * the app's language, which the server writes insights in while the reader's
+ * insight language is `auto`.
  */
 class AiClient(
     private val baseUrlProvider: () -> String?,
-    private val http: OkHttpClient,
+    http: OkHttpClient,
     private val json: Json = Json { ignoreUnknownKeys = true; encodeDefaults = true },
+    language: () -> String = ::appLanguage,
 ) {
+    private val http = http.newBuilder()
+        .addInterceptor { chain ->
+            chain.proceed(chain.request().newBuilder().header("Accept-Language", language()).build())
+        }
+        .build()
+
     private val mediaType = "application/json; charset=utf-8".toMediaType()
 
     private fun resolveBaseUrl(): String {
