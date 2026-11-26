@@ -3,6 +3,7 @@ package io.theficos.ereader.data.opds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.readium.r2.opds.OPDS1Parser
@@ -10,13 +11,16 @@ import org.readium.r2.shared.util.AbsoluteUrl
 import java.net.URLEncoder
 import org.w3c.dom.Document
 
+/** A catalog answered with a non-success HTTP status. */
+class OpdsHttpException(val code: Int, message: String) : IllegalArgumentException(message)
+
 class OpdsClient(
     private val okHttp: OkHttpClient,
 ) {
     suspend fun fetch(absoluteUrl: String): OpdsFeed = withContext(Dispatchers.IO) {
         val response = okHttp.newCall(Request.Builder().url(absoluteUrl).get().build()).execute()
         response.use {
-            require(it.isSuccessful) { "OPDS fetch ${it.code} for ${redactUrl(absoluteUrl)}" }
+            if (!it.isSuccessful) throw OpdsHttpException(it.code, "OPDS fetch ${it.code} for ${redactUrl(absoluteUrl)}")
             val bytes = it.body!!.bytes()
             val baseUrl = AbsoluteUrl(absoluteUrl)
                 ?: error("Not an absolute URL: ${redactUrl(absoluteUrl)}")
@@ -65,10 +69,12 @@ class OpdsClient(
                                 ?: deriveCalibreWebDetailUrl(absoluteEpubHref),
                             opdsDcId = dcIdsByEpubHref[absoluteEpubHref],
                             calibreBookId = extractCalibreBookId(absoluteEpubHref),
+                            entryId = pub.metadata.identifier?.takeIf { id -> id.isNotBlank() },
                         )
                     },
                 ),
                 searchLink = searchLink,
+                latestHref = parseLatestHref(supplemental, absoluteUrl),
             )
         }
     }
@@ -271,6 +277,28 @@ class OpdsClient(
         return null
     }
 
+    /** See [OpdsFeed.latestHref]. */
+    private fun parseLatestHref(doc: Document?, feedUrl: String): String? {
+        if (doc == null) return null
+        var byPath: String? = null
+        val links = doc.getElementsByTagNameNS(ATOM_NAMESPACE, "link")
+        for (i in 0 until links.length) {
+            val el = links.item(i) as org.w3c.dom.Element
+            val parent = el.parentNode?.localName
+            if (parent != "feed" && parent != "entry") continue
+            if (!el.getAttribute("type").startsWith("application/atom+xml")) continue
+            val href = el.getAttribute("href").takeIf { it.isNotBlank() } ?: continue
+            val absolute = absolutize(feedUrl, href)
+            if (el.getAttribute("rel") == SORT_NEW_REL) return absolute
+            if (byPath == null && parent == "entry" &&
+                absolute.toHttpUrlOrNull()?.pathSegments?.lastOrNull { it.isNotEmpty() } in LATEST_PATHS
+            ) {
+                byPath = absolute
+            }
+        }
+        return byPath
+    }
+
     private fun parseSearchLink(doc: Document?, feedUrl: String): OpdsSearchLink? {
         if (doc == null) return null
         val links = doc.getElementsByTagNameNS("http://www.w3.org/2005/Atom", "link")
@@ -340,6 +368,14 @@ class OpdsClient(
         private val CALIBRE_DOWNLOAD_REGEX = Regex("""/opds/download/(\d+)/[^/?]+/?(?:\?.*)?$""")
         private const val DC_TERMS_NS = "http://purl.org/dc/terms/"
         private const val DC_ELEMENTS_NS = "http://purl.org/dc/elements/1.1/"
+
+        private const val SORT_NEW_REL = "http://opds-spec.org/sort/new"
+        /**
+         * Last path segments of a newest-books navigation entry, for servers with no sort/new
+         * link: Calibre-Web's `/opds/new`, Kavita's `/recently-added`, and the calibre content
+         * server's `/opds/navcatalog/4f6e6577657374` (hex of its internal "Onewest" key).
+         */
+        private val LATEST_PATHS = setOf("new", "recently-added", "4f6e6577657374")
 
         private const val THUMBNAIL_REL = "http://opds-spec.org/image/thumbnail"
 

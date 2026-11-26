@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The shape of the calibre content server's /opds root (src/calibre/srv/opds.py): navigation
+     entries under /opds/navcatalog/<hex key>, with Newest as the hex of "Onewest" and no
+     sort/new link. -->
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
+  <id>calibre-all:</id>
+  <title>calibre Library</title>
+  <updated>2026-11-26T10:00:00+00:00</updated>
+  <link rel="start" type="application/atom+xml;type=feed;profile=opds-catalog" href="/opds"/>
+  <link rel="search" type="application/opensearchdescription+xml" title="calibre Library Search" href="/opds/search"/>
+  <entry>
+    <title>By Title</title>
+    <id>calibre-navcatalog:4f7469746c65</id>
+    <updated>2026-11-26T10:00:00+00:00</updated>
+    <content type="text">Books sorted by title</content>
+    <link type="application/atom+xml;type=feed;profile=opds-catalog" href="/opds/navcatalog/4f7469746c65"/>
+  </entry>
+  <entry>
+    <title>Newest</title>
+    <id>calibre-navcatalog:4f6e6577657374</id>
+    <updated>2026-11-26T10:00:00+00:00</updated>
+    <content type="text">Books sorted by date</content>
+    <link type="application/atom+xml;type=feed;profile=opds-catalog" href="/opds/navcatalog/4f6e6577657374"/>
+  </entry>
+</feed>

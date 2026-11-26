@@ -1,5 +1,7 @@
 package io.theficos.ereader.ui
 
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.map
 import android.content.Intent
 import android.net.Uri
@@ -16,15 +18,20 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -35,6 +42,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import io.theficos.ereader.di.AppContainer
+import io.theficos.ereader.notify.OpenRequest
 import io.theficos.ereader.ui.bookdetail.BookDetailScreen
 import io.theficos.ereader.ui.bookdetail.BookDetailSheet
 import io.theficos.ereader.ui.bookdetail.BookDetailViewModel
@@ -89,6 +97,8 @@ fun AppNavGraph(
     container: AppContainer,
     appTheme: AppTheme,
     nav: NavHostController = rememberNavController(),
+    /** Notification taps: a book to open at its place, or a catalog to browse. */
+    openRequests: Flow<OpenRequest> = emptyFlow(),
 ) {
     // First-launch gating (A-2), picked once on cold launch. Recomputing it would hand the
     // NavHost a new graph when signing in after onboarding, which empties the back stack.
@@ -141,6 +151,25 @@ fun AppNavGraph(
         },
     )
     CatalogUploadQuestion(catalogsVm)
+    // The tab the home screen should switch to the next time it composes.
+    var pendingTab by remember { mutableStateOf<Tab?>(null) }
+    LaunchedEffect(openRequests) {
+        openRequests.collect { request ->
+            when (request) {
+                is OpenRequest.Book -> nav.navigate("reader/${request.id}") {
+                    popUpTo("home")
+                }
+                is OpenRequest.Catalog -> {
+                    container.credentialStore.setActiveCatalog(request.id)
+                    pendingTab = Tab.CATALOG
+                    nav.navigate("home") {
+                        popUpTo("home")
+                        launchSingleTop = true
+                    }
+                }
+            }
+        }
+    }
     NavHost(navController = nav, startDestination = startDestination) {
         composable("welcome") {
             InsetSurface {
@@ -263,7 +292,7 @@ fun AppNavGraph(
                     }
                 },
             )
-            MainScaffold { tab, padding ->
+            MainScaffold(requestedTab = pendingTab, onTabRequestHandled = { pendingTab = null }) { tab, padding ->
                 when (tab) {
                     Tab.LIBRARY -> LibraryScreen(
                         viewModel = libVm,
@@ -298,6 +327,7 @@ fun AppNavGraph(
                             onNavigateToLicenses = { nav.navigate("licenses") },
                             hasUnreadUpdates = lastSeen != WHATS_NEW_LATEST_ENTRY_ID,
                             onNavigateToWhatsNew = { nav.navigate("whats-new") { launchSingleTop = true } },
+                            notificationFeatures = container.notificationFeatures,
                         )
                     }
                 }
@@ -333,6 +363,27 @@ fun AppNavGraph(
                     }
                 },
             )
+            // Quiet while reading and the reminder's "read today" follow this entry's lifecycle:
+            // shown while the book is on screen; hidden when it is closed, covered by another
+            // screen, or the app goes to the background. Keyed per entry, so a second reader
+            // opened from a notification is counted on its own.
+            val features = container.notificationFeatures
+            val entryKey = backStack.id
+            val entryLifecycle = backStack.lifecycle
+            DisposableEffect(entryLifecycle) {
+                val observer = LifecycleEventObserver { _, event ->
+                    when (event) {
+                        Lifecycle.Event.ON_START -> features.onReaderShown(entryKey, docId)
+                        Lifecycle.Event.ON_STOP -> features.onReaderHidden(entryKey)
+                        else -> Unit
+                    }
+                }
+                entryLifecycle.addObserver(observer)
+                onDispose {
+                    entryLifecycle.removeObserver(observer)
+                    features.onReaderHidden(entryKey)
+                }
+            }
             val discussion: HighlightsDiscussionViewModel = viewModel(
                 factory = viewModelFactory {
                     initializer {

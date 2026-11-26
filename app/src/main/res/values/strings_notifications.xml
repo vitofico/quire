@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="notify_section_title">"Notifications and quiet"</string>
+    <string name="notify_new_books_switch">"New books in your catalogs"</string>
+    <string name="notify_new_books_hint">"About twice a day, Quire looks at each catalog’s newest books and tells you when some arrive."</string>
+    <string name="notify_new_books_no_feed">"No newest-books list, not checked: %1$s"</string>
+    <string name="notify_reminder_switch">"Reading reminder"</string>
+    <string name="notify_reminder_hint">"A gentle nudge around the time you choose, on the days you pick. It can come late if the phone has been idle, and it stays away on days you’ve already read."</string>
+    <string name="notify_reminder_at">"Remind me at %1$s"</string>
+    <string name="notify_reminder_time_title">"Reminder time"</string>
+    <string name="notify_reminder_time_set">"Set"</string>
+    <string name="notify_quiet_title">"Quiet while reading"</string>
+    <string name="notify_quiet_hint">"Quire’s own Do Not Disturb rule, priority only, while a book is open. Do Not Disturb you or another app turned on stays as it is."</string>
+    <string name="notify_quiet_rule_name">"Reading in Quire"</string>
+    <string name="notify_reminder_last_day">"At least one day stays chosen. To stop the reminder, switch it off."</string>
+    <string name="notify_quiet_access_title">"Allow Do Not Disturb access"</string>
+    <string name="notify_quiet_access_explain">"To silence your phone while you read, Quire needs Do Not Disturb access: allow it on the next screen, then come back."</string>
+    <string name="notify_quiet_access_missing">"Do Not Disturb access is off, so Quire can’t silence your phone. Switch this on again to allow it."</string>
+    <string name="notify_permission_blocked">"Notifications are off for Quire, so these alerts can’t appear. Allow them in your phone’s settings."</string>
+    <string name="notify_open_settings">"Open settings"</string>
+    <string name="notify_channel_new_books">"New books"</string>
+    <string name="notify_channel_reminder">"Reading reminder"</string>
+    <string name="notify_reminder_title">"Time to read?"</string>
+    <string name="notify_reminder_text">"Your books are waiting for you."</string>
+    <string name="notify_reminder_text_book">"Pick up %1$s where you left off."</string>
+    <plurals name="notify_new_books_title">
+        <item quantity="one">"%1$d new book in %2$s"</item>
+        <item quantity="other">"%1$d new books in %2$s"</item>
+    </plurals>
+    <plurals name="notify_new_books_more">
+        <item quantity="one">"%1$s and %2$d more"</item>
+        <item quantity="other">"%1$s and %2$d more"</item>
+    </plurals>
+</resources>

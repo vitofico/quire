@@ -15,6 +15,8 @@
     <string name="whats_new_book_details_description">Books with a file name for a title, or no cover, author or description, now get their details from Open Library or tidied by AI, with a label saying which. It runs on Wi-Fi, up to 25 books a day. Turn it off in %1$s → %2$s, or go back to a book’s original details from its menu.</string>
     <string name="whats_new_pdf_conversion_title">Turn PDFs into books</string>
     <string name="whats_new_pdf_conversion_description">Share a PDF with Quire, or add one with + in the library, and your Quire server converts it to an EPUB in your library. It’s converted on your own server and sent nowhere else. Follow it in %1$s → %2$s in the library.</string>
+    <string name="whats_new_notifications_title">Notifications, if you want them</string>
+    <string name="whats_new_notifications_description">Switch on alerts for new books in your catalogs, a daily reading reminder, or Do Not Disturb while a book is open, in %1$s → %2$s. All three stay off until you turn them on.</string>
     <string name="whats_new_open_catalogs_title">Free books to start with</string>
     <string name="whats_new_open_catalogs_description">Add a free, legal catalog of classics with one tap in %1$s → %2$s, or from the Catalog tab when you have none yet. Those in your language come first.</string>
     <string name="whats_new_reading_stats_title">See how you read</string>
