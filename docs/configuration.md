@@ -1524,6 +1524,9 @@ See the [migration procedure](../server/README.md#moving-an-existing-calibre-rea
 - Example: `QUIRE_SERVER_NATIVE_SESSION_TTL_S=604800`
 
 How long a native login lasts in `native` or `transition` mode.
+A reader's browser stays signed in this long when they ask Quire Web to
+remember it. A browser that is not remembered, and any sign-in on the
+account page, lasts at most 12 hours and ends when the browser closes.
 
 #### `QUIRE_SERVER_SELF_MIGRATION_ENABLED`
 

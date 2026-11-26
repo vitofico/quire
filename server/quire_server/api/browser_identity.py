@@ -162,12 +162,25 @@ async def issue(factory, user_id, ttl, kind="browser", device_name=None):
     return token
 
 
-def set_cookie(response, settings, token, *, remember=True):
+# A browser the reader did not ask to be remembered gets a cookie that dies
+# with the browser, and a server-side session long enough for a day's reading.
+SHARED_BROWSER_SESSION_S = 12 * 3600
+
+
+def browser_ttl(request, remember):
+    """How long a browser sign-in lasts: the full session life on a remembered
+    browser, half a day on a shared one."""
+    full = request.app.state.auth_backend._ttl_s
+    return full if remember else min(SHARED_BROWSER_SESSION_S, full)
+
+
+def set_cookie(response, settings, token, *, max_age=None):
+    """``max_age`` None makes a cookie that goes when the browser closes."""
     response.set_cookie(
         settings.cookie_name,
         token,
         path="/",
-        max_age=3600 if remember else None,
+        max_age=max_age,
         httponly=True,
         secure=settings.public_url.startswith("https:"),
         samesite="lax",
@@ -222,17 +235,24 @@ async def browser_login(request: Request):
         )
     finally:
         guard.inflight -= 1
+    # Only the reader is remembered: the account page shares its cookie with
+    # the admin console, so that sign-in stays short.
+    remember = remember and destination == "quire"
+    ttl = browser_ttl(request, remember)
     async with request.app.state.identity_factory() as session:
         user_id = await session.scalar(
             text(
                 "UPDATE native_sessions SET kind='browser', expires_at=LEAST(expires_at,:expires) "
                 "WHERE token_hash=:hash RETURNING user_id"
             ),
-            {"hash": hash_session_token(token), "expires": datetime.now(UTC) + timedelta(hours=1)},
+            {
+                "hash": hash_session_token(token),
+                "expires": datetime.now(UTC) + timedelta(seconds=ttl),
+            },
         )
         await session.commit()
     response = JSONResponse({"status": "signed_in", "account_id": f"native:{user_id}"})
-    set_cookie(response, settings, token, remember=remember)
+    set_cookie(response, settings, token, max_age=ttl if remember else None)
     return response
 
 
@@ -404,10 +424,12 @@ async def oidc_callback(request: Request, code: str = "", state: str = ""):
         await session.commit()
     if request.app.state.hosted_policy:
         await request.app.state.hosted_policy.allow_account(f"native:{row}")
-    token = await issue(factory, row, min(3600, request.app.state.auth_backend._ttl_s))
+    remember = identity.remember_browser and identity.reader_login
+    ttl = browser_ttl(request, remember)
+    token = await issue(factory, row, ttl)
     destination = "/quire/" if identity.reader_login else "/cloud/account"
     response = RedirectResponse(settings.public_url + destination, status_code=303)
-    set_cookie(response, settings, token, remember=identity.remember_browser)
+    set_cookie(response, settings, token, max_age=ttl if remember else None)
     response.delete_cookie(
         settings.cookie_name + "-oidc",
         path="/",
