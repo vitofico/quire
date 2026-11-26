@@ -748,7 +748,7 @@ unset for a provider that needs no key.
 
 - Type: text
 - Default: none
-- Example: `QUIRE_SERVER_COVER_ART_MODEL=gpt-image-1`
+- Example: `QUIRE_SERVER_COVER_ART_MODEL=gpt-image-1.5`
 
 The image model to ask for. Required for the feature.
 
