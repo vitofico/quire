@@ -96,6 +96,22 @@ export type AiConfig = {
   sources_enabled: string[];
   daily_budget: number;
   regen_daily_limit: number;
+  highlights_discuss?: boolean;
+  highlights_discuss_limits?: DiscussLimits | null;
+};
+
+export type DiscussLimits = {
+  max_highlights: number;
+  max_text_chars: number;
+  max_note_chars: number;
+  max_title_chars: number;
+  max_authors: number;
+  max_author_chars: number;
+  max_question_chars: number;
+  max_answer_chars: number;
+  max_questions: number;
+  max_total_chars: number;
+  questions_per_minute: number;
 };
 
 export class DiscoveryHttpError extends Error {
@@ -134,14 +150,16 @@ export function requestMessage(error: unknown): RequestMessage {
   if (error instanceof DiscoveryHttpError) {
     const { status, detail } = error;
     if (status === 401 || status === 403) return { message: "This feature needs a supported account and AI permission." };
-    if (status === 429 && detail === "details_rate_limited") return { message: "Busy right now. Try again in a minute." };
+    if (status === 429 && (detail === "details_rate_limited" || detail === "discuss_rate_limited")) return { message: "Busy right now. Try again in a minute." };
     if (status === 429) {
       const reset = (detail as { resets_at?: string } | null)?.resets_at;
       return reset
         ? { message: "AI limit reached. Resets {date}.", reset }
         : { message: "AI limit reached. Try again after the quota resets." };
     }
-    if (status === 409 && detail === "ai_provider_unavailable") return { message: "The selected provider was removed. Choose another provider in Settings." };
+    if (status === 409 && detail === "ai_not_opted_in") return { message: "Turn on AI in Settings to use this." };
+    if (status === 503 && detail === "ai_disabled") return { message: "AI is unavailable on this server." };
+    if ((status === 409 && detail === "ai_provider_unavailable") || (status === 422 && detail === "ai_provider_unknown")) return { message: "The selected provider was removed. Choose another provider in Settings." };
     if (status === 502 || status === 503 || status === 504) {
       return { message: "The AI provider is unavailable. Check the provider in Settings and try again later." };
     }

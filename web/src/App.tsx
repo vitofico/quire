@@ -348,18 +348,17 @@ function Workspace({
   const current = book && findProgress(book, snapshot.progress)
   const editionConflict = book?.editionConflict
   const aiAvailable = bootstrap?.aiAvailable === true && !!active.request
-  // Finding and tidying details needs the server's feature and the reader's AI opt-in.
-  const { settings: ai } = useAiState(
-    active.request,
-    aiAvailable && active.capabilities?.book_details !== false,
-  )
+  // Finding and tidying details, and thinking through highlights, need the
+  // server's feature and the reader's AI opt-in.
+  const { settings: ai } = useAiState(active.request, aiAvailable)
+  const aiReady =
+    ai?.config.configured && ai.preferences.ai_enabled && !missingProvider(ai.config, ai.preferences)
   const detailsRequest =
-    ai?.config.configured &&
-    ai.config.details_supported &&
-    ai.preferences.ai_enabled &&
-    !missingProvider(ai.config, ai.preferences)
+    aiReady && ai.config.details_supported && active.capabilities?.book_details !== false
       ? active.request
       : undefined
+  const discussLimits = aiReady && ai.config.highlights_discuss ? ai.config.highlights_discuss_limits : undefined
+  const discuss = discussLimits && active.request ? { request: active.request, limits: discussLimits } : undefined
   const detailsFor =
     route.view === 'book' ? (book ? [book] : []) : route.view === 'library' ? snapshot.books : []
   useEffect(() => {
@@ -897,6 +896,7 @@ function Workspace({
         report={report}
         books={snapshot.books}
         passages={passages}
+        discuss={discuss}
         open={(book, h) =>
           book.hasDownload ? read(book.key, h) : details(book.key)
         }
