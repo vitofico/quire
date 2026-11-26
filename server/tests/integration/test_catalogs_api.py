@@ -98,6 +98,8 @@ async def test_round_trip_keeps_the_address_and_login_out_of_the_list(
             "needs_login",
             "position",
             "updated_at",
+            "server_catalog",
+            "duplicate_of",
         }
         for secret in (ACCOUNT_KEY, "reader", LOGIN_PASSWORD, "/api/opds", "ebooks.opds"):
             assert secret not in response.text
@@ -391,6 +393,48 @@ async def test_a_new_entry_for_a_held_address_names_the_existing_one_when_asked(
         # Without the opt-in, as older apps send it, a second entry is still saved.
         assert (await client.put(path(uuid4()), headers=auth, json=open_catalog)).status_code == 200
         assert len((await listed(client, auth))["catalogs"]) == 3
+
+
+async def test_the_list_marks_the_servers_own_catalog_and_repeated_addresses(
+    client_factory, app, session
+):
+    server = "https://Books.example.org:443/opds"
+    async with catalogs(client_factory, web_catalog_url=server) as client:
+        auth = await bearer(app)
+        ids = [uuid4() for _ in range(5)]
+        for catalog_id, url in zip(
+            ids,
+            (
+                "https://books.example.org/opds/",
+                "https://shelf.example.org/opds",
+                "https://BOOKS.example.org/opds",
+                "https://books.example.org/opds/new",
+                "https://shelf.example.org/opds//",
+            ),
+            strict=True,
+        ):
+            body = CATALOG | {"url": url}
+            assert (await client.put(path(catalog_id), headers=auth, json=body)).status_code == 200
+        listed_catalogs = (await listed(client, auth))["catalogs"]
+        assert [(c["server_catalog"], c["duplicate_of"]) for c in listed_catalogs] == [
+            (True, None),
+            (False, None),
+            (True, str(ids[0])),
+            (False, None),
+            (False, str(ids[1])),
+        ]
+        # The variants count as the held address when a new entry asks for a unique one.
+        again = await client.put(
+            path(uuid4()),
+            headers=auth,
+            json=CATALOG | {"url": "https://books.example.org:443/opds", "unique_url": True},
+        )
+        assert again.json() == {"detail": "catalog_exists", "id": str(ids[0])}
+
+    async with catalogs(client_factory) as client:
+        auth = await bearer(app, "other@example.test")
+        await client.put(path(uuid4()), headers=auth, json=CATALOG)
+        assert (await listed(client, auth))["catalogs"][0]["server_catalog"] is False
 
 
 async def test_reorder_needs_exactly_the_current_set(client_factory, app, session):

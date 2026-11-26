@@ -4,13 +4,15 @@ import { removeSavedCatalog, type SavedCatalog } from './saved'
 
 type Props = {
   catalog: SavedCatalog
+  /** Further entries with the same address, shown as this one and removed with it. */
+  copies?: SavedCatalog[]
   request: (path: string, init?: RequestInit) => Promise<Response>
   onRemoved: (catalog: SavedCatalog) => void
   t: (key: string) => string
 }
 
 /** Removes the open saved catalog from the account, after the same question the open catalogs list asks. */
-export function RemoveSavedCatalog({ catalog, request, onRemoved, t }: Props) {
+export function RemoveSavedCatalog({ catalog, copies = [], request, onRemoved, t }: Props) {
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState('')
 
@@ -22,7 +24,7 @@ export function RemoveSavedCatalog({ catalog, request, onRemoved, t }: Props) {
     setBusy(true)
     setFailed('')
     try {
-      await removeSavedCatalog(request, catalog.id)
+      for (const entry of [...copies, catalog]) await removeSavedCatalog(request, entry.id)
       onRemoved(catalog)
     } catch (reason) {
       setFailed(reason instanceof Error ? reason.message : String(reason))

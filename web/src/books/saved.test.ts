@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeCatalogClient } from './opds'
-import { listSavedCatalogs, removeSavedCatalog, savedCatalogHome, savedCatalogRequest, type SavedCatalog } from './saved'
+import { distinctSaved, listSavedCatalogs, removeSavedCatalog, savedCatalogHome, savedCatalogRequest, shownEntry, type SavedCatalog } from './saved'
 
 const catalog: SavedCatalog = {
   id: '6f1c',
@@ -27,6 +27,24 @@ function server(answer: (path: string) => Response) {
 }
 
 describe('saved catalogs', () => {
+  it('shows each catalog once: not a repeated address, nor the server’s own catalog already shown', () => {
+    const own = { ...catalog, id: 'own', server_catalog: true }
+    const again = { ...catalog, id: 'again', server_catalog: true, duplicate_of: 'own' }
+    const kavita = { ...catalog, id: 'kavita' }
+    const twin = { ...catalog, id: 'twin', duplicate_of: 'kavita' }
+    const older = { ...catalog, id: 'older' } // From a server that does not mark them.
+    const list = [own, again, kavita, twin, older]
+    expect(distinctSaved(list, true).map(c => c.id)).toEqual(['kavita', 'older'])
+    expect(distinctSaved(list, false).map(c => c.id)).toEqual(['own', 'kavita', 'older'])
+    // A choice remembered for a hidden entry lands on the one shown for it.
+    expect(shownEntry(list, 'again', true)).toBe('')
+    expect(shownEntry(list, 'own', true)).toBe('')
+    expect(shownEntry(list, 'again', false)).toBe('own')
+    expect(shownEntry(list, 'twin', true)).toBe('kavita')
+    expect(shownEntry(list, 'kavita', true)).toBe('kavita')
+    expect(shownEntry(list, 'gone', true)).toBe('gone')
+  })
+
   it('counts a catalog another device already removed as removed', async () => {
     const answer = (status: number) => vi.fn(async () => new Response(null, { status }))
     await expect(removeSavedCatalog(answer(204), 'a')).resolves.toBeUndefined()

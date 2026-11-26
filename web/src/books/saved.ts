@@ -13,6 +13,26 @@ export interface SavedCatalog {
   needs_login: boolean
   position: number
   updated_at: string
+  /** Its address is the catalog this server offers every account. */
+  server_catalog?: boolean
+  /** The earlier entry with the same address, if any: one catalog saved twice. */
+  duplicate_of?: string | null
+}
+
+/**
+ * The entries that are catalogs of their own, so each catalog shows once: not a
+ * repeat of an earlier entry, nor the server's own catalog when that is shown already.
+ */
+export function distinctSaved(saved: SavedCatalog[], serverCatalogShown: boolean): SavedCatalog[] {
+  return saved.filter(c => !c.duplicate_of && !(serverCatalogShown && c.server_catalog))
+}
+
+/** The entry a chosen id stands for: the first of its address, or '' for the server's own catalog. */
+export function shownEntry(saved: SavedCatalog[], id: string, serverCatalogShown: boolean): string {
+  const entry = saved.find(c => c.id === id)
+  if (!entry) return id
+  if (serverCatalogShown && entry.server_catalog) return ''
+  return entry.duplicate_of ?? id
 }
 
 /** The account's saved catalogs; none when the server keeps no list. */
