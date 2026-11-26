@@ -147,7 +147,8 @@ class BookDetailViewModelDetailsTest {
         assertThat(preview.changes.first().current).isEqualTo("dune_frank_herbert")
         assertThat(preview.changes.first().proposed).isEqualTo("Dune")
         assertThat(preview.coverOptions).isEmpty()
-        assertThat(details.observe(bookId).first()).isNull()
+        // Nothing applied yet: at most the decline the open preview holds, which shows the book's own details.
+        assertThat(details.observe(bookId).first()?.response?.declined ?: "k").isEqualTo("k")
         assertThat(preview.kept(FIELD_TITLE)).isEqualTo("Dune")
         assertThat(preview.kept(FIELD_SERIES)).isNull()
 
@@ -238,7 +239,8 @@ class BookDetailViewModelDetailsTest {
         vm.improveDetails()
         vm.state.first { it.details.preview?.canApply == true }
         vm.applyPreview()
-        vm.state.first { it.details.shown != null }
+        // The decline the preview holds is a stored answer too: wait for the applied one.
+        vm.state.first { it.details.shown?.let { shown -> shown.response.declined == null } == true }
 
         vm.useOriginalDetails(true)
         vm.state.first { it.details.stored?.useOriginal == true }

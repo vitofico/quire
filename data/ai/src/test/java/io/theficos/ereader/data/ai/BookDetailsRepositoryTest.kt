@@ -638,6 +638,28 @@ class BookDetailsRepositoryTest {
         assertThat(doc.shownWith(stored).title).isEqualTo("Dune")
     }
 
+    @Test fun `Use original chosen while Apply runs is not undone by it`() = runBlocking {
+        offerCoverChoice()
+        val doc = book()
+        answer("/details/v1/tidy", drawnCover(painting = false))
+        answer(generatedCover, "drawn")
+        answer("/details/v1/lookup", drawnCover(painting = false))
+        val proposal = repo.propose(doc.id)
+        val preview = repo.coverPreview(proposal, COVER_PAINT)
+        answer("/details/v1/lookup", drawnCover(painting = true))
+        holdLookup = CountDownLatch(1)
+
+        // Apply waits on the painting while the reader switches to the original.
+        val applying = async(Dispatchers.IO) { repo.apply(proposal, DETAILS_FIELDS, COVER_PAINT, preview) }
+        while (lookups().size < 2) Thread.yield()
+        repo.setUseOriginal(doc.id, true)
+        holdLookup!!.countDown()
+
+        assertThat(withTimeout(5_000) { applying.await() }!!.useOriginal).isTrue()
+        val stored = withTimeout(5_000) { repo.observe(doc.id).first { it != null && applied(it) } }!!
+        assertThat(stored.useOriginal).isTrue()
+    }
+
     @Test fun `a server that can no longer paint when Apply asks keeps the drawn cover`() = runBlocking {
         offerCoverChoice()
         val doc = book()
