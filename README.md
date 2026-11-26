@@ -205,6 +205,12 @@ With AI enabled and opted into, Quire can provide:
   suggestions from your library, OpenLibrary discovery and the model.
 - **Your preferred voice:** adjustable tone and language, plus regeneration
   with feedback. Shared instance caches avoid repeating the same generation.
+- **Think through your highlights (Quire Web):** in Highlights choose
+  **Select**, tick a few passages from any books and ask a question about
+  them. The short answer names the passages it used, takes a few follow-ups,
+  and leaves as a plain-text note through Share or Copy. Nothing is saved, and
+  only the selected passages, your notes on them (optional) and the books'
+  titles and authors are sent.
 
 ISBN scanning also looks up a physical book through OpenLibrary. A compatible
 Quire Server can return an already-owned check and a deterministic reader-affinity
