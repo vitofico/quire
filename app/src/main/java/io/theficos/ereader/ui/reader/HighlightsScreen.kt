@@ -1,8 +1,12 @@
 package io.theficos.ereader.ui.reader
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,10 +26,14 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -46,11 +54,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.style.TextOverflow
@@ -78,24 +90,65 @@ internal fun HighlightsScreen(
     onHighlightClick: (String) -> Unit,
     onBack: () -> Unit,
     onRetry: (() -> Unit)? = null,
+    /** How many passages "Think it through" takes; null while the server does not offer it. */
+    selectLimit: Int? = null,
+    onThinkThrough: (List<Highlight>) -> Unit = {},
 ) {
+    // Picked ids, handed over in the order shown; a highlight that goes away, or loses its text, drops out.
+    var picked by rememberSaveable { mutableStateOf<List<String>?>(null) }
+    val selectable = items.filter { it.highlight.text.isNotBlank() }.map { it.highlight.id }.toSet()
+    val selection = if (selectLimit == null) null else picked?.filter { it in selectable }
+    // Set by a pick past the limit; shown only while the selection is still full.
+    var atLimit by remember { mutableStateOf(false) }
+    fun pick(ids: List<String>?) { picked = ids; atLimit = false }
+    BackHandler(enabled = selection != null) { pick(null) }
+    fun toggle(id: String) {
+        val current = selection ?: return
+        when {
+            id in current -> pick(current - id)
+            current.size >= selectLimit!! -> atLimit = true
+            else -> pick(current + id)
+        }
+    }
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             Row(
                 Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(end = 16.dp, top = 8.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.common_back))
-                }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(stringResource(R.string.reader_highlights_title), style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.semantics { heading() })
-                    Text(bookTitle, style = MaterialTheme.typography.bodyMedium, maxLines = 2,
-                        overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (selection != null) {
+                    IconButton(onClick = { pick(null) }) {
+                        Icon(Icons.Filled.Close, stringResource(R.string.discuss_cancel_selection))
+                    }
+                    Text(stringResource(R.string.discuss_selected_count, selection.size),
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.weight(1f).semantics { heading(); liveRegion = LiveRegionMode.Polite })
+                    Button(
+                        onClick = { onThinkThrough(items.filter { it.highlight.id in selection }.map { it.highlight }) },
+                        enabled = selection.isNotEmpty(),
+                    ) { Text(stringResource(R.string.discuss_title)) }
+                } else {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.common_back))
+                    }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(stringResource(R.string.reader_highlights_title), style = MaterialTheme.typography.titleLarge,
+                            modifier = Modifier.semantics { heading() })
+                        Text(bookTitle, style = MaterialTheme.typography.bodyMedium, maxLines = 2,
+                            overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    if (selectLimit != null && selectable.isNotEmpty()) {
+                        TextButton(onClick = { pick(emptyList()) }) { Text(stringResource(R.string.discuss_select)) }
+                    }
                 }
             }
             HorizontalDivider()
+            if (atLimit && selectLimit != null && selection != null && selection.size >= selectLimit) {
+                Text(pluralStringResource(R.plurals.discuss_select_limit, selectLimit, selectLimit),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+                        .semantics { liveRegion = LiveRegionMode.Polite },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             error?.let { message ->
                 Surface(color = MaterialTheme.colorScheme.errorContainer, modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp)) {
@@ -126,7 +179,16 @@ internal fun HighlightsScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     items(items, key = { it.highlight.id }) { item ->
-                        HighlightListCard(item, jumpingId == item.highlight.id, isLoading || jumpingId != null, onHighlightClick)
+                        val id = item.highlight.id
+                        HighlightListCard(
+                            item, jumpingId == id, isLoading || jumpingId != null, onHighlightClick,
+                            selected = selection?.let { id in it },
+                            selectable = id in selectable,
+                            onToggle = { toggle(id) },
+                            onLongPress = if (selectLimit != null && selection == null && id in selectable) {
+                                { pick(listOf(id)) }
+                            } else null,
+                        )
                     }
                 }
                 else -> Spacer(Modifier.weight(1f))
@@ -135,22 +197,55 @@ internal fun HighlightsScreen(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
-private fun HighlightListCard(item: HighlightListItem, opening: Boolean, busy: Boolean, onOpen: (String) -> Unit) {
+private fun HighlightListCard(
+    item: HighlightListItem,
+    opening: Boolean,
+    busy: Boolean,
+    onOpen: (String) -> Unit,
+    /** Null outside selection mode. */
+    selected: Boolean? = null,
+    selectable: Boolean = false,
+    onToggle: () -> Unit = {},
+    /** Enters selection mode with this highlight picked; null when that is not offered. */
+    onLongPress: (() -> Unit)? = null,
+) {
     val highlight = item.highlight
     var expanded by rememberSaveable(highlight.id, highlight.text) { mutableStateOf(false) }
     var canExpand by remember(highlight.id, highlight.text) { mutableStateOf(false) }
+    val action = when {
+        selected != null -> Modifier.toggleable(value = selected, enabled = selectable, role = Role.Checkbox) { onToggle() }
+        onLongPress != null && item.canJump -> Modifier.combinedClickable(
+            enabled = !busy,
+            role = Role.Button,
+            onClickLabel = stringResource(R.string.reader_highlight_open),
+            onLongClickLabel = stringResource(R.string.discuss_select),
+            onLongClick = onLongPress,
+        ) { onOpen(highlight.id) }
+        // Nothing to open, so only the long press that starts selection.
+        onLongPress != null -> {
+            val label = stringResource(R.string.discuss_select)
+            if (busy) Modifier else Modifier
+                .pointerInput(onLongPress) { detectTapGestures(onLongPress = { onLongPress() }) }
+                .semantics { onLongClick(label) { onLongPress(); true } }
+        }
+        else -> Modifier.clickable(
+            enabled = item.canJump && !busy,
+            role = Role.Button,
+            onClickLabel = stringResource(R.string.reader_highlight_open),
+        ) { onOpen(highlight.id) }
+    }
     OutlinedCard(
-        modifier = Modifier.fillMaxWidth().testTag("highlight-row-${highlight.id}")
-            .clickable(
-                enabled = item.canJump && !busy,
-                role = Role.Button,
-                onClickLabel = stringResource(R.string.reader_highlight_open),
-            ) { onOpen(highlight.id) },
+        modifier = Modifier.fillMaxWidth().testTag("highlight-row-${highlight.id}").then(action),
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                if (selected != null) {
+                    // The card is the toggle; the box only shows its state.
+                    Checkbox(checked = selected, onCheckedChange = null, enabled = selectable,
+                        modifier = Modifier.padding(end = 12.dp).clearAndSetSemantics { })
+                }
                 FlowRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Box(Modifier.size(14.dp).background(Color(highlight.colour.highlightTint()), CircleShape)
@@ -161,9 +256,10 @@ private fun HighlightListCard(item: HighlightListItem, opening: Boolean, busy: B
                         Text(it.asString(), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                if (item.canJump) Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(20.dp))
+                if (item.canJump && selected == null) Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(20.dp))
             }
-            SelectionContainer {
+            // Text selection would take the taps that pick passages.
+            CopyableText(selected == null) {
                 Text(highlight.text, style = MaterialTheme.typography.bodyLarge,
                     maxLines = if (expanded) Int.MAX_VALUE else 5,
                     overflow = TextOverflow.Ellipsis,
@@ -177,7 +273,7 @@ private fun HighlightListCard(item: HighlightListItem, opening: Boolean, busy: B
             highlight.comment?.takeIf { it.isNotBlank() }?.let { comment ->
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(stringResource(R.string.reader_highlight_comment), style = MaterialTheme.typography.labelLarge)
-                    SelectionContainer { Text(comment, style = MaterialTheme.typography.bodyMedium) }
+                    CopyableText(selected == null) { Text(comment, style = MaterialTheme.typography.bodyMedium) }
                 }
             }
             if (!item.canJump) {
@@ -191,6 +287,11 @@ private fun HighlightListCard(item: HighlightListItem, opening: Boolean, busy: B
             }
         }
     }
+}
+
+@Composable
+private fun CopyableText(copyable: Boolean, text: @Composable () -> Unit) {
+    if (copyable) SelectionContainer { text() } else text()
 }
 
 private fun TextLayoutResult.hasHiddenQuoteText(): Boolean {

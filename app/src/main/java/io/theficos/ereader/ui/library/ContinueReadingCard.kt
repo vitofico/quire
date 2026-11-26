@@ -53,7 +53,7 @@ fun ContinueReadingCard(row: LibraryRow, onClick: () -> Unit) {
                     contentDescription = withNote(row.shown.title, row.found?.let { shownCoverNote(row.document, it) }),
                 )
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    val spokenTitle = withNote(row.shown.title, row.found?.let(::titleNote))
+                    val spokenTitle = withNote(row.shown.title, row.found?.let { titleNote(row.document, it) })
                     Text(
                         text = row.shown.title,
                         style = MaterialTheme.typography.titleMedium,
