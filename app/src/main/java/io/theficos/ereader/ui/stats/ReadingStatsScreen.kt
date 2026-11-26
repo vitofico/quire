@@ -31,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,6 +46,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import io.theficos.ereader.data.library.LibraryStatsResponse
 import io.theficos.ereader.ui.components.QuireCard
 import io.theficos.ereader.ui.components.QuireLoading
 import io.theficos.ereader.ui.components.SectionLabel
@@ -61,7 +63,9 @@ private enum class Range { WEEK, MONTH, YEAR }
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReadingStatsScreen(viewModel: ReadingStatsViewModel, onBack: () -> Unit) {
+    LaunchedEffect(Unit) { viewModel.loadLibrary() }
     val state by viewModel.state.collectAsState()
+    val library by viewModel.library.collectAsState()
     var menuOpen by rememberSaveable { mutableStateOf(false) }
     var confirmClear by rememberSaveable { mutableStateOf(false) }
     Scaffold(
@@ -96,11 +100,8 @@ fun ReadingStatsScreen(viewModel: ReadingStatsViewModel, onBack: () -> Unit) {
     ) { padding ->
         val current = state
         Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
-            when {
-                current == null -> QuireLoading(Modifier.align(Alignment.Center))
-                current.stats.isEmpty -> EmptyStats(current.recording)
-                else -> StatsContent(current)
-            }
+            if (current == null) QuireLoading(Modifier.align(Alignment.Center))
+            else StatsContent(current, library, onRetryLibrary = viewModel::loadLibrary)
         }
     }
     if (confirmClear) {
@@ -131,18 +132,14 @@ internal fun ClearStatisticsDialog(onConfirm: () -> Unit, onDismiss: () -> Unit)
 }
 
 @Composable
-private fun EmptyStats(recording: Boolean) {
-    Column(
-        modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth().padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
+private fun EmptyStats() {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(stringResource(R.string.stats_empty_title), style = MaterialTheme.typography.titleLarge)
         Text(
             stringResource(R.string.stats_empty_body),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        if (!recording) RecordingOffNote()
     }
 }
 
@@ -160,7 +157,7 @@ private fun RecordingOffNote() {
 }
 
 @Composable
-private fun StatsContent(state: ReadingStatsUiState) {
+private fun StatsContent(state: ReadingStatsUiState, library: LibraryStatsUiState, onRetryLibrary: () -> Unit) {
     val stats = state.stats
     val locale = LocalConfiguration.current.locales[0]
     LazyColumn(
@@ -169,7 +166,17 @@ private fun StatsContent(state: ReadingStatsUiState) {
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         if (!state.recording) item { RecordingOffNote() }
-        item { Headline(stats, locale) }
+        // The server counts finished books across the whole library and every device, so
+        // its figure replaces this device's own while it is there.
+        val showFinished = library !is LibraryStatsUiState.Ready
+        if (stats.isEmpty) {
+            item { EmptyStats() }
+            if (showFinished && stats.booksFinished > 0) item { FinishedTile(stats) }
+        } else {
+            item { Headline(stats, locale, showFinished) }
+        }
+        if (library != LibraryStatsUiState.NoServer) item { LibraryCard(library, onRetryLibrary) }
+        if (stats.isEmpty) return@LazyColumn
         item { ReadingTimeCard(stats, locale) }
         item { WhenYouReadCard(stats, locale) }
         item { SpeedCard(stats, locale) }
@@ -184,7 +191,7 @@ private fun Heading(text: String) {
 }
 
 @Composable
-private fun Headline(stats: ReadingStats, locale: Locale) {
+private fun Headline(stats: ReadingStats, locale: Locale, showFinished: Boolean) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         TileRow(
             stringResource(R.string.stats_today) to formatDuration(stats.todaySeconds, locale),
@@ -200,9 +207,14 @@ private fun Headline(stats: ReadingStats, locale: Locale) {
             stringResource(R.string.stats_longest_streak) to
                 pluralStringResource(R.plurals.stats_days, stats.longestStreak, stats.longestStreak),
         )
-        TileRow(stringResource(R.string.stats_books_finished) to stats.booksFinished.toString())
+        if (showFinished) FinishedTile(stats)
         Note(stringResource(R.string.stats_streak_note))
     }
+}
+
+@Composable
+private fun FinishedTile(stats: ReadingStats) {
+    TileRow(stringResource(R.string.stats_books_finished) to stats.booksFinished.toString())
 }
 
 @Composable
@@ -401,5 +413,66 @@ private fun BookCard(book: BookStats, locale: Locale) {
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun LibraryCard(library: LibraryStatsUiState, onRetry: () -> Unit) {
+    QuireCard(modifier = Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Heading(stringResource(R.string.stats_library))
+            when (library) {
+                LibraryStatsUiState.Loading -> Note(stringResource(R.string.common_loading))
+                is LibraryStatsUiState.Error -> {
+                    Text(library.message.asString(), style = MaterialTheme.typography.bodyMedium)
+                    TextButton(onClick = onRetry) { Text(stringResource(R.string.common_retry)) }
+                }
+                is LibraryStatsUiState.Ready -> LibraryFigures(library.stats)
+                LibraryStatsUiState.NoServer -> Unit
+            }
+        }
+    }
+}
+
+@Composable
+private fun LibraryFigures(stats: LibraryStatsResponse) {
+    Note(stringResource(R.string.stats_library_note))
+    FigureRow(
+        stringResource(R.string.common_books_2) to stats.totalBooks,
+        stringResource(R.string.common_finished_2) to stats.finishedCount,
+    )
+    FigureRow(
+        stringResource(R.string.common_reading) to stats.inProgressCount,
+        stringResource(R.string.common_abandoned) to stats.abandonedCount,
+    )
+    Text(stringResource(R.string.common_top_authors_2), style = MaterialTheme.typography.titleSmall)
+    if (stats.topAuthors.isEmpty()) Note(stringResource(R.string.library_no_authors_yet_add_books_to_your))
+    stats.topAuthors.forEach { CountRow(it.name, it.count) }
+    Text(stringResource(R.string.common_top_themes_2), style = MaterialTheme.typography.titleSmall)
+    Note(stats.themesCaveat)
+    if (stats.topThemes.isEmpty()) Note(stringResource(R.string.library_no_themes_yet_open_a_book_to))
+    stats.topThemes.forEach { CountRow(it.theme.replace('_', ' '), it.count) }
+}
+
+@Composable
+private fun FigureRow(vararg figures: Pair<String, Int>) {
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+        figures.forEach { (label, value) ->
+            Column(Modifier.weight(1f).semantics(mergeDescendants = true) {}) {
+                Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(value.toString(), style = MaterialTheme.typography.titleLarge)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CountRow(name: String, count: Int) {
+    Row(
+        modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) {},
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(name, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        Text(count.toString(), style = MaterialTheme.typography.bodyLarge)
     }
 }

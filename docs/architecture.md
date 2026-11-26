@@ -722,6 +722,9 @@ for the reference implementation.
   stats response includes `abandoned_count`; the view-model holds a
   factory-scoped SWR cache with a generation guard so quick re-entries
   return the cached tile instantly without losing the in-flight refresh.
+  Since November 2026 these figures are the **Your library** card on the
+  Reading statistics screen (`ReadingStatsViewModel` loads both), and the
+  separate screen and its menu entry are gone.
 
 ### Reader Profile (Bundle 3)
 

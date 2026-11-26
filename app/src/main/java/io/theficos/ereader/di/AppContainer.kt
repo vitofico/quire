@@ -67,12 +67,11 @@ import io.theficos.ereader.ui.catalogdetail.CatalogDetailRegistry
 import io.theficos.ereader.ui.catalogdetail.CatalogDetailViewModel
 import io.theficos.ereader.ui.library.LibraryInsightsViewModel
 import io.theficos.ereader.ui.library.LibraryPreferencesStore
-import io.theficos.ereader.ui.library.LibraryStatsCache
-import io.theficos.ereader.ui.library.LibraryStatsViewModel
 import io.theficos.ereader.ui.onboarding.ConnectServerViewModel
 import io.theficos.ereader.ui.onboarding.WelcomePreferencesStore
 import io.theficos.ereader.ui.reader.memoryAccountKey
 import io.theficos.ereader.ui.settings.WhatsNewPreferencesStore
+import io.theficos.ereader.ui.stats.LibraryStatsCache
 import io.theficos.ereader.ui.stats.ReadingStatsRepository
 import io.theficos.ereader.ui.scan.ScanResultRegistry
 import io.theficos.ereader.ui.theme.AppThemePreferencesStore
@@ -116,7 +115,7 @@ internal fun AccountCredentials.quireServerUrlOrNull(): String? = when (this) {
 }
 
 /** Who stored book details belong to: this account on this server, or null with no Quire server. */
-private fun AccountCredentials.detailsOwner(): String? = quireServerUrlOrNull()?.let { accountOwner(it, subject) }
+internal fun AccountCredentials.detailsOwner(): String? = quireServerUrlOrNull()?.let { accountOwner(it, subject) }
 
 /** An account on a Quire server, as book details and PDF conversions record their owner. */
 internal fun accountOwner(serverUrl: String, subject: String): String = "$serverUrl $subject"
@@ -381,8 +380,8 @@ class AppContainer internal constructor(context: Context, private val db: EReade
         scope = libraryUploaderScope,
     )
 
-    val libraryStatsViewModelFactory: LibraryStatsViewModelFactory =
-        LibraryStatsViewModelFactory(client = libraryClient)
+    /** The Statistics screen's last library figures, kept for the life of the process. */
+    val libraryStatsCache = LibraryStatsCache()
 
     /**
      * PR-γ: factory for the Library Insights screen ViewModel. Hosts a
@@ -740,20 +739,6 @@ class CatalogDetailViewModelFactory(
             localIdentityResolver = localIdentityResolver,
         )
     }
-}
-
-class LibraryStatsViewModelFactory(
-    private val client: LibraryClient,
-) {
-    // Process-lifetime cache. Held here (not on the ViewModel) so that
-    // navigating away from the Stats screen and back gives the new VM
-    // instance an immediate `Ready(cached)` — i.e. real SWR across VMs.
-    private val cache = LibraryStatsCache()
-
-    fun create() = LibraryStatsViewModel(
-        fetch = { client.getStats() },
-        cache = cache,
-    )
 }
 
 class LibraryInsightsViewModelFactory(

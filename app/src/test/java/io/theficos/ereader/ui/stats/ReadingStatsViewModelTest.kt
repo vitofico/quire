@@ -1,15 +1,29 @@
-package io.theficos.ereader.ui.library
+package io.theficos.ereader.ui.stats
 
+import android.app.Application
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
 import app.cash.turbine.test
 import com.google.common.truth.Truth.assertThat
 import io.theficos.ereader.data.library.LibraryHttpException
 import io.theficos.ereader.data.library.LibraryStatsResponse
 import io.theficos.ereader.data.library.TopAuthor
 import io.theficos.ereader.data.library.TopTheme
+import io.theficos.ereader.data.local.db.BookProgressRow
+import io.theficos.ereader.data.local.db.BookWordCountEntity
+import io.theficos.ereader.data.local.db.ReadingSessionDao
+import io.theficos.ereader.data.local.db.ReadingSessionEntity
 import io.theficos.ereader.ui.englishContext
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -20,14 +34,42 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
+internal const val OWNER = "https://server reader@example.com"
+
+/** A repository over fixed [sessions] and [progress], with no database. */
+internal fun fixedReadingStatsRepository(
+    sessions: List<ReadingSessionEntity> = emptyList(),
+    progress: List<BookProgressRow> = emptyList(),
+) = ReadingStatsRepository(
+    dao = object : ReadingSessionDao {
+        override suspend fun insert(session: ReadingSessionEntity) = Unit
+        override fun observeAll(): Flow<List<ReadingSessionEntity>> = flowOf(sessions)
+        override suspend fun clear() = Unit
+        override suspend fun wordCount(bookKey: String): Long? = null
+        override fun observeWordCounts(): Flow<List<BookWordCountEntity>> = flowOf(emptyList())
+        override suspend fun saveWordCount(count: BookWordCountEntity) = Unit
+        override fun observeBookProgress(): Flow<List<BookProgressRow>> = flowOf(progress)
+    },
+    prefs = ApplicationProvider.getApplicationContext<Application>()
+        .getSharedPreferences("reading-stats-test", Context.MODE_PRIVATE),
+    scope = CoroutineScope(Job()),
+)
+
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33], application = android.app.Application::class)
-class LibraryStatsViewModelTest {
+@Config(sdk = [33], application = Application::class)
+class ReadingStatsViewModelTest {
     private val dispatcher = StandardTestDispatcher()
 
     @Before fun setUp() { Dispatchers.setMain(dispatcher) }
     @After fun tearDown() { Dispatchers.resetMain() }
+
+    private var owner: String? = OWNER
+
+    private fun viewModel(
+        cache: LibraryStatsCache = LibraryStatsCache(),
+        fetch: suspend () -> LibraryStatsResponse,
+    ) = ReadingStatsViewModel(fixedReadingStatsRepository(), owner = { owner }, fetchLibrary = fetch, libraryCache = cache)
 
     private val fakeStats = LibraryStatsResponse(
         totalBooks = 3,
@@ -41,10 +83,10 @@ class LibraryStatsViewModelTest {
 
     @Test
     fun `load success transitions Loading to Ready`() = runTest(dispatcher) {
-        val vm = LibraryStatsViewModel(fetch = { fakeStats })
-        vm.state.test {
+        val vm = viewModel(fetch = { fakeStats })
+        vm.library.test {
             assertThat(awaitItem()).isInstanceOf(LibraryStatsUiState.Loading::class.java)
-            vm.load()
+            vm.loadLibrary()
             val ready = awaitItem()
             assertThat(ready).isInstanceOf(LibraryStatsUiState.Ready::class.java)
             assertThat((ready as LibraryStatsUiState.Ready).stats.totalBooks).isEqualTo(3)
@@ -53,10 +95,10 @@ class LibraryStatsViewModelTest {
 
     @Test
     fun `http error transitions to Error with code`() = runTest(dispatcher) {
-        val vm = LibraryStatsViewModel(fetch = { throw LibraryHttpException(503, "down") })
-        vm.state.test {
+        val vm = viewModel(fetch = { throw LibraryHttpException(503, "down") })
+        vm.library.test {
             assertThat(awaitItem()).isInstanceOf(LibraryStatsUiState.Loading::class.java)
-            vm.load()
+            vm.loadLibrary()
             val err = awaitItem()
             assertThat(err).isInstanceOf(LibraryStatsUiState.Error::class.java)
             assertThat((err as LibraryStatsUiState.Error).message.asString(englishContext())).contains("503")
@@ -65,21 +107,56 @@ class LibraryStatsViewModelTest {
 
     @Test
     fun `unauthorized maps to specific message`() = runTest(dispatcher) {
-        val vm = LibraryStatsViewModel(fetch = { throw LibraryHttpException(401, "nope") })
-        vm.state.test {
+        val vm = viewModel(fetch = { throw LibraryHttpException(401, "nope") })
+        vm.library.test {
             awaitItem() // Loading
-            vm.load()
+            vm.loadLibrary()
             val err = awaitItem() as LibraryStatsUiState.Error
             assertThat(err.message.asString(englishContext())).contains("Sign in")
         }
     }
 
     @Test
+    fun `no server set up shows no library figures and fetches nothing`() = runTest(dispatcher) {
+        owner = null
+        var fetches = 0
+        val vm = viewModel { fetches++; fakeStats }
+        assertThat(vm.library.value).isEqualTo(LibraryStatsUiState.NoServer)
+        vm.loadLibrary()
+        advanceUntilIdle()
+        assertThat(vm.library.value).isEqualTo(LibraryStatsUiState.NoServer)
+        assertThat(fetches).isEqualTo(0)
+    }
+
+    @Test
+    fun `signing out clears the cached figures`() = runTest(dispatcher) {
+        val cache = LibraryStatsCache().apply { lastReady = OWNER to fakeStats }
+        val vm = viewModel(cache) { fakeStats }
+        assertThat(vm.library.value).isEqualTo(LibraryStatsUiState.Ready(fakeStats))
+        owner = null
+        vm.loadLibrary()
+        advanceUntilIdle()
+        assertThat(vm.library.value).isEqualTo(LibraryStatsUiState.NoServer)
+        assertThat(cache.lastReady).isNull()
+    }
+
+    @Test
+    fun `another account's cached figures are never shown`() = runTest(dispatcher) {
+        val cache = LibraryStatsCache().apply { lastReady = "https://server other@example.com" to fakeStats }
+        val vm = viewModel(cache) { throw LibraryHttpException(503, "down") }
+        assertThat(vm.library.value).isEqualTo(LibraryStatsUiState.Loading)
+        vm.loadLibrary()
+        assertThat(vm.library.value).isEqualTo(LibraryStatsUiState.Loading)
+        advanceUntilIdle()
+        assertThat(vm.library.value).isInstanceOf(LibraryStatsUiState.Error::class.java)
+    }
+
+    @Test
     fun `not found 404 maps to specific message`() = runTest(dispatcher) {
-        val vm = LibraryStatsViewModel(fetch = { throw LibraryHttpException(404, "nope") })
-        vm.state.test {
+        val vm = viewModel(fetch = { throw LibraryHttpException(404, "nope") })
+        vm.library.test {
             awaitItem() // Loading
-            vm.load()
+            vm.loadLibrary()
             val err = awaitItem() as LibraryStatsUiState.Error
             assertThat(err.message.asString(englishContext())).contains("aren't available")
         }
@@ -88,15 +165,15 @@ class LibraryStatsViewModelTest {
     @Test
     fun `retry after error triggers fresh load`() = runTest(dispatcher) {
         var attempt = 0
-        val vm = LibraryStatsViewModel(fetch = {
+        val vm = viewModel(fetch = {
             attempt++
             if (attempt == 1) throw LibraryHttpException(500, "x") else fakeStats
         })
-        vm.state.test {
+        vm.library.test {
             awaitItem() // Loading
-            vm.load()
+            vm.loadLibrary()
             assertThat(awaitItem()).isInstanceOf(LibraryStatsUiState.Error::class.java)
-            vm.load()
+            vm.loadLibrary()
             assertThat(awaitItem()).isInstanceOf(LibraryStatsUiState.Loading::class.java)
             assertThat(awaitItem()).isInstanceOf(LibraryStatsUiState.Ready::class.java)
         }
@@ -107,20 +184,20 @@ class LibraryStatsViewModelTest {
         runTest(dispatcher) {
             val fresh = fakeStats.copy(totalBooks = 99)
             var attempt = 0
-            val vm = LibraryStatsViewModel(fetch = {
+            val vm = viewModel(fetch = {
                 attempt++
                 if (attempt == 1) fakeStats else fresh
             })
-            vm.state.test {
+            vm.library.test {
                 assertThat(awaitItem()).isInstanceOf(LibraryStatsUiState.Loading::class.java)
-                vm.load()
+                vm.loadLibrary()
                 val first = awaitItem() as LibraryStatsUiState.Ready
                 assertThat(first.stats.totalBooks).isEqualTo(3)
 
                 // Second load: cache hit. No Loading flash; goes straight
                 // from Ready(cached) (no state change emitted because the
                 // value is identical) to Ready(fresh) after background fetch.
-                vm.load()
+                vm.loadLibrary()
                 val second = awaitItem() as LibraryStatsUiState.Ready
                 assertThat(second.stats.totalBooks).isEqualTo(99)
             }
@@ -129,32 +206,27 @@ class LibraryStatsViewModelTest {
     @Test
     fun `refresh failure with cached data keeps cached Ready visible`() = runTest(dispatcher) {
         var attempt = 0
-        val vm = LibraryStatsViewModel(fetch = {
+        val vm = viewModel(fetch = {
             attempt++
             if (attempt == 1) fakeStats else throw LibraryHttpException(500, "boom")
         })
-        vm.state.test {
-            awaitItem() // Loading
-            vm.load()
-            val first = awaitItem() as LibraryStatsUiState.Ready
-            assertThat(first.stats.totalBooks).isEqualTo(3)
+        vm.loadLibrary()
+        advanceUntilIdle()
+        assertThat(vm.library.value).isEqualTo(LibraryStatsUiState.Ready(fakeStats))
 
-            // Second load should NOT emit an Error variant; cached Ready
-            // persists silently. Verify by emitting another load() after
-            // and confirming no Error has come through in between.
-            vm.load()
-            // No new emissions expected (state value didn't change).
-            expectNoEvents()
-        }
+        vm.loadLibrary()
+        advanceUntilIdle()
+        assertThat(attempt).isEqualTo(2)
+        assertThat(vm.library.value).isEqualTo(LibraryStatsUiState.Ready(fakeStats))
     }
 
     @Test
     fun `abandoned count flows through Ready state`() = runTest(dispatcher) {
         val stats = fakeStats.copy(abandonedCount = 5)
-        val vm = LibraryStatsViewModel(fetch = { stats })
-        vm.state.test {
+        val vm = viewModel(fetch = { stats })
+        vm.library.test {
             awaitItem() // Loading
-            vm.load()
+            vm.loadLibrary()
             val ready = awaitItem() as LibraryStatsUiState.Ready
             assertThat(ready.stats.abandonedCount).isEqualTo(5)
         }
@@ -172,10 +244,10 @@ class LibraryStatsViewModelTest {
     fun `new VM via shared cache emits Ready before fetch completes`() = runTest(dispatcher) {
         val cache = LibraryStatsCache()
         // First VM populates the cache.
-        val vm1 = LibraryStatsViewModel(fetch = { fakeStats }, cache = cache)
-        vm1.state.test {
+        val vm1 = viewModel(cache) { fakeStats }
+        vm1.library.test {
             awaitItem() // Loading
-            vm1.load()
+            vm1.loadLibrary()
             val first = awaitItem() as LibraryStatsUiState.Ready
             assertThat(first.stats.totalBooks).isEqualTo(3)
         }
@@ -183,14 +255,14 @@ class LibraryStatsViewModelTest {
         // Simulate back-out + re-entry: a fresh VM, same factory-held cache.
         // The fetch lambda suspends forever so we can prove the cached Ready
         // is visible BEFORE any network result arrives.
-        val gate = kotlinx.coroutines.CompletableDeferred<LibraryStatsResponse>()
-        val vm2 = LibraryStatsViewModel(fetch = { gate.await() }, cache = cache)
-        vm2.state.test {
-            // Initial state is already Ready(cached) — no Loading flash.
+        val gate = CompletableDeferred<LibraryStatsResponse>()
+        val vm2 = viewModel(cache) { gate.await() }
+        vm2.library.test {
+            // Initial state is already Ready(cached): no Loading flash.
             val initial = awaitItem()
             assertThat(initial).isInstanceOf(LibraryStatsUiState.Ready::class.java)
             assertThat((initial as LibraryStatsUiState.Ready).stats.totalBooks).isEqualTo(3)
-            vm2.load()
+            vm2.loadLibrary()
             // Still Ready(cached) while the in-flight fetch is gated.
             expectNoEvents()
             // Now let the fetch complete with fresh data.
@@ -200,35 +272,23 @@ class LibraryStatsViewModelTest {
         }
     }
 
-    /**
-     * Concurrency guard: an in-flight fetch launched before a later load()
-     * must not clobber state once a newer request has started. Regression
-     * test for the catch-path race noted in PR review.
-     */
+    /** Only the latest fetch may change the figures: an earlier one that ends late is ignored. */
     @Test
-    fun `stale catch-path response does not override fresh success`() = runTest(dispatcher) {
-        val slowFail = kotlinx.coroutines.CompletableDeferred<LibraryStatsResponse>()
+    fun `a late earlier fetch does not overwrite a newer one`() = runTest(dispatcher) {
+        val first = CompletableDeferred<LibraryStatsResponse>()
         var call = 0
-        val vm = LibraryStatsViewModel(fetch = {
+        val vm = viewModel(fetch = {
             call++
-            if (call == 1) {
-                slowFail.await() // never completes normally; we'll fail it
-                error("unreachable")
-            } else {
-                fakeStats.copy(totalBooks = 7)
-            }
+            if (call == 1) first.await() else fakeStats.copy(totalBooks = 7)
         })
-        vm.state.test {
-            awaitItem() // Loading
-            vm.load() // call 1 in flight
-            // Kick off a second load BEFORE the first errors out.
-            vm.load() // call 2 — succeeds
-            val ready = awaitItem() as LibraryStatsUiState.Ready
-            assertThat(ready.stats.totalBooks).isEqualTo(7)
-            // Now let the first call fail. With the generation guard, the
-            // stale failure must be ignored: no Error emission.
-            slowFail.completeExceptionally(LibraryHttpException(500, "stale"))
-            expectNoEvents()
-        }
+        vm.loadLibrary()
+        runCurrent() // call 1 is waiting
+        vm.loadLibrary()
+        advanceUntilIdle()
+        assertThat((vm.library.value as LibraryStatsUiState.Ready).stats.totalBooks).isEqualTo(7)
+
+        first.complete(fakeStats.copy(totalBooks = 1))
+        advanceUntilIdle()
+        assertThat((vm.library.value as LibraryStatsUiState.Ready).stats.totalBooks).isEqualTo(7)
     }
 }

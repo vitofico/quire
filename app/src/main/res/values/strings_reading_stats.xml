@@ -55,4 +55,6 @@
     <string name="settings_stats_off_title">Clear stored statistics?</string>
     <string name="settings_stats_off_body">Recording has stopped. Keep the statistics already stored, or clear them?</string>
     <string name="settings_stats_keep">Keep</string>
+    <string name="stats_library">Your library</string>
+    <string name="stats_library_note">Counted by your Quire server: every book in your library, on all your devices.</string>
 </resources>

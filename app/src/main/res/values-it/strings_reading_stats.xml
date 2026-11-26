@@ -58,4 +58,6 @@
     <string name="settings_stats_off_title">Cancellare le statistiche salvate?</string>
     <string name="settings_stats_off_body">La registrazione si è fermata. Vuoi tenere le statistiche già salvate o cancellarle?</string>
     <string name="settings_stats_keep">Tieni</string>
+    <string name="stats_library">La tua biblioteca</string>
+    <string name="stats_library_note">Contati dal tuo server Quire: tutti i libri della biblioteca, su tutti i tuoi dispositivi.</string>
 </resources>

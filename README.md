@@ -70,15 +70,16 @@ credentials are included. See the [screenshot notes](docs/assets/README.md).
   publication structure produces an unavailable message. See
   [Pause and return](docs/reader-pause.md) for the boundaries and controls.
 - **Keep a useful shelf.** Search, sort, continue reading, and filter finished
-  or abandoned books. With Quire Server, Library Stats brings together reading
-  counts and authors.
+  or abandoned books.
 - **See how you read.** Open **More → Reading statistics** in the library for
   reading time today, this week, this month and overall, streaks, books
   finished, a chart by day or month, the hours and weekdays you read most, your
   speed in words per minute with a weekly trend, and per book the sessions and
-  roughly how long is left at your pace. Recording is on by default and can be
-  switched off in Settings. The [statistics](docs/reading-statistics.md) stay on
-  the device and in your phone's own backup, never on Quire Server or with AI.
+  roughly how long is left at your pace. With Quire Server the same screen
+  shows your library's counts of books, finished, reading and abandoned, with
+  top authors and themes. Recording is on by default and can be switched off
+  in Settings. The [statistics](docs/reading-statistics.md) stay on the device
+  and in your phone's own backup, never on Quire Server or with AI.
 - **Know what is in a book.** Tap its info icon or long-press it for the
   description, series, publisher, language, subjects, ISBN, progress and file size.
   Imported EPUB metadata stays with the book. With AI on, **Improve details**

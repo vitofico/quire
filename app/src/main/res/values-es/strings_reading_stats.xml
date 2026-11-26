@@ -58,4 +58,6 @@
     <string name="settings_stats_off_title">¿Borrar las estadísticas guardadas?</string>
     <string name="settings_stats_off_body">El registro se ha detenido. ¿Quieres conservar las estadísticas ya guardadas o borrarlas?</string>
     <string name="settings_stats_keep">Conservar</string>
+    <string name="stats_library">Tu biblioteca</string>
+    <string name="stats_library_note">Lo cuenta tu servidor de Quire: todos los libros de tu biblioteca, en todos tus dispositivos.</string>
 </resources>

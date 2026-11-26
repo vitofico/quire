@@ -136,8 +136,8 @@ private fun LibraryStatsResponse.toPreview(): ReaderStatsPreview = ReaderStatsPr
  *
  * The injected flows (`aiConfigFlow` / `aiEnabledFlow`) are point-in-time
  * sampled — the screen does NOT live-observe them. A toggle in Settings → AI
- * takes effect on the next [reload]. This matches the existing Library Stats
- * pattern (one-shot loader).
+ * takes effect on the next [reload], like the library figures on the
+ * Statistics screen (one-shot loader).
  */
 class LibraryInsightsViewModel(
     private val ai: AiRepository,
