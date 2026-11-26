@@ -8,6 +8,8 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import io.theficos.ereader.EReaderApp
+import io.theficos.ereader.core.model.Document
+import io.theficos.ereader.di.AppContainer
 import java.time.DayOfWeek
 import java.time.Duration
 import java.time.Instant
@@ -57,67 +59,89 @@ internal object ReminderSchedule {
     /** True when the reader read on the slot's own day, so the reminder can stay away. */
     fun readOnSlotDay(slot: ZonedDateTime, lastReadAt: Instant?): Boolean =
         lastReadAt != null && lastReadAt.atZone(slot.zone).toLocalDate() == slot.toLocalDate()
+
+    /**
+     * At app start: whether the booked run ([booked], null when none is known) should be replaced.
+     * True when there is none, when it falls at another local time than [time] here (the phone
+     * changed time zone: a 21:00 Rome booking would come at 05:00 in Tokyo), or when it is so long
+     * overdue that the chain must have broken.
+     */
+    fun rebookOnStart(booked: Instant?, now: ZonedDateTime, time: LocalTime): Boolean =
+        booked == null ||
+            booked.atZone(now.zone).toLocalTime() != time ||
+            booked.isBefore(now.toInstant().minus(LATE).minus(EARLY))
 }
 
 /**
  * Keeps one pending run, timed to the next slot. Each run schedules the next one itself (the
  * new work waits for the running one to finish), so the time stays put instead of drifting the
  * way a 24-hour periodic job does. WorkManager keeps the run across reboots and app updates; app
- * start schedules it again if the chain ever broke.
+ * start books it again if the chain broke or the phone moved to another time zone.
+ *
+ * No exact alarms: under Doze or App Standby the run can come late, and one more than [LATE]
+ * behind is skipped. The setting says so.
  */
 internal object ReminderScheduler {
     private const val UNIQUE = "reading-reminder"
 
     /** The time or days changed, or the reminder was switched on: start over from now. */
-    fun reschedule(context: Context, settings: NotificationSettings) =
-        enqueue(context, settings, ExistingWorkPolicy.REPLACE)
+    fun reschedule(context: Context, store: NotificationPreferencesStore) =
+        enqueue(context, store, ExistingWorkPolicy.REPLACE)
 
-    /** App start: make sure a run is pending, keeping the one there is. */
-    fun ensureScheduled(context: Context, settings: NotificationSettings) =
-        enqueue(context, settings, ExistingWorkPolicy.KEEP)
+    /** App start: book a run unless the one booked is still right. */
+    fun ensureScheduled(context: Context, store: NotificationPreferencesStore) {
+        val settings = store.settings.value
+        if (ReminderSchedule.rebookOnStart(store.reminderBookedFor, ZonedDateTime.now(), settings.reminderTime)) {
+            enqueue(context, store, ExistingWorkPolicy.REPLACE)
+        }
+    }
 
     /**
      * From inside a run: the next one, after this one. Counted from [ReminderSchedule.EARLY] ahead,
      * so a run that came a few minutes early and showed the reminder does not book the same slot.
      */
-    fun scheduleNext(context: Context, settings: NotificationSettings) =
-        enqueue(context, settings, ExistingWorkPolicy.APPEND_OR_REPLACE, ReminderSchedule.EARLY)
+    fun scheduleNext(context: Context, store: NotificationPreferencesStore) =
+        enqueue(context, store, ExistingWorkPolicy.APPEND_OR_REPLACE, ReminderSchedule.EARLY)
 
-    fun cancel(context: Context) {
+    fun cancel(context: Context, store: NotificationPreferencesStore) {
         WorkManager.getInstance(context.applicationContext).cancelUniqueWork(UNIQUE)
+        store.reminderBookedFor = null
     }
 
     private fun enqueue(
         context: Context,
-        settings: NotificationSettings,
+        store: NotificationPreferencesStore,
         policy: ExistingWorkPolicy,
         skip: Duration = Duration.ZERO,
     ) {
+        val settings = store.settings.value
         val now = ZonedDateTime.now()
         val slot = ReminderSchedule.nextSlot(now.plus(skip), settings.reminderTime, settings.reminderDays)
         val request = OneTimeWorkRequestBuilder<ReadingReminderWorker>()
             .setInitialDelay(Duration.between(now, slot).toMillis(), TimeUnit.MILLISECONDS)
             .build()
         WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(UNIQUE, policy, request)
+        store.reminderBookedFor = slot.toInstant()
     }
 }
+
+/** The reminder's own settings: a change to any of them books the chain again from the settings screen. */
+private val NotificationSettings.reminderPart get() = Triple(reminder, reminderTime, reminderDays)
 
 /** Shows the reminder when its slot is due and the reader has not read that day, then books the next. */
 class ReadingReminderWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val container = (applicationContext as? EReaderApp)?.container ?: return Result.success()
-        val settings = container.notificationPreferencesStore.settings.value
+        val store = container.notificationPreferencesStore
+        val settings = store.settings.value
         if (!settings.reminder) return Result.success()
         try {
             val now = ZonedDateTime.now(ZoneId.systemDefault())
             val slot = ReminderSchedule.dueSlot(now, settings.reminderTime, settings.reminderDays)
-            if (slot != null) {
-                val lastReadAt = container.progressRepository.lastReadAt()?.let(Instant::ofEpochMilli)
-                if (!ReminderSchedule.readOnSlotDay(slot, lastReadAt)) {
-                    val book = container.progressRepository.currentBookId()
-                        ?.let { container.documentRepository.findById(it) }
-                    Notifier.showReminder(applicationContext, book?.id, book?.title)
-                }
+            val lastRead = store.lastRead
+            if (slot != null && !ReminderSchedule.readOnSlotDay(slot, lastRead?.at)) {
+                val book = lastRead?.bookId?.let { currentBook(container, it) }
+                Notifier.showReminder(applicationContext, book?.id, book?.title)
             }
         } catch (e: CancellationException) {
             throw e
@@ -125,8 +149,19 @@ class ReadingReminderWorker(context: Context, params: WorkerParameters) : Corout
             // A failed reminder must not break the chain of reminders after it.
             Log.w(TAG, "Reading reminder run failed", e)
         }
-        ReminderScheduler.scheduleNext(applicationContext, settings)
+        // Switched off, or the time or days changed while this ran: the settings screen has
+        // already cancelled or booked the chain again, and booking here too would double it.
+        if (store.settings.value.reminderPart == settings.reminderPart) {
+            ReminderScheduler.scheduleNext(applicationContext, store)
+        }
         return Result.success()
+    }
+
+    /** The book last opened here, while it is still in the library and neither finished nor abandoned. */
+    private suspend fun currentBook(container: AppContainer, bookId: Long): Document? {
+        val progress = container.progressRepository.get(bookId)
+        if (progress?.finishedAt != null || progress?.abandonedAt != null) return null
+        return container.documentRepository.findById(bookId)
     }
 
     private companion object {

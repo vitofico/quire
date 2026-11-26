@@ -79,4 +79,24 @@ class ReminderScheduleTest {
         // The day is the reader's local day, not UTC's: 00:30 in Rome is still the 25th in UTC.
         assertThat(ReminderSchedule.readOnSlotDay(slot, at("2026-11-26T00:30").toInstant())).isTrue()
     }
+
+    @Test fun `app start keeps a booking that is still right`() {
+        val booked = at("2026-11-26T21:00").toInstant()
+        assertThat(ReminderSchedule.rebookOnStart(booked, at("2026-11-26T18:00"), nine)).isFalse()
+        // Just missed (WorkManager is about to run it): still right.
+        assertThat(ReminderSchedule.rebookOnStart(booked, at("2026-11-26T22:00"), nine)).isFalse()
+    }
+
+    @Test fun `app start rebooks after a time zone change`() {
+        // Booked for 21:00 in Rome, which is 05:00 the next morning in Tokyo.
+        val booked = at("2026-11-26T21:00").toInstant()
+        val tokyo = ZoneId.of("Asia/Tokyo")
+        assertThat(ReminderSchedule.rebookOnStart(booked, at("2026-11-26T18:00", tokyo), nine)).isTrue()
+    }
+
+    @Test fun `app start rebooks when nothing is booked or the chain broke`() {
+        assertThat(ReminderSchedule.rebookOnStart(null, at("2026-11-26T18:00"), nine)).isTrue()
+        val longAgo = at("2026-11-20T21:00").toInstant()
+        assertThat(ReminderSchedule.rebookOnStart(longAgo, at("2026-11-26T18:00"), nine)).isTrue()
+    }
 }
