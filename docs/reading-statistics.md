@@ -17,8 +17,11 @@ library and the progress synced from every device, so it needs no recorded sessi
 and still shows with recording off. Its finished count therefore replaces the
 device's own **Books finished** tile while it is there; when the server can't be
 reached the card says why with a retry, and the tile counts the books finished on
-this device instead. Without a Quire server set up the card is left out. The last figures received are kept in memory for the life of
-the app and shown at once on reopening while fresh ones load.
+this device instead, even before any session is recorded. Without a Quire server
+set up (offline only, or a catalog-only account) the card is left out and nothing
+is fetched. The last figures received are kept in memory for the life of the app,
+with the account they belong to, and shown at once on reopening while fresh ones
+load; another account never sees them, and signing out drops them.
 
 ## What a session is
 

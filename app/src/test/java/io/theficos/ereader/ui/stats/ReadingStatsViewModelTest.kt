@@ -22,6 +22,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -32,16 +34,21 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** A repository with no sessions and no database, for tests of the server's library figures. */
-internal fun emptyReadingStatsRepository() = ReadingStatsRepository(
+internal const val OWNER = "https://server reader@example.com"
+
+/** A repository over fixed [sessions] and [progress], with no database. */
+internal fun fixedReadingStatsRepository(
+    sessions: List<ReadingSessionEntity> = emptyList(),
+    progress: List<BookProgressRow> = emptyList(),
+) = ReadingStatsRepository(
     dao = object : ReadingSessionDao {
         override suspend fun insert(session: ReadingSessionEntity) = Unit
-        override fun observeAll(): Flow<List<ReadingSessionEntity>> = flowOf(emptyList())
+        override fun observeAll(): Flow<List<ReadingSessionEntity>> = flowOf(sessions)
         override suspend fun clear() = Unit
         override suspend fun wordCount(bookKey: String): Long? = null
         override fun observeWordCounts(): Flow<List<BookWordCountEntity>> = flowOf(emptyList())
         override suspend fun saveWordCount(count: BookWordCountEntity) = Unit
-        override fun observeBookProgress(): Flow<List<BookProgressRow>> = flowOf(emptyList())
+        override fun observeBookProgress(): Flow<List<BookProgressRow>> = flowOf(progress)
     },
     prefs = ApplicationProvider.getApplicationContext<Application>()
         .getSharedPreferences("reading-stats-test", Context.MODE_PRIVATE),
@@ -57,10 +64,12 @@ class ReadingStatsViewModelTest {
     @Before fun setUp() { Dispatchers.setMain(dispatcher) }
     @After fun tearDown() { Dispatchers.resetMain() }
 
+    private var owner: String? = OWNER
+
     private fun viewModel(
         cache: LibraryStatsCache = LibraryStatsCache(),
         fetch: suspend () -> LibraryStatsResponse,
-    ) = ReadingStatsViewModel(emptyReadingStatsRepository(), fetchLibrary = fetch, libraryCache = cache)
+    ) = ReadingStatsViewModel(fixedReadingStatsRepository(), owner = { owner }, fetchLibrary = fetch, libraryCache = cache)
 
     private val fakeStats = LibraryStatsResponse(
         totalBooks = 3,
@@ -108,13 +117,38 @@ class ReadingStatsViewModelTest {
     }
 
     @Test
-    fun `no server set up hides the library figures`() = runTest(dispatcher) {
-        val vm = viewModel(fetch = { throw LibraryHttpException(0, "baseUrl not configured") })
-        vm.library.test {
-            awaitItem() // Loading
-            vm.loadLibrary()
-            assertThat(awaitItem()).isEqualTo(LibraryStatsUiState.NoServer)
-        }
+    fun `no server set up shows no library figures and fetches nothing`() = runTest(dispatcher) {
+        owner = null
+        var fetches = 0
+        val vm = viewModel { fetches++; fakeStats }
+        assertThat(vm.library.value).isEqualTo(LibraryStatsUiState.NoServer)
+        vm.loadLibrary()
+        advanceUntilIdle()
+        assertThat(vm.library.value).isEqualTo(LibraryStatsUiState.NoServer)
+        assertThat(fetches).isEqualTo(0)
+    }
+
+    @Test
+    fun `signing out clears the cached figures`() = runTest(dispatcher) {
+        val cache = LibraryStatsCache().apply { lastReady = OWNER to fakeStats }
+        val vm = viewModel(cache) { fakeStats }
+        assertThat(vm.library.value).isEqualTo(LibraryStatsUiState.Ready(fakeStats))
+        owner = null
+        vm.loadLibrary()
+        advanceUntilIdle()
+        assertThat(vm.library.value).isEqualTo(LibraryStatsUiState.NoServer)
+        assertThat(cache.lastReady).isNull()
+    }
+
+    @Test
+    fun `another account's cached figures are never shown`() = runTest(dispatcher) {
+        val cache = LibraryStatsCache().apply { lastReady = "https://server other@example.com" to fakeStats }
+        val vm = viewModel(cache) { throw LibraryHttpException(503, "down") }
+        assertThat(vm.library.value).isEqualTo(LibraryStatsUiState.Loading)
+        vm.loadLibrary()
+        assertThat(vm.library.value).isEqualTo(LibraryStatsUiState.Loading)
+        advanceUntilIdle()
+        assertThat(vm.library.value).isInstanceOf(LibraryStatsUiState.Error::class.java)
     }
 
     @Test
@@ -176,19 +210,14 @@ class ReadingStatsViewModelTest {
             attempt++
             if (attempt == 1) fakeStats else throw LibraryHttpException(500, "boom")
         })
-        vm.library.test {
-            awaitItem() // Loading
-            vm.loadLibrary()
-            val first = awaitItem() as LibraryStatsUiState.Ready
-            assertThat(first.stats.totalBooks).isEqualTo(3)
+        vm.loadLibrary()
+        advanceUntilIdle()
+        assertThat(vm.library.value).isEqualTo(LibraryStatsUiState.Ready(fakeStats))
 
-            // Second load should NOT emit an Error variant; cached Ready
-            // persists silently. Verify by emitting another load() after
-            // and confirming no Error has come through in between.
-            vm.loadLibrary()
-            // No new emissions expected (state value didn't change).
-            expectNoEvents()
-        }
+        vm.loadLibrary()
+        advanceUntilIdle()
+        assertThat(attempt).isEqualTo(2)
+        assertThat(vm.library.value).isEqualTo(LibraryStatsUiState.Ready(fakeStats))
     }
 
     @Test
@@ -229,7 +258,7 @@ class ReadingStatsViewModelTest {
         val gate = CompletableDeferred<LibraryStatsResponse>()
         val vm2 = viewModel(cache) { gate.await() }
         vm2.library.test {
-            // Initial state is already Ready(cached) — no Loading flash.
+            // Initial state is already Ready(cached): no Loading flash.
             val initial = awaitItem()
             assertThat(initial).isInstanceOf(LibraryStatsUiState.Ready::class.java)
             assertThat((initial as LibraryStatsUiState.Ready).stats.totalBooks).isEqualTo(3)
@@ -243,35 +272,23 @@ class ReadingStatsViewModelTest {
         }
     }
 
-    /**
-     * Concurrency guard: an in-flight fetch launched before a later load()
-     * must not clobber state once a newer request has started. Regression
-     * test for the catch-path race noted in PR review.
-     */
+    /** Only the latest fetch may change the figures: an earlier one that ends late is ignored. */
     @Test
-    fun `stale catch-path response does not override fresh success`() = runTest(dispatcher) {
-        val slowFail = CompletableDeferred<LibraryStatsResponse>()
+    fun `a late earlier fetch does not overwrite a newer one`() = runTest(dispatcher) {
+        val first = CompletableDeferred<LibraryStatsResponse>()
         var call = 0
         val vm = viewModel(fetch = {
             call++
-            if (call == 1) {
-                slowFail.await() // never completes normally; we'll fail it
-                error("unreachable")
-            } else {
-                fakeStats.copy(totalBooks = 7)
-            }
+            if (call == 1) first.await() else fakeStats.copy(totalBooks = 7)
         })
-        vm.library.test {
-            awaitItem() // Loading
-            vm.loadLibrary() // call 1 in flight
-            // Kick off a second load BEFORE the first errors out.
-            vm.loadLibrary() // call 2 — succeeds
-            val ready = awaitItem() as LibraryStatsUiState.Ready
-            assertThat(ready.stats.totalBooks).isEqualTo(7)
-            // Now let the first call fail. With the generation guard, the
-            // stale failure must be ignored: no Error emission.
-            slowFail.completeExceptionally(LibraryHttpException(500, "stale"))
-            expectNoEvents()
-        }
+        vm.loadLibrary()
+        runCurrent() // call 1 is waiting
+        vm.loadLibrary()
+        advanceUntilIdle()
+        assertThat((vm.library.value as LibraryStatsUiState.Ready).stats.totalBooks).isEqualTo(7)
+
+        first.complete(fakeStats.copy(totalBooks = 1))
+        advanceUntilIdle()
+        assertThat((vm.library.value as LibraryStatsUiState.Ready).stats.totalBooks).isEqualTo(7)
     }
 }

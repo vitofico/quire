@@ -115,7 +115,7 @@ internal fun AccountCredentials.quireServerUrlOrNull(): String? = when (this) {
 }
 
 /** Who stored book details belong to: this account on this server, or null with no Quire server. */
-private fun AccountCredentials.detailsOwner(): String? = quireServerUrlOrNull()?.let { accountOwner(it, subject) }
+internal fun AccountCredentials.detailsOwner(): String? = quireServerUrlOrNull()?.let { accountOwner(it, subject) }
 
 /** An account on a Quire server, as book details and PDF conversions record their owner. */
 internal fun accountOwner(serverUrl: String, subject: String): String = "$serverUrl $subject"

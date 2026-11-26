@@ -42,6 +42,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import io.theficos.ereader.di.AppContainer
+import io.theficos.ereader.di.detailsOwner
 import io.theficos.ereader.notify.OpenRequest
 import io.theficos.ereader.ui.bookdetail.BookDetailScreen
 import io.theficos.ereader.ui.bookdetail.BookDetailSheet
@@ -528,6 +529,7 @@ fun AppNavGraph(
                     initializer {
                         ReadingStatsViewModel(
                             repository = container.readingStats,
+                            owner = { container.credentialStore.getAccount()?.detailsOwner() },
                             fetchLibrary = container.libraryClient::getStats,
                             libraryCache = container.libraryStatsCache,
                         )

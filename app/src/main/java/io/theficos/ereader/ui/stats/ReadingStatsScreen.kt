@@ -168,8 +168,13 @@ private fun StatsContent(state: ReadingStatsUiState, library: LibraryStatsUiStat
         if (!state.recording) item { RecordingOffNote() }
         // The server counts finished books across the whole library and every device, so
         // its figure replaces this device's own while it is there.
-        if (stats.isEmpty) item { EmptyStats() }
-        else item { Headline(stats, locale, showFinished = library !is LibraryStatsUiState.Ready) }
+        val showFinished = library !is LibraryStatsUiState.Ready
+        if (stats.isEmpty) {
+            item { EmptyStats() }
+            if (showFinished && stats.booksFinished > 0) item { FinishedTile(stats) }
+        } else {
+            item { Headline(stats, locale, showFinished) }
+        }
         if (library != LibraryStatsUiState.NoServer) item { LibraryCard(library, onRetryLibrary) }
         if (stats.isEmpty) return@LazyColumn
         item { ReadingTimeCard(stats, locale) }
@@ -202,9 +207,14 @@ private fun Headline(stats: ReadingStats, locale: Locale, showFinished: Boolean)
             stringResource(R.string.stats_longest_streak) to
                 pluralStringResource(R.plurals.stats_days, stats.longestStreak, stats.longestStreak),
         )
-        if (showFinished) TileRow(stringResource(R.string.stats_books_finished) to stats.booksFinished.toString())
+        if (showFinished) FinishedTile(stats)
         Note(stringResource(R.string.stats_streak_note))
     }
+}
+
+@Composable
+private fun FinishedTile(stats: ReadingStats) {
+    TileRow(stringResource(R.string.stats_books_finished) to stats.booksFinished.toString())
 }
 
 @Composable
