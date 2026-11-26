@@ -2,10 +2,22 @@ import { useEffect, useState } from 'react'
 import { ask } from '../ask'
 import { Setting, type Translate } from './Settings'
 
+/**
+ * The downloads Remove all may clear: books the Quire account holds. A book only
+ * in this browser, or one still waiting to reach the account, keeps its file,
+ * since that file may be its only copy.
+ */
+export function removableDownloads<Book extends { hasDownload: boolean; synced: boolean; localOnly: boolean }>(books: Book[]): Book[] {
+  return books.filter((book) => book.hasDownload && book.synced && !book.localOnly)
+}
+
 /** Whether the app works offline, what this browser holds, and keeping or clearing the downloads. */
-export function StorageSettings({ t, downloads, removeDownloads }: {
+export function StorageSettings({ t, downloads, removable, removeDownloads }: {
   t: Translate
+  /** Every downloaded book. */
   downloads: number
+  /** Those `removableDownloads` allows. */
+  removable: number
   removeDownloads: () => Promise<void>
 }) {
   const [ready, setReady] = useState(false),
@@ -79,11 +91,11 @@ export function StorageSettings({ t, downloads, removeDownloads }: {
           )}
         </Setting>
       )}
-      {downloads > 0 && (
+      {removable > 0 && (
         <Setting
           action
           label={t('Remove all downloaded books')}
-          description={t('Frees space in this browser. Your library, reading progress and passages stay.')}
+          description={t('Frees space in this browser. Your library, reading progress and passages stay, and books only on this device keep their files.')}
         >
           {({ id, describedBy }) => (
             <button
@@ -93,7 +105,7 @@ export function StorageSettings({ t, downloads, removeDownloads }: {
               aria-describedby={describedBy}
               disabled={removing}
               onClick={async () => {
-                const sure = await ask(t('Remove all {count} downloaded books from this browser?').replace('{count}', String(downloads)), {
+                const sure = await ask(t('Remove all {count} downloaded books from this browser?').replace('{count}', String(removable)), {
                   confirm: t('Remove all'), cancel: t('Cancel'), destructive: true,
                 })
                 if (!sure) return

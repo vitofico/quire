@@ -41,8 +41,11 @@ function PreferenceForm({ request, config, preferences, t }: {
   // What the server holds: what a refused change goes back to.
   const saved = useRef(preferences);
   const latest = useRef(0);
+  // Saves still waiting for an answer: while any is, what shows is the newest change.
+  const pending = useRef(0);
   // A change made elsewhere, such as the account answering again, shows here too.
   useEffect(() => {
+    if (pending.current) return;
     saved.current = preferences;
     setShown(preferences);
   }, [preferences]);
@@ -53,6 +56,7 @@ function PreferenceForm({ request, config, preferences, t }: {
 
   async function save(next: Preferences) {
     const attempt = ++latest.current;
+    pending.current++;
     setShown(next);
     setFailed("");
     const body = {
@@ -61,13 +65,19 @@ function PreferenceForm({ request, config, preferences, t }: {
     };
     try {
       const updated = await discoveryJson<Preferences>(request, "/ai/v1/preferences", jsonBody("PUT", body));
+      // Only the answer to the newest change says what the account now holds.
+      if (attempt !== latest.current) return;
       saved.current = updated;
+      setShown(updated);
       applyAiPreferences(request, updated);
-      if (attempt === latest.current) setShown(updated);
     } catch (cause) {
       if (attempt !== latest.current) return;
       setShown(saved.current);
       setFailed(`${t("Quire could not save this change, so the previous setting is kept.")} ${translateRequestMessage(t, requestMessage(cause))}`);
+      // An earlier change may have landed after all: ask the account what it holds.
+      void refreshAiState(request);
+    } finally {
+      pending.current--;
     }
   }
 
@@ -79,10 +89,12 @@ function PreferenceForm({ request, config, preferences, t }: {
           ? "Book insights use edition metadata and feedback you submit. Reader profiles use eligible reading statistics from your connected library. Quire sends these inputs to the configured AI provider."
           : "Book insights use edition metadata and feedback you submit. Quire sends these inputs to the configured AI provider.")}
         checked={shown.ai_enabled}
+        // AI cannot be turned on for a provider the server no longer offers.
+        disabled={!shown.ai_enabled && retired}
         onChange={(on) => void save({ ...shown, ai_enabled: on })}
       />
       {providers.length > 0 && (
-        <Setting label={t("Provider")} description={t("The AI service that writes for this account.")}>
+        <Setting stacked label={t("Provider")} description={t("The AI service that writes for this account.")}>
           {({ id, describedBy }) => (
             <select id={id} aria-describedby={describedBy} value={shown.provider_id}
               onChange={(event) => void save({ ...shown, provider_id: event.target.value })}>

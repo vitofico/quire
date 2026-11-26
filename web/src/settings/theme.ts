@@ -2,6 +2,8 @@
  * The app theme, as the Android app holds it: a mode (follow the device, always
  * light, always dark) and the light and dark palette each mode uses.
  * It belongs to this browser, as Android keeps it on the phone.
+ * index.html reads the same keys before the app loads, so the first paint
+ * already has the theme: a change here belongs there too.
  */
 export type ThemeMode = 'system' | 'light' | 'dark'
 export const lightThemes = ['paper', 'sage'] as const

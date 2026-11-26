@@ -36,7 +36,7 @@ import { OpenCatalogs } from './books/OpenCatalogsPanel'
 import { BackgroundPicker, SettingsPage, Setting, ThemePicker, sectionFor, useVersion } from './settings/Settings'
 import { ReadingDefaults } from './settings/ReadingDefaults'
 import { SavedCatalogs } from './settings/SavedCatalogs'
-import { StorageSettings } from './settings/Storage'
+import { StorageSettings, removableDownloads } from './settings/Storage'
 import { readThemeChoice, resolveTheme, type ThemeChoice } from './settings/theme'
 import { BookDetails } from './BookDetails'
 import { Passages } from './Passages'
@@ -184,7 +184,8 @@ function usePreferences() {
   useEffect(() => {
     document.documentElement.lang = lang
   }, [lang])
-  // Before the first paint, so a dark theme never opens on a flash of paper.
+  // index.html sets the saved theme before the app loads; this keeps it current
+  // as the choice or the device's scheme changes, before the browser paints.
   useLayoutEffect(() => {
     const media = matchMedia('(prefers-color-scheme: dark)')
     const update = () => {
@@ -254,7 +255,7 @@ function Workspace({
     active.mode === 'connected' &&
     (active.capabilities?.progress_metadata_sync ?? bootstrap?.sync ?? false)
   const transport = syncEnabled ? active.request : undefined
-  const { replica, snapshot, sync, busy } = useReplica(
+  const { replica, snapshot, sync, busy, unavailable: storageUnavailable } = useReplica(
     active.namespace,
     transport,
     report,
@@ -1179,6 +1180,7 @@ function Workspace({
     )
   } else if (route.view === 'settings') {
     const downloaded = snapshot.books.filter((b) => b.hasDownload)
+    const removable = removableDownloads(snapshot.books)
     content = (
       <SettingsPage t={t} focus={sectionFor(route.id)}>
         {{
@@ -1199,8 +1201,9 @@ function Workspace({
               </Setting>
             </>
           ),
-          reading: <ReadingDefaults store={replica ?? undefined} lang={lang} t={t} />,
-          ai: <AiSettings t={t} request={active.request} aiAvailable={aiAvailable} />,
+          reading: <ReadingDefaults store={replica ?? undefined} unavailable={storageUnavailable} lang={lang} t={t} />,
+          // Only a server with AI offers its settings, as only it can use them.
+          ai: aiAvailable && <AiSettings t={t} request={active.request} aiAvailable={aiAvailable} />,
           catalogs: savedListed && active.request && (
             <SavedCatalogs
               saved={saved}
@@ -1247,8 +1250,9 @@ function Workspace({
             <StorageSettings
               t={t}
               downloads={downloaded.length}
+              removable={removable.length}
               removeDownloads={async () => {
-                for (const b of downloaded) await replica?.removeDownload(b.key)
+                for (const b of removable) await replica?.removeDownload(b.key)
               }}
             />
           ),

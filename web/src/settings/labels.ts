@@ -14,6 +14,18 @@ export const settingsLabels: Record<string, [string, string, string, string]> = 
   ],
   'Light theme': ['Tema claro', 'Tema chiaro', 'Thème clair', 'Helles Design'],
   'Dark theme': ['Tema oscuro', 'Tema scuro', 'Thème sombre', 'Dunkles Design'],
+  'Used when Mode is System or Light.': [
+    'Se usa cuando el modo es Sistema o Claro.',
+    'Usato quando la modalità è Sistema o Chiaro.',
+    'Utilisé quand le mode est Système ou Clair.',
+    'Wird verwendet, wenn der Modus System oder Hell ist.',
+  ],
+  'Used when Mode is System or Dark.': [
+    'Se usa cuando el modo es Sistema u Oscuro.',
+    'Usato quando la modalità è Sistema o Scuro.',
+    'Utilisé quand le mode est Système ou Sombre.',
+    'Wird verwendet, wenn der Modus System oder Dunkel ist.',
+  ],
   'Background': ['Fondo', 'Sfondo', 'Arrière-plan', 'Hintergrund'],
   'Plain': ['Liso', 'Semplice', 'Uni', 'Schlicht'],
   'Choose a background independently of your colour theme. Reading pages stay unchanged.': [
@@ -54,11 +66,11 @@ export const settingsLabels: Record<string, [string, string, string, string]> = 
     'Supprimer tous les livres téléchargés',
     'Alle heruntergeladenen Bücher entfernen',
   ],
-  'Frees space in this browser. Your library, reading progress and passages stay.': [
-    'Libera espacio en este navegador. Tu biblioteca, tu progreso de lectura y tus pasajes se conservan.',
-    'Libera spazio in questo browser. La libreria, i progressi di lettura e i brani restano.',
-    'Libère de l’espace dans ce navigateur. Votre bibliothèque, votre progression et vos passages restent.',
-    'Gibt Platz in diesem Browser frei. Deine Bibliothek, dein Lesefortschritt und deine Passagen bleiben.',
+  'Frees space in this browser. Your library, reading progress and passages stay, and books only on this device keep their files.': [
+    'Libera espacio en este navegador. Tu biblioteca, tu progreso de lectura y tus pasajes se conservan, y los libros que solo están en este dispositivo mantienen sus archivos.',
+    'Libera spazio in questo browser. La libreria, i progressi di lettura e i brani restano, e i libri presenti solo su questo dispositivo mantengono i loro file.',
+    'Libère de l’espace dans ce navigateur. Votre bibliothèque, votre progression et vos passages restent, et les livres présents uniquement sur cet appareil gardent leurs fichiers.',
+    'Gibt Platz in diesem Browser frei. Deine Bibliothek, dein Lesefortschritt und deine Passagen bleiben, und Bücher, die nur auf diesem Gerät sind, behalten ihre Dateien.',
   ],
   'Remove all {count} downloaded books from this browser?': [
     '¿Quitar los {count} libros descargados de este navegador?',

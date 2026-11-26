@@ -292,9 +292,10 @@ export class Replica {
     return stored && decodeBlob(stored)
   }
 
+  /** Drop the book's file only: its pause bookmark and note stay for when the same file comes back. */
   removeDownload(key: string): Promise<void> {
-    return this.write(['epubs','settings'], async (store) => {
-      await Promise.all([result(store('epubs').delete(key)), result(store('settings').delete(`bookmark:${key}`))])
+    return this.write(['epubs'], async (store) => {
+      await result(store('epubs').delete(key))
     })
   }
 

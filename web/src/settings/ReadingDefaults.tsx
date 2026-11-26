@@ -14,7 +14,13 @@ const fontNames: Record<Font, string> = {
  * How books open: the same preference the reader's Appearance panel changes,
  * kept in this browser for this library, as Android keeps its reader defaults on the phone.
  */
-export function ReadingDefaults({ store, lang, t }: { store?: Replica; lang: string; t: Translate }) {
+export function ReadingDefaults({ store, unavailable, lang, t }: {
+  store?: Replica
+  /** The browser's storage could not open: there is nothing to wait for. */
+  unavailable?: boolean
+  lang: string
+  t: Translate
+}) {
   const reader = readerStrings(lang)
   const [prefs, setPrefs] = useState<ReaderPreferences>()
   const [failed, setFailed] = useState('')
@@ -26,6 +32,7 @@ export function ReadingDefaults({ store, lang, t }: { store?: Replica; lang: str
     )
     return () => { live = false }
   }, [store])
+  if (unavailable && !store) return <p role="alert">{t('Storage is unavailable.')}</p>
   if (failed && !prefs) return <p role="alert">{failed}</p>
   if (!store || !prefs) return <p className="hint" aria-busy="true">{t('Loading…')}</p>
 

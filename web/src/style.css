@@ -695,6 +695,16 @@ a.account-chip:hover {
 .setting-control > button {
   max-width: 100%;
 }
+/* On the narrowest phones a settings panel gives its text a little more room. */
+@media (max-width: 400px) {
+  .settings-section > .panel {
+    padding-inline: 0.9rem;
+  }
+}
+/* A stacked setting's select takes the row, so a long choice such as a provider's name shows whole. */
+.setting.stacked > .setting-control > select {
+  width: 100%;
+}
 .setting-control.actions {
   justify-content: flex-end;
 }
@@ -702,7 +712,8 @@ a.account-chip:hover {
   margin: 0;
   color: var(--muted);
 }
-.setting:disabled > :not(legend) {
+/* The hint stays readable: it says why the group is off. */
+.setting:disabled > :not(legend, .hint) {
   opacity: 0.45;
 }
 .setting:disabled .theme-option {

@@ -33,7 +33,8 @@ export async function refreshAiState(request: DiscoveryRequest): Promise<void> {
       : { ai_enabled: false, style: { language: "auto", tone: "neutral" }, provider_id: "default" };
     update(current, { settings: { config, preferences } });
   } catch (error) {
-    update(current, { error: requestMessage(error) });
+    // What was known stays shown; the error says it may be out of date.
+    update(current, { settings: current.state.settings, error: requestMessage(error) });
   }
 }
 

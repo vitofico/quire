@@ -172,10 +172,12 @@ export function ThemePicker({ choice, onChange, t }: {
           </label>
         ))}
       </ChoiceGroup>
-      <ChoiceGroup legend={t('Light theme')} disabled={choice.mode === 'dark'} className="theme-options">
+      <ChoiceGroup legend={t('Light theme')} description={t('Used when Mode is System or Light.')}
+        disabled={choice.mode === 'dark'} className="theme-options">
         {lightThemes.map((theme) => option(theme, 'light'))}
       </ChoiceGroup>
-      <ChoiceGroup legend={t('Dark theme')} disabled={choice.mode === 'light'} className="theme-options">
+      <ChoiceGroup legend={t('Dark theme')} description={t('Used when Mode is System or Dark.')}
+        disabled={choice.mode === 'light'} className="theme-options">
         {darkThemes.map((theme) => option(theme, 'dark'))}
       </ChoiceGroup>
     </>

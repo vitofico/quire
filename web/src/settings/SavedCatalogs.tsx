@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { RemoveSavedCatalog } from '../books/RemoveSavedCatalog'
-import { distinctSaved, movedOrder, reorderSavedCatalogs, type SavedCatalog } from '../books/saved'
+import { distinctSaved, listSavedCatalogs, movedOrder, reorderSavedCatalogs, type SavedCatalog } from '../books/saved'
 import type { Translate } from './Settings'
 
 type ApiRequest = (path: string, init?: RequestInit) => Promise<Response>
@@ -24,6 +24,9 @@ export function SavedCatalogs({ saved, request, onChange, onRemoved, t }: {
       onChange(await reorderSavedCatalogs(request, movedOrder(saved, catalog.id, by)))
     } catch (reason) {
       setFailed(t(reason instanceof Error ? reason.message : String(reason)))
+      // The list may have changed on another device, which the server refuses an
+      // order for: the list as it now stands lets the next move go through.
+      await listSavedCatalogs(request).then(onChange, () => undefined)
     } finally {
       setBusy(false)
     }
