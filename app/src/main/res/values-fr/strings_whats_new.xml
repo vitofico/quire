@@ -15,4 +15,6 @@
     <string name="whats_new_book_details_description">Les livres dont le titre est un nom de fichier, ou sans couverture, auteur ou description, reçoivent maintenant leurs détails d’Open Library ou mis en ordre par l’IA, avec une mention de leur origine. Cela se fait en Wi-Fi, 25 livres au plus par jour. Désactivez-le dans %1$s → %2$s, ou revenez aux détails d’origine d’un livre depuis son menu.</string>
     <string name="whats_new_pdf_conversion_title">Des PDF devenus livres</string>
     <string name="whats_new_pdf_conversion_description">Partagez un PDF avec Quire, ou ajoutez-le avec + dans la bibliothèque, et votre serveur Quire le convertit en EPUB dans votre bibliothèque. La conversion se fait sur votre propre serveur, rien n’est envoyé ailleurs. Suivez-la dans %1$s → %2$s, dans la bibliothèque.</string>
+    <string name="whats_new_highlights_discuss_title">Approfondissez vos surlignages</string>
+    <string name="whats_new_highlights_discuss_description">Dans %1$s → %2$s d’un livre, choisissez %3$s, cochez quelques passages et demandez ce qui les relie. L’IA de votre serveur Quire répond en quelques lignes que vous pouvez partager comme note. Rien de la conversation n’est enregistré.</string>
 </resources>

@@ -45,6 +45,9 @@ data class AiConfig(
     @SerialName("provider_id") val providerId: String = "default",
     // True when the server offers book details and covers (`/details/v1`). Older servers omit it.
     @SerialName("details_supported") val detailsSupported: Boolean = false,
+    // True when the server answers `POST /ai/v1/highlights/discuss`, whose limits come with it. Older servers omit both.
+    @SerialName("highlights_discuss") val highlightsDiscuss: Boolean = false,
+    @SerialName("highlights_discuss_limits") val highlightsDiscussLimits: DiscussLimits? = null,
 )
 
 @Serializable

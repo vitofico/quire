@@ -15,6 +15,7 @@ import io.theficos.ereader.data.ai.AiClient
 import io.theficos.ereader.data.ai.AiRepository
 import io.theficos.ereader.data.ai.BookDetailsRepository
 import io.theficos.ereader.data.ai.CatalogInsightStash
+import io.theficos.ereader.data.ai.DiscussLimits
 import io.theficos.ereader.data.ai.InsightSyncRepository
 import io.theficos.ereader.data.library.LibraryClient
 import io.theficos.ereader.data.library.LibraryUploader
@@ -357,6 +358,10 @@ class AppContainer internal constructor(context: Context, private val db: EReade
             initialValue = false,
         )
 
+    /** The limits while "Think it through" on highlights is offered, else null. */
+    val highlightsDiscussLimits: StateFlow<DiscussLimits?> = aiRepository.highlightsDiscussLimits
+        .stateIn(libraryUploaderScope, SharingStarted.Eagerly, null)
+
     val libraryInsightsViewModelFactory: LibraryInsightsViewModelFactory =
         LibraryInsightsViewModelFactory(
             ai = aiRepository,
@@ -605,6 +610,13 @@ class AppContainer internal constructor(context: Context, private val db: EReade
                     // On app start and on every sign-in; usually an empty 304.
                     catalogSyncRepository.pull()
                 }
+            }
+        }
+        // The AI features read the server's AI config and the reader's opt-in from here: fetch them
+        // at start and for each account, not only when Settings happens to be built.
+        libraryUploaderScope.launch {
+            credentialStore.accountFlow.map { it?.detailsOwner() }.distinctUntilChanged().collect { owner ->
+                if (owner != null) aiRepository.refresh()
             }
         }
         // Quietly fill in missing book details and covers, once per book, while AI is on and on Wi-Fi.

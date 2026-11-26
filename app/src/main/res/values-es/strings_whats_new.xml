@@ -15,4 +15,6 @@
     <string name="whats_new_book_details_description">Los libros con un nombre de archivo como título, o sin portada, autor o descripción, ahora reciben sus detalles de Open Library u ordenados por IA, con una etiqueta que indica su origen. Funciona con Wi-Fi, hasta 25 libros al día. Desactívalo en %1$s → %2$s, o vuelve a los detalles originales de un libro desde su menú.</string>
     <string name="whats_new_pdf_conversion_title">Convierte PDF en libros</string>
     <string name="whats_new_pdf_conversion_description">Comparte un PDF con Quire, o añádelo con + en la biblioteca, y tu servidor Quire lo convierte en un EPUB en tu biblioteca. Se convierte en tu propio servidor y no se envía a ningún otro sitio. Síguelo en %1$s → %2$s en la biblioteca.</string>
+    <string name="whats_new_highlights_discuss_title">Profundiza en tus resaltados</string>
+    <string name="whats_new_highlights_discuss_description">En %1$s → %2$s de un libro, elige %3$s, marca algunos pasajes y pregunta qué los une. La IA de tu servidor Quire responde en pocas líneas que puedes compartir como nota. No se guarda nada de la conversación.</string>
 </resources>

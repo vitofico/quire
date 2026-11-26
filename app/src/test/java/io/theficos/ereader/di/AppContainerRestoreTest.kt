@@ -1,6 +1,5 @@
 package io.theficos.ereader.di
 
-import io.theficos.ereader.testing.awaitRequest
 import android.app.Application
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
@@ -42,7 +41,6 @@ class AppContainerRestoreTest {
             MockWebServer().use { server ->
                 server.start()
                 val origin = server.url("/").toString().trimEnd('/')
-                container.credentialStore.saveBasicAccount(origin, "reader", "fixture", origin)
                 val original = writeTestEpub(
                     File(container.booksDir.apply { mkdirs() }, "original.epub"),
                     "urn:uuid:restore-duplicate",
@@ -55,28 +53,34 @@ class AppContainerRestoreTest {
                 // The mirror advertises a different identity. Only extracting the
                 // fetched EPUB can tell the restore path that it is already local.
                 val time = "2026-05-05T12:00:00Z"
-                server.enqueue(MockResponse().setBody("""
-                    {"items":[{"content_hash":"mirror-hash","opds_href":"$origin/restore.epub",
-                    "title":"Remote Copy","created_at":"$time","updated_at":"$time"}],"server_time":"$time"}
-                """.trimIndent()))
-                server.enqueue(MockResponse().setBody("""
-                    {"items":[{"document":{"content_hash":"mirror-hash"},"locator":"loc",
-                    "percent":0.5,"client_updated_at":"$time"}],"server_time":"$time"}
-                """.trimIndent()))
-                server.enqueue(MockResponse().setBody(Buffer().write(original.readBytes())))
+                val restorePaths = java.util.Collections.synchronizedList(mutableListOf<String?>())
+                // Answer by path: signing in also refreshes the AI settings, which this test ignores.
+                server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+                    override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse {
+                        val path = request.requestUrl?.encodedPath
+                        if (path?.startsWith("/ai/") != true) restorePaths += path
+                        return when (path) {
+                            "/library/v1/items" -> MockResponse().setBody("""
+                                {"items":[{"content_hash":"mirror-hash","opds_href":"$origin/restore.epub",
+                                "title":"Remote Copy","created_at":"$time","updated_at":"$time"}],"server_time":"$time"}
+                            """.trimIndent())
+                            "/sync/v1/progress" -> MockResponse().setBody("""
+                                {"items":[{"document":{"content_hash":"mirror-hash"},"locator":"loc",
+                                "percent":0.5,"client_updated_at":"$time"}],"server_time":"$time"}
+                            """.trimIndent())
+                            "/restore.epub" -> MockResponse().setBody(Buffer().write(original.readBytes()))
+                            else -> MockResponse().setResponseCode(404)
+                        }
+                    }
+                }
+                container.credentialStore.saveBasicAccount(origin, "reader", "fixture", origin)
 
                 assertThat(container.runRestoreInProgress { _, _ -> })
                     .isEqualTo(RestoreSummary(1, 1, 0, 0, 0))
                 assertThat(container.documentRepository.observeLibrary().first().map { it.id })
                     .containsExactly(id)
                 assertThat(container.booksDir.list()?.toList()).containsExactly("original.epub")
-                assertThat(server.requestCount).isEqualTo(3)
-                assertThat(server.awaitRequest().requestUrl?.encodedPath)
-                    .isEqualTo("/library/v1/items")
-                assertThat(server.awaitRequest().requestUrl?.encodedPath)
-                    .isEqualTo("/sync/v1/progress")
-                assertThat(server.awaitRequest().requestUrl?.encodedPath)
-                    .isEqualTo("/restore.epub")
+                assertThat(restorePaths).containsExactly("/library/v1/items", "/sync/v1/progress", "/restore.epub").inOrder()
             }
         } finally {
             container.libraryUploaderScope.coroutineContext[Job]?.cancelAndJoin()

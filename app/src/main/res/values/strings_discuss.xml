@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="discuss_select">"Select"</string>
+    <string name="discuss_cancel_selection">"Cancel selection"</string>
+    <string name="discuss_selected_count">"Selected: %1$d"</string>
+    <string name="discuss_title">"Think it through"</string>
+    <plurals name="discuss_select_limit">
+        <item quantity="one">"You can select up to %1$d passage."</item>
+        <item quantity="other">"You can select up to %1$d passages."</item>
+    </plurals>
+    <string name="discuss_nothing_saved">"Nothing here is saved. Closing this screen discards the conversation."</string>
+    <string name="discuss_selected_passages">"Selected passages"</string>
+    <string name="discuss_passage">"Passage %1$d"</string>
+    <string name="discuss_passage_excerpt">"Passage %1$d: %2$s"</string>
+    <string name="discuss_clipped">"Some long passages were shortened to fit the server’s limit."</string>
+    <string name="discuss_include_notes">"Include my notes"</string>
+    <string name="discuss_privacy_notes">"Sent to your server’s AI provider: the selected passages, your notes on them, and the books’ titles and authors."</string>
+    <string name="discuss_privacy">"Sent to your server’s AI provider: the selected passages and the books’ titles and authors."</string>
+    <string name="discuss_based_on">"Based on passages"</string>
+    <string name="discuss_passages_heading">"Passages"</string>
+    <string name="discuss_share">"Share"</string>
+    <string name="discuss_copy">"Copy"</string>
+    <string name="discuss_copied">"Copied."</string>
+    <string name="discuss_thinking">"Thinking…"</string>
+    <string name="discuss_starter_connects">"What connects these?"</string>
+    <string name="discuss_starter_disagree">"Where do they disagree?"</string>
+    <string name="discuss_starter_note">"Summarise as a note"</string>
+    <string name="discuss_your_question">"Your question"</string>
+    <string name="discuss_follow_up">"Follow-up question"</string>
+    <string name="discuss_ask">"Ask"</string>
+    <string name="discuss_questions_left">"Questions left: %1$d"</string>
+    <string name="discuss_limit_reached">"This conversation reached its question limit."</string>
+    <string name="discuss_start_again">"Start again"</string>
+    <string name="discuss_share_failed">"Quire couldn’t copy or share this answer."</string>
+    <string name="discuss_not_offered">"This server doesn’t answer questions about highlights right now."</string>
+    <string name="discuss_too_large">"These passages and questions are too long together. Select fewer passages or start again."</string>
+    <string name="discuss_refused">"The server couldn’t use these passages or this question."</string>
+    <string name="discuss_provider_gone">"The selected AI provider was removed. Choose another in Settings."</string>
+    <string name="discuss_failed">"Couldn’t get an answer. Try again later."</string>
+</resources>
