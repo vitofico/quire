@@ -156,7 +156,9 @@ class BookDetailsRepository(
     /** One book's stored answer, whether or not the reader chose the original; null while it may not show. */
     fun observe(documentId: Long): Flow<BookDetails?> = showable.map { it[documentId] }.distinctUntilChanged()
 
-    suspend fun setUseOriginal(documentId: Long, useOriginal: Boolean) = dao.setUseOriginal(documentId, useOriginal)
+    /** Ordered against the other writes, which copy the row whole, so none of them puts back the old choice. */
+    suspend fun setUseOriginal(documentId: Long, useOriginal: Boolean) =
+        storeMutex.withLock { dao.setUseOriginal(documentId, useOriginal) }
 
     /**
      * "Improve details": always tidies, at the cost of one generation unless the shared record
@@ -221,6 +223,7 @@ class BookDetailsRepository(
     private suspend fun applyNow(proposal: DetailsProposal, accepted: List<String>, choice: String, cover: CoverPreview?): BookDetails? {
         val id = proposal.document.id
         if (!proposal.open.get() || tidiesOf(id) != proposal.turn) return null.also { endPreview(proposal) }
+        val originalBefore = dao.find(id)?.useOriginal == true
         val doc = proposal.document
         val previous = proposal.previous
         var chosen = cover ?: previous?.let { CoverPreview(it.response, it.coverPath) }
@@ -259,16 +262,18 @@ class BookDetailsRepository(
             coverDue -> clock() + PAUSE_S * 1000L
             else -> null
         }
-        val row = BookDetailsEntity(id, encode(response), coverPath, useOriginal = false, retryAt = retryAt)
-        storeMutex.withLock {
+        val useOriginal = storeMutex.withLock {
             if (tidiesOf(id) != proposal.turn) return null.also { endPreview(proposal) }
             val current = dao.find(id)
-            save(row)
+            // Applying shows the found details, unless the reader chose the original while Apply ran: that came later.
+            val useOriginal = current?.useOriginal == true && !originalBefore
+            save(BookDetailsEntity(id, encode(response), coverPath, useOriginal, retryAt))
             // A replaced cover is left for the sweep, so a shelf still holding its path can draw it meanwhile.
             current?.coverPath?.takeIf { it != coverPath }?.let { File(it).setLastModified(clock()) }
+            useOriginal
         }
         endPreview(proposal)
-        return BookDetails(response, coverPath, useOriginal = false)
+        return BookDetails(response, coverPath, useOriginal)
     }
 
     /**
