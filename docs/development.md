@@ -294,9 +294,9 @@ PYTHONPATH=server uv run --project server python scripts/check-open-catalogs.py
 ```
 
 Project Gutenberg leads the list as `public_domain_us` (its books are public
-domain in the US, not everywhere): its main feed, mostly English, and the
-`l.de` and `l.it` language searches, so German and Italian readers find a
-Gutenberg feed in their own language first. It was added on 2026-11-26 while
+domain in the US, not everywhere). There is one entry, its main feed: it
+searches and browses books in every language, so a language search of its own
+for each reader language would only repeat it. It was added on 2026-11-26 while
 gutenberg.org answered only `503` for maintenance, so the live check has not
 yet passed for it. When the site answers again, run the check and replace the
 hand-written `data/opds/src/test/resources/opds/open-gutenberg-root-handwritten.xml`

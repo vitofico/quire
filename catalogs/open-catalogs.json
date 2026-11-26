@@ -16,36 +16,6 @@
       }
     },
     {
-      "id": "gutenberg-de",
-      "name": "Project Gutenberg: Deutsch",
-      "url": "https://www.gutenberg.org/ebooks/search.opds/?query=l.de",
-      "languages": ["de"],
-      "offers": "public_domain_us",
-      "home": "https://www.gutenberg.org/",
-      "description": {
-        "en": "The German books of Project Gutenberg, free and public domain in the US.",
-        "de": "Die deutschen Bücher von Project Gutenberg, kostenlos und gemeinfrei in den USA.",
-        "es": "Los libros en alemán de Project Gutenberg, gratuitos y de dominio público en EE. UU.",
-        "fr": "Les livres en allemand de Project Gutenberg, gratuits et du domaine public aux États-Unis.",
-        "it": "I libri in tedesco di Project Gutenberg, gratuiti e di pubblico dominio negli USA."
-      }
-    },
-    {
-      "id": "gutenberg-it",
-      "name": "Project Gutenberg: Italiano",
-      "url": "https://www.gutenberg.org/ebooks/search.opds/?query=l.it",
-      "languages": ["it"],
-      "offers": "public_domain_us",
-      "home": "https://www.gutenberg.org/",
-      "description": {
-        "en": "The Italian books of Project Gutenberg, free and public domain in the US.",
-        "de": "Die italienischen Bücher von Project Gutenberg, kostenlos und gemeinfrei in den USA.",
-        "es": "Los libros en italiano de Project Gutenberg, gratuitos y de dominio público en EE. UU.",
-        "fr": "Les livres en italien de Project Gutenberg, gratuits et du domaine public aux États-Unis.",
-        "it": "I libri in italiano di Project Gutenberg, gratuiti e di pubblico dominio negli USA."
-      }
-    },
-    {
       "id": "textos-info",
       "name": "textos.info",
       "url": "https://www.textos.info/catalogo.atom",
