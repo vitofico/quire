@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  HAND-WRITTEN, NOT FETCHED. gutenberg.org was down for maintenance (503 on every path) on
+  2026-11-26, when Project Gutenberg joined catalogs/open-catalogs.json. This is a minimal
+  sketch of the root of https://www.gutenberg.org/ebooks.opds/ from its documented shape: a
+  navigation feed whose Popular and Latest entries open /ebooks/search.opds/ sorted by
+  downloads and by release date, with the relative hrefs of gutenberg-style-nav.xml. Replace
+  it with a trimmed copy of the live root once the site answers again.
+-->
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <id>https://www.gutenberg.org/ebooks.opds/</id>
+  <title>Project Gutenberg</title>
+  <entry>
+    <id>https://www.gutenberg.org/ebooks/search.opds/?sort_order=downloads</id>
+    <title>Popular</title>
+    <link type="application/atom+xml;profile=opds-catalog" rel="subsection" href="/ebooks/search.opds/?sort_order=downloads"/>
+  </entry>
+  <entry>
+    <id>https://www.gutenberg.org/ebooks/search.opds/?sort_order=release_date</id>
+    <title>Latest</title>
+    <link type="application/atom+xml;profile=opds-catalog" rel="subsection" href="/ebooks/search.opds/?sort_order=release_date"/>
+  </entry>
+</feed>

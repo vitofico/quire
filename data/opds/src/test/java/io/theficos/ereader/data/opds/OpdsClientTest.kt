@@ -62,9 +62,11 @@ class OpdsClientTest {
                         .setBody(resource("/opds/catalog-root-sort-new.xml"))
                     "/calibre-server/opds" -> MockResponse().setHeader("Content-Type", "application/atom+xml")
                         .setBody(resource("/opds/calibre-server-root.xml"))
-                    "/open/textos-info", "/open/ebooks-libres-et-gratuits", "/open/bibliotheque-numerique-romande" ->
+                    "/open/textos-info", "/open/ebooks-libres-et-gratuits" ->
                         MockResponse().setHeader("Content-Type", "application/atom+xml")
                             .setBody(resource("/opds/open-${path.orEmpty().removePrefix("/open/")}-root.xml"))
+                    "/open/gutenberg" -> MockResponse().setHeader("Content-Type", "application/atom+xml")
+                        .setBody(resource("/opds/open-gutenberg-root-handwritten.xml"))
                     "/opds/unauthorized" -> MockResponse().setResponseCode(401)
                     "/gutenberg-style" -> MockResponse().setHeader("Content-Type", "application/atom+xml")
                         .setBody(resource("/opds/gutenberg-style-nav.xml"))
@@ -347,12 +349,19 @@ class OpdsClientTest {
     }
 
     @Test fun `the packaged open catalogs' root feeds, as fetched on 2026-11-26`() = runTest {
-        // catalogs/open-catalogs.json: only textos.info links its newest books. The other two
-        // have no sort/new link and no known path, so the new-books check names them as not checked.
+        // catalogs/open-catalogs.json: textos.info links its newest books. Ebooks libres et gratuits
+        // has no sort/new link and no known path, so the new-books check names it as not checked.
+        // Project Gutenberg could not be fetched that day: see the hand-written test below.
         assertThat(client.fetch(server.url("/open/textos-info").toString()).latestHref)
             .isEqualTo("https://www.textos.info/novedades.atom")
         assertThat(client.fetch(server.url("/open/ebooks-libres-et-gratuits").toString()).latestHref).isNull()
-        assertThat(client.fetch(server.url("/open/bibliotheque-numerique-romande").toString()).latestHref).isNull()
+    }
+
+    @Test fun `Project Gutenberg's Latest entry is its newest-books feed, from a hand-written root`() = runTest {
+        // Not a fetched copy: gutenberg.org answered 503 on every path on 2026-11-26. The fixture
+        // sketches its root from the documented shape (Popular by downloads, Latest by release date).
+        assertThat(client.fetch(server.url("/open/gutenberg").toString()).latestHref)
+            .isEqualTo(server.url("/ebooks/search.opds/?sort_order=release_date").toString())
     }
 
     @Test fun `each publication carries its Atom entry id`() = runTest {

@@ -25,4 +25,6 @@
     <string name="whats_new_details_preview_description">In a book’s %1$s → %2$s, see each change beside the current details, keep the ones you want, and choose the cover: the book’s own, one from Open Library, or one drawn by Quire.</string>
     <string name="whats_new_highlights_discuss_title">Think through your highlights</string>
     <string name="whats_new_highlights_discuss_description">In a book’s %1$s → %2$s, choose %3$s, pick a few passages and ask what connects them. The AI on your Quire server answers in a few lines you can share as a note. Nothing of the conversation is saved.</string>
+    <string name="whats_new_gutenberg_title">Project Gutenberg, free in one tap</string>
+    <string name="whats_new_gutenberg_description">Project Gutenberg, the largest free catalog of classics, now leads the open catalogs in %1$s → %2$s, with its German and Italian books as entries of their own. Its books are public domain in the US: check the rules where you live.</string>
 </resources>

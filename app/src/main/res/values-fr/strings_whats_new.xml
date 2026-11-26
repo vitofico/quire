@@ -25,4 +25,6 @@
     <string name="whats_new_details_preview_description">Dans %1$s → %2$s d’un livre, voyez chaque modification à côté des informations actuelles, gardez celles que vous voulez et choisissez la couverture : celle du livre, une d’Open Library ou une dessinée par Quire.</string>
     <string name="whats_new_highlights_discuss_title">Approfondissez vos surlignages</string>
     <string name="whats_new_highlights_discuss_description">Dans %1$s → %2$s d’un livre, choisissez %3$s, cochez quelques passages et demandez ce qui les relie. L’IA de votre serveur Quire répond en quelques lignes que vous pouvez partager comme note. Rien de la conversation n’est enregistré.</string>
+    <string name="whats_new_gutenberg_title">Project Gutenberg, gratuit d’un geste</string>
+    <string name="whats_new_gutenberg_description">Project Gutenberg, le plus grand catalogue gratuit de classiques, ouvre désormais les catalogues ouverts dans %1$s → %2$s, avec ses livres en allemand et en italien comme entrées à part. Ses livres sont du domaine public aux États-Unis : vérifiez les règles de votre pays.</string>
 </resources>
