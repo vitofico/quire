@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeCatalogClient } from './opds'
-import { distinctSaved, listSavedCatalogs, removeSavedCatalog, removeWithCopies, savedCatalogHome, savedCatalogRequest, shownEntry, type SavedCatalog } from './saved'
+import { distinctSaved, listSavedCatalogs, movedOrder, reorderSavedCatalogs, removeSavedCatalog, removeWithCopies, savedCatalogHome, savedCatalogRequest, shownEntry, type SavedCatalog } from './saved'
 
 const catalog: SavedCatalog = {
   id: '6f1c',
@@ -127,5 +127,34 @@ describe('saved catalogs', () => {
   it('lists none when the server keeps no list', async () => {
     expect(await listSavedCatalogs(server(() => new Response(null, { status: 404 })))).toEqual([])
     expect(await listSavedCatalogs(server(() => Response.json({ catalogs: [catalog] })))).toEqual([catalog])
+  })
+})
+
+describe('catalog order', () => {
+  const entry = (id: string, position: number, duplicate_of: string | null = null): SavedCatalog =>
+    ({ ...catalog, id, position, duplicate_of })
+  // Listed out of order: b repeats a, and z repeats an entry that is gone.
+  const saved = [entry('c', 3), entry('a', 0), entry('z', 4, 'gone'), entry('b', 1, 'a'), entry('d', 2)]
+
+  it('moves a catalog past the next one shown, each repeat staying with its entry', () => {
+    expect(movedOrder(saved, 'd', -1)).toEqual(['d', 'a', 'b', 'c', 'z'])
+    expect(movedOrder(saved, 'a', 1)).toEqual(['d', 'a', 'b', 'c', 'z'])
+    expect(movedOrder(saved, 'c', -1)).toEqual(['a', 'b', 'c', 'd', 'z'])
+  })
+
+  it('leaves the order alone past either end', () => {
+    expect(movedOrder(saved, 'a', -1)).toEqual(['a', 'b', 'd', 'c', 'z'])
+    expect(movedOrder(saved, 'c', 1)).toEqual(['a', 'b', 'd', 'c', 'z'])
+  })
+
+  it('sends the whole order and returns the list the server answers with', async () => {
+    const request = vi.fn(async (_path: string, _init?: RequestInit) => Response.json({ revision: 2, catalogs: [catalog] }))
+    expect(await reorderSavedCatalogs(request, ['a', 'b'])).toEqual([catalog])
+    const [path, init] = request.mock.calls[0]
+    expect(path).toBe('/catalogs/v1/order')
+    expect(init?.method).toBe('PUT')
+    expect(JSON.parse(String(init?.body))).toEqual({ ids: ['a', 'b'] })
+    const refused = vi.fn(async () => Response.json({ detail: 'order_mismatch' }, { status: 409 }))
+    await expect(reorderSavedCatalogs(refused, ['a'])).rejects.toThrow('Quire could not change the order. Try again later.')
   })
 })

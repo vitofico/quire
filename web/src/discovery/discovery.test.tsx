@@ -113,8 +113,7 @@ describe("AI panels", () => {
     render(<><AiSettingsPanel request={request} /><InsightPanel request={request} identity={sample} metadata={{ title: "Sample" }} /></>);
     await screen.findByText("Enable AI in Settings to open insights.");
     expect(request).toHaveBeenCalledTimes(2);
-    fireEvent.click(screen.getByRole("checkbox", { name: "Enable AI insights and reader profiles" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save AI settings" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Enable AI insights and reader profiles" }));
     const generate = await screen.findByRole("button", { name: "Get insight" });
     expect(request.mock.calls.some(([path]) => path === "/ai/v1/insights/lookup")).toBe(false);
     fireEvent.click(generate);

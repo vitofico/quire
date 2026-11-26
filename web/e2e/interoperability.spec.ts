@@ -169,7 +169,7 @@ test('recovers an offline edition rejected by the server from the shelf after re
   await page.getByRole('textbox', { name: 'Email' }).fill('conflict@example.test')
   await page.getByLabel('Password', { exact: true }).fill('test-password')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
-  await expect(page.getByText(/conflict-test · Quire/)).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Account' }).getByText(/conflict-test · Quire/)).toBeVisible()
   await page.getByRole('link', { name: 'Library', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Import EPUB', exact: true })).toBeEnabled()
 

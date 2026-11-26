@@ -225,5 +225,5 @@ test('submits the connected account form using only keyboard controls after focu
   await expect(page.getByLabel('Password', { exact: true })).toBeFocused()
   await page.keyboard.type('test-password')
   await page.keyboard.press('Enter')
-  await expect(page.getByText('keyboard@example.test · Quire')).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Account' }).getByText('keyboard@example.test · Quire')).toBeVisible()
 })
