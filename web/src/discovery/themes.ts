@@ -69,6 +69,7 @@ export const themeNames: Record<string, string> = {
 
 /** A theme tag in the reader's language; a tag outside the vocabulary reads as itself. */
 export function themeLabel(tag: string, t: Translate): string {
-  const name = themeNames[tag];
+  // Library subjects ("science fiction", "self-help") name the same themes as the tags.
+  const name = themeNames[tag.trim().toLowerCase().replace(/[\s-]+/g, "_")];
   return name ? t(name) : tag.replace(/_/g, " ").replace(/^./, (first) => first.toUpperCase());
 }
