@@ -202,9 +202,13 @@ class AppContainer internal constructor(context: Context, private val db: EReade
         highlights = highlightSyncer,
     )
 
+    /** The language the app is shown in: the device's when Quire has it, else English. */
+    private val appLanguage = { appContext.getString(R.string.settings_app_language_code) }
+
     val aiClient: AiClient = AiClient(
         baseUrlProvider = { credentialStore.getAccount()?.quireServerUrlOrNull() },
         http = opdsHttp.quireHttp,
+        language = appLanguage,
     )
     val insightDao = db.insightDao()
 
@@ -354,6 +358,7 @@ class AppContainer internal constructor(context: Context, private val db: EReade
     val aiRepository: AiRepository = AiRepository(
         client = aiClient,
         insightDao = insightDao,
+        appLanguage = appLanguage,
         // PR-γ (Bundle 3): best-effort preflight collaborators for
         // refreshProfile(). Adapted to the decoupling interfaces so
         // `:data:ai` never has to depend on `:data:sync` / `:data:library`.

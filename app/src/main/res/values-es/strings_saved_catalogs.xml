@@ -54,6 +54,7 @@
     <string name="open_catalogs_privacy">Libros gratuitos y legales para empezar. Al añadir uno, este dispositivo se conecta directamente con el sitio de ese catálogo.</string>
     <string name="open_catalogs_add">Añadir</string>
     <string name="open_catalogs_add_named">Añadir %1$s</string>
+    <string name="open_catalogs_remove_named">Quitar %1$s</string>
     <string name="open_catalogs_added">Añadido</string>
     <string name="open_catalogs_public_domain">Dominio público</string>
     <string name="open_catalogs_open_licence">Licencia abierta</string>

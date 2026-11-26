@@ -916,3 +916,115 @@ async def test_input_fingerprint_column_is_varchar_16(session, engine):
     with pytest.raises(DBAPIError):
         await session.flush()
     await session.rollback()
+
+
+# ---------------------------------------------------------------------------
+# Language: the profile follows the reader's insight language
+# ---------------------------------------------------------------------------
+
+
+def _record_profile_prompts(app) -> list[str]:
+    """Answer profile calls like ``_answer_profile_calls`` and record each
+    user prompt the model was sent."""
+    prompts: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        messages = json.loads(req.content)["messages"]
+        prompts.append(next(m["content"] for m in messages if m["role"] == "user"))
+        content = json.dumps({"narrative": "n", "confidence": "low"})
+        return httpx.Response(
+            200,
+            json={"choices": [{"index": 0, "message": {"role": "assistant", "content": content}}]},
+        )
+
+    app.state.ai_orchestrator.ai = AIClient(
+        base_url="http://fake/v1",
+        api_key=None,
+        model="test-model",
+        transport=httpx.MockTransport(handler),
+    )
+    return prompts
+
+
+async def test_refresh_profile_writes_in_the_app_language_by_default(client_factory, app, session):
+    async with client_factory(ai_enabled=True, ai_base_url="http://x", ai_model="m") as client:
+        prompts = _record_profile_prompts(app)
+        await _seed_refreshes_used_today(session, user_id="alice", used=0)
+        headers = _basic_header("alice") | {"Accept-Language": "it-IT,it;q=0.9,en;q=0.8"}
+        r = await client.post("/ai/v1/profile/refresh", headers=headers)
+        same = await client.get("/ai/v1/profile", headers=headers)
+        other = await client.get(
+            "/ai/v1/profile", headers=_basic_header("alice") | {"Accept-Language": "fr"}
+        )
+        unknown = await client.get("/ai/v1/profile", headers=_basic_header("alice"))
+
+    assert r.status_code == 200, r.text
+    assert "Italian (ISO 639-1: it)" in prompts[0]
+    assert r.json()["payload"]["language"] == "it"
+    assert r.json()["prompt_version"] == "2"
+    assert same.status_code == 200, same.text
+    # An app shown in French still reads it, and learns it is in Italian.
+    assert other.status_code == 200
+    assert other.json()["payload"]["language"] == "it"
+    assert unknown.status_code == 200
+
+
+async def test_refresh_profile_follows_a_chosen_insight_language(client_factory, app, session):
+    async with client_factory(ai_enabled=True, ai_base_url="http://x", ai_model="m") as client:
+        prompts = _record_profile_prompts(app)
+        await _seed_refreshes_used_today(session, user_id="alice", used=0)
+        pref = await session.get(UserAIPreference, "alice")
+        pref.style = {"tone": "neutral", "language": "de"}
+        await session.commit()
+        headers = _basic_header("alice") | {"Accept-Language": "it"}
+        r = await client.post("/ai/v1/profile/refresh", headers=headers)
+        again = await client.get("/ai/v1/profile", headers=headers)
+
+    assert r.status_code == 200, r.text
+    assert "German (ISO 639-1: de)" in prompts[0]
+    assert r.json()["payload"]["language"] == "de"
+    assert again.status_code == 200
+
+
+async def test_a_profile_from_before_languages_reads_as_english_in_any_app(
+    client_factory, configure_ai, app, session
+):
+    async with client_factory(ai_enabled=True, ai_base_url="http://x", ai_model="m") as client:
+        configure_ai(app, {"schema_version": 4, "intro": "ok", "confidence": "low"})
+        payload = ReaderProfilePayload(
+            stats=ReaderStats(
+                total_books=1,
+                finished_count=1,
+                in_progress_count=0,
+                abandoned_count=0,
+                avg_session_minutes=None,
+                finish_rate_by_theme={},
+                most_read_authors=[],
+                books_with_themes_count=0,
+            ),
+            narrative="An English narrative.",
+        )
+        session.add(
+            ReaderProfile(
+                tenant_id="local",
+                subject="alice",
+                payload=payload.model_dump(exclude={"language"}),
+                schema_version=1,
+                model_id="test-model",
+                prompt_version="1",
+                input_fingerprint=None,
+            )
+        )
+        await session.commit()
+        italian = await client.get(
+            "/ai/v1/profile", headers=_basic_header("alice") | {"Accept-Language": "it"}
+        )
+        english = await client.get(
+            "/ai/v1/profile", headers=_basic_header("alice") | {"Accept-Language": "en-GB"}
+        )
+
+    # Never hidden: an opted-out reader cannot refresh it, and two devices in
+    # different languages would otherwise refresh the one profile in turn.
+    assert italian.status_code == 200
+    assert italian.json()["payload"]["language"] == "en"
+    assert english.json()["payload"]["language"] == "en"

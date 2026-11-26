@@ -141,6 +141,18 @@ describe("AI panels", () => {
     expect(noQuota.mock.calls.filter(([path]) => path === "/ai/v1/insights/lookup")).toHaveLength(1);
   });
 
+  it("clears an insight when the app language changes, as it was written in the old one", async () => {
+    const request = mockAccount({ enabled: true });
+    const panel = (lang: string) => <InsightPanel request={request} identity={sample} metadata={{ title: "Sample" }} t={translator(lang)} />;
+    const { rerender } = render(panel("en"));
+    fireEvent.click(await screen.findByRole("button", { name: "Get insight" }));
+    await screen.findByText("An insightful introduction");
+    rerender(panel("en"));
+    expect(screen.getByText("An insightful introduction")).toBeTruthy();
+    rerender(panel("it"));
+    await waitFor(() => expect(screen.queryByText("An insightful introduction")).toBeNull());
+  });
+
   it("can stop waiting for a paid request without aborting it or starting a duplicate", async () => {
     const account = mockAccount({ enabled: true });
     let finish: ((value: Response) => void) | undefined;
@@ -162,6 +174,32 @@ describe("AI panels", () => {
     fireEvent.click(screen.getByRole("button", { name: "Check saved insight" }));
     await screen.findByText("An insightful introduction");
     expect(request.mock.calls.filter(([path]) => path === "/ai/v1/insights/lookup")).toHaveLength(1);
+  });
+
+  it("says when the saved profile is in another language than the reader's insights", async () => {
+    const profile = (language?: string) => ({
+      payload: {
+        narrative: "A vivid reader", language, stats: { total_books: 1, finished_count: 1, in_progress_count: 0, abandoned_count: 0 },
+        in_library_recommendations: [], discovery_recommendations: [], ai_suggested_recommendations: [],
+      },
+      generated_at: "2025-11-01T00:00:00Z", model_id: "test-model",
+    });
+    let saved = profile();
+    const request = vi.fn<DiscoveryRequest>(async (path) => {
+      switch (path) {
+        case "/ai/v1/config": return response({ configured: true, providers: [], progress_supported: true });
+        case "/ai/v1/preferences": return response({ ai_enabled: true, style: { tone: "neutral", language: "it" }, provider_id: "default" });
+        case "/ai/v1/profile": return response(saved);
+        default: throw new Error(`Unexpected request ${path}`);
+      }
+    });
+    render(<ReaderProfilePanel request={request} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open saved profile" }));
+    await screen.findByText("A vivid reader");
+    expect(screen.getByText("Written in English. Refresh to write it in Italian.")).toBeTruthy();
+    saved = profile("it");
+    fireEvent.click(screen.getByRole("button", { name: "Open saved profile" }));
+    await waitFor(() => expect(screen.queryByText(/Written in/)).toBeNull());
   });
 
   it("requires confirmation for deleting a saved profile even when AI is opted out", async () => {

@@ -220,6 +220,19 @@ class CatalogsViewModel(
         }
     }
 
+    /** Remove the saved catalog [open] became, from the Quire account too when it is there. */
+    fun removeOpen(open: OpenCatalog) {
+        if (_openAdding.value?.busy == true) return
+        // Every copy: the list shows the catalog as added while any is left.
+        val entries = store.catalogs.value.filter { it.catalog?.baseUrl == open.url && !it.pinned }
+        if (entries.isEmpty()) return
+        _openAdding.value = OpenCatalogAdding(open.id, busy = true)
+        viewModelScope.launch {
+            val failed = entries.firstNotNullOfOrNull { entry -> repository.remove(entry.id) as? CatalogResult.Failed }
+            _openAdding.value = failed?.let { OpenCatalogAdding(open.id, busy = false, error = catalogFailureMessage(it.reason)) }
+        }
+    }
+
     /** Remove the catalog the form is editing: from the Quire account too when it is there. */
     fun removeEditing() {
         val form = _form.value?.takeUnless { it.busy || it.isNew } ?: return

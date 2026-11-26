@@ -39,7 +39,10 @@ PROMPT_VERSION = "9"
 # ``kind='profile'`` audit-log rows. Bump independently of ``PROMPT_VERSION``
 # whenever the profile prompt changes shape in a way that materially
 # affects the structured output.
-READER_PROFILE_PROMPT_VERSION = "1"
+# v2 (2026-11-26): the narrative and rationales follow the reader's insight
+# language (the app's language by default) instead of always coming out in
+# English. Profiles regenerate only when the reader refreshes them.
+READER_PROFILE_PROMPT_VERSION = "2"
 
 READER_PROFILE_PROMPT = (
     "You are a thoughtful librarian helping a reader reflect on their library.\n"
@@ -361,6 +364,18 @@ def _output_language_directive_lines(style: AiStyle, book_language: str | None) 
             "names, series names, comparative-anchor titles)."
         ),
     ]
+
+
+def profile_language_directive(language: str) -> str | None:
+    """The output-language line for the reader-profile prompt, or ``None`` for
+    ``auto`` (no app language known, so the model's default applies)."""
+    if language == "auto":
+        return None
+    return (
+        f"OUTPUT LANGUAGE: write `narrative` and every `rationale` in "
+        f"{_language_display_name(language)}. Keep book titles and author names "
+        "exactly as given."
+    )
 
 
 def compose_user_prompt(

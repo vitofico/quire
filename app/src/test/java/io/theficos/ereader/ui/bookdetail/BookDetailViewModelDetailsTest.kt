@@ -85,8 +85,8 @@ class BookDetailViewModelDetailsTest {
             }
             start()
         }
-        val client = AiClient({ server.url("").toString().trimEnd('/') }, OkHttpClient.Builder().callTimeout(5, TimeUnit.SECONDS).build())
-        ai = AiRepository(client, db.insightDao())
+        val client = AiClient({ server.url("").toString().trimEnd('/') }, OkHttpClient.Builder().callTimeout(5, TimeUnit.SECONDS).build(), language = { "en" })
+        ai = AiRepository(client, db.insightDao(), appLanguage = { "en" })
         answer("/ai/v1/config", """{"configured":true,"details_supported":true}""")
         answer("/ai/v1/preferences", """{"ai_enabled":true,"style":{"tone":"neutral","language":"auto"}}""")
         runBlocking {

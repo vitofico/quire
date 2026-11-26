@@ -74,6 +74,7 @@ from quire_server.core.ai.prompts import (
     SYSTEM_PROMPT,
     _normalize_book_language,
     compose_user_prompt,
+    profile_language_directive,
 )
 from quire_server.core.ai.provider_errors import describe
 from quire_server.core.ai.themes import normalize_theme
@@ -421,7 +422,12 @@ class InsightOrchestrator:
         if not _has_canonical(ident):
             return None  # treat as cache miss on the read path
         row = await self._cache_lookup(
-            session, ident, tone=tone, language=language, allow_backfill=False
+            session,
+            ident,
+            tone=tone,
+            language=language,
+            allow_backfill=False,
+            book_language=await self._library_language(session, ident, user_id=user_id),
         )
         if row is None:
             return None
@@ -462,7 +468,12 @@ class InsightOrchestrator:
                 "and no alias hint resolved to one"
             )
         row = await self._cache_lookup(
-            session, ident, tone=tone, language=language, allow_backfill=True
+            session,
+            ident,
+            tone=tone,
+            language=language,
+            allow_backfill=True,
+            book_language=_bundle_language(bundle),
         )
         if row is not None:
             await self._log_generation(
@@ -479,7 +490,12 @@ class InsightOrchestrator:
         lock = await self._acquire_identity_lock(ident, tone=tone, language=language)
         async with lock:
             row = await self._cache_lookup(
-                session, ident, tone=tone, language=language, allow_backfill=True
+                session,
+                ident,
+                tone=tone,
+                language=language,
+                allow_backfill=True,
+                book_language=_bundle_language(bundle),
             )
             if row is not None:
                 await self._log_generation(
@@ -542,7 +558,12 @@ class InsightOrchestrator:
             # Preserve the shared live insight until that decision succeeds.
             await self._reserve_budget(session, user_id=user_id, is_regen=True)
             existing = await self._cache_lookup(
-                session, ident, tone=tone, language=language, allow_backfill=False
+                session,
+                ident,
+                tone=tone,
+                language=language,
+                allow_backfill=False,
+                book_language=_bundle_language(bundle),
             )
             previous_ids: list[int] = []
             if existing is not None:
@@ -1119,6 +1140,52 @@ class InsightOrchestrator:
         tone: str,
         language: str,
         allow_backfill: bool,
+        book_language: str | None = None,
+    ) -> BookInsight | None:
+        row = await self._cache_lookup_exact(
+            session, ident, tone=tone, language=language, allow_backfill=allow_backfill
+        )
+        if row is None and language != "auto" and book_language == language:
+            # Written while `auto` meant the book's own language, which is the
+            # language asked for: the text already reads right, so reuse it.
+            row = await self._cache_lookup_exact(
+                session, ident, tone=tone, language="auto", allow_backfill=allow_backfill
+            )
+        return row
+
+    async def _library_language(
+        self, session: AsyncSession, ident: DocumentIdentity, *, user_id: str | None
+    ) -> str | None:
+        """The book's language as the reader's library records it, as an ISO 639-1 code."""
+        if user_id is None or not (ident.metadata_id or ident.content_hash):
+            return None
+        match = []
+        if ident.metadata_id:
+            match.append(LibraryItem.metadata_id == ident.metadata_id)
+        if ident.content_hash:
+            match.append(LibraryItem.content_hash == ident.content_hash)
+        raw = (
+            await session.execute(
+                select(LibraryItem.language)
+                .where(
+                    LibraryItem.user_id == user_id,
+                    LibraryItem.deleted_at.is_(None),
+                    LibraryItem.language.is_not(None),
+                    or_(*match),
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        return _normalize_book_language(raw) if raw else None
+
+    async def _cache_lookup_exact(
+        self,
+        session: AsyncSession,
+        ident: DocumentIdentity,
+        *,
+        tone: str,
+        language: str,
+        allow_backfill: bool,
     ) -> BookInsight | None:
         # Step 1: by metadata_id (live rows only)
         if ident.metadata_id:
@@ -1672,6 +1739,7 @@ class InsightOrchestrator:
         *,
         principal: _PrincipalLike,
         session: AsyncSession,
+        language: str = "auto",
     ) -> ReaderProfilePayload:
         """Compute (or short-circuit) the reader profile and persist it.
 
@@ -1790,6 +1858,9 @@ class InsightOrchestrator:
                     lib_candidates=lib_candidates,
                     dis_candidates=dis_candidates,
                 )
+                directive = profile_language_directive(language)
+                if directive is not None:
+                    user_prompt = f"{directive}\n\n{user_prompt}"
 
                 try:
                     llm_output: ReaderProfilePromptOutput = await asyncio.wait_for(
@@ -1859,6 +1930,8 @@ class InsightOrchestrator:
                     discovery_recommendations=discovery_recs,
                     ai_suggested_recommendations=ai_suggested_recs,
                     input_fingerprint=fingerprint,
+                    # With no language asked for, the English prompt gets English prose.
+                    language="en" if language == "auto" else language,
                 )
 
                 await self._upsert_reader_profile(session, principal, payload)
@@ -2534,6 +2607,10 @@ def _next_utc_midnight(today: date) -> datetime:
 
 def _tone_of(style: AiStyle | None) -> str:
     return style.tone if style is not None else "neutral"
+
+
+def _bundle_language(bundle: MetadataBundle) -> str | None:
+    return _normalize_book_language(bundle.language) if bundle.language else None
 
 
 def _language_of(style: AiStyle | None) -> str:

@@ -123,7 +123,7 @@ class HighlightsDiscussTest {
     @Test fun `the client posts the conversation and reads the answer and the config limits`() = runTest {
         val server = MockWebServer().apply { start() }
         try {
-            val client = AiClient({ server.url("").toString() }, OkHttpClient())
+            val client = AiClient({ server.url("").toString() }, OkHttpClient(), language = { "en" })
             server.enqueue(MockResponse().setBody(
                 """{"configured":true,"model_id":"m","highlights_discuss":true,"highlights_discuss_limits":{"max_highlights":20,"max_text_chars":2000,"max_note_chars":1000,"max_title_chars":500,"max_authors":10,"max_author_chars":200,"max_question_chars":1000,"max_answer_chars":4000,"max_questions":6,"max_total_chars":60000,"questions_per_minute":10}}""",
             ))

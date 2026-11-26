@@ -558,3 +558,123 @@ async def test_regenerate_400_when_flag_on_but_no_library_item(
         )
         assert r.status_code == 400
         assert r.json()["detail"] == "metadata_required"
+
+
+async def test_auto_insight_language_is_the_app_language_and_part_of_the_cache_key(
+    client_factory, configure_ai, app, session
+):
+    """``auto`` (never chosen) means the language the app sends as
+    ``Accept-Language``, and the cache is keyed on it: an app switched to
+    another language never gets an insight cached in the old one."""
+    async with client_factory(ai_enabled=True, ai_base_url="http://x", ai_model="m") as client:
+        configure_ai(app, {"schema_version": 2, "intro": "Fantascienza.", "confidence": "high"})
+        r = await client.put(
+            "/ai/v1/preferences", headers=_basic_header("alice"), json={"ai_enabled": True}
+        )
+        assert r.json()["style"]["language"] == "auto"
+        identity = {"metadata_id": "9780553293357", "content_hash": "ch1"}
+        body = {"identity": identity, "bundle": {"title": "Foundation", "author": "Isaac Asimov"}}
+        italian = _basic_header("alice") | {"Accept-Language": "it-IT,it;q=0.9,en;q=0.8"}
+
+        r1 = await client.post("/ai/v1/insights/lookup", headers=italian, json=body)
+        assert r1.status_code == 200, r1.text
+        same = await client.post(
+            "/ai/v1/insights/get", headers=italian, json={"identity": identity}
+        )
+        french = await client.post(
+            "/ai/v1/insights/get",
+            headers=_basic_header("alice") | {"Accept-Language": "fr"},
+            json={"identity": identity},
+        )
+        unnamed = await client.post(
+            "/ai/v1/insights/get", headers=_basic_header("alice"), json={"identity": identity}
+        )
+        # The stored choice still reads "auto": only the request resolves it.
+        prefs = await client.get("/ai/v1/preferences", headers=italian)
+
+    rows = (await session.execute(select(BookInsight))).scalars().all()
+    assert [row.language for row in rows] == ["it"]
+    assert same.status_code == 200
+    assert french.status_code == 404
+    assert unnamed.status_code == 404
+    assert prefs.json()["style"]["language"] == "auto"
+
+
+async def test_a_chosen_insight_language_wins_over_the_app_language(
+    client_factory, configure_ai, app, session
+):
+    async with client_factory(ai_enabled=True, ai_base_url="http://x", ai_model="m") as client:
+        configure_ai(app, {"schema_version": 2, "intro": "Science-Fiction.", "confidence": "high"})
+        await client.put(
+            "/ai/v1/preferences",
+            headers=_basic_header("alice"),
+            json={"ai_enabled": True, "style": {"tone": "neutral", "language": "de"}},
+        )
+        body = {
+            "identity": {"metadata_id": "9780553293357", "content_hash": "ch1"},
+            "bundle": {"title": "Foundation", "author": "Isaac Asimov"},
+        }
+        r = await client.post(
+            "/ai/v1/insights/lookup",
+            headers=_basic_header("alice") | {"Accept-Language": "it"},
+            json=body,
+        )
+        assert r.status_code == 200, r.text
+
+    rows = (await session.execute(select(BookInsight))).scalars().all()
+    assert [row.language for row in rows] == ["de"]
+
+
+async def test_an_insight_cached_in_the_books_own_language_still_serves_that_language(
+    client_factory, configure_ai, app, session
+):
+    """Before ``auto`` meant the app's language, it meant the book's: those
+    rows are keyed ``auto``. An Italian book's row already reads in Italian, so
+    an Italian app gets it from get and lookup without a generation; an
+    English book's row does not, and misses."""
+    await _seed_library_item(
+        session,
+        user_id="alice",
+        metadata_id="9788806219352",
+        content_hash="ch-it",
+        language="it-IT",
+    )
+    await _seed_library_item(
+        session, user_id="alice", metadata_id="9780553293357", content_hash="ch-en", language="eng"
+    )
+    italian_book = {
+        "identity": {"metadata_id": "9788806219352", "content_hash": "ch-it"},
+        "bundle": {"title": "Il nome della rosa", "author": "Umberto Eco", "language": "it-IT"},
+    }
+    english_book = {
+        "identity": {"metadata_id": "9780553293357", "content_hash": "ch-en"},
+        "bundle": {"title": "Foundation", "author": "Isaac Asimov", "language": "eng"},
+    }
+    async with client_factory(ai_enabled=True, ai_base_url="http://x", ai_model="m") as client:
+        configure_ai(app, {"schema_version": 2, "intro": "Testo.", "confidence": "high"})
+        await _opt_in(client)
+        old_app = _basic_header("alice")
+        for book in (italian_book, english_book):
+            r = await client.post("/ai/v1/insights/lookup", headers=old_app, json=book)
+            assert r.status_code == 200, r.text
+
+        italian = _basic_header("alice") | {"Accept-Language": "it"}
+        got_it = await client.post(
+            "/ai/v1/insights/get", headers=italian, json={"identity": italian_book["identity"]}
+        )
+        got_en = await client.post(
+            "/ai/v1/insights/get", headers=italian, json={"identity": english_book["identity"]}
+        )
+        looked_up = await client.post("/ai/v1/insights/lookup", headers=italian, json=italian_book)
+        rows_before_english = len((await session.execute(select(BookInsight))).scalars().all())
+        regenerated = await client.post(
+            "/ai/v1/insights/lookup", headers=italian, json=english_book
+        )
+
+    assert got_it.status_code == 200, got_it.text
+    assert got_en.status_code == 404
+    assert looked_up.status_code == 200
+    assert rows_before_english == 2
+    assert regenerated.status_code == 200
+    rows = (await session.execute(select(BookInsight))).scalars().all()
+    assert sorted(row.language for row in rows) == ["auto", "auto", "it"]

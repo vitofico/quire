@@ -58,6 +58,7 @@ class LibraryInsightsViewModelTest {
         aiClient = AiClient(
             baseUrlProvider = { server.url("").toString().trimEnd('/') },
             http = ok,
+            language = { "en" },
         )
         libraryClient = LibraryClient(
             baseUrlProvider = { server.url("").toString().trimEnd('/') },
@@ -68,6 +69,7 @@ class LibraryInsightsViewModelTest {
         repo = AiRepository(
             client = aiClient,
             insightDao = insightDao,
+            appLanguage = { "en" },
         )
     }
 
@@ -150,6 +152,29 @@ class LibraryInsightsViewModelTest {
         assertThat(s.profile.payload.stats.finishedCount).isEqualTo(3)
         assertThat(s.profile.payload.inLibraryRecommendations).hasSize(1)
         assertThat(s.profile.payload.discoveryRecommendations).hasSize(1)
+    }
+
+    @Test fun `a profile in another language than the reader's is shown with a note offering to rewrite it`() = runBlocking {
+        repo = AiRepository(client = aiClient, insightDao = insightDao, appLanguage = { "it" })
+        server.dispatcher = pathDispatcher(
+            "/ai/v1/profile" to { MockResponse().setResponseCode(200).setBody(PROFILE_JSON) },
+            "/library/v1/stats" to { MockResponse().setResponseCode(200).setBody(STATS_JSON) },
+        )
+        val english = newVm()
+        english.reload()
+        val loaded = awaitTerminal(english) as LibraryInsightsUiState.Loaded
+        assertThat(loaded.profile.payload.narrative).isEqualTo("A vivid reader")
+        assertThat(loaded.languageNote).isEqualTo(LibraryInsightsUiState.LanguageNote(written = "en", wanted = "it"))
+
+        server.dispatcher = pathDispatcher(
+            "/ai/v1/profile" to {
+                MockResponse().setResponseCode(200).setBody(PROFILE_JSON.replace("\"confidence\": \"high\"", "\"confidence\": \"high\", \"language\": \"it\""))
+            },
+            "/library/v1/stats" to { MockResponse().setResponseCode(200).setBody(STATS_JSON) },
+        )
+        val italian = newVm()
+        italian.reload()
+        assertThat((awaitTerminal(italian) as LibraryInsightsUiState.Loaded).languageNote).isNull()
     }
 
     @Test fun `local fingerprint matches when inputs equal server recipe`() = runBlocking {

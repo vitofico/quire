@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { addOpenCatalog, isAdded, openCatalogs, orderedFor, type OpenCatalog } from './openCatalogs'
-import type { SavedCatalog } from './saved'
+import { ask } from '../ask'
+import { addOpenCatalog, addedEntry, openCatalogs, orderedFor, type OpenCatalog } from './openCatalogs'
+import { removeSavedCatalog, type SavedCatalog } from './saved'
 
 interface Props {
   language: string
@@ -8,6 +9,8 @@ interface Props {
   request: (path: string, init?: RequestInit) => Promise<Response>
   /** Called with the account's entry once one is added, or found already there. */
   onAdded: (catalog: SavedCatalog) => void
+  /** Called with the account's entry once it is removed. */
+  onRemoved: (catalog: SavedCatalog) => void
   t: (key: string) => string
 }
 
@@ -17,8 +20,8 @@ const offerLabels: Record<OpenCatalog['offers'], string> = {
   open_licence: 'Open licence',
 }
 
-/** The free catalogs Quire suggests, those in the reader's language first; one click adds one. */
-export function OpenCatalogs({ language, saved, request, onAdded, t }: Props) {
+/** The free catalogs Quire suggests, those in the reader's language first; one click adds or removes one. */
+export function OpenCatalogs({ language, saved, request, onAdded, onRemoved, t }: Props) {
   const [busy, setBusy] = useState('')
   const [failed, setFailed] = useState<{ id: string; message: string }>()
   // The account entry each one became here: marked added by its id, whatever its name or host.
@@ -44,6 +47,23 @@ export function OpenCatalogs({ language, saved, request, onAdded, t }: Props) {
     }
   }
 
+  async function remove(catalog: OpenCatalog, entry: SavedCatalog) {
+    const sure = await ask(t('Remove {name}? It is also removed from your Quire account and your other devices. Downloaded books stay.').replace('{name}', entry.name), {
+      confirm: t('Remove'), cancel: t('Cancel'), destructive: true,
+    })
+    if (!sure) return
+    setBusy(catalog.id)
+    setFailed(undefined)
+    try {
+      await removeSavedCatalog(request, entry.id)
+      onRemoved(entry)
+    } catch (reason) {
+      setFailed({ id: catalog.id, message: reason instanceof Error ? reason.message : String(reason) })
+    } finally {
+      setBusy('')
+    }
+  }
+
   return <section className="panel open-catalogs" aria-labelledby="open-catalogs-title">
     <h2 id="open-catalogs-title">{t('Open catalogs')}</h2>
     <p className="hint">
@@ -51,7 +71,7 @@ export function OpenCatalogs({ language, saved, request, onAdded, t }: Props) {
     </p>
     <ul>
       {orderedFor(openCatalogs, language).map(catalog => {
-        const added = saved.some(c => c.id === entries[catalog.id]) || isAdded(saved, catalog)
+        const added = saved.find(c => c.id === entries[catalog.id]) ?? addedEntry(saved, catalog)
         const facts = [...catalog.languages.map(languageName), t(offerLabels[catalog.offers] ?? 'Public domain')]
         const adding = busy === catalog.id
         return <li key={catalog.id}>
@@ -65,7 +85,13 @@ export function OpenCatalogs({ language, saved, request, onAdded, t }: Props) {
             {failed?.id === catalog.id && <span role="alert">{t(failed.message)}</span>}
           </div>
           {added
-            ? <span className="open-catalogs-added">{t('Added')}</span>
+            ? <div className="open-catalogs-added">
+              <span>{t('Added')}</span>
+              <button type="button" onClick={() => void remove(catalog, added)} disabled={!!busy}
+                aria-label={busy === catalog.id ? undefined : t('Remove {name}').replace('{name}', catalog.name)}>
+                {t(busy === catalog.id ? 'Removing…' : 'Remove')}
+              </button>
+            </div>
             : <button type="button" onClick={() => void add(catalog)} disabled={!!busy}
               // While adding, the button's own text is what a screen reader hears.
               aria-label={adding ? undefined : t('Add {name}').replace('{name}', catalog.name)}>

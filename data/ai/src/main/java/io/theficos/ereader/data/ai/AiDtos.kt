@@ -280,6 +280,9 @@ data class ReaderProfilePayloadDto(
     // older server builds (which omit the field) round-trip cleanly.
     @SerialName("ai_suggested_recommendations") val aiSuggestedRecommendations: List<BookRecDto> = emptyList(),
     val confidence: String? = null,
+    // The language the narrative and rationales are in. Null (or missing, from
+    // servers before profiles had a language) means English.
+    val language: String? = null,
 )
 
 @Serializable

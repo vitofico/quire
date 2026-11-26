@@ -48,6 +48,8 @@ class AiRepository(
     private val libraryRunner: ProfilePreflightLibrary? = null,
     private val json: Json = Json { ignoreUnknownKeys = true; encodeDefaults = true },
     private val clock: () -> Long = System::currentTimeMillis,
+    /** The language the app is shown in, as a bare code: what `auto` insights are written in. */
+    private val appLanguage: () -> String,
 ) {
     private val _config = MutableStateFlow<AiConfig?>(null)
     val config: StateFlow<AiConfig?> = _config.asStateFlow()
@@ -267,6 +269,17 @@ class AiRepository(
 
     // ---------- internals ----------
 
+    /**
+     * The language the server keys this reader's insights on: `auto` stands for
+     * the app's language, which [AiClient] sends with every call. Keying the
+     * local cache the same way means a change of app language misses the cache
+     * instead of showing insights in the old language.
+     */
+    private fun AiStyle.cacheLanguage(): String = if (language == "auto") appLanguage() else language
+
+    /** The language the reader's insights are written in now: their chosen one, or the app's for `auto`. */
+    fun insightLanguage(): String = (_prefs.value?.style ?: AiStyle()).cacheLanguage()
+
     /** Exact-identity cache read keyed on the current `(model, prompt, style)`. */
     private suspend fun readLocal(identity: DocumentIdentity): InsightEntity? {
         if (changingProvider) return null
@@ -279,7 +292,7 @@ class AiRepository(
             modelId = modelId,
             promptVersion = cfg.promptVersion,
             tone = prefs.style.tone,
-            language = prefs.style.language,
+            language = prefs.style.cacheLanguage(),
         )
     }
 
@@ -305,7 +318,7 @@ class AiRepository(
             modelId = resp.modelId,
             promptVersion = resp.promptVersion,
             tone = prefs.style.tone,
-            language = prefs.style.language,
+            language = prefs.style.cacheLanguage(),
             payloadJson = json.encodeToString(BookInsightPayload.serializer(), resp.payload),
             sourcesJson = json.encodeToString(ListSerializer(Citation.serializer()), resp.sources),
             schemaVersion = resp.payload.schemaVersion,

@@ -234,6 +234,8 @@ export function useAccount() {
       if (csrf_token) headers.set('X-CSRF-Token', csrf_token)
       else headers.delete('X-CSRF-Token')
       if (authorization) headers.set('Authorization', authorization)
+      // The app's language: AI insights are written in it unless the reader picked another.
+      if (document.documentElement.lang) headers.set('Accept-Language', document.documentElement.lang)
       const response = await fetchPrivate(url, {
         ...init, headers, credentials: authorization ? 'omit' : 'same-origin',
       })

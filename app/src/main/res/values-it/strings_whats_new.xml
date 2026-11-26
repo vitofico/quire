@@ -25,8 +25,10 @@
     <string name="whats_new_details_preview_description">Da %1$s → %2$s in un libro vedi ogni modifica accanto ai dati attuali, tieni quelle che vuoi e scegli la copertina: quella del libro, una da Open Library o una disegnata da Quire.</string>
     <string name="whats_new_highlights_discuss_title">Approfondisci le tue evidenziazioni</string>
     <string name="whats_new_highlights_discuss_description">In %1$s → %2$s di un libro, scegli %3$s, seleziona alcuni brani e chiedi cosa li collega. L’IA del tuo server Quire risponde in poche righe che puoi condividere come nota. Della conversazione non viene salvato nulla.</string>
+    <string name="whats_new_insight_language_title">Approfondimenti nella tua lingua</string>
+    <string name="whats_new_insight_language_description">Gli approfondimenti sui libri e sulla biblioteca ora sono scritti nella lingua dell’app, a meno che tu non ne abbia scelta un’altra, e anche i temi dei libri compaiono nella tua lingua. Puoi anche rimuovere un catalogo aperto direttamente dall’elenco in cui l’hai aggiunto.</string>
     <string name="whats_new_unified_stats_title">Tutte le tue statistiche in un posto solo</string>
     <string name="whats_new_unified_stats_description">Le statistiche della biblioteca e quelle di lettura sono ora un’unica schermata, in %1$s → %2$s nella biblioteca. I numeri della biblioteca, gli autori e i temi principali stanno accanto al tempo di lettura, alle serie e alla velocità, e restano anche con la registrazione disattivata.</string>
     <string name="whats_new_gutenberg_title">Project Gutenberg, gratis con un tocco</string>
-    <string name="whats_new_gutenberg_description">Project Gutenberg, il più grande catalogo gratuito di classici, ora apre i cataloghi aperti in %1$s → %2$s, con i suoi libri in tedesco e in italiano come voci a sé. I suoi libri sono di pubblico dominio negli USA: verifica le regole del tuo paese.</string>
+    <string name="whats_new_gutenberg_description">Project Gutenberg, il più grande catalogo gratuito di classici, ora apre i cataloghi aperti in %1$s → %2$s. I suoi libri sono di pubblico dominio negli USA: verifica le regole del tuo paese.</string>
 </resources>

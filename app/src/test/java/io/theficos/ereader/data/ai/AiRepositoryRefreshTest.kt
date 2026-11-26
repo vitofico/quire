@@ -31,6 +31,7 @@ class AiRepositoryRefreshTest {
         client = AiClient(
             baseUrlProvider = { server.url("").toString().trimEnd('/') },
             http = OkHttpClient.Builder().callTimeout(5, TimeUnit.SECONDS).build(),
+            language = { "en" },
         )
         insightDao = FakeInsightDao()
     }
@@ -46,6 +47,7 @@ class AiRepositoryRefreshTest {
             insightDao = insightDao,
             syncRunner = { order.add("sync"); true },
             libraryRunner = { order.add("library"); true },
+            appLanguage = { "en" },
         )
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
@@ -65,6 +67,7 @@ class AiRepositoryRefreshTest {
             insightDao = insightDao,
             syncRunner = { throw RuntimeException("transient-sync") },
             libraryRunner = { throw RuntimeException("transient-library") },
+            appLanguage = { "en" },
         )
         server.enqueue(MockResponse().setResponseCode(200).setBody(PROFILE_BODY))
         var outcome: PreflightOutcome? = null
@@ -82,6 +85,7 @@ class AiRepositoryRefreshTest {
             insightDao = insightDao,
             syncRunner = { true },
             libraryRunner = { false },
+            appLanguage = { "en" },
         )
         server.enqueue(MockResponse().setResponseCode(200).setBody(PROFILE_BODY))
         var outcome: PreflightOutcome? = null
@@ -96,6 +100,7 @@ class AiRepositoryRefreshTest {
         val repo = AiRepository(
             client = client,
             insightDao = insightDao,
+            appLanguage = { "en" },
         )
         server.enqueue(MockResponse().setResponseCode(200).setBody(PROFILE_BODY))
         val resp = repo.refreshProfile()
@@ -103,7 +108,7 @@ class AiRepositoryRefreshTest {
     }
 
     @Test fun `deleteProfile sends DELETE returns Unit on 204`() = runBlocking {
-        val repo = AiRepository(client = client, insightDao = insightDao)
+        val repo = AiRepository(client = client, insightDao = insightDao, appLanguage = { "en" })
         server.enqueue(MockResponse().setResponseCode(204))
         repo.deleteProfile()
         val req = server.awaitRequest()

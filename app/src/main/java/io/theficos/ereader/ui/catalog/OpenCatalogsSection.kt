@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -20,7 +21,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
@@ -38,7 +41,7 @@ import java.util.Locale
 
 /**
  * The free catalogs Quire suggests, those in the reader's language first. One tap tests and adds
- * one like a typed address; one already in the list is marked instead of offered.
+ * one like a typed address; one already in the list is marked as added and can be removed again.
  */
 @Composable
 fun OpenCatalogsSection(viewModel: CatalogsViewModel, modifier: Modifier = Modifier) {
@@ -49,6 +52,7 @@ fun OpenCatalogsSection(viewModel: CatalogsViewModel, modifier: Modifier = Modif
     val locale = LocalConfiguration.current.locales[0]
     val ordered = remember(viewModel.openCatalogs, locale) { viewModel.openCatalogs.orderedFor(locale.language) }
     if (ordered.isEmpty()) return
+    var confirmRemove by remember { mutableStateOf<OpenCatalog?>(null) }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(stringResource(R.string.open_catalogs_title), style = MaterialTheme.typography.titleMedium)
         Text(
@@ -96,15 +100,22 @@ fun OpenCatalogsSection(viewModel: CatalogsViewModel, modifier: Modifier = Modif
                     }
                 }
                 when {
-                    added -> Row(
-                        Modifier.padding(start = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(Icons.Filled.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Text(stringResource(R.string.open_catalogs_added), style = MaterialTheme.typography.labelLarge)
-                    }
                     state?.busy == true -> CircularProgressIndicator(Modifier.padding(start = 8.dp).size(20.dp))
+                    added -> Column(Modifier.padding(start = 8.dp), horizontalAlignment = Alignment.End) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Filled.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Text(stringResource(R.string.open_catalogs_added), style = MaterialTheme.typography.labelLarge)
+                        }
+                        val description = stringResource(R.string.open_catalogs_remove_named, open.name)
+                        TextButton(
+                            onClick = { confirmRemove = open },
+                            enabled = adding?.busy != true,
+                            modifier = Modifier.semantics { contentDescription = description },
+                        ) { Text(stringResource(R.string.catalogs_remove)) }
+                    }
                     else -> {
                         val description = stringResource(R.string.open_catalogs_add_named, open.name)
                         TextButton(
@@ -116,6 +127,25 @@ fun OpenCatalogsSection(viewModel: CatalogsViewModel, modifier: Modifier = Modif
                 }
             }
         }
+    }
+    confirmRemove?.let { open ->
+        val onAccount = saved.firstOrNull { it.catalog?.baseUrl == open.url }?.onAccount == true
+        AlertDialog(
+            onDismissRequest = { confirmRemove = null },
+            title = { Text(stringResource(R.string.catalogs_remove_title, open.name)) },
+            text = {
+                Text(stringResource(if (onAccount) R.string.catalogs_remove_account else R.string.catalogs_remove_device))
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmRemove = null
+                    viewModel.removeOpen(open)
+                }) { Text(stringResource(R.string.catalogs_remove)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmRemove = null }) { Text(stringResource(R.string.common_cancel)) }
+            },
+        )
     }
 }
 

@@ -69,8 +69,9 @@ class SettingsViewModelTest {
         // AiClient with a null baseUrl never makes a network call; the VM's
         // init refresh()/fetchHealth() both swallow the resulting error.
         aiRepository = AiRepository(
-            client = AiClient(baseUrlProvider = { null }, http = OkHttpClient()),
+            client = AiClient(baseUrlProvider = { null }, http = OkHttpClient(), language = { "en" }),
             insightDao = db.insightDao(),
+            appLanguage = { "en" },
         )
     }
 

@@ -1,3 +1,4 @@
+import { themeLabel } from "./themes";
 import { interpolate, type Translate } from "./translation";
 
 const patterns: [RegExp, string, string[]][] = [
@@ -12,7 +13,10 @@ const patterns: [RegExp, string, string[]][] = [
 export function affinityReason(message: string, t: Translate): string {
   for (const [pattern, label, names] of patterns) {
     const match = pattern.exec(message);
-    if (match) return interpolate(t, label, Object.fromEntries(names.map((name, index) => [name, match[index + 1]])));
+    if (match) {
+      const values = names.map((name, index) => [name, name === "theme" ? themeLabel(match[index + 1], t) : match[index + 1]]);
+      return interpolate(t, label, Object.fromEntries(values));
+    }
   }
   return t(message);
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { addOpenCatalog, isAdded, openCatalogs, orderedFor, type OpenCatalog } from './openCatalogs'
+import { addOpenCatalog, addedEntry, openCatalogs, orderedFor, type OpenCatalog } from './openCatalogs'
 import type { SavedCatalog } from './saved'
 
 const catalog = (id: string, languages: string[], url = `https://${id}.example.org/opds`): OpenCatalog => ({
@@ -27,10 +27,11 @@ describe('open catalogs', () => {
   })
 
   it('counts a catalog as added when its host and name are in the account', () => {
-    const open = catalog('Shelf', ['en'], 'https://books.example.org/opds/?q=l.de')
-    expect(isAdded([saved('Shelf', 'https://books.example.org')], open)).toBe(true)
-    expect(isAdded([saved('Other', 'https://books.example.org')], open)).toBe(false)
-    expect(isAdded([saved('Shelf', 'https://elsewhere.example.org')], open)).toBe(false)
+    const open = catalog('Shelf', ['en'], 'https://books.example.org/opds/')
+    const held = saved('Shelf', 'https://books.example.org')
+    expect(addedEntry([held], open)).toBe(held)
+    expect(addedEntry([saved('Other', 'https://books.example.org')], open)).toBeUndefined()
+    expect(addedEntry([saved('Shelf', 'https://elsewhere.example.org')], open)).toBeUndefined()
   })
 
   it('lists only language codes a browser can name', () => {

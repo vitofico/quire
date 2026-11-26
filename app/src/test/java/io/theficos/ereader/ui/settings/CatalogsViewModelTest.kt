@@ -291,6 +291,45 @@ class CatalogsViewModelTest {
         assertThat(store.catalogs.value.single().onAccount).isTrue()
     }
 
+    @Test fun `an open catalog on the account is removed from the open list, there and on the server`() = runTest {
+        signedIn()
+        repository.pull()
+        request()
+        routes["GET /open"] = atom()
+        routes["PUT /catalogs/v1/catalogs/*"] =
+            json("""{"id":"x","name":"Free books","kind":"opds","host":"x","position":0,"updated_at":"t1"}""")
+        val vm = newViewModel()
+        vm.addOpen(open())
+        vm.openAdding.first { it == null }
+        request()
+        request()
+        val added = store.catalogs.value.single()
+
+        routes["DELETE /catalogs/v1/catalogs/*"] = MockResponse().setResponseCode(204)
+        vm.removeOpen(open())
+        vm.openAdding.first { it == null }
+
+        val delete = request()
+        assertThat(delete.method).isEqualTo("DELETE")
+        assertThat(delete.path).isEqualTo("/catalogs/v1/catalogs/${added.id}")
+        assertThat(store.catalogs.value).isEmpty()
+
+        // The account no longer lists it, so the next sync keeps it gone.
+        repository.pull()
+        assertThat(store.catalogs.value).isEmpty()
+    }
+
+    @Test fun `removing an open catalog removes every copy of it`() = runTest {
+        store.saveCatalog(device(open().url, "Free books"))
+        store.saveCatalog(device(open().url, "Free books again"))
+        val vm = newViewModel()
+
+        vm.removeOpen(open())
+        vm.openAdding.first { it == null }
+
+        assertThat(store.catalogs.value).isEmpty()
+    }
+
     @Test fun `an open catalog that does not answer stays offered with the reason`() = runTest {
         routes["GET /open"] = MockResponse().setResponseCode(503)
         val vm = newViewModel()

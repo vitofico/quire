@@ -91,6 +91,7 @@ def _seed_library_item(
     metadata_id: str | None,
     content_hash: str,
     deleted_at: datetime | None = None,
+    language: str | None = None,
 ) -> None:
     session.add(
         LibraryItem(
@@ -99,6 +100,7 @@ def _seed_library_item(
             content_hash=content_hash,
             title="T",
             deleted_at=deleted_at,
+            language=language,
         )
     )
 
@@ -378,3 +380,40 @@ async def test_sync_does_not_charge_against_daily_budget(
         await session.execute(select(AIUsageDaily).where(AIUsageDaily.user_id == "alice"))
     ).all()
     assert len(post) == len(pre)
+
+
+async def test_sync_reuses_an_auto_row_written_in_the_language_asked_for(
+    client_factory, configure_ai, app, session
+):
+    """Rows cached while ``auto`` meant the book's language are keyed ``auto``.
+    For an Italian app, the Italian book's row already reads right and syncs
+    under ``it``; the English book's row does not sync."""
+    from quire_server.core.ai.prompts import PROMPT_VERSION
+
+    async with client_factory(ai_enabled=True, ai_base_url="http://x", ai_model="m") as client:
+        configure_ai(app, {"schema_version": 4, "intro": "ok", "confidence": "low"})
+        await _opt_in(client, "alice")
+        for meta, language in (("m-it", "ita"), ("m-en", "en-GB")):
+            _seed_insight(
+                session,
+                metadata_id=meta,
+                content_hash=f"ch-{meta}",
+                model_id="m",
+                prompt_version=PROMPT_VERSION,
+            )
+            _seed_library_item(
+                session,
+                user_id="alice",
+                metadata_id=meta,
+                content_hash=f"ch-{meta}",
+                language=language,
+            )
+        await session.commit()
+
+        italian = await client.get(
+            "/ai/v1/insights/sync", headers=_basic_header("alice") | {"Accept-Language": "it"}
+        )
+        unnamed = await client.get("/ai/v1/insights/sync", headers=_basic_header("alice"))
+    items = italian.json()["items"]
+    assert [(i["identity"]["metadata_id"], i["language"]) for i in items] == [("m-it", "it")]
+    assert sorted(i["identity"]["metadata_id"] for i in unnamed.json()["items"]) == ["m-en", "m-it"]

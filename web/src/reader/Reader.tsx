@@ -7,6 +7,7 @@ import { chapterStyles, palettes, sanitizePreferences, type PauseBookmark, type 
 import { findMatches, matchRange, searchableText } from './search'
 import { loadReaderFonts } from './fonts'
 import { readerStrings } from './strings'
+import { scrollsInside, wheelGesture } from './wheelGesture'
 import { Icon, type IconName } from '../icons'
 import { ask } from '../ask'
 import './reader.css'
@@ -166,6 +167,8 @@ export default function Reader({
   const captureSequence = useRef(0)
   const intentional = useRef(false)
   const pendingNavigation = useRef(false)
+  // Outlives a chapter change, so the tail of the swipe that crossed it turns no second page.
+  const wheelTurn = useRef(wheelGesture())
   const [loaded, setLoaded] = useState(false)
   const [active, setActive] = useState<ChapterDoc | null>(null)
   const [destination, setDestination] = useState<Destination>(() => {
@@ -460,8 +463,6 @@ export default function Reader({
     let width = doc.documentElement.clientWidth
     let height = doc.documentElement.clientHeight
     let touch: { x: number; y: number } | undefined
-    let wheelLock = false
-    let wheelTimer: number | undefined
     const deliberate = () => { intentional.current = true }
     const scroll = () => {
       // Focus moves and find-in-page can scroll part way: settle on a whole page.
@@ -554,14 +555,11 @@ export default function Reader({
     }
     const wheel = (event: WheelEvent) => {
       // One wheel or trackpad gesture turns one page, however many events it sends.
-      clearTimeout(wheelTimer)
-      wheelTimer = window.setTimeout(() => { wheelLock = false }, 200)
-      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY
-      if (wheelLock || event.ctrlKey || Math.abs(delta) < 20) return
-      wheelLock = true
-      const rtl = Math.abs(event.deltaX) > Math.abs(event.deltaY)
-        && doc.defaultView?.getComputedStyle(doc.body).direction === 'rtl'
-      page((delta > 0 ? 1 : -1) * (rtl ? -1 : 1))
+      if (event.ctrlKey || scrollsInside(event.target, event.deltaX, event.deltaY)) return
+      const swipe = wheelTurn.current(event.deltaX, event.deltaY, event.timeStamp)
+      if (!swipe) return
+      const rtl = swipe.sideways && doc.defaultView?.getComputedStyle(doc.body).direction === 'rtl'
+      page(swipe.turn * (rtl ? -1 : 1))
     }
     const key = (event: globalThis.KeyboardEvent) => handleReaderKey.current(event)
     doc.addEventListener('scroll', scroll, { passive: true })
@@ -575,7 +573,6 @@ export default function Reader({
     doc.defaultView?.addEventListener('resize', resize)
     return () => {
       clearTimeout(timer)
-      clearTimeout(wheelTimer)
       cancelAnimationFrame(resizeFrame)
       doc.removeEventListener('scroll', scroll)
       doc.removeEventListener('wheel', wheel)

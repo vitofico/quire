@@ -37,9 +37,10 @@ class InsightSyncRepositoryTest {
         client = AiClient(
             baseUrlProvider = { server.url("").toString().trimEnd('/') },
             http = OkHttpClient.Builder().callTimeout(5, TimeUnit.SECONDS).build(),
+            language = { "en" },
         )
         dao = FakeInsightDao()
-        aiRepo = AiRepository(client = client, insightDao = dao, clock = { 1_000L })
+        aiRepo = AiRepository(client = client, insightDao = dao, clock = { 1_000L }, appLanguage = { "en" })
     }
 
     @After fun tearDown() {

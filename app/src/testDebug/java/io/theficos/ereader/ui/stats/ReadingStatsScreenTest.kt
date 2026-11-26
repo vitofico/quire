@@ -73,6 +73,10 @@ class ReadingStatsScreenTest {
     private fun show(vm: ReadingStatsViewModel) {
         composeRule.setContent { ReadingStatsScreen(viewModel = vm, onBack = {}) }
         composeRule.waitUntil(timeoutMillis = 10_000) { vm.state.value != null }
+        // The state can be ready a frame before the list is composed; on a busy machine that frame is late.
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodes(hasScrollAction()).fetchSemanticsNodes().isNotEmpty()
+        }
     }
 
     /** Scrolls the statistics list to [text] and checks it is on screen. */
@@ -93,7 +97,7 @@ class ReadingStatsScreenTest {
         shows("Abandoned")
         shows("3")
         shows("Ursula K. Le Guin")
-        shows("science fiction")
+        shows("Science fiction")
     }
 
     @Test

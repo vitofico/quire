@@ -24,6 +24,18 @@ export async function listSavedCatalogs(request: ApiRequest, signal?: AbortSigna
   return Array.isArray(body.catalogs) ? body.catalogs : []
 }
 
+/** Remove a saved catalog from the account, and so from the reader's other devices. */
+export async function removeSavedCatalog(request: ApiRequest, id: string): Promise<void> {
+  let response
+  try {
+    response = await request('/catalogs/v1/catalogs/' + encodeURIComponent(id), { method: 'DELETE' })
+  } catch {
+    throw new Error('Quire could not reach the server. Try again.')
+  }
+  // Already gone, removed on another device: what the reader asked for.
+  if (!response.ok && response.status !== 404) throw new Error('Quire could not remove this catalog. Try again later.')
+}
+
 /**
  * Where browsing a saved catalog starts. The list gives only the catalog's
  * host, so this stands in for the saved address and the server fetches the

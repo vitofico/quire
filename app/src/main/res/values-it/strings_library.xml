@@ -42,4 +42,5 @@
     <string name="library_couldn_t_load_stats_http">"Impossibile caricare le statistiche (HTTP %1$s)."</string>
     <string name="library_continue_your_series_shelf">"Scaffale per continuare le tue serie"</string>
     <string name="library_series_book">"%1$s · Libro %2$s"</string>
+    <string name="library_profile_written_in_another_language">Scritto in %1$s. Aggiorna per scriverlo in %2$s.</string>
 </resources>

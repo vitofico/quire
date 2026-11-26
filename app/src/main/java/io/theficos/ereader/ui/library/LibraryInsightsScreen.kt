@@ -44,13 +44,16 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalConfiguration
 import io.theficos.ereader.core.model.DocumentIdentity
 import io.theficos.ereader.data.ai.BookRecDto
 import io.theficos.ereader.data.ai.ReaderProfileResponseDto
+import io.theficos.ereader.ui.themeLabel
 import io.theficos.quire.R
 import java.time.Duration
 import java.time.Instant
 import java.time.format.DateTimeParseException
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -288,7 +291,7 @@ private fun LoadedScreen(
         item { ReadingStatsCard(loaded.profile) }
         item { CoverageMeter(loaded.profile) }
         loaded.profile.payload.narrative?.takeIf { it.isNotBlank() }?.let { narrative ->
-            item { NarrativeCard(narrative) }
+            item { NarrativeCard(narrative, loaded.languageNote) }
         }
         val inLibrary = loaded.profile.payload.inLibraryRecommendations
         if (inLibrary.isNotEmpty()) {
@@ -396,7 +399,8 @@ private fun ReadingStatsCard(profile: ReaderProfileResponseDto) {
             val themes = stats.finishRateByTheme.entries
                 .sortedByDescending { it.value }
                 .take(5)
-                .joinToString(" · ") { it.key.replace('_', ' ') }
+                .map { themeLabel(it.key) }
+                .joinToString(" · ")
             if (themes.isNotBlank()) {
                 Text(
                     stringResource(R.string.common_top_themes, themes),
@@ -427,7 +431,7 @@ private fun CoverageMeter(profile: ReaderProfileResponseDto) {
 }
 
 @Composable
-private fun NarrativeCard(text: String) {
+private fun NarrativeCard(text: String, languageNote: LibraryInsightsUiState.LanguageNote?) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
@@ -439,6 +443,18 @@ private fun NarrativeCard(text: String) {
         ) {
             Text(stringResource(R.string.common_about_your_reading), style = MaterialTheme.typography.titleMedium)
             Text(text, style = MaterialTheme.typography.bodyMedium)
+            if (languageNote != null) {
+                val locale = LocalConfiguration.current.locales[0]
+                Text(
+                    stringResource(
+                        R.string.library_profile_written_in_another_language,
+                        Locale.forLanguageTag(languageNote.written).getDisplayLanguage(locale),
+                        Locale.forLanguageTag(languageNote.wanted).getDisplayLanguage(locale),
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }

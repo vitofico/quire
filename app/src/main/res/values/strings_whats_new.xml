@@ -25,8 +25,10 @@
     <string name="whats_new_details_preview_description">In a book’s %1$s → %2$s, see each change beside the current details, keep the ones you want, and choose the cover: the book’s own, one from Open Library, or one drawn by Quire.</string>
     <string name="whats_new_highlights_discuss_title">Think through your highlights</string>
     <string name="whats_new_highlights_discuss_description">In a book’s %1$s → %2$s, choose %3$s, pick a few passages and ask what connects them. The AI on your Quire server answers in a few lines you can share as a note. Nothing of the conversation is saved.</string>
+    <string name="whats_new_insight_language_title">Insights in your language</string>
+    <string name="whats_new_insight_language_description">Book and library insights are now written in the app’s language unless you chose another one, and book themes show in your language too. You can also remove an open catalog right from the list where you added it.</string>
     <string name="whats_new_unified_stats_title">All your statistics in one place</string>
     <string name="whats_new_unified_stats_description">Library stats and reading statistics are now one screen, in %1$s → %2$s in the library. Your library’s counts, top authors and themes sit beside your reading time, streaks and speed, and stay there even with recording off.</string>
     <string name="whats_new_gutenberg_title">Project Gutenberg, free in one tap</string>
-    <string name="whats_new_gutenberg_description">Project Gutenberg, the largest free catalog of classics, now leads the open catalogs in %1$s → %2$s, with its German and Italian books as entries of their own. Its books are public domain in the US: check the rules where you live.</string>
+    <string name="whats_new_gutenberg_description">Project Gutenberg, the largest free catalog of classics, now leads the open catalogs in %1$s → %2$s. Its books are public domain in the US: check the rules where you live.</string>
 </resources>

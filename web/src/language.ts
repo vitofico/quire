@@ -20,6 +20,22 @@ const labels: Record<string, [string, string, string, string]> = {
   ],
   'Open licence': ['Licencia abierta', 'Licenza aperta', 'Licence libre', 'Offene Lizenz'],
   'Added': ['Añadido', 'Aggiunto', 'Ajouté', 'Hinzugefügt'],
+  'Remove': ['Quitar', 'Rimuovi', 'Supprimer', 'Entfernen'],
+  'Remove {name}': ['Quitar {name}', 'Rimuovi {name}', 'Supprimer {name}', '{name} entfernen'],
+  'Removing…': ['Quitando…', 'Rimozione…', 'Suppression…', 'Wird entfernt…'],
+  '{name} removed.': ['{name} quitado.', '{name} rimosso.', '{name} supprimé.', '{name} entfernt.'],
+  'Remove {name}? It is also removed from your Quire account and your other devices. Downloaded books stay.': [
+    '¿Quitar {name}? También se quitará de tu cuenta de Quire y de tus otros dispositivos. Los libros descargados se conservan.',
+    'Rimuovere {name}? Verrà rimosso anche dal tuo account Quire e dagli altri dispositivi. I libri scaricati restano.',
+    'Supprimer {name} ? Il est aussi supprimé de votre compte Quire et de vos autres appareils. Les livres téléchargés restent.',
+    '{name} entfernen? Er wird auch aus deinem Quire-Konto und von deinen anderen Geräten entfernt. Heruntergeladene Bücher bleiben.',
+  ],
+  'Quire could not remove this catalog. Try again later.': [
+    'Quire no ha podido quitar este catálogo. Inténtalo más tarde.',
+    'Quire non è riuscito a rimuovere questo catalogo. Riprova più tardi.',
+    'Quire n’a pas pu supprimer ce catalogue. Réessayez plus tard.',
+    'Quire konnte diesen Katalog nicht entfernen. Versuche es später erneut.',
+  ],
   'Add': ['Añadir', 'Aggiungi', 'Ajouter', 'Hinzufügen'],
   'Add {name}': ['Añadir {name}', 'Aggiungi {name}', 'Ajouter {name}', '{name} hinzufügen'],
   'Adding…': ['Añadiendo…', 'Aggiunta…', 'Ajout…', 'Wird hinzugefügt…'],
@@ -720,10 +736,17 @@ export const languages = {
   fr: 'Français',
   de: 'Deutsch',
 }
+const translators = new Map<string, (english: string) => string>()
+
+/** The app's text in [lang]: the same function each time, so it changes only with the language. */
 export function translator(lang: string) {
+  const known = translators.get(lang)
+  if (known) return known
   const index = ['es', 'it', 'fr', 'de'].indexOf(lang)
-  return (english: string) =>
+  const t = (english: string) =>
     (labels[english] ?? accountLabels[english] ?? discoveryLabels[english])?.[
       index
     ] ?? english
+  translators.set(lang, t)
+  return t
 }

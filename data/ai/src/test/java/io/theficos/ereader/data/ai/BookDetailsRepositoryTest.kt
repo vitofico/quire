@@ -86,8 +86,8 @@ class BookDetailsRepositoryTest {
         server = MockWebServer().apply { dispatcher = routes(); start() }
         openLibrary = MockWebServer().apply { dispatcher = routes(); start() }
         http = OkHttpClient.Builder().callTimeout(5, TimeUnit.SECONDS).build()
-        client = AiClient({ server.url("").toString().trimEnd('/') }, http)
-        ai = AiRepository(client, db.insightDao())
+        client = AiClient({ server.url("").toString().trimEnd('/') }, http, language = { "en" })
+        ai = AiRepository(client, db.insightDao(), appLanguage = { "en" })
         answer("/ai/v1/config", """{"configured":true,"details_supported":true}""")
         answer("/ai/v1/preferences", """{"ai_enabled":true,"style":{"tone":"neutral","language":"auto"}}""")
         runBlocking { ai.refresh() }

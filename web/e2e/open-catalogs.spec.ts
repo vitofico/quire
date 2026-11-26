@@ -93,7 +93,16 @@ test('an open catalog is checked, added in one click and opens through the serve
   await page.getByText('Use a different catalog').click()
   const listed = page.getByRole('region', { name: 'Open catalogs' }).getByRole('listitem').filter({ hasText: libresName })
   await expect(listed).toContainText('Added')
-  await expect(listed.getByRole('button')).toHaveCount(0)
+  await expect(listed.getByRole('button', { name: 'Add ' + libresName })).toHaveCount(0)
+
+  // It can be removed again: from the account, so from the reader's other devices too.
+  await listed.getByRole('button', { name: 'Remove ' + libresName }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Remove' }).click()
+  await expect(page.getByRole('status').filter({ hasText: libresName + ' removed.' })).toBeVisible()
+  expect(server.deletes).toEqual([server.puts[0].path.split('/').pop()])
+  await page.reload()
+  const again = page.getByRole('region', { name: 'Open catalogs' }).getByRole('listitem').filter({ hasText: libresName })
+  await expect(again.getByRole('button', { name: 'Add ' + libresName })).toBeEnabled()
 })
 
 test('a catalog that does not open is removed again and the reason shown', async ({ page }) => {
@@ -123,6 +132,22 @@ test('an address the account already holds is opened, not saved twice', async ({
   expect(server.puts).toHaveLength(1)
   expect(server.deletes).toEqual([])
   expect(server.fetches.every(url => url.includes('/held/'))).toBe(true)
+})
+
+test('a saved catalog that is not in the open list can be removed where it opens', async ({ page }) => {
+  const held = {
+    item: { id: 'shelf', name: 'Old shelf', kind: 'opds', host: 'https://shelf.example', has_login: false, needs_login: false, position: 0, updated_at: '2026-11-25T10:00:00Z' },
+    url: 'https://shelf.example/opds/',
+  }
+  const server = await connect(page, { held })
+  await page.goto('/quire/#/catalog')
+  await expect(page.getByRole('heading', { name: 'Livres libres' })).toBeVisible()
+  await page.getByRole('button', { name: 'Remove Old shelf' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Remove' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Old shelf removed.' })).toBeVisible()
+  expect(server.deletes).toEqual(['shelf'])
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Connect a catalog' })).toBeVisible()
 })
 
 test('the reader’s language comes first', async ({ page }) => {

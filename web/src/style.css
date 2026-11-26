@@ -1572,7 +1572,8 @@ label:has(> input[type='radio']) {
   font-size: 0.85rem;
   font-weight: 600;
 }
-.open-catalogs-added {
+.open-catalogs li > .open-catalogs-added {
+  justify-items: end;
   color: var(--muted);
   font-weight: 600;
   white-space: nowrap;

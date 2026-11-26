@@ -35,11 +35,24 @@ class AiClientTest {
             http = OkHttpClient.Builder()
                 .callTimeout(5, TimeUnit.SECONDS)
                 .build(),
+            language = { "en" },
         )
     }
 
     @After
     fun tearDown() = server.shutdown()
+
+    @Test
+    fun `every call tells the server the app language`() = runTest {
+        val italian = AiClient(
+            baseUrlProvider = { server.url("").toString().trimEnd('/') },
+            http = OkHttpClient.Builder().callTimeout(5, TimeUnit.SECONDS).build(),
+            language = { "it" },
+        )
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"ai_enabled":true,"style":{"tone":"neutral"}}"""))
+        italian.getPreferences()
+        assertThat(server.takeRequest(5, TimeUnit.SECONDS)!!.getHeader("Accept-Language")).isEqualTo("it")
+    }
 
     @Test
     fun `getConfig parses response with quota fields`() = runTest {
@@ -194,6 +207,7 @@ class AiClientTest {
         val nullClient = AiClient(
             baseUrlProvider = { null },
             http = OkHttpClient.Builder().callTimeout(1, TimeUnit.SECONDS).build(),
+            language = { "en" },
         )
         try {
             nullClient.getConfig()
@@ -274,6 +288,7 @@ class AiClientTest {
         val impatient = AiClient(
             baseUrlProvider = { server.url("").toString().trimEnd('/') },
             http = OkHttpClient.Builder().readTimeout(1, TimeUnit.SECONDS).build(),
+            language = { "en" },
         )
         server.enqueue(
             MockResponse().setResponseCode(200).setBody(
@@ -302,6 +317,7 @@ class AiClientTest {
         val impatient = AiClient(
             baseUrlProvider = { server.url("").toString().trimEnd('/') },
             http = OkHttpClient.Builder().readTimeout(1, TimeUnit.SECONDS).build(),
+            language = { "en" },
         )
         server.enqueue(
             MockResponse().setResponseCode(200).setBody("""{"configured":true,"generation_timeout_s":30}""")
