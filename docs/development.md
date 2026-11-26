@@ -275,6 +275,31 @@ calibre-web + quire-server with TLS behind one base URL, mirroring the
 k8s ingress). See `docs/configuration.md` for env-var setup and
 `server/README.md` for smoke commands.
 
+## Open catalogs
+
+`catalogs/open-catalogs.json` is the short list of free, legal OPDS catalogs
+that the Android app and Quire Web offer to add in one tap. Both read it at
+build time; nothing fetches the list at run time. Each entry has an `id`, a
+`name`, an `https` feed `url`, the BCP 47 `languages` of its books, what it
+`offers` (`public_domain`, `public_domain_us` or `open_licence`), its `home`
+page, shown as a link on each row, and a one-line `description` in every app
+language.
+
+Only add a catalog that answers without a login over `https`, offers EPUBs on
+its own origin and has legally free content. Before changing the list, run the
+live check, which fetches each catalog the way Quire Web's server does:
+
+```sh
+PYTHONPATH=server uv run --project server python scripts/check-open-catalogs.py
+```
+
+Project Gutenberg is the candidate to add back, as `public_domain_us` (its books
+are public domain in the US, not everywhere): its main feed and the `l.de` and
+`l.it` language searches cover English, German and Italian, which the list
+lacks today. It was left out in November 2026 because it answered only
+`503` for maintenance while the list was checked. Add it once the live check
+passes for it.
+
 ## Conventions
 
 - **Commit messages**: gitmoji + conventional commits, e.g.

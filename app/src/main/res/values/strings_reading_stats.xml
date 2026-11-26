@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stats_title">Reading statistics</string>
+    <string name="stats_empty_title">Statistics start now</string>
+    <string name="stats_empty_body">Quire counts your reading from this version on, so there is no history from before. It is kept on this device and in your phone’s own backup, never sent to Quire’s server or to AI. Read a book for a few minutes and come back.</string>
+    <string name="stats_recording_off">Recording is off. Turn on %1$s → %2$s to count your reading.</string>
+    <string name="stats_today">Today</string>
+    <string name="stats_this_week">This week</string>
+    <string name="stats_this_month">This month</string>
+    <string name="stats_all_time">All time</string>
+    <string name="stats_current_streak">Current streak</string>
+    <string name="stats_longest_streak">Longest streak</string>
+    <string name="stats_books_finished">Books finished</string>
+    <string name="stats_streak_note">A day counts towards a streak with at least 5 minutes of reading.</string>
+    <plurals name="stats_days">
+        <item quantity="one">%d day</item>
+        <item quantity="other">%d days</item>
+    </plurals>
+    <string name="stats_reading_time">Reading time</string>
+    <string name="stats_range_week">Week</string>
+    <string name="stats_range_month">Month</string>
+    <string name="stats_range_year">Year</string>
+    <string name="stats_week_description">Reading time per day over the past week: %1$s in total, most on %2$s with %3$s.</string>
+    <string name="stats_month_description">Reading time per day over the past 30 days: %1$s in total, most on %2$s with %3$s.</string>
+    <string name="stats_year_description">Reading time per month over the past year: %1$s in total, most in %2$s with %3$s.</string>
+    <string name="stats_no_reading_in_period">No reading in this period.</string>
+    <string name="stats_when_you_read">When you read</string>
+    <string name="stats_by_hour">By hour of day</string>
+    <string name="stats_by_weekday">By day of week</string>
+    <string name="stats_hour_description">Reading time by hour of day. Most between %1$s and %2$s, with %3$s.</string>
+    <string name="stats_weekday_description">Reading time by day of week. Most on %1$s, with %2$s.</string>
+    <string name="stats_speed">Speed</string>
+    <plurals name="stats_words_per_minute">
+        <item quantity="one">%d word per minute</item>
+        <item quantity="other">%d words per minute</item>
+    </plurals>
+    <string name="stats_average_speed">Average: %1$s</string>
+    <string name="stats_speed_unknown">Not enough reading yet to tell your speed.</string>
+    <string name="stats_speed_note">Each book’s words are counted once, on this device. In Chinese and Japanese each character counts as a word.</string>
+    <string name="stats_speed_trend">Average speed per week</string>
+    <string name="stats_speed_week">Week of %1$s: %2$s</string>
+    <string name="stats_speed_week_unknown">Week of %1$s: not enough reading</string>
+    <string name="stats_books">Books</string>
+    <plurals name="stats_sessions">
+        <item quantity="one">%d session</item>
+        <item quantity="other">%d sessions</item>
+    </plurals>
+    <string name="stats_time_left">About %1$s left at your pace</string>
+    <string name="stats_clear">Clear statistics</string>
+    <string name="stats_clear_title">Clear reading statistics?</string>
+    <string name="stats_clear_body">This removes every reading session stored on this device. It can’t be undone.</string>
+    <string name="stats_clear_confirm">Clear</string>
+    <string name="settings_record_stats">Record reading statistics</string>
+    <string name="settings_record_stats_description">Counts how long, when and how fast you read. Kept on this device and in your phone’s own backup, never sent to Quire’s server or to AI. See them in the library under %1$s → %2$s.</string>
+    <string name="settings_stats_off_title">Clear stored statistics?</string>
+    <string name="settings_stats_off_body">Recording has stopped. Keep the statistics already stored, or clear them?</string>
+    <string name="settings_stats_keep">Keep</string>
+</resources>

@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stats_title">Statistiques de lecture</string>
+    <string name="stats_empty_title">Les statistiques commencent maintenant</string>
+    <string name="stats_empty_body">Quire compte votre lecture à partir de cette version : il n’y a donc pas d’historique antérieur. Les données restent sur cet appareil et dans la sauvegarde de votre téléphone, et ne sont jamais envoyées au serveur de Quire ni à l’IA. Lisez un livre quelques minutes, puis revenez.</string>
+    <string name="stats_recording_off">L’enregistrement est désactivé. Activez-le dans %1$s → %2$s pour compter votre lecture.</string>
+    <string name="stats_today">Aujourd’hui</string>
+    <string name="stats_this_week">Cette semaine</string>
+    <string name="stats_this_month">Ce mois-ci</string>
+    <string name="stats_all_time">Au total</string>
+    <string name="stats_current_streak">Série en cours</string>
+    <string name="stats_longest_streak">Plus longue série</string>
+    <string name="stats_books_finished">Livres terminés</string>
+    <string name="stats_streak_note">Un jour compte pour la série avec au moins 5 minutes de lecture.</string>
+    <plurals name="stats_days">
+        <item quantity="one">%d jour</item>
+        <item quantity="many">%d jours</item>
+        <item quantity="other">%d jours</item>
+    </plurals>
+    <string name="stats_reading_time">Temps de lecture</string>
+    <string name="stats_range_week">Semaine</string>
+    <string name="stats_range_month">Mois</string>
+    <string name="stats_range_year">Année</string>
+    <string name="stats_week_description">Temps de lecture par jour sur la dernière semaine : %1$s au total, le plus le %2$s avec %3$s.</string>
+    <string name="stats_month_description">Temps de lecture par jour sur les 30 derniers jours : %1$s au total, le plus le %2$s avec %3$s.</string>
+    <string name="stats_year_description">Temps de lecture par mois sur la dernière année : %1$s au total, le plus en %2$s avec %3$s.</string>
+    <string name="stats_no_reading_in_period">Aucune lecture sur cette période.</string>
+    <string name="stats_when_you_read">Quand vous lisez</string>
+    <string name="stats_by_hour">Par heure de la journée</string>
+    <string name="stats_by_weekday">Par jour de la semaine</string>
+    <string name="stats_hour_description">Temps de lecture par heure de la journée. Le plus entre %1$s et %2$s, avec %3$s.</string>
+    <string name="stats_weekday_description">Temps de lecture par jour de la semaine. Le plus le %1$s, avec %2$s.</string>
+    <string name="stats_speed">Vitesse</string>
+    <plurals name="stats_words_per_minute">
+        <item quantity="one">%d mot par minute</item>
+        <item quantity="many">%d mots par minute</item>
+        <item quantity="other">%d mots par minute</item>
+    </plurals>
+    <string name="stats_average_speed">Moyenne : %1$s</string>
+    <string name="stats_speed_unknown">Pas encore assez de lecture pour estimer votre vitesse.</string>
+    <string name="stats_speed_note">Les mots de chaque livre sont comptés une fois, sur cet appareil. En chinois et en japonais, chaque caractère compte comme un mot.</string>
+    <string name="stats_speed_trend">Vitesse moyenne par semaine</string>
+    <string name="stats_speed_week">Semaine du %1$s : %2$s</string>
+    <string name="stats_speed_week_unknown">Semaine du %1$s : pas assez de lecture</string>
+    <string name="stats_books">Livres</string>
+    <plurals name="stats_sessions">
+        <item quantity="one">%d séance</item>
+        <item quantity="many">%d séances</item>
+        <item quantity="other">%d séances</item>
+    </plurals>
+    <string name="stats_time_left">Encore environ %1$s à votre rythme</string>
+    <string name="stats_clear">Effacer les statistiques</string>
+    <string name="stats_clear_title">Effacer les statistiques de lecture ?</string>
+    <string name="stats_clear_body">Toutes les séances de lecture enregistrées sur cet appareil seront supprimées. Cette action est irréversible.</string>
+    <string name="stats_clear_confirm">Effacer</string>
+    <string name="settings_record_stats">Enregistrer les statistiques de lecture</string>
+    <string name="settings_record_stats_description">Compte combien de temps, quand et à quelle vitesse vous lisez. Les données restent sur cet appareil et dans la sauvegarde de votre téléphone, et ne sont jamais envoyées au serveur de Quire ni à l’IA. À retrouver dans la bibliothèque, sous %1$s → %2$s.</string>
+    <string name="settings_stats_off_title">Effacer les statistiques enregistrées ?</string>
+    <string name="settings_stats_off_body">L’enregistrement est arrêté. Conserver les statistiques déjà enregistrées, ou les effacer ?</string>
+    <string name="settings_stats_keep">Conserver</string>
+</resources>

@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -52,6 +53,7 @@ import io.theficos.ereader.ui.components.BookDescription
 import io.theficos.ereader.ui.components.BookHeader
 import io.theficos.ereader.ui.components.QuireCard
 import io.theficos.ereader.ui.components.SectionLabel
+import io.theficos.ereader.ui.stats.formatDuration
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -244,6 +246,16 @@ fun BookDetailContent(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        state.timeLeftSeconds?.takeIf { progress != null && progress.percent > 0 }?.let { left ->
+            Text(
+                text = stringResource(R.string.stats_time_left, formatDuration(left, locale, rough = true)),
+                modifier = Modifier.semantics {
+                    contentDescription = context.getString(R.string.stats_time_left, formatDuration(left, locale, wide = true, rough = true))
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
         if (onOpenReader != null) {
             Spacer(Modifier.height(16.dp))

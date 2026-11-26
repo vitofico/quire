@@ -15,6 +15,10 @@
     <string name="whats_new_book_details_description">Les livres dont le titre est un nom de fichier, ou sans couverture, auteur ou description, reçoivent maintenant leurs détails d’Open Library ou mis en ordre par l’IA, avec une mention de leur origine. Cela se fait en Wi-Fi, 25 livres au plus par jour. Désactivez-le dans %1$s → %2$s, ou revenez aux détails d’origine d’un livre depuis son menu.</string>
     <string name="whats_new_pdf_conversion_title">Des PDF devenus livres</string>
     <string name="whats_new_pdf_conversion_description">Partagez un PDF avec Quire, ou ajoutez-le avec + dans la bibliothèque, et votre serveur Quire le convertit en EPUB dans votre bibliothèque. La conversion se fait sur votre propre serveur, rien n’est envoyé ailleurs. Suivez-la dans %1$s → %2$s, dans la bibliothèque.</string>
+    <string name="whats_new_open_catalogs_title">Des livres gratuits pour commencer</string>
+    <string name="whats_new_open_catalogs_description">Ajoutez d’un geste un catalogue gratuit et légal de classiques dans %1$s → %2$s, ou depuis l’onglet Catalogue tant que vous n’en avez aucun. Ceux dans votre langue apparaissent en premier.</string>
+    <string name="whats_new_reading_stats_title">Découvrez comment vous lisez</string>
+    <string name="whats_new_reading_stats_description">Quire compte désormais combien de temps, quand et à quelle vitesse vous lisez. Les données restent sur cet appareil et dans la sauvegarde de votre téléphone, et ne sont jamais envoyées au serveur de Quire ni à l’IA. Retrouvez vos séries, votre vitesse et le temps restant d’un livre dans la bibliothèque, sous %1$s → %2$s. Vous pouvez le désactiver dans les paramètres.</string>
     <string name="whats_new_details_preview_title">Voyez ce que change l’amélioration des informations</string>
     <string name="whats_new_details_preview_description">Dans %1$s → %2$s d’un livre, voyez chaque modification à côté des informations actuelles, gardez celles que vous voulez et choisissez la couverture : celle du livre, une d’Open Library ou une dessinée par Quire.</string>
 </resources>

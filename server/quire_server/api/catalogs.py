@@ -84,6 +84,9 @@ class CatalogPutBody(BaseModel):
     url: str = Field(min_length=1, max_length=2048)
     username: str | None = Field(None, max_length=256)
     password: str | None = Field(None, max_length=1024)
+    # Opt-in, so older apps keep their behaviour: a new entry whose address the
+    # account already holds is refused with that entry's id instead of saved twice.
+    unique_url: bool = False
 
 
 class CatalogOrderBody(BaseModel):
@@ -240,7 +243,7 @@ async def get_secret(
     return {key: secret.get(key) for key in ("url", "username", "password")}
 
 
-@router.put("/catalogs/{catalog_id}")
+@router.put("/catalogs/{catalog_id}", response_model=None)
 async def put_catalog(
     catalog_id: UUID,
     body: CatalogPutBody,
@@ -248,7 +251,7 @@ async def put_catalog(
     account: Account,
     session: Session,
     settings: Annotated[Settings, Depends(get_settings)],
-) -> dict:
+) -> dict | JSONResponse:
     name = body.name.strip()
     if not name:
         raise HTTPException(422, "invalid_name")
@@ -271,6 +274,19 @@ async def put_catalog(
         raise HTTPException(422, "login_incomplete")
     secret = {"url": url, "username": username, "password": password}
 
+    if row is None and body.unique_url:
+        # Only rows on the same host can hold the address, so few secrets are opened.
+        for other in await session.scalars(
+            select(AccountCatalog).where(
+                AccountCatalog.user_id == account, AccountCatalog.host == host
+            )
+        ):
+            held = open_secret(secrets, account, other.id, other.secret)
+            if held is not None and held["url"] == url:
+                return JSONResponse(
+                    {"detail": "catalog_exists", "id": str(other.id)},
+                    status_code=status.HTTP_409_CONFLICT,
+                )
     if row is None:
         count, last = (
             await session.execute(

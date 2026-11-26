@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -75,6 +76,8 @@ import io.theficos.ereader.ui.components.catalogCoverRequest
 import io.theficos.ereader.ui.components.CoverImage
 import io.theficos.ereader.ui.components.CoverInfoButton
 import io.theficos.ereader.ui.components.SectionLabel
+import io.theficos.ereader.ui.components.QuireCard
+import io.theficos.ereader.ui.settings.CatalogsViewModel
 import io.theficos.ereader.ui.components.QuireLoading
 import io.theficos.quire.R
 
@@ -82,6 +85,8 @@ import io.theficos.quire.R
 @Composable
 fun CatalogScreen(
     viewModel: CatalogViewModel,
+    /** Offers the open catalogs while the reader has none. */
+    catalogsViewModel: CatalogsViewModel,
     contentPadding: PaddingValues,
     onShowDetails: (OpdsPublication) -> Unit = {},
     onScan: () -> Unit = {},
@@ -109,7 +114,9 @@ fun CatalogScreen(
             CatalogSwitcher(catalogs = catalogs, activeId = active?.id, onSelect = viewModel::selectCatalog)
         }
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-            when (val s = state) {
+            if (catalogs.isEmpty()) {
+                NoCatalog(catalogsViewModel)
+            } else when (val s = state) {
                 CatalogUiState.Idle -> {}
                 CatalogUiState.Loading -> QuireLoading(Modifier.align(Alignment.Center))
                 is CatalogUiState.Error -> CatalogError(
@@ -153,6 +160,24 @@ fun CatalogScreen(
                 Icon(Icons.Default.QrCodeScanner, contentDescription = stringResource(R.string.common_scan_a_book))
             }
         }
+    }
+}
+
+/** A reader without a catalog yet: the free ones to start with, and where to add their own. */
+@Composable
+private fun NoCatalog(catalogsViewModel: CatalogsViewModel) {
+    Column(
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            // Clear of the scan button over the bottom corner.
+            .padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 88.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Text(
+            stringResource(R.string.open_catalogs_no_catalog),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        QuireCard(modifier = Modifier.fillMaxWidth()) { OpenCatalogsSection(catalogsViewModel) }
     }
 }
 

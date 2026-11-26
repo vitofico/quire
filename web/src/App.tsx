@@ -28,6 +28,7 @@ import {
   savedCatalogRequest,
   type SavedCatalog,
 } from './books/saved'
+import { OpenCatalogs } from './books/OpenCatalogsPanel'
 import { OfflineSettings } from './OfflineSettings'
 import { BookDetails } from './BookDetails'
 import { Passages } from './Passages'
@@ -285,8 +286,11 @@ function Workspace({
       ?.querySelector('[aria-pressed="true"]')
       ?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [activeSaved?.id, viewingCatalog])
+  // After adding an open catalog, focus moves to the catalog it opened.
+  const [focusCatalog, setFocusCatalog] = useState('')
   const chooseCatalog = (id: string) => {
     setChosenCatalog(id)
+    setFocusCatalog('')
     replica?.setPreference('savedCatalog', id).catch(() => undefined)
   }
   /** The catalog to download `b` from again: the saved one it came from, or the server's own. */
@@ -348,18 +352,17 @@ function Workspace({
   const current = book && findProgress(book, snapshot.progress)
   const editionConflict = book?.editionConflict
   const aiAvailable = bootstrap?.aiAvailable === true && !!active.request
-  // Finding and tidying details needs the server's feature and the reader's AI opt-in.
-  const { settings: ai } = useAiState(
-    active.request,
-    aiAvailable && active.capabilities?.book_details !== false,
-  )
+  // Finding and tidying details, and thinking through highlights, need the
+  // server's feature and the reader's AI opt-in.
+  const { settings: ai } = useAiState(active.request, aiAvailable)
+  const aiReady =
+    ai?.config.configured && ai.preferences.ai_enabled && !missingProvider(ai.config, ai.preferences)
   const detailsRequest =
-    ai?.config.configured &&
-    ai.config.details_supported &&
-    ai.preferences.ai_enabled &&
-    !missingProvider(ai.config, ai.preferences)
+    aiReady && ai.config.details_supported && active.capabilities?.book_details !== false
       ? active.request
       : undefined
+  const discussLimits = aiReady && ai.config.highlights_discuss ? ai.config.highlights_discuss_limits : undefined
+  const discuss = discussLimits && active.request ? { request: active.request, limits: discussLimits } : undefined
   const detailsFor =
     route.view === 'book' ? (book ? [book] : []) : route.view === 'library' ? snapshot.books : []
   useEffect(() => {
@@ -897,6 +900,7 @@ function Workspace({
         report={report}
         books={snapshot.books}
         passages={passages}
+        discuss={discuss}
         open={(book, h) =>
           book.hasDownload ? read(book.key, h) : details(book.key)
         }
@@ -954,16 +958,32 @@ function Workspace({
     const savedHint =
       savedListed &&
       (!saved.length ? (
-        <p className="hint">{t('Catalogs you add in the Quire app on Android appear here.')}</p>
+        <p className="hint">{t('Catalogs you add here or in the Quire app on Android are kept in your Quire account and appear on all your devices.')}</p>
       ) : !savedBrowsable ? (
         <p className="hint">
           {t('Your saved catalogs open in the Quire app on Android. This server does not open them in the browser.')}
         </p>
       ) : null)
-    const otherSource = !active.catalogUrl && (
+    const open = savedBrowsable && active.request && (
+      <OpenCatalogs
+        language={lang}
+        saved={saved}
+        request={active.request}
+        t={t}
+        onAdded={(c) => {
+          setSaved((list) => (list.some((item) => item.id === c.id) ? list : [...list, c]))
+          chooseCatalog(c.id)
+          setNotice(t('{name} added.').replace('{name}', c.name))
+          setFocusCatalog(c.id)
+        }}
+      />
+    )
+    // While a catalog is open, the other ways to add one wait behind a summary.
+    const otherSource = (!active.catalogUrl || open) && (
       <details className="catalog-source">
         <summary>{t('Use a different catalog')}</summary>
-        {source}
+        {!active.catalogUrl && source}
+        {open}
       </details>
     )
     content = activeSaved ? (
@@ -977,6 +997,7 @@ function Workspace({
         ) : (
           <Catalog
             key={'saved:' + activeSaved.id + ':' + activeSaved.updated_at}
+            focusHeading={focusCatalog === activeSaved.id}
             url={savedCatalogHome(activeSaved)}
             request={savedRequest}
             apiRequest={active.request}
@@ -1025,6 +1046,7 @@ function Workspace({
           {source}
         </section>
         {savedHint}
+        {open}
       </>
     )
   } else if (route.view === 'discover') {

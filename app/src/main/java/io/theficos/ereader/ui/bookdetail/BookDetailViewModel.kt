@@ -34,6 +34,8 @@ import io.theficos.ereader.data.ai.showsCover
 import io.theficos.ereader.data.local.DocumentRepository
 import io.theficos.ereader.data.local.ProgressRepository
 import io.theficos.ereader.ui.UiText
+import io.theficos.ereader.ui.stats.ReadingStatsRepository
+import io.theficos.ereader.ui.stats.statsKey
 import io.theficos.ereader.ui.uiText
 import io.theficos.quire.R
 import kotlinx.coroutines.CancellationException
@@ -42,6 +44,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -122,6 +125,8 @@ data class BookDetailState(
     val fileSizeBytes: Long? = null,
     val insight: InsightUiState = InsightUiState.Hidden,
     val details: DetailsUiState = DetailsUiState(),
+    /** About how long the rest takes at the reader's pace, from the reading statistics. */
+    val timeLeftSeconds: Long? = null,
 )
 
 class BookDetailViewModel(
@@ -131,6 +136,7 @@ class BookDetailViewModel(
     private val ai: AiRepository,
     private val details: BookDetailsRepository,
     private val openOpfBytes: suspend (Document) -> ByteArray?,
+    private val readingStats: ReadingStatsRepository? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(BookDetailState())
@@ -156,6 +162,13 @@ class BookDetailViewModel(
             return
         }
         _state.update { it.copy(document = doc) }
+        readingStats?.let { stats ->
+            viewModelScope.launch {
+                stats.secondsLeft(doc.statsKey, progress.observe(documentId))
+                    .flowOn(Dispatchers.Default)
+                    .collect { left -> _state.update { it.copy(timeLeftSeconds = left) } }
+            }
+        }
         val opfBytes = openOpfBytes(doc)
         val (bundle, fileSizeBytes) = withContext(Dispatchers.IO) {
             insightMetadataBundle(doc, opfBytes) to File(doc.localPath).length().takeIf { it > 0L }
