@@ -276,3 +276,32 @@ test('verifies an APK-recorded repeated passage and refuses the changed edition'
   expect(result.stale).toBe(false)
   expect(result.stored).toEqual({ quote: 'Mira', comment: 'Android note for Marker 1-17' })
 })
+
+test('turns one page per trackpad swipe, even when the next swipe starts during the inertia tail', async ({ page }) => {
+  const { execFileSync } = await import('node:child_process')
+  const { mkdtempSync, rmSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const temp = mkdtempSync(join(tmpdir(), 'quire-reader-'))
+  try {
+    const file = join(temp, 'fixture.epub')
+    execFileSync('python3', ['../scripts/make-reader-pause-fixture.py', file])
+    await page.goto(base)
+    await expect(page.getByRole('button', {name: 'Import EPUB', exact: true}).first()).toBeEnabled()
+    await page.locator('input[type=file]').setInputFiles(file)
+    await page.getByRole('button', {name: 'Read', exact: true}).click()
+  } finally {
+    rmSync(temp, { recursive: true, force: true })
+  }
+  const frame = page.frameLocator('.qr-frame')
+  await expect(frame.locator('p').first()).toBeVisible()
+  const pageNumber = () => frame.locator('html').evaluate(root =>
+    Math.round((root.ownerDocument.scrollingElement?.scrollLeft ?? 0) / root.clientWidth))
+  const box = await page.locator('.qr-frame').boundingBox()
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2)
+  // A swipe left, its fading tail, then a second swipe before the tail has gone quiet.
+  for (const delta of [8, 30, 60, 45, 25, 12, 6, 3, 2, 4, 15, 40, 60, 30, 10, 4]) await page.mouse.wheel(delta, 0)
+  await expect.poll(pageNumber).toBe(2)
+  for (const delta of [-10, -40, -60, -20, -5]) await page.mouse.wheel(delta, 0)
+  await expect.poll(pageNumber).toBe(1)
+})
