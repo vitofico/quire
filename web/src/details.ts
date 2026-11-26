@@ -170,9 +170,18 @@ export async function fetchDetails(
     // The same record again keeps the fields it was asked for, so a field the book changed since still shows.
     const again = coverOnly(book) || (answer.cached && answer.key === previous?.answer?.key)
     const basis = again ? previous?.basis : body.book
-    // A record the reader rejected shows none of its improvements.
-    const declined = answer.key === previous?.declined ? { accepted: [] } : {}
-    const details = { ...choices(previous), attempted_at, retry_at, answer, cover_url, painting_checks, basis, ...declined }
+    // A record the reader rejected changes only the cover: the details shown before stay, or the book's own.
+    const declined = answer.key === previous?.declined
+    let kept = answer
+    if (declined && previous?.answer) {
+      const origins = { ...previous.answer.origins, cover: answer.origins.cover }
+      if (!origins.cover) delete origins.cover
+      kept = { ...previous.answer, cover: answer.cover, tidy: answer.tidy, origins }
+    }
+    const details = {
+      ...choices(previous), attempted_at, retry_at, answer: kept, cover_url, painting_checks,
+      basis: kept === answer ? basis : previous?.basis, ...(declined && kept === answer ? { accepted: [] } : {}),
+    }
     await store.setDetails(book.key, details, cover)
     return details
   } catch (error) {
@@ -207,8 +216,11 @@ export type Proposal = {
    * `undefined` when a later tidy of the same book overtook this one.
    */
   apply(accepted: TidiedField[], choice: CoverChoice, cover: CoverPreview | null): Promise<BookDetails | undefined>
-  /** Ends the preview, rejecting the answer: a later lookup served the same record shows none of it. */
-  close(): void
+  /**
+   * Ends the preview, rejecting the answer: a later lookup served the same
+   * record changes only the cover. `rejected` is false when it changed nothing.
+   */
+  close(rejected?: boolean): void
 }
 
 /**
@@ -253,9 +265,9 @@ export async function proposeDetails(
     throw error
   }
   const kept = answer
-  // The tidy moved the reader's pointer to this record: remember it was rejected.
-  const close = () => {
-    if (!end() || turn.tidies !== mine) return
+  // The tidy moved the reader's pointer to this record: remember it was rejected, unless it is the record already shown.
+  const close = (rejected = true) => {
+    if (!end() || turn.tidies !== mine || !rejected || kept.key === previous?.answer?.key) return
     const declined: BookDetails = previous ? { ...previous, declined: kept.key } : { attempted_at: Date.now(), retry_at: 0, declined: kept.key }
     void store.setDetails(book.key, declined).catch(() => undefined)
   }
