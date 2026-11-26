@@ -235,6 +235,9 @@ async def browser_login(request: Request):
         )
     finally:
         guard.inflight -= 1
+    # Only the reader is remembered: the account page shares its cookie with
+    # the admin console, so that sign-in stays short.
+    remember = remember and destination == "quire"
     ttl = browser_ttl(request, remember)
     async with request.app.state.identity_factory() as session:
         user_id = await session.scalar(
@@ -421,11 +424,12 @@ async def oidc_callback(request: Request, code: str = "", state: str = ""):
         await session.commit()
     if request.app.state.hosted_policy:
         await request.app.state.hosted_policy.allow_account(f"native:{row}")
-    ttl = browser_ttl(request, identity.remember_browser)
+    remember = identity.remember_browser and identity.reader_login
+    ttl = browser_ttl(request, remember)
     token = await issue(factory, row, ttl)
     destination = "/quire/" if identity.reader_login else "/cloud/account"
     response = RedirectResponse(settings.public_url + destination, status_code=303)
-    set_cookie(response, settings, token, max_age=ttl if identity.remember_browser else None)
+    set_cookie(response, settings, token, max_age=ttl if remember else None)
     response.delete_cookie(
         settings.cookie_name + "-oidc",
         path="/",

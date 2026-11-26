@@ -71,11 +71,16 @@ async def test_browser_pairing_single_use_revocation_and_csrf(
 
 
 @pytest.mark.parametrize(
-    ("remember", "seconds", "max_age"),
-    [(True, 30 * 24 * 3600, "Max-Age=2592000"), (False, 12 * 3600, None)],
+    ("destination", "remember", "seconds", "max_age"),
+    [
+        ("quire", True, 30 * 24 * 3600, "Max-Age=2592000"),
+        ("quire", False, 12 * 3600, None),
+        # The account page shares its cookie with the admin console.
+        (None, True, 12 * 3600, None),
+    ],
 )
 async def test_browser_sign_in_lasts_as_long_as_the_reader_asked(
-    client_factory, app, session, monkeypatch, remember, seconds, max_age
+    client_factory, app, session, monkeypatch, destination, remember, seconds, max_age
 ):
     """A remembered browser stays signed in for the full session life, a shared
     one for half a day: an hour cut readers off in the middle of a book."""
@@ -91,7 +96,7 @@ async def test_browser_sign_in_lasts_as_long_as_the_reader_asked(
             json={
                 "email": "reader@example.test",
                 "password": PASSWORD,
-                "destination": "quire",
+                "destination": destination,
                 "remember_browser": remember,
             },
         )
@@ -99,9 +104,12 @@ async def test_browser_sign_in_lasts_as_long_as_the_reader_asked(
         cookie = response.headers["set-cookie"]
         assert (max_age in cookie) if max_age else ("Max-Age" not in cookie)
         left = await session.scalar(
-            text("SELECT extract(epoch FROM max(expires_at) - now()) FROM native_sessions")
+            text(
+                "SELECT extract(epoch FROM max(expires_at) - clock_timestamp()) "
+                "FROM native_sessions"
+            )
         )
-        assert seconds - 60 < left <= seconds
+        assert abs(left - seconds) < 60
 
 
 async def test_browser_identity_binding_and_shared_session(
@@ -231,10 +239,9 @@ async def test_oidc_callback_issuer_subject_mapping_and_replay(
                     "/quire/" if destination else "/cloud/account"
                 )
                 cookie = result.headers.get_list("set-cookie")[0]
-                # The account page remembers the browser for the full session
-                # life; a reader who did not ask to be remembered gets a cookie
-                # that goes when the browser closes.
-                assert ("Max-Age=2592000" in cookie) == (destination is None)
+                # Neither is remembered: the account page never is, and this
+                # reader did not ask to be.
+                assert "Max-Age" not in cookie
                 me = (await client.get("/auth/v1/me")).json()
                 assert me["user"]["id"] != f"native:{local_id}"
                 assert (await client.get(callback)).status_code == 401
