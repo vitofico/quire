@@ -30,5 +30,5 @@
     <string name="whats_new_unified_stats_title">Tutte le tue statistiche in un posto solo</string>
     <string name="whats_new_unified_stats_description">Le statistiche della biblioteca e quelle di lettura sono ora un’unica schermata, in %1$s → %2$s nella biblioteca. I numeri della biblioteca, gli autori e i temi principali stanno accanto al tempo di lettura, alle serie e alla velocità, e restano anche con la registrazione disattivata.</string>
     <string name="whats_new_gutenberg_title">Project Gutenberg, gratis con un tocco</string>
-    <string name="whats_new_gutenberg_description">Project Gutenberg, il più grande catalogo gratuito di classici, ora apre i cataloghi aperti in %1$s → %2$s, con i suoi libri in tedesco e in italiano come voci a sé. I suoi libri sono di pubblico dominio negli USA: verifica le regole del tuo paese.</string>
+    <string name="whats_new_gutenberg_description">Project Gutenberg, il più grande catalogo gratuito di classici, ora apre i cataloghi aperti in %1$s → %2$s. I suoi libri sono di pubblico dominio negli USA: verifica le regole del tuo paese.</string>
 </resources>

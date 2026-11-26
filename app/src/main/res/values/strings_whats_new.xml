@@ -30,5 +30,5 @@
     <string name="whats_new_unified_stats_title">All your statistics in one place</string>
     <string name="whats_new_unified_stats_description">Library stats and reading statistics are now one screen, in %1$s → %2$s in the library. Your library’s counts, top authors and themes sit beside your reading time, streaks and speed, and stay there even with recording off.</string>
     <string name="whats_new_gutenberg_title">Project Gutenberg, free in one tap</string>
-    <string name="whats_new_gutenberg_description">Project Gutenberg, the largest free catalog of classics, now leads the open catalogs in %1$s → %2$s, with its German and Italian books as entries of their own. Its books are public domain in the US: check the rules where you live.</string>
+    <string name="whats_new_gutenberg_description">Project Gutenberg, the largest free catalog of classics, now leads the open catalogs in %1$s → %2$s. Its books are public domain in the US: check the rules where you live.</string>
 </resources>
