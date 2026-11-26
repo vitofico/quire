@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns:thr="http://purl.org/syndication/thread/1.0" xmlns:app="http://www.w3.org/2007/app" xmlns:schema="http://schema.org/" xmlns:odl="http://opds-spec.org/odl" xmlns:opds="http://opds-spec.org/2010/catalog" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://www.w3.org/2005/Atom" xml:lang="en" xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/">
+  <id>https://www.textos.info/catalogo.atom</id>
+  <title>textos.info</title>
+  <updated>2026-11-26T02:08:35+01:00</updated>
+  <icon>https://www.textos.info/img/favicon-32x32.png</icon>
+  <author>
+    <name>textos.info</name>
+    <uri>https://www.textos.info/</uri>
+    <email>hola@textos.info</email>
+  </author>
+  <subtitle>Biblioteca virtual abierta y gratuita</subtitle>
+  <link type="application/atom+xml; profile=opds-catalog; kind=navigation" href="https://www.textos.info/catalogo.atom" rel="self"/>
+  <link type="application/atom+xml;profile=opds-catalog;kind=navigation" title="Inicio" href="https://www.textos.info/catalogo.atom" rel="start"/>
+  <link type="application/opensearchdescription+xml" title="Buscar en textos.info" href="https://www.textos.info/opensearch.xml" rel="search"/>
+  <link type="application/atom+xml;profile=opds-catalog;kind=acquisition" title="Textos más populares" href="https://www.textos.info/populares.atom" rel="http://opds-spec.org/sort/popular"/>
+  <link type="application/atom+xml;profile=opds-catalog;kind=acquisition" title="Novedades" href="https://www.textos.info/novedades.atom" rel="http://opds-spec.org/sort/new"/>
+  <link type="application/atom+xml;profile=opds-catalog;kind=navigation" title="Autores" href="https://www.textos.info/autores.atom" rel="http://opds-spec.org/subsection"/>
+  <link type="application/atom+xml;profile=opds-catalog;kind=navigation" title="Títulos" href="https://www.textos.info/titulos.atom" rel="http://opds-spec.org/subsection"/>
+  <link type="application/atom+xml;profile=opds-catalog;kind=navigation" title="Etiquetas" href="https://www.textos.info/etiquetas.atom" rel="http://opds-spec.org/subsection"/>
+<entry>
+  <title>Textos más populares</title>
+  <link type="application/atom+xml;profile=opds-catalog;kind=acquisition" href="https://www.textos.info/populares.atom" rel="http://opds-spec.org/sort/popular"/>
+  <updated>2026-11-26T02:08:35+01:00</updated>
+  <id>https://www.textos.info/populares.atom</id>
+  <content type="text">Textos más leídos y descargados esta semana</content>
+</entry>
+<entry>
+  <title>Novedades</title>
+  <link type="application/atom+xml;profile=opds-catalog;kind=acquisition" href="https://www.textos.info/novedades.atom"  rel="http://opds-spec.org/sort/new"/>
+  <updated>2026-11-26T02:08:35+01:00</updated>
+  <id>https://www.textos.info/novedades.atom</id>
+  <content type="text">Últimos textos añadidos</content>
+</entry>
+<entry>
+  <title>Autores</title>
+  <link type="application/atom+xml;profile=opds-catalog;kind=navigation" href="https://www.textos.info/autores.atom"  rel="http://opds-spec.org/subsection"/>
+  <updated>2026-11-26T02:08:35+01:00</updated>
+  <id>https://www.textos.info/autores.atom</id>
+  <content type="text">Listado alfabético de autores</content>
+</entry>
+<entry>
+  <title>Títulos</title>
+  <link type="application/atom+xml;profile=opds-catalog;kind=navigation" href="https://www.textos.info/titulos.atom"  rel="http://opds-spec.org/subsection"/>
+  <updated>2026-11-26T02:08:35+01:00</updated>
+  <id>https://www.textos.info/titulos.atom</id>
+  <content type="text">Listado alfabético de textos</content>
+</entry>
+<entry>
+  <title>Etiquetas</title>
+  <link type="application/atom+xml;profile=opds-catalog;kind=navigation" href="https://www.textos.info/etiquetas.atom"  rel="http://opds-spec.org/sort/new"/>
+  <updated>2026-11-26T02:08:35+01:00</updated>
+  <id>https://www.textos.info/etiquetas.atom</id>
+  <content type="text">Textos organizados por etiquetas</content>
+</entry>
+</feed>

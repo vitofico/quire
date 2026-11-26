@@ -15,6 +15,9 @@ class EReaderApp : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
+        // Put Do Not Disturb back if the process died with a book open, and keep the optional
+        // notification work booked. With every feature off this only reads one preference.
+        container.notificationFeatures.onAppStart()
 
         // Backfill any documents that haven't been pushed to /library/v1/items
         // yet. On the first run after this version installs, the migration
