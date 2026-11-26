@@ -36,6 +36,9 @@ class FakeProgressDao : ProgressDao {
 
     override suspend fun maxUpdatedAt(): Long? = rows.values.maxOfOrNull { it.updatedAt }
 
+    override suspend fun latestUnfinished(): ProgressEntity? =
+        rows.values.filter { it.finishedAt == null && it.abandonedAt == null }.maxByOrNull { it.updatedAt }
+
     override suspend fun insertIfAbsent(progress: ProgressEntity) {
         rows.putIfAbsent(progress.documentId, progress)
     }

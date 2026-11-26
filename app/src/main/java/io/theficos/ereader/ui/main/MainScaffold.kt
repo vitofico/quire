@@ -20,6 +20,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -37,12 +38,21 @@ enum class Tab(@StringRes val label: Int, val icon: ImageVector) {
 @Composable
 fun MainScaffold(
     initial: Tab = Tab.LIBRARY,
+    /** A tab to switch to once, such as the catalog a notification opened. */
+    requestedTab: Tab? = null,
+    onTabRequestHandled: () -> Unit = {},
     content: @Composable (Tab, PaddingValues) -> Unit,
 ) {
     // rememberSaveable so the selected tab survives a navigation push to a
     // detail screen + popBackStack: returning from catalog-detail should land
     // back on the Catalog tab, not reset to the default LIBRARY.
     var current by rememberSaveable { mutableStateOf(initial) }
+    LaunchedEffect(requestedTab) {
+        if (requestedTab != null) {
+            current = requestedTab
+            onTabRequestHandled()
+        }
+    }
     Scaffold(
         containerColor = Color.Transparent,
         contentColor = MaterialTheme.colorScheme.onBackground,

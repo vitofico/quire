@@ -44,6 +44,10 @@ import io.theficos.ereader.data.sync.SyncEnqueuer
 import io.theficos.ereader.data.sync.SyncOrchestrator
 import io.theficos.ereader.domain.restore.RestoreInProgressUseCase
 import io.theficos.ereader.domain.restore.RestoreSummary
+import io.theficos.ereader.notify.AndroidDoNotDisturb
+import io.theficos.ereader.notify.NotificationFeatures
+import io.theficos.ereader.notify.NotificationPreferencesStore
+import io.theficos.ereader.notify.QuietWhileReading
 import io.theficos.ereader.reader.ReaderPreferencesStore
 import io.theficos.ereader.reader.ReadiumFactory
 import io.theficos.ereader.sideload.SideloadFailure
@@ -175,6 +179,12 @@ class AppContainer internal constructor(context: Context, private val db: EReade
      */
     val welcomePreferencesStore = WelcomePreferencesStore(appContext)
     internal val whatsNewPreferencesStore = WhatsNewPreferencesStore(appContext)
+    val notificationPreferencesStore = NotificationPreferencesStore(appContext)
+    val notificationFeatures = NotificationFeatures(
+        appContext,
+        notificationPreferencesStore,
+        QuietWhileReading(AndroidDoNotDisturb(appContext), notificationPreferencesStore),
+    )
 
     val syncClient: SyncClient = SyncClient(
         baseUrlProvider = { credentialStore.getAccount()?.quireServerUrlOrNull() },

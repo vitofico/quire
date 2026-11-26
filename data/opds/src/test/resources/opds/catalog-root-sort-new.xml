@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <id>urn:example:root</id>
+  <title>Example</title>
+  <updated>2026-04-26T00:00:00Z</updated>
+  <entry>
+    <title>Everything</title>
+    <id>urn:example:new-path</id>
+    <link rel="subsection" href="/catalog/new" type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+  </entry>
+  <entry>
+    <title>Latest arrivals</title>
+    <id>urn:example:latest</id>
+    <link rel="http://opds-spec.org/sort/new" href="/catalog/arrivals" type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+  </entry>
+</feed>

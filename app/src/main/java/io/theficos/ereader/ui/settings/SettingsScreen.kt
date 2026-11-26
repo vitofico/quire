@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import io.theficos.ereader.auth.AccountCredentials
 import io.theficos.ereader.data.ai.AiHealthResponse
 import io.theficos.ereader.data.ai.RetrievalSourceHealth
+import io.theficos.ereader.notify.NotificationFeatures
 import io.theficos.ereader.reader.ReaderFontFamily
 import io.theficos.ereader.reader.ReaderTheme
 import io.theficos.ereader.ui.components.InkBackground
@@ -124,6 +125,7 @@ fun SettingsScreen(
     onNavigateToLicenses: () -> Unit = {},
     onQuireSignIn: () -> Unit = {},
     legacyMigration: ConnectServerViewModel.LegacyMigration = ConnectServerViewModel.LegacyMigration.UNKNOWN,
+    notificationFeatures: NotificationFeatures,
 ) {
     val account by viewModel.account.collectAsState()
     val needsReauth by viewModel.needsReauth.collectAsState()
@@ -306,6 +308,8 @@ fun SettingsScreen(
                 }
             }
         }
+
+        NotificationsSettings(notificationFeatures, catalogNames = catalogs.associate { it.id to it.name })
 
         SectionLabel(stringResource(R.string.common_sync))
         QuireCard(modifier = Modifier.fillMaxWidth()) {

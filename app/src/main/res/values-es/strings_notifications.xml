@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="notify_section_title">"Notificaciones y silencio"</string>
+    <string name="notify_new_books_title">"Libros nuevos en tus catálogos"</string>
+    <string name="notify_new_books_hint">"Unas dos veces al día, Quire mira los libros más recientes de cada catálogo y te avisa cuando llegan nuevos."</string>
+    <string name="notify_new_books_no_feed">"Sin comprobar, no hay lista de libros más recientes: %1$s"</string>
+    <string name="notify_reminder_switch">"Recordatorio de lectura"</string>
+    <string name="notify_reminder_hint">"Un pequeño aviso cada día a la hora que elijas. No aparece los días en que ya has leído."</string>
+    <string name="notify_reminder_at">"Recordármelo a las %1$s"</string>
+    <string name="notify_reminder_time_title">"Hora del recordatorio"</string>
+    <string name="notify_reminder_time_set">"Fijar"</string>
+    <string name="notify_quiet_title">"Silencio al leer"</string>
+    <string name="notify_quiet_hint">"No molestar, solo prioridad, mientras hay un libro abierto. Al salir del libro, el teléfono vuelve a estar como antes."</string>
+    <string name="notify_quiet_access_title">"Permitir el acceso a No molestar"</string>
+    <string name="notify_quiet_access_explain">"Para silenciar el teléfono mientras lees, Quire necesita acceso a No molestar: permítelo en la siguiente pantalla y vuelve aquí."</string>
+    <string name="notify_quiet_access_missing">"El acceso a No molestar está desactivado, así que Quire no puede silenciar el teléfono. Vuelve a activar esta opción para permitirlo."</string>
+    <string name="notify_permission_blocked">"Las notificaciones de Quire están desactivadas, así que estos avisos no pueden aparecer. Permítelas en los ajustes del teléfono."</string>
+    <string name="notify_open_settings">"Abrir ajustes"</string>
+    <string name="notify_channel_new_books">"Libros nuevos"</string>
+    <string name="notify_channel_reminder">"Recordatorio de lectura"</string>
+    <string name="notify_reminder_title">"¿Un rato de lectura?"</string>
+    <string name="notify_reminder_text">"Tus libros te esperan."</string>
+    <string name="notify_reminder_text_book">"Retoma %1$s donde lo dejaste."</string>
+    <plurals name="notify_new_books_title">
+        <item quantity="one">"%1$d libro nuevo en %2$s"</item>
+        <item quantity="other">"%1$d libros nuevos en %2$s"</item>
+        <item quantity="many">"%1$d libros nuevos en %2$s"</item>
+    </plurals>
+    <plurals name="notify_new_books_more">
+        <item quantity="one">"%1$s y %2$d más"</item>
+        <item quantity="other">"%1$s y %2$d más"</item>
+        <item quantity="many">"%1$s y %2$d más"</item>
+    </plurals>
+</resources>

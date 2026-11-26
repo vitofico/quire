@@ -4,4 +4,6 @@
      connects again. Everything else is still backed up. -->
 <full-backup-content>
     <exclude domain="sharedpref" path="calibre_creds.xml" />
+    <!-- Whether Quire silenced this phone for reading: meaningless on another one. -->
+    <exclude domain="sharedpref" path="quiet_state.xml" />
 </full-backup-content>

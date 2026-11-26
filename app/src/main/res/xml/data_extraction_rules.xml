@@ -4,8 +4,10 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="calibre_creds.xml" />
+        <exclude domain="sharedpref" path="quiet_state.xml" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="calibre_creds.xml" />
+        <exclude domain="sharedpref" path="quiet_state.xml" />
     </device-transfer>
 </data-extraction-rules>

@@ -48,6 +48,10 @@ interface ProgressDao {
     @Query("SELECT MAX(updatedAt) FROM progress")
     suspend fun maxUpdatedAt(): Long?
 
+    /** The book read most recently that is neither finished nor abandoned, for the reading reminder. */
+    @Query("SELECT * FROM progress WHERE finishedAt IS NULL AND abandonedAt IS NULL ORDER BY updatedAt DESC LIMIT 1")
+    suspend fun latestUnfinished(): ProgressEntity?
+
     /**
      * Mark a row abandoned. Sets `abandonedAt`, clears `finishedAt` (terminal
      * state invariant — coordinator §3.10), and leaves `percent` untouched

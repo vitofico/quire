@@ -58,6 +58,9 @@ class OpdsClientTest {
                         .setBody(resource("/opds/kavita-series-volumes.xml"))
                     "/flibusta-style" -> MockResponse().setHeader("Content-Type", "application/atom+xml")
                         .setBody(resource("/opds/flibusta-style.xml"))
+                    "/sort-new-root" -> MockResponse().setHeader("Content-Type", "application/atom+xml")
+                        .setBody(resource("/opds/catalog-root-sort-new.xml"))
+                    "/opds/unauthorized" -> MockResponse().setResponseCode(401)
                     "/gutenberg-style" -> MockResponse().setHeader("Content-Type", "application/atom+xml")
                         .setBody(resource("/opds/gutenberg-style-nav.xml"))
                     else -> MockResponse().setResponseCode(404)
@@ -308,5 +311,40 @@ class OpdsClientTest {
         assertThat(feed.publications).hasSize(29)
         val volumes = feed.publications.map { it.title.substringAfterLast("Vol. ") }
         assertThat(volumes).isEqualTo((1..29).map { "%02d".format(it) })
+    }
+
+    @Test fun `the newest-books feed is found by the Calibre-Web path`() = runTest {
+        val feed = client.fetch(server.url("/opds").toString())
+        assertThat(feed.latestHref).isEqualTo(server.url("/opds/new").toString())
+    }
+
+    @Test fun `the newest-books feed is found by the Kavita path`() = runTest {
+        val feed = client.fetch(server.url("/api/opds/TEST-KEY").toString())
+        assertThat(feed.latestHref).isEqualTo(server.url("/api/opds/TEST-KEY/recently-added").toString())
+    }
+
+    @Test fun `the OPDS sort-new relation wins over a path match`() = runTest {
+        val feed = client.fetch(server.url("/sort-new-root").toString())
+        assertThat(feed.latestHref).isEqualTo(server.url("/catalog/arrivals").toString())
+    }
+
+    @Test fun `a feed without a newest-books link has none, and its own self link does not count`() = runTest {
+        // catalog-feed.xml is the /opds/new feed itself: its rel=self ends in /new.
+        assertThat(client.fetch(server.url("/opds/new").toString()).latestHref).isNull()
+        assertThat(client.fetch(server.url("/opds/with-search").toString()).latestHref)
+            .isEqualTo(server.url("/opds/new").toString())
+        assertThat(client.fetch(server.url("/gutenberg-style").toString()).latestHref).isNull()
+    }
+
+    @Test fun `each publication carries its Atom entry id`() = runTest {
+        val feed = client.fetch(server.url("/opds/new").toString())
+        assertThat(feed.publications.single().entryId).isEqualTo("urn:calibre-web:42")
+    }
+
+    @Test fun `a refused fetch reports its status code`() = runTest {
+        val error = runCatching { client.fetch(server.url("/opds/unauthorized").toString()) }.exceptionOrNull()
+        assertThat(error).isInstanceOf(OpdsHttpException::class.java)
+        assertThat((error as OpdsHttpException).code).isEqualTo(401)
+        assertThat(error.message).doesNotContain("unauthorized")
     }
 }

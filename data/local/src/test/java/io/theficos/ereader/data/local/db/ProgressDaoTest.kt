@@ -212,4 +212,16 @@ class ProgressDaoTest {
         assertThat(dirty.map { it.documentId }).containsExactly(docId)
     }
 
+
+    @Test fun `latestUnfinished is the most recently read book still in progress`() = runTest {
+        assertThat(dao.latestUnfinished()).isNull()
+        val reading = newDoc()
+        val finished = docs.insert(DocumentEntity(metadataId = null, contentHash = "h3", title = "t3", author = null, downloadUrl = "u3", localPath = "p", coverPath = null, downloadedAt = 0))
+        val abandoned = docs.insert(DocumentEntity(metadataId = null, contentHash = "h4", title = "t4", author = null, downloadUrl = "u4", localPath = "p", coverPath = null, downloadedAt = 0))
+        dao.upsert(ProgressEntity(documentId = reading, locator = "x", percent = 0.2, updatedAt = 10, localUpdatedAt = 10, syncedAt = 0))
+        dao.upsert(ProgressEntity(documentId = finished, locator = "x", percent = 1.0, updatedAt = 30, localUpdatedAt = 30, syncedAt = 0, finishedAt = 30))
+        dao.upsert(ProgressEntity(documentId = abandoned, locator = "x", percent = 0.4, updatedAt = 40, localUpdatedAt = 40, syncedAt = 0, abandonedAt = 40))
+
+        assertThat(dao.latestUnfinished()?.documentId).isEqualTo(reading)
+    }
 }

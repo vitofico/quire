@@ -5,6 +5,12 @@ data class OpdsFeed(
     val navigation: List<OpdsNavigationLink>,
     val publications: List<OpdsPublication>,
     val searchLink: OpdsSearchLink? = null,
+    /**
+     * Absolute address of the catalog's newest-books feed, when this feed links one: a link with
+     * `rel="http://opds-spec.org/sort/new"` first, else a navigation entry whose path ends in
+     * `/new` (Calibre-Web, calibre) or `/recently-added` (Kavita). Null when there is none.
+     */
+    val latestHref: String? = null,
 )
 
 data class OpdsNavigationLink(
@@ -40,6 +46,8 @@ data class OpdsPublication(
      * calibre-web feeds.
      */
     val calibreBookId: String? = null,
+    /** The Atom entry's `<id>`, stable across fetches of the same book. Null when the feed gave none. */
+    val entryId: String? = null,
 )
 
 data class OpdsSearchLink(
