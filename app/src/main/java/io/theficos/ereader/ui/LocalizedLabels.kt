@@ -18,6 +18,77 @@ fun toneLabel(code: String): String = when (code) {
     else -> code
 }
 
+/**
+ * A theme tag of a book insight in the app's language. The server keeps the tags as a fixed
+ * English vocabulary so they can be counted across books; a tag outside it reads as itself.
+ */
+@Composable
+fun themeLabel(tag: String): String =
+    THEME_LABELS[tag]?.let { stringResource(it) } ?: tag.replace('_', ' ').replaceFirstChar { it.uppercase() }
+
+/** The server's controlled vocabulary, `server/quire_server/core/ai/themes.py`. */
+internal val THEME_LABELS: Map<String, Int> = mapOf(
+    "science_fiction" to R.string.theme_science_fiction,
+    "fantasy" to R.string.theme_fantasy,
+    "literary_fiction" to R.string.theme_literary_fiction,
+    "contemporary_fiction" to R.string.theme_contemporary_fiction,
+    "historical_fiction" to R.string.theme_historical_fiction,
+    "young_adult" to R.string.theme_young_adult,
+    "middle_grade" to R.string.theme_middle_grade,
+    "children" to R.string.theme_children,
+    "poetry" to R.string.theme_poetry,
+    "drama" to R.string.theme_drama,
+    "short_stories" to R.string.theme_short_stories,
+    "graphic_novel" to R.string.theme_graphic_novel,
+    "dystopia" to R.string.theme_dystopia,
+    "post_apocalyptic" to R.string.theme_post_apocalyptic,
+    "cyberpunk" to R.string.theme_cyberpunk,
+    "space_opera" to R.string.theme_space_opera,
+    "first_contact" to R.string.theme_first_contact,
+    "time_travel" to R.string.theme_time_travel,
+    "alternate_history" to R.string.theme_alternate_history,
+    "magical_realism" to R.string.theme_magical_realism,
+    "epic_fantasy" to R.string.theme_epic_fantasy,
+    "urban_fantasy" to R.string.theme_urban_fantasy,
+    "mythology" to R.string.theme_mythology,
+    "superheroes" to R.string.theme_superheroes,
+    "mystery" to R.string.theme_mystery,
+    "thriller" to R.string.theme_thriller,
+    "noir" to R.string.theme_noir,
+    "horror" to R.string.theme_horror,
+    "romance" to R.string.theme_romance,
+    "crime" to R.string.theme_crime,
+    "coming_of_age" to R.string.theme_coming_of_age,
+    "war_fiction" to R.string.theme_war_fiction,
+    "adventure" to R.string.theme_adventure,
+    "satire" to R.string.theme_satire,
+    "western" to R.string.theme_western,
+    "biography" to R.string.theme_biography,
+    "memoir" to R.string.theme_memoir,
+    "history" to R.string.theme_history,
+    "science" to R.string.theme_science,
+    "philosophy" to R.string.theme_philosophy,
+    "essays" to R.string.theme_essays,
+    "journalism" to R.string.theme_journalism,
+    "business" to R.string.theme_business,
+    "economics" to R.string.theme_economics,
+    "psychology" to R.string.theme_psychology,
+    "self_help" to R.string.theme_self_help,
+    "travel" to R.string.theme_travel,
+    "cooking" to R.string.theme_cooking,
+    "politics" to R.string.theme_politics,
+    "religion" to R.string.theme_religion,
+    "true_crime" to R.string.theme_true_crime,
+    "nature" to R.string.theme_nature,
+    "art" to R.string.theme_art,
+    "music" to R.string.theme_music,
+    "sports" to R.string.theme_sports,
+    "education" to R.string.theme_education,
+    "technology" to R.string.theme_technology,
+    "medicine" to R.string.theme_medicine,
+    "health" to R.string.theme_health,
+)
+
 @Composable
 fun ReaderFontFamily.displayLabel(): String = when (this) {
     ReaderFontFamily.SYSTEM -> stringResource(R.string.font_system)

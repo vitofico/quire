@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import io.theficos.ereader.core.model.DocumentIdentity
 import io.theficos.ereader.data.ai.BookRecDto
 import io.theficos.ereader.data.ai.ReaderProfileResponseDto
+import io.theficos.ereader.ui.themeLabel
 import io.theficos.quire.R
 import java.time.Duration
 import java.time.Instant
@@ -396,7 +397,8 @@ private fun ReadingStatsCard(profile: ReaderProfileResponseDto) {
             val themes = stats.finishRateByTheme.entries
                 .sortedByDescending { it.value }
                 .take(5)
-                .joinToString(" · ") { it.key.replace('_', ' ') }
+                .map { themeLabel(it.key) }
+                .joinToString(" · ")
             if (themes.isNotBlank()) {
                 Text(
                     stringResource(R.string.common_top_themes, themes),

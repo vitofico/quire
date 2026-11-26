@@ -8,6 +8,7 @@ import {
 } from "./api";
 import { missingProvider, refreshAiState, useAiState } from "./aiState";
 import { useAiOperation } from "./aiOperation";
+import { themeLabel } from "./themes";
 
 export type AiPanelProps = { request?: DiscoveryRequest; aiAvailable?: boolean; t?: Translate };
 
@@ -58,9 +59,9 @@ function InsightResult({ result, t }: { result: Insight; t: Translate }) {
       {data.series && <><h4>{t("Series")}</h4><p>{data.series.name}{data.series.position != null && ` #${data.series.position}`}</p>{data.series.context && <p>{data.series.context}</p>}</>}
       {data.analysis && <><h4>{t("Analysis")}</h4><p>{data.analysis}</p></>}
       <TextList title={t("Content warnings")} values={data.content_warnings} />
-      <TextList title={t("Themes")} values={data.themes} />
+      <TextList title={t("Themes")} values={data.themes?.map((theme) => themeLabel(theme, t))} />
       {data.theme_analysis && Object.entries(data.theme_analysis).map(([theme, explanation]) => (
-        <div key={theme}><h4>{theme}</h4><p>{explanation}</p></div>
+        <div key={theme}><h4>{themeLabel(theme, t)}</h4><p>{explanation}</p></div>
       ))}
       {data.craft_notes && <><h4>{t("Craft notes")}</h4><p>{data.craft_notes}</p></>}
       {data.comparative_anchors?.length ? (

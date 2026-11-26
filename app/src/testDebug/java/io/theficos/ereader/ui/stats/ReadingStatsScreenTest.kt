@@ -93,7 +93,7 @@ class ReadingStatsScreenTest {
         shows("Abandoned")
         shows("3")
         shows("Ursula K. Le Guin")
-        shows("science fiction")
+        shows("Science fiction")
     }
 
     @Test

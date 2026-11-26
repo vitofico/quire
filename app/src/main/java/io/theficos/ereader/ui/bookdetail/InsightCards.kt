@@ -30,6 +30,7 @@ import io.theficos.ereader.data.ai.Citation
 import io.theficos.ereader.data.ai.ComparativeAnchor
 import io.theficos.ereader.data.ai.SeriesInsight
 import io.theficos.ereader.ui.components.QuireCard
+import io.theficos.ereader.ui.themeLabel
 import io.theficos.quire.R
 
 @Composable
@@ -173,7 +174,7 @@ private fun ThemeAnalysisCard(entries: List<Map.Entry<String, String>>) {
             visible.forEachIndexed { index, entry ->
                 if (index > 0) Spacer(Modifier.height(6.dp))
                 Text(
-                    entry.key.replace('_', ' ').replaceFirstChar { it.uppercase() },
+                    themeLabel(entry.key),
                     style = MaterialTheme.typography.labelMedium,
                 )
                 Text(entry.value, style = MaterialTheme.typography.bodyMedium)

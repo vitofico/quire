@@ -7,6 +7,7 @@ import { CameraScan, supportsCameraScanning } from "./CameraScan";
 import { Icon } from "../icons";
 import { InsightPanel, type AiPanelProps } from "./Insights";
 import { localLibraryStats, lookupIsbn, normalizeIsbn, readingStatus, seriesContinuation, type DiscoveryBook } from "./books";
+import { themeLabel } from "./themes";
 
 type DiscoveryPanelProps = AiPanelProps & {
   books: readonly DiscoveryBook[];
@@ -78,7 +79,7 @@ function LibraryStats({ books, onOpenBook, request, t = english }: DiscoveryPane
       {!!synced?.top_themes.length && (
         <details>
           <summary>{t("Top themes")}</summary>
-          <ul>{synced.top_themes.map(({ theme, count }) => <li key={theme}>{theme} · {count}</li>)}</ul>
+          <ul>{synced.top_themes.map(({ theme, count }) => <li key={theme}>{themeLabel(theme, t)} · {count}</li>)}</ul>
           <p>{t(synced.themes_caveat)}</p>
         </details>
       )}

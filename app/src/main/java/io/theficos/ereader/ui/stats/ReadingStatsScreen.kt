@@ -50,6 +50,7 @@ import io.theficos.ereader.data.library.LibraryStatsResponse
 import io.theficos.ereader.ui.components.QuireCard
 import io.theficos.ereader.ui.components.QuireLoading
 import io.theficos.ereader.ui.components.SectionLabel
+import io.theficos.ereader.ui.themeLabel
 import io.theficos.quire.R
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
@@ -451,7 +452,7 @@ private fun LibraryFigures(stats: LibraryStatsResponse) {
     Text(stringResource(R.string.common_top_themes_2), style = MaterialTheme.typography.titleSmall)
     Note(stats.themesCaveat)
     if (stats.topThemes.isEmpty()) Note(stringResource(R.string.library_no_themes_yet_open_a_book_to))
-    stats.topThemes.forEach { CountRow(it.theme.replace('_', ' '), it.count) }
+    stats.topThemes.forEach { CountRow(themeLabel(it.theme), it.count) }
 }
 
 @Composable
