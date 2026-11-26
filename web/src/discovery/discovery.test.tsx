@@ -213,3 +213,83 @@ describe("AI panels", () => {
     await waitFor(() => expect(screen.getByText("Reader profile deleted.")).toBeTruthy());
   });
 });
+
+describe("AI settings saved as they change", () => {
+  /**
+   * An account that applies each preference save as it arrives, in order, but
+   * answers only when the test says so: answers can come back in any order.
+   * `refused` lists the saves (by arrival) the server turns down.
+   */
+  function slowAccount(refused: number[] = []) {
+    let held = { ai_enabled: true, style, provider_id: "default" };
+    const answers: Array<() => void> = [];
+    const request = vi.fn<DiscoveryRequest>(async (path, init) => {
+      if (path === "/ai/v1/config") return response({ configured: true, providers: [], progress_supported: false });
+      if (path === "/ai/v1/preferences" && init?.method === "PUT") {
+        const fail = refused.includes(answers.length);
+        if (!fail) held = { ...held, ...JSON.parse(String(init.body)) };
+        const answer = fail ? response({ detail: "unavailable" }, 503) : response(held);
+        return new Promise<Response>((resolve) => answers.push(() => resolve(answer)));
+      }
+      if (path === "/ai/v1/preferences") return response(held);
+      throw new Error(`Unexpected request ${path}`);
+    });
+    return { request, answers, held: () => held };
+  }
+  const tone = () => (screen.getByRole("combobox", { name: "Tone" }) as HTMLSelectElement).value;
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+  async function twoChanges(request: DiscoveryRequest, answers: unknown[]) {
+    const select = await screen.findByRole("combobox", { name: "Tone" });
+    fireEvent.change(select, { target: { value: "casual" } });
+    fireEvent.change(select, { target: { value: "scholarly" } });
+    await waitFor(() => expect(answers).toHaveLength(2));
+  }
+
+  it("keeps showing the newest change when the older one is answered first", async () => {
+    const { request, answers } = slowAccount();
+    render(<AiSettingsPanel request={request} />);
+    await twoChanges(request, answers);
+    answers[0]();
+    await settle();
+    expect(tone()).toBe("scholarly");
+    answers[1]();
+    await settle();
+    expect(tone()).toBe("scholarly");
+  });
+
+  it("keeps the account's shared settings on the newest change when answers come back out of order", async () => {
+    const { request, answers, held } = slowAccount();
+    const { unmount } = render(<AiSettingsPanel request={request} />);
+    await twoChanges(request, answers);
+    answers[1]();
+    answers[0]();
+    await settle();
+    expect(held().style.tone).toBe("scholarly");
+    expect(tone()).toBe("scholarly");
+    // Another view of the same account reads the shared settings.
+    unmount();
+    request.mockImplementation(async () => new Promise<Response>(() => undefined));
+    render(<AiSettingsPanel request={request} />);
+    expect(tone()).toBe("scholarly");
+  });
+
+  it("goes back to what the account holds when the newest change is refused", async () => {
+    const { request, answers } = slowAccount([1]);
+    render(<AiSettingsPanel request={request} />);
+    await twoChanges(request, answers);
+    answers[0]();
+    answers[1]();
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    // The earlier change landed, so that is what shows, not the value before both.
+    await waitFor(() => expect(tone()).toBe("casual"));
+  });
+
+  it("does not turn AI on for a provider the server no longer offers", async () => {
+    const request = mockAccount({ provider: "removed" });
+    render(<AiSettingsPanel request={request} />);
+    const optIn = await screen.findByRole("switch", { name: "Enable AI insights and reader profiles" });
+    expect((optIn as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByText(/previously selected provider is no longer available/)).toBeTruthy();
+  });
+});

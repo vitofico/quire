@@ -11,12 +11,14 @@ const catalog = (id: string, name: string, host: string, position: number): Cata
 })
 
 /** A signed-in Quire account with sync, AI and saved catalogs, so every settings section shows. */
-async function signedIn(page: Page, options: { failPreferences?: boolean } = {}) {
+async function signedIn(page: Page, options: { failPreferences?: boolean; listChangedElsewhere?: boolean; noAi?: boolean } = {}) {
   const server = {
     preferences: { ai_enabled: false, provider_id: 'default', style: { tone: 'neutral', language: 'auto' } } as Preferences,
     puts: [] as Preferences[],
     orders: [] as string[][],
     deletes: [] as string[],
+    rows: [] as Array<Record<string, unknown>>,
+    refuseUploads: new Set<string>(),
     catalogs: [
       catalog('6c1f6a4e-0000-4000-8000-000000000001', 'Project Gutenberg', 'https://gutenberg.example.org', 0),
       catalog('6c1f6a4e-0000-4000-8000-000000000002', 'Bibliothèque nationale numérique des livres libres', 'https://livres.example.fr', 1),
@@ -25,7 +27,7 @@ async function signedIn(page: Page, options: { failPreferences?: boolean } = {})
   }
   await page.addInitScript(() => { Reflect.deleteProperty(Navigator.prototype, 'serviceWorker') })
   await page.route('**/quire/v1/bootstrap', route => route.fulfill({ json: {
-    version: 1, sync: true, ai: true, aiAvailable: true, login: 'native', password: true, oidc: false,
+    version: 1, sync: true, ai: !options.noAi, aiAvailable: !options.noAi, login: 'native', password: true, oidc: false,
     catalogUrl: null, accountManagement: null, catalogSync: true, catalogProxy: true,
   } }))
   await page.route('**/auth/v1/me', route => route.fulfill({ json: {
@@ -33,7 +35,14 @@ async function signedIn(page: Page, options: { failPreferences?: boolean } = {})
     capabilities: { progress_metadata_sync: true, ai_enabled: true },
   } }))
   await page.route('**/convert/v1/**', route => route.fulfill({ status: 404, json: { detail: 'Not Found' } }))
-  await page.route('**/library/v1/**', route => route.fulfill({ json: { items: [] } }))
+  await page.route('**/library/v1/**', async route => {
+    const request = route.request()
+    if (request.method() !== 'POST') return route.fulfill({ json: { items: server.rows } })
+    const [entry] = (request.postDataJSON() as { items: Array<Record<string, unknown>> }).items
+    if (server.refuseUploads.has(String(entry.title))) return route.fulfill({ status: 503, json: { detail: 'unavailable' } })
+    server.rows.push({ ...entry, content_hash: String(entry.identity_hash), updated_at: '2026-11-26T10:00:00Z', deleted_at: null })
+    return route.fulfill({ json: { processed: 1 } })
+  })
   await page.route('**/sync/v1/**', route => route.fulfill({ json: { items: [], next_cursor: '0', has_more: false } }))
   await page.route('**/ai/v1/**', async route => {
     const request = route.request()
@@ -67,6 +76,12 @@ async function signedIn(page: Page, options: { failPreferences?: boolean } = {})
     if (path === '/catalogs/v1/order') {
       const { ids } = request.postDataJSON() as { ids: string[] }
       server.orders.push(ids)
+      if (options.listChangedElsewhere && server.orders.length === 1) {
+        // Another device saved a catalog meanwhile, so this order misses it.
+        server.catalogs.push(catalog('6c1f6a4e-0000-4000-8000-000000000004', 'Added elsewhere', 'https://other.example.org', 3))
+        return route.fulfill({ status: 409, json: { detail: 'order_mismatch' } })
+      }
+      if (ids.length !== server.catalogs.length) return route.fulfill({ status: 409, json: { detail: 'order_mismatch' } })
       server.catalogs.forEach(c => { c.position = ids.indexOf(c.id) })
       return list()
     }
@@ -81,11 +96,12 @@ async function signedIn(page: Page, options: { failPreferences?: boolean } = {})
   return server
 }
 
-function book() {
+function book(title = 'Settings Fixture') {
+  const id = [...title].reduce((sum, c) => sum + c.charCodeAt(0), 0).toString(16).padStart(12, '0')
   const files = {
     'META-INF/container.xml': strToU8('<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="book.opf"/></rootfiles></container>'),
-    'book.opf': strToU8('<package xmlns="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/" unique-identifier="id"><metadata><dc:title>Settings Fixture</dc:title><dc:identifier id="id">urn:uuid:5b7d0a52-23f4-4f0e-9a5f-0c1d2e3f4a5b</dc:identifier><dc:language>en</dc:language></metadata><manifest><item id="one" href="one.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="one"/></spine></package>'),
-    'one.xhtml': strToU8('<html xmlns="http://www.w3.org/1999/xhtml"><head><title>One</title></head><body><p>Settings fixture text.</p></body></html>'),
+    'book.opf': strToU8(`<package xmlns="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/" unique-identifier="id"><metadata><dc:title>${title}</dc:title><dc:identifier id="id">urn:uuid:5b7d0a52-23f4-4f0e-9a5f-${id}</dc:identifier><dc:language>en</dc:language></metadata><manifest><item id="one" href="one.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="one"/></spine></package>`),
+    'one.xhtml': strToU8(`<html xmlns="http://www.w3.org/1999/xhtml"><head><title>One</title></head><body><p>${title} text.</p></body></html>`),
   }
   return { name: 'settings.epub', mimeType: 'application/epub+zip', buffer: Buffer.from(zipSync(files)) }
 }
@@ -104,6 +120,9 @@ test('a theme picked in settings applies at once, survives a reload, and System 
   await mode.getByRole('radio', { name: 'Dark' }).check()
   expect(await theme(page)).toBe('ink')
   await expect(light.getByRole('radio', { name: 'Sage' })).toBeDisabled()
+  // The group says why it is off.
+  await expect(light).toHaveAccessibleDescription('Used when Mode is System or Light.')
+  await expect(dark).toHaveAccessibleDescription('Used when Mode is System or Dark.')
   await dark.getByRole('radio', { name: 'Midnight' }).check()
   expect(await theme(page)).toBe('midnight')
   await page.reload()
@@ -171,7 +190,19 @@ for (const width of [320, 1280]) {
             const box = element.getBoundingClientRect()
             return box.width > 0 && (box.right > panel.right + 1 || box.left < panel.left - 1)
           }).map(element => `${element.tagName.toLowerCase()}.${element.className}: ${element.textContent?.slice(0, 40)}`)
-          return { clipped, outside, page: root.scrollWidth - root.clientWidth }
+          // A native select cuts its text without changing scrollWidth: compare it with a
+          // copy holding only the chosen option, which takes the width that text needs.
+          const cut = [...document.querySelectorAll<HTMLSelectElement>('.settings select')].filter(select => {
+            if (!select.getClientRects().length) return false
+            const copy = select.cloneNode(false) as HTMLSelectElement
+            copy.append(new Option(select.selectedOptions[0]?.text ?? ''))
+            Object.assign(copy.style, { position: 'absolute', visibility: 'hidden', width: 'max-content', maxWidth: 'none' })
+            select.parentElement!.append(copy)
+            const needed = copy.getBoundingClientRect().width
+            copy.remove()
+            return needed > select.getBoundingClientRect().width + 1
+          }).map(select => `select: ${select.selectedOptions[0]?.text}`)
+          return { clipped: [...clipped, ...cut], outside, page: root.scrollWidth - root.clientWidth }
         })
         expect(overflow, `${lang} ${scheme}`).toEqual({ clipped: [], outside: [], page: 0 })
       }
@@ -253,16 +284,73 @@ test('saved catalogs reorder and remove from settings through the account', asyn
   await expect(page.getByRole('region', { name: 'Catalogs' }).getByRole('listitem').first()).toContainText('Home shelf')
 })
 
-test('downloads can all be removed from storage settings, keeping the books', async ({ page }) => {
+test('removing all downloads keeps the files of books only in this browser', async ({ page }) => {
+  const server = await signedIn(page)
+  await page.goto('/quire/#/library')
+  await page.locator('input[type=file]').setInputFiles(book('Synced Fixture'))
+  await expect(page.getByRole('heading', { name: 'Synced Fixture' })).toBeVisible()
+  await page.goto('/quire/#/library')
+  // The server turns this upload down for now, so it waits in this browser.
+  server.refuseUploads.add('Waiting Fixture')
+  await page.locator('input[type=file]').setInputFiles(book('Waiting Fixture'))
+  await expect(page.getByRole('heading', { name: 'Waiting Fixture' })).toBeVisible()
+  await page.goto('/quire/#/settings/storage')
+  await page.getByRole('region', { name: 'Account' }).getByRole('button', { name: 'Sync now' }).click()
+  await expect.poll(() => server.rows.map(row => row.title)).toEqual(['Synced Fixture'])
+  const storage = page.getByRole('region', { name: 'Storage and offline' })
+  await expect(storage.getByRole('definition').nth(1)).toHaveText('2')
+  await storage.getByRole('button', { name: 'Remove all', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toContainText('Remove all 1 downloaded books')
+  await dialog.getByRole('button', { name: 'Remove all' }).click()
+  await expect(storage.getByRole('definition').nth(1)).toHaveText('1')
+  // Nothing more the account holds: the waiting book keeps its file and the button goes.
+  await expect(storage.getByRole('button', { name: 'Remove all', exact: true })).toHaveCount(0)
+  await page.goto('/quire/#/library')
+  await expect(page.getByRole('button', { name: /Synced Fixture/ }).first()).toBeVisible()
+})
+
+test('a book imported without an account is never offered for removal', async ({ page }) => {
   await page.goto('/quire/')
-  await page.locator('input[type=file]').setInputFiles(book())
-  await expect(page.getByRole('heading', { name: 'Settings Fixture' })).toBeVisible()
+  await page.locator('input[type=file]').setInputFiles(book('Local Fixture'))
+  await expect(page.getByRole('heading', { name: 'Local Fixture' })).toBeVisible()
   await page.goto('/quire/#/settings/storage')
   const storage = page.getByRole('region', { name: 'Storage and offline' })
   await expect(storage.getByRole('definition').nth(1)).toHaveText('1')
-  await storage.getByRole('button', { name: 'Remove all', exact: true }).click()
-  await page.getByRole('dialog').getByRole('button', { name: 'Remove all' }).click()
-  await expect(storage.getByRole('definition').nth(1)).toHaveText('0')
-  await page.goto('/quire/#/library')
-  await expect(page.getByRole('button', { name: /Settings Fixture/ }).first()).toBeVisible()
+  await expect(storage.getByRole('button', { name: 'Remove all', exact: true })).toHaveCount(0)
+})
+
+test('a catalog order refused because the list changed elsewhere goes through on the next try', async ({ page }) => {
+  const server = await signedIn(page, { listChangedElsewhere: true })
+  await page.goto('/quire/#/settings/catalogs')
+  const catalogs = page.getByRole('region', { name: 'Catalogs' })
+  await catalogs.getByRole('button', { name: 'Move Home shelf up' }).click()
+  await expect(catalogs.getByRole('alert')).toContainText('Quire could not change the order')
+  await expect(catalogs.getByRole('listitem')).toHaveCount(4)
+  await catalogs.getByRole('button', { name: 'Move Home shelf up' }).click()
+  await expect(catalogs.getByRole('listitem').nth(1)).toContainText('Home shelf')
+  expect(server.orders.at(-1)).toHaveLength(4)
+  await expect(catalogs.getByRole('alert')).toHaveCount(0)
+})
+
+test('the saved theme is on the page before the app itself loads', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.goto('/quire/#/settings')
+  await page.evaluate(() => {
+    localStorage.setItem('quire-ui:theme-mode', 'dark')
+    localStorage.setItem('quire-ui:theme-dark', 'midnight')
+  })
+  // Without the app's code, only the page's own first lines can set the theme.
+  await page.route('**/assets/*.js', route => route.abort())
+  await page.reload()
+  expect(await theme(page)).toBe('midnight')
+  await expect(page.locator('meta[name=theme-color]')).toHaveAttribute('content', '#191f28')
+})
+
+test('a server without AI shows no AI settings', async ({ page }) => {
+  await signedIn(page, { noAi: true })
+  await page.goto('/quire/#/settings')
+  await expect(page.getByRole('region', { name: 'Catalogs' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'AI features' })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'AI features' })).toHaveCount(0)
 })

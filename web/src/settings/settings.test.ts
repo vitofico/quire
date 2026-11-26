@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readThemeChoice, resolveTheme } from './theme'
 import { settingsLabels } from './labels'
+import { removableDownloads } from './Storage'
 
 const from = (values: Record<string, string>) => (key: string) => values[key] ?? null
 
@@ -43,5 +44,19 @@ describe('settings text', () => {
         for (const text of translations) expect(text, english).toContain(placeholder)
       }
     }
+  })
+})
+
+describe('removing all downloads', () => {
+  it('clears only the files of books the account holds', () => {
+    const book = (key: string, synced: boolean, localOnly: boolean, hasDownload = true) => ({ key, synced, localOnly, hasDownload })
+    const books = [
+      book('synced', true, false),
+      book('imported here, never uploaded', false, true),
+      book('waiting to upload', false, false),
+      book('kept in this browser beside the account edition', true, true),
+      book('not downloaded', true, false, false),
+    ]
+    expect(removableDownloads(books).map((b) => b.key)).toEqual(['synced'])
   })
 })
