@@ -362,22 +362,25 @@ fun AppNavGraph(
                     }
                 },
             )
-            // Quiet while reading follows this entry's lifecycle: on while the book is on screen,
-            // off when it is closed, covered by another screen, or the app goes to the background.
-            val quiet = container.notificationFeatures.quietWhileReading
+            // Quiet while reading and the reminder's "read today" follow this entry's lifecycle:
+            // shown while the book is on screen; hidden when it is closed, covered by another
+            // screen, or the app goes to the background. Keyed per entry, so a second reader
+            // opened from a notification is counted on its own.
+            val features = container.notificationFeatures
+            val entryKey = backStack.id
             val entryLifecycle = backStack.lifecycle
             DisposableEffect(entryLifecycle) {
                 val observer = LifecycleEventObserver { _, event ->
                     when (event) {
-                        Lifecycle.Event.ON_START -> quiet.onReaderShown()
-                        Lifecycle.Event.ON_STOP -> quiet.onReaderHidden()
+                        Lifecycle.Event.ON_START -> features.onReaderShown(entryKey, docId)
+                        Lifecycle.Event.ON_STOP -> features.onReaderHidden(entryKey)
                         else -> Unit
                     }
                 }
                 entryLifecycle.addObserver(observer)
                 onDispose {
                     entryLifecycle.removeObserver(observer)
-                    quiet.onReaderHidden()
+                    features.onReaderHidden(entryKey)
                 }
             }
             val highlightsOpened by container.whatsNewPreferencesStore.highlightsOpened.collectAsState()

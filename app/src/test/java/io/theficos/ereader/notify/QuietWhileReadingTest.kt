@@ -1,11 +1,9 @@
 package io.theficos.ereader.notify
 
-import android.app.NotificationManager.INTERRUPTION_FILTER_ALARMS
-import android.app.NotificationManager.INTERRUPTION_FILTER_ALL
-import android.app.NotificationManager.INTERRUPTION_FILTER_PRIORITY
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
+import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -15,146 +13,157 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], application = android.app.Application::class)
 class QuietWhileReadingTest {
-    private class FakeDnd : DoNotDisturb {
+    /** Quire's own rule, as the system would hold it. */
+    private class FakeDnd(private val store: NotificationPreferencesStore) : DoNotDisturb {
+        override var supported = true
         override var accessGranted = true
-        override var filter = INTERRUPTION_FILTER_ALL
-        var watchers = 0
-        var onChange: (() -> Unit)? = null
-        val sets = mutableListOf<Int>()
+        var ruleOn = false
+        val calls = mutableListOf<String>()
 
-        fun userSets(value: Int) {
-            filter = value
-            onChange?.invoke()
+        override fun setRuleActive(active: Boolean) {
+            calls += if (active) "on" else "off"
+            if (active) store.quietRuleId = "rule-1"
+            if (store.quietRuleId != null) ruleOn = active
         }
 
-        override fun watch(onChange: () -> Unit): AutoCloseable {
-            watchers++
-            this.onChange = onChange
-            return AutoCloseable { watchers--; this.onChange = null }
+        override fun removeRule() {
+            calls += "remove"
+            store.quietRuleId = null
+            ruleOn = false
         }
+    }
+
+    private class FakeSafety : QuietSafetyNet {
+        val calls = mutableListOf<String>()
+        override fun arm() { calls += "arm" }
+        override fun rearm() { calls += "rearm" }
+        override fun cancel() { calls += "cancel" }
     }
 
     private val context get() = ApplicationProvider.getApplicationContext<Context>()
-    private lateinit var dnd: FakeDnd
     private lateinit var store: NotificationPreferencesStore
+    private lateinit var dnd: FakeDnd
+    private lateinit var safety: FakeSafety
     private lateinit var quiet: QuietWhileReading
+    private val handlerBefore = Thread.getDefaultUncaughtExceptionHandler()
 
     @Before fun setUp() {
-        context.getSharedPreferences("notification_prefs", Context.MODE_PRIVATE).edit().clear().commit()
-        context.getSharedPreferences("quiet_state", Context.MODE_PRIVATE).edit().clear().commit()
-        dnd = FakeDnd()
+        for (file in listOf("notification_prefs", "new_books_seen", DEVICE_PREFS)) {
+            context.getSharedPreferences(file, Context.MODE_PRIVATE).edit().clear().commit()
+        }
         store = NotificationPreferencesStore(context)
-        quiet = QuietWhileReading(recording(dnd), store)
+        dnd = FakeDnd(store)
+        safety = FakeSafety()
+        quiet = QuietWhileReading(dnd, store, safety)
         store.setQuietWhileReading(true)
     }
 
-    /** Records every filter Quire sets, so a test can say "changed nothing". */
-    private fun recording(fake: FakeDnd) = object : DoNotDisturb by fake {
-        override var filter: Int
-            get() = fake.filter
-            set(value) {
-                fake.sets += value
-                fake.filter = value
-            }
+    @After fun tearDown() {
+        Thread.setDefaultUncaughtExceptionHandler(handlerBefore)
     }
 
     @Test fun `off by default it never touches Do Not Disturb`() {
         store.setQuietWhileReading(false)
-        quiet.onReaderShown()
-        quiet.onReaderHidden()
-        assertThat(dnd.sets).isEmpty()
+        quiet.onReaderShown("a")
+        quiet.onReaderHidden("a")
+        assertThat(dnd.calls).isEmpty()
+        assertThat(safety.calls).isEmpty()
     }
 
-    @Test fun `opening a book silences, closing it restores`() {
-        quiet.onReaderShown()
-        assertThat(dnd.filter).isEqualTo(INTERRUPTION_FILTER_PRIORITY)
-        assertThat(store.quietApplied()).isEqualTo(INTERRUPTION_FILTER_PRIORITY)
+    @Test fun `opening a book turns Quire's rule on, closing it turns the rule off`() {
+        quiet.onReaderShown("a")
+        assertThat(dnd.ruleOn).isTrue()
+        assertThat(safety.calls).containsExactly("arm")
 
-        quiet.onReaderHidden()
-        assertThat(dnd.filter).isEqualTo(INTERRUPTION_FILTER_ALL)
-        assertThat(store.quietApplied()).isNull()
-        assertThat(dnd.watchers).isEqualTo(0)
+        quiet.onReaderHidden("a")
+        assertThat(dnd.ruleOn).isFalse()
+        assertThat(dnd.calls).containsExactly("on", "off").inOrder()
+        assertThat(safety.calls).containsExactly("arm", "cancel").inOrder()
     }
 
-    @Test fun `already in Do Not Disturb, it changes nothing and restores nothing`() {
-        dnd.filter = INTERRUPTION_FILTER_ALARMS
-        quiet.onReaderShown()
-        quiet.onReaderHidden()
-        assertThat(dnd.sets).isEmpty()
-        assertThat(dnd.filter).isEqualTo(INTERRUPTION_FILTER_ALARMS)
+    @Test fun `a second reader opened over the first keeps it quiet until both are gone`() {
+        // Tapping the reminder while book A is open: B starts before A stops.
+        quiet.onReaderShown("a")
+        quiet.onReaderShown("b")
+        quiet.onReaderHidden("a")
+        assertThat(dnd.ruleOn).isTrue()
+
+        quiet.onReaderHidden("b")
+        assertThat(dnd.ruleOn).isFalse()
+        assertThat(dnd.calls).containsExactly("on", "off").inOrder()
     }
 
-    @Test fun `a change by hand while reading is left alone on exit`() {
-        quiet.onReaderShown()
-        dnd.userSets(INTERRUPTION_FILTER_ALARMS)
-        quiet.onReaderHidden()
-        assertThat(dnd.filter).isEqualTo(INTERRUPTION_FILTER_ALARMS)
-        assertThat(store.quietApplied()).isNull()
+    @Test fun `a hide repeated by dispose after stop does nothing more`() {
+        quiet.onReaderShown("a")
+        quiet.onReaderHidden("a")
+        quiet.onReaderHidden("a")
+        assertThat(dnd.calls).containsExactly("on", "off").inOrder()
     }
 
-    @Test fun `switching off then on again by hand still counts as the reader's choice`() {
-        quiet.onReaderShown()
-        dnd.userSets(INTERRUPTION_FILTER_ALL)
-        dnd.userSets(INTERRUPTION_FILTER_PRIORITY)
-        quiet.onReaderHidden()
-        assertThat(dnd.filter).isEqualTo(INTERRUPTION_FILTER_PRIORITY)
-    }
-
-    @Test fun `the change Quire made itself does not count as the reader's`() {
-        quiet.onReaderShown()
-        dnd.onChange?.invoke()
-        quiet.onReaderHidden()
-        assertThat(dnd.filter).isEqualTo(INTERRUPTION_FILTER_ALL)
-    }
-
-    @Test fun `after process death the marker restores on the next start`() {
-        quiet.onReaderShown()
-        // A new process: new controller and store, same preferences on disk.
-        val restarted = QuietWhileReading(recording(dnd), NotificationPreferencesStore(context))
-        restarted.restoreLeftover()
-        assertThat(dnd.filter).isEqualTo(INTERRUPTION_FILTER_ALL)
-        assertThat(NotificationPreferencesStore(context).quietApplied()).isNull()
-    }
-
-    @Test fun `after process death a filter the reader changed since is left alone`() {
-        quiet.onReaderShown()
-        dnd.filter = INTERRUPTION_FILTER_ALARMS
-        QuietWhileReading(recording(dnd), NotificationPreferencesStore(context)).restoreLeftover()
-        assertThat(dnd.filter).isEqualTo(INTERRUPTION_FILTER_ALARMS)
-    }
-
-    @Test fun `a start with no marker changes nothing`() {
-        dnd.filter = INTERRUPTION_FILTER_PRIORITY
-        quiet.restoreLeftover()
-        assertThat(dnd.sets).isEmpty()
-    }
-
-    @Test fun `switching the feature off while reading restores at once`() {
-        quiet.onReaderShown()
-        quiet.setEnabled(false)
-        assertThat(dnd.filter).isEqualTo(INTERRUPTION_FILTER_ALL)
-        assertThat(store.settings.value.quietWhileReading).isFalse()
-        // Leaving the book afterwards has nothing left to do.
-        quiet.onReaderHidden()
-        assertThat(dnd.sets).containsExactly(INTERRUPTION_FILTER_PRIORITY, INTERRUPTION_FILTER_ALL).inOrder()
-    }
-
-    @Test fun `without access it does nothing, and access withdrawn mid-read only clears the marker`() {
+    @Test fun `without access or support nothing is touched`() {
         dnd.accessGranted = false
-        quiet.onReaderShown()
-        assertThat(dnd.sets).isEmpty()
-
+        quiet.onReaderShown("a")
+        quiet.onReaderHidden("a")
         dnd.accessGranted = true
-        quiet.onReaderShown()
-        dnd.accessGranted = false
-        quiet.onReaderHidden()
-        assertThat(store.quietApplied()).isNull()
+        dnd.supported = false
+        quiet.onReaderShown("b")
+        quiet.onReaderHidden("b")
+        assertThat(dnd.calls).isEmpty()
+        assertThat(safety.calls).isEmpty()
     }
 
-    @Test fun `a second show while silenced does not stack`() {
-        quiet.onReaderShown()
-        quiet.onReaderShown()
-        assertThat(dnd.sets).containsExactly(INTERRUPTION_FILTER_PRIORITY)
-        assertThat(dnd.watchers).isEqualTo(1)
+    @Test fun `switching the feature off mid-read turns the rule off and deletes it`() {
+        quiet.onReaderShown("a")
+        quiet.setEnabled(false)
+        assertThat(dnd.calls).containsExactly("on", "off", "remove").inOrder()
+        assertThat(store.quietRuleId).isNull()
+        assertThat(store.settings.value.quietWhileReading).isFalse()
+    }
+
+    @Test fun `a start after a read cut short turns the rule off`() {
+        quiet.onReaderShown("a")
+        // The process dies; a new one starts with fresh state over the same files.
+        val next = QuietWhileReading(dnd, store, safety)
+        next.restoreLeftover()
+        assertThat(dnd.ruleOn).isFalse()
+        assertThat(safety.calls.last()).isEqualTo("cancel")
+    }
+
+    @Test fun `a start with no rule created touches nothing`() {
+        quiet.restoreLeftover()
+        assertThat(dnd.calls).isEmpty()
+    }
+
+    @Test fun `the safety check rebooks while reading and turns the rule off otherwise`() {
+        quiet.onReaderShown("a")
+        quiet.onSafetyCheck()
+        assertThat(safety.calls).containsExactly("arm", "rearm").inOrder()
+        assertThat(dnd.ruleOn).isTrue()
+
+        // A new process woken by the check, with no reader on screen.
+        val woken = QuietWhileReading(dnd, store, safety)
+        woken.onSafetyCheck()
+        assertThat(dnd.ruleOn).isFalse()
+    }
+
+    @Test fun `a crash while quiet turns the rule off, then hands on to the previous handler`() {
+        val seen = mutableListOf<Throwable>()
+        Thread.setDefaultUncaughtExceptionHandler { _, e -> seen += e }
+        quiet.onReaderShown("a")
+
+        val boom = IllegalStateException("boom")
+        Thread.getDefaultUncaughtExceptionHandler()!!.uncaughtException(Thread.currentThread(), boom)
+
+        assertThat(dnd.ruleOn).isFalse()
+        assertThat(seen).containsExactly(boom)
+    }
+
+    @Test fun `a rule deleted in system settings does not crash the reader`() {
+        val throwing = object : DoNotDisturb by dnd {
+            override fun setRuleActive(active: Boolean) = throw IllegalArgumentException("Rule doesn't exist")
+        }
+        val q = QuietWhileReading(throwing, store, safety)
+        q.onReaderShown("a")
+        q.onReaderHidden("a")
     }
 }

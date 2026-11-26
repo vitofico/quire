@@ -27,12 +27,6 @@ class ProgressRepository(private val dao: ProgressDao) {
         ))
     }
 
-    /** When any book was last read, on this device or a synced one. Null before the first. */
-    suspend fun lastReadAt(): Long? = dao.maxUpdatedAt()
-
-    /** The book being read: the latest one neither finished nor abandoned. */
-    suspend fun currentBookId(): Long? = dao.latestUnfinished()?.documentId
-
     suspend fun dirty(): List<Progress> = dao.dirty().map { it.toDomain() }
 
     suspend fun markSynced(documentId: Long, syncedAt: Long) =
