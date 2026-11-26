@@ -27,4 +27,6 @@
     <string name="whats_new_highlights_discuss_description">Dans %1$s → %2$s d’un livre, choisissez %3$s, cochez quelques passages et demandez ce qui les relie. L’IA de votre serveur Quire répond en quelques lignes que vous pouvez partager comme note. Rien de la conversation n’est enregistré.</string>
     <string name="whats_new_unified_stats_title">Toutes vos statistiques au même endroit</string>
     <string name="whats_new_unified_stats_description">Les statistiques de la bibliothèque et celles de lecture ne forment plus qu’un seul écran, dans %1$s → %2$s de la bibliothèque. Les chiffres de votre bibliothèque, ses auteurs et thèmes principaux sont à côté de votre temps de lecture, de vos séries et de votre vitesse, et restent affichés même avec l’enregistrement désactivé.</string>
+    <string name="whats_new_gutenberg_title">Project Gutenberg, gratuit d’un geste</string>
+    <string name="whats_new_gutenberg_description">Project Gutenberg, le plus grand catalogue gratuit de classiques, ouvre désormais les catalogues ouverts dans %1$s → %2$s, avec ses livres en allemand et en italien comme entrées à part. Ses livres sont du domaine public aux États-Unis : vérifiez les règles de votre pays.</string>
 </resources>

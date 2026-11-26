@@ -62,33 +62,36 @@ async function connect(page: Page, options: Options = {}) {
   return { puts, deletes, fetches }
 }
 
-const romandeName = 'Bibliothèque numérique romande'
+const libresName = 'Ebooks libres et gratuits'
 
 test('an open catalog is checked, added in one click and opens through the server', async ({ page }) => {
   const server = await connect(page)
   await page.goto('/quire/#/catalog')
   const open = page.getByRole('region', { name: 'Open catalogs' })
   await expect(open).toContainText('Adding one lets your Quire server contact that catalog’s site for you')
-  const romande = open.getByRole('listitem').filter({ hasText: romandeName })
-  await expect(romande).toContainText('French')
-  await expect(romande).toContainText('Public domain')
-  await expect(romande.getByRole('link', { name: 'ebooks-bnr.com' })).toHaveAttribute('href', 'https://ebooks-bnr.com/')
+  const libres = open.getByRole('listitem').filter({ hasText: libresName })
+  await expect(libres).toContainText('French')
+  await expect(libres).toContainText('Public domain')
+  await expect(libres.getByRole('link', { name: 'ebooksgratuits.com' })).toHaveAttribute('href', 'https://www.ebooksgratuits.com/')
+  // Project Gutenberg leads the list, public domain in the US only.
+  await expect(open.getByRole('listitem').first()).toContainText('Project Gutenberg')
+  await expect(open.getByRole('listitem').first()).toContainText('Public domain in the US')
 
-  await romande.getByRole('button', { name: 'Add ' + romandeName }).click()
+  await libres.getByRole('button', { name: 'Add ' + libresName }).click()
   // The new catalog opens at once, fetched by the server, not the browser, and takes the focus.
   const heading = page.getByRole('heading', { name: 'Livres libres' })
   await expect(heading).toBeFocused()
   await expect(page.getByText('Le Tour du monde')).toBeVisible()
-  await expect(page.getByRole('status').filter({ hasText: romandeName + ' added.' })).toBeVisible()
+  await expect(page.getByRole('status').filter({ hasText: libresName + ' added.' })).toBeVisible()
   expect(server.puts).toHaveLength(1)
-  expect(server.puts[0].body).toEqual({ name: romandeName, kind: 'opds', url: 'https://ebooks-bnr.com/opds/', unique_url: true })
+  expect(server.puts[0].body).toEqual({ name: libresName, kind: 'opds', url: 'https://www.ebooksgratuits.com/opds/', unique_url: true })
   expect(server.fetches.some(url => url.includes(server.puts[0].path))).toBe(true)
   expect(server.deletes).toEqual([])
 
   // While browsing, the list waits behind the other ways to add a catalog, marked added.
   await expect(page.getByRole('region', { name: 'Open catalogs' })).toBeHidden()
   await page.getByText('Use a different catalog').click()
-  const listed = page.getByRole('region', { name: 'Open catalogs' }).getByRole('listitem').filter({ hasText: romandeName })
+  const listed = page.getByRole('region', { name: 'Open catalogs' }).getByRole('listitem').filter({ hasText: libresName })
   await expect(listed).toContainText('Added')
   await expect(listed.getByRole('button')).toHaveCount(0)
 })
@@ -96,10 +99,10 @@ test('an open catalog is checked, added in one click and opens through the serve
 test('a catalog that does not open is removed again and the reason shown', async ({ page }) => {
   const server = await connect(page, { failing: true })
   await page.goto('/quire/#/catalog')
-  const romande = page.getByRole('region', { name: 'Open catalogs' }).getByRole('listitem').filter({ hasText: romandeName })
-  await romande.getByRole('button', { name: 'Add ' + romandeName }).click()
-  await expect(romande.getByRole('alert')).toHaveText('Quire could not reach this catalog. Try again later.')
-  await expect(romande.getByRole('button', { name: 'Add ' + romandeName })).toBeEnabled()
+  const libres = page.getByRole('region', { name: 'Open catalogs' }).getByRole('listitem').filter({ hasText: libresName })
+  await libres.getByRole('button', { name: 'Add ' + libresName }).click()
+  await expect(libres.getByRole('alert')).toHaveText('Quire could not reach this catalog. Try again later.')
+  await expect(libres.getByRole('button', { name: 'Add ' + libresName })).toBeEnabled()
   expect(server.deletes).toHaveLength(1)
   expect(server.deletes[0]).toBe(server.puts[0].path.split('/').pop())
   await expect(page.getByRole('heading', { name: 'Connect a catalog' })).toBeVisible()
@@ -107,16 +110,16 @@ test('a catalog that does not open is removed again and the reason shown', async
 
 test('an address the account already holds is opened, not saved twice', async ({ page }) => {
   const held = {
-    item: { id: 'held', name: 'BNR', kind: 'opds', host: 'https://ebooks-bnr.com', has_login: false, needs_login: false, position: 0, updated_at: '2026-11-25T10:00:00Z' },
-    url: 'https://ebooks-bnr.com/opds/',
+    item: { id: 'held', name: 'ELG', kind: 'opds', host: 'https://www.ebooksgratuits.com', has_login: false, needs_login: false, position: 0, updated_at: '2026-11-25T10:00:00Z' },
+    url: 'https://www.ebooksgratuits.com/opds/',
   }
   const server = await connect(page, { held })
   await page.goto('/quire/#/catalog')
   await page.getByText('Use a different catalog').click()
-  const romande = page.getByRole('region', { name: 'Open catalogs' }).getByRole('listitem').filter({ hasText: romandeName })
-  await romande.getByRole('button', { name: 'Add ' + romandeName }).click()
-  await expect(page.getByRole('status').filter({ hasText: 'BNR added.' })).toBeVisible()
-  await expect(romande).toContainText('Added')
+  const libres = page.getByRole('region', { name: 'Open catalogs' }).getByRole('listitem').filter({ hasText: libresName })
+  await libres.getByRole('button', { name: 'Add ' + libresName }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'ELG added.' })).toBeVisible()
+  await expect(libres).toContainText('Added')
   expect(server.puts).toHaveLength(1)
   expect(server.deletes).toEqual([])
   expect(server.fetches.every(url => url.includes('/held/'))).toBe(true)

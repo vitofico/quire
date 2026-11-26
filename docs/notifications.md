@@ -10,8 +10,10 @@ creates no notification channel.
   catalog. The first check after switching on only records what is there. The list is found by
   the OPDS `http://opds-spec.org/sort/new` link, or by a navigation entry ending in `/new`
   (Calibre-Web), `/recently-added` (Kavita) or `/navcatalog/4f6e6577657374` (the calibre content
-  server's Newest, which has no sort/new link); a catalog without one is skipped and named under
-  the switch. Of the packaged open catalogs only textos.info has such a list. Quire remembers up
+  server's Newest, which has no sort/new link), or by one sorted with `sort_order=release_date`
+  (Project Gutenberg's Latest); a catalog without one is skipped and named under the switch. Of
+  the packaged open catalogs, Project Gutenberg's main catalog and textos.info have such a list;
+  the Gutenberg language searches and Ebooks libres et gratuits do not. Quire remembers up
   to 300 entry ids per catalog in a preferences file of its own, never in the library database
   and never in backups (a restored phone records a fresh baseline instead of announcing every
   book since the backup), and forgets them when the switch goes off. The 12-hour job runs only
