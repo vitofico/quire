@@ -21,6 +21,7 @@ import java.time.ZoneId
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
@@ -52,7 +53,8 @@ data class BookDetails(
 
 /**
  * A tidy waiting for the reader to accept or reject what it proposes, ended by
- * [BookDetailsRepository.apply] or [BookDetailsRepository.close].
+ * [BookDetailsRepository.apply], [BookDetailsRepository.close] or
+ * [BookDetailsRepository.dismiss].
  */
 class DetailsProposal internal constructor(
     /** The book as it was when the tidy began. */
@@ -62,6 +64,8 @@ class DetailsProposal internal constructor(
     /** The answer stored for the book when the tidy began, if any. */
     val previous: BookDetails?,
     internal val turn: Int,
+    /** The book's row before the tidy's decline was held in it, put back by [BookDetailsRepository.dismiss]. */
+    internal val held: BookDetailsEntity?,
 ) {
     internal val open = AtomicBoolean(true)
 }
@@ -156,10 +160,12 @@ class BookDetailsRepository(
 
     /**
      * "Improve details": always tidies, at the cost of one generation unless the shared record
-     * serves it, and holds the answer for the reader to preview; nothing is kept until
-     * [apply]. While the preview is open the automatic pass leaves the book alone, and a
-     * lookup of it already under way is dropped, so it never overwrites what the reader
-     * applies or rejects. Throws what [AiClient.tidyDetails] throws, for the screen to explain;
+     * serves it, and holds the answer for the reader to preview; none of it shows until
+     * [apply]. The tidy already moved the reader's pointer on the server to that record, so
+     * its key is kept as declined right away, and a preview the app never got to end (the
+     * process died) still counts as rejected. While the preview is open the automatic pass
+     * leaves the book alone, and a lookup of it already under way is dropped, so it never
+     * overwrites what the reader applies or rejects. Throws what [AiClient.tidyDetails] throws, for the screen to explain;
      * a 429 also pauses the background pass. Not counted against the automatic pass's daily
      * lookups.
      */
@@ -179,7 +185,7 @@ class BookDetailsRepository(
                 if (e.code == 429) pause(e.retryAfterSeconds ?: DAY_S)
                 throw e
             }
-            return DetailsProposal(doc, answer, request, previous, turn)
+            return DetailsProposal(doc, answer, request, previous, turn, holdDecline(doc, answer, request, turn))
         } catch (e: Throwable) {
             previewing.computeIfPresent(documentId) { _, open -> (open - 1).takeIf { it > 0 } }
             throw e
@@ -204,27 +210,42 @@ class BookDetailsRepository(
      * Keeps the [accepted] field groups of [proposal]'s answer and the cover of [choice], as
      * [cover] previewed it; a null [cover] keeps the cover shown now, as when its preview
      * failed, so the text changes still apply. A painted cover is asked for here, and checked
-     * again an hour later. Returns what is now stored, or null when a later tidy of the book
-     * overtook this one. A failure leaves the preview open, to try again or close.
+     * again an hour later; a server that can no longer paint keeps the drawn cover. Returns
+     * what is now stored, or null when a later tidy of the book overtook this one. A failure
+     * leaves the preview open, to try again or close. Runs to the end in the repository's
+     * scope, so leaving the screen meanwhile neither loses the reader's choice nor rejects it.
      */
-    suspend fun apply(proposal: DetailsProposal, accepted: List<String>, choice: String, cover: CoverPreview?): BookDetails? {
+    suspend fun apply(proposal: DetailsProposal, accepted: List<String>, choice: String, cover: CoverPreview?): BookDetails? =
+        scope.async { applyNow(proposal, accepted, choice, cover) }.await()
+
+    private suspend fun applyNow(proposal: DetailsProposal, accepted: List<String>, choice: String, cover: CoverPreview?): BookDetails? {
         val id = proposal.document.id
         if (!proposal.open.get() || tidiesOf(id) != proposal.turn) return null.also { endPreview(proposal) }
         val doc = proposal.document
         val previous = proposal.previous
         var chosen = cover ?: previous?.let { CoverPreview(it.response, it.coverPath) }
             ?: CoverPreview(proposal.answer.copy(cover = DetailsCover()), null)
+        var coverChoice = choice.takeUnless { it == COVER_KEEP }
         if (choice == COVER_PAINT && cover != null) {
-            val painted = client.lookupDetails(proposal.request.copy(coverChoice = COVER_PAINT))
-            chosen = if (painted.cover.url == chosen.response.cover.url) {
-                chosen.copy(response = painted)
+            val painted = try {
+                client.lookupDetails(proposal.request.copy(coverChoice = COVER_PAINT))
+            } catch (e: AiHttpException) {
+                if (e.code != 409 || e.detail != COVER_ART_UNAVAILABLE) throw e
+                null
+            }
+            if (painted == null) {
+                // The server stopped painting: keep the drawn cover the preview showed, and ask for that from now on.
+                coverChoice = COVER_DRAW
             } else {
-                // Until the painted image downloads, the drawn one shows.
-                CoverPreview(painted, coverFor(doc, painted, chosen.coverPath, chosen = true).first)
+                chosen = if (painted.cover.url == chosen.response.cover.url) {
+                    chosen.copy(response = painted)
+                } else {
+                    // Until the painted image downloads, the drawn one shows.
+                    CoverPreview(painted, coverFor(doc, painted, chosen.coverPath, chosen = true).first)
+                }
             }
         }
         val coverPath = chosen.coverPath?.takeIf { File(it).isFile }
-        val coverChoice = choice.takeUnless { it == COVER_KEEP }
         val response = proposal.answer.copy(
             cover = chosen.response.cover,
             origins = proposal.answer.origins - "cover" + chosen.response.origins.filterKeys { it == "cover" },
@@ -251,39 +272,53 @@ class BookDetailsRepository(
     }
 
     /**
-     * Ends [proposal]'s preview, rejecting its answer. The tidy already moved the reader's
-     * pointer on the server to that record, so its key is remembered: a later lookup served it
-     * shows none of its changes. Returns at once; the write happens in the background.
+     * Ends [proposal]'s preview, rejecting its answer: [propose] already kept its key as
+     * declined, so a later lookup served that record shows none of its changes, and the book
+     * keeps what it showed.
      */
     fun close(proposal: DetailsProposal) {
+        endPreview(proposal)
+    }
+
+    /**
+     * Ends [proposal]'s preview with nothing to decide, as when the tidy changes nothing: the
+     * book's row goes back to what it was before [propose], declining nothing.
+     */
+    suspend fun dismiss(proposal: DetailsProposal) {
         if (!endPreview(proposal)) return
         val id = proposal.document.id
-        val key = proposal.answer.key
-        scope.launch {
-            runCatching {
-                storeMutex.withLock {
-                    if (tidiesOf(id) != proposal.turn) return@withLock
-                    val current = dao.find(id)
-                    val stored = current?.toDetails()?.response
-                    save(
-                        if (current != null && stored != null) {
-                            val accepted = if (stored.key == key) emptyList() else stored.accepted
-                            current.copy(responseJson = encode(stored.copy(declined = key, accepted = accepted)))
-                        } else {
-                            // Nothing kept yet: keep the record with none of its changes and no cover,
-                            // and look a book without a cover up again for one.
-                            val rejected = proposal.answer.copy(
-                                accepted = emptyList(), declined = key, cover = DetailsCover(),
-                                origins = proposal.answer.origins - "cover", basis = proposal.request.book,
-                            )
-                            val retryAt = if (proposal.document.coverPath == null) clock() else null
-                            BookDetailsEntity(id, encode(rejected), null, useOriginal = false, retryAt = retryAt)
-                        },
-                    )
-                }
-            }.onFailure { Log.w(TAG, "couldn't keep a rejected tidy", it) }
+        storeMutex.withLock {
+            if (tidiesOf(id) != proposal.turn) return
+            val held = proposal.held
+            if (held != null) save(held) else dao.delete(id)
         }
     }
+
+    /**
+     * Keeps [answer]'s key as declined in the book's row, so the tidy counts as rejected until
+     * the reader applies it, and returns the row as it was. A book with no answer yet gets one
+     * that shows none of the record's changes and no cover; it holds the book's own details,
+     * so an older version of the app, which knows nothing of declined records, shows those.
+     * A book without a cover is looked up again for one.
+     */
+    private suspend fun holdDecline(doc: Document, answer: DetailsResponse, request: DetailsLookupBody, turn: Int): BookDetailsEntity? =
+        storeMutex.withLock {
+            val current = dao.find(doc.id)
+            if (tidiesOf(doc.id) != turn) return@withLock current
+            val stored = current?.toDetails()?.response
+            save(
+                if (current != null && stored != null) {
+                    current.copy(responseJson = encode(stored.copy(declined = answer.key)))
+                } else {
+                    val rejected = DetailsResponse(
+                        key = answer.key, book = request.book, tidy = answer.tidy,
+                        accepted = emptyList(), declined = answer.key, basis = request.book,
+                    )
+                    BookDetailsEntity(doc.id, encode(rejected), null, useOriginal = false, retryAt = if (doc.coverPath == null) clock() else null)
+                },
+            )
+            current
+        }
 
     private fun tidiesOf(id: Long) = tidies[id] ?: 0
 
@@ -355,13 +390,13 @@ class BookDetailsRepository(
                     continue
                 }
             }
+            val since = tidiesOf(doc.id)
             if (previewing.containsKey(doc.id)) {
                 // The reader is looking at a tidy of this book: ask once they are done.
                 val soon = clock() + PAUSE_S * 1000L
                 due = minOf(due ?: soon, soon)
                 continue
             }
-            val since = tidiesOf(doc.id)
             val request = requestFor(doc, seen?.toDetails()?.response?.coverChoice)
             if (seen == null && !needsDetails(doc, request.book)) {
                 saveUnlessChanged(null, BookDetailsEntity(doc.id, null, null, useOriginal = false, retryAt = null))
@@ -459,15 +494,24 @@ class BookDetailsRepository(
             response.cover.painting && checks < PAINTING_CHECKS -> clock() + PAINTING_WAIT_S * 1000L
             else -> null
         }
-        val kept = response.copy(
-            paintingChecks = checks,
-            // A record the reader rejected shows none of its changes.
-            accepted = if (before != null && response.key == before.declined) emptyList() else before?.accepted,
-            coverChoice = before?.coverChoice,
-            declined = before?.declined,
-            // The same record again keeps the fields it was asked for, so a field the catalog changed since still shows.
-            basis = if (response.cached && response.key == before?.key) before.basis else sent,
-        )
+        val kept = if (before != null && response.key == before.declined) {
+            // A record the reader rejected brings none of its changes: the book keeps what it showed, with the new cover.
+            before.copy(
+                cover = response.cover,
+                origins = before.origins - "cover" + response.origins.filterKeys { it == "cover" },
+                paintingChecks = checks,
+            )
+        } else {
+            response.copy(
+                paintingChecks = checks,
+                // The fields the reader kept from this record; a new record shows all of its own.
+                accepted = before?.accepted?.takeIf { response.key == before.key },
+                coverChoice = before?.coverChoice,
+                declined = before?.declined,
+                // The same record again keeps the fields it was asked for, so a field the catalog changed since still shows.
+                basis = if (response.cached && response.key == before?.key) before.basis else sent,
+            )
+        }
         val row = BookDetailsEntity(doc.id, encode(kept), coverPath, useOriginal = seen?.useOriginal ?: false, retryAt = retryAt)
         storeMutex.withLock {
             val current = dao.find(doc.id)

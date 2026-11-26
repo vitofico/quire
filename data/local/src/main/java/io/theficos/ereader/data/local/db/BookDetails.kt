@@ -50,6 +50,9 @@ interface BookDetailsDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun save(row: BookDetailsEntity)
 
+    @Query("DELETE FROM book_details WHERE documentId = :documentId")
+    suspend fun delete(documentId: Long)
+
     @Query("DELETE FROM book_details")
     suspend fun clear()
 
