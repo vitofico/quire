@@ -11,7 +11,12 @@ function swipe(sign: number, start: number): Array<[number, number]> {
 }
 
 function turns(events: Array<[number, number]>, gesture = wheelGesture()) {
-  return events.map(([delta, time]) => gesture(delta, time)).filter(turn => turn !== 0)
+  return events.map(([delta, time]) => gesture(delta, 0, time)?.turn).filter(turn => turn !== undefined)
+}
+
+function at16ms(deltas: Array<[number, number]>) {
+  const gesture = wheelGesture()
+  return deltas.map(([x, y], i) => gesture(x, y, i * 16)).filter(swipe => swipe !== undefined)
 }
 
 describe('wheelGesture', () => {
@@ -42,6 +47,18 @@ describe('wheelGesture', () => {
     expect(turns([...swipe(-1, 0), ...swipe(-1, 3000)])).toEqual([-1, -1])
   })
 
+  it('keeps the axis a swipe started on when one event leans the other way', () => {
+    expect(at16ms([[30, 5], [40, 8], [10, -25], [45, 4], [30, 2]])).toEqual([{ turn: 1, sideways: true }])
+  })
+
+  it('turns once for an uneven slow swipe whose fingers are still moving', () => {
+    expect(at16ms([30, 40, 15, 35, 30, 10, 4].map(x => [x, 0]))).toEqual([{ turn: 1, sideways: true }])
+  })
+
+  it('reads a vertical wheel as a page turn that is not sideways', () => {
+    expect(at16ms([[0, 40], [0, 30], [0, 10]])).toEqual([{ turn: 1, sideways: false }])
+  })
+
   it('ignores a tiny nudge', () => {
     expect(turns([[3, 0], [5, 16], [2, 32]])).toEqual([])
   })
@@ -60,5 +77,19 @@ describe('scrollsInside', () => {
     box.scrollTop = 300
     expect(scrollsInside(inner, 0, 40)).toBe(false)
     expect(scrollsInside(document.body, 0, 40)).toBe(false)
+  })
+
+  it('finds a scrolling box inside the iframe the book is laid out in', () => {
+    document.body.innerHTML = '<iframe></iframe>'
+    const book = document.querySelector('iframe')!.contentDocument!
+    book.body.innerHTML = '<pre style="overflow-x: auto"><span>wide code</span></pre>'
+    const box = book.querySelector('pre')!
+    Object.defineProperties(box, {
+      scrollWidth: { value: 900 }, clientWidth: { value: 300 }, scrollLeft: { value: 0, writable: true },
+    })
+    const inner = book.querySelector('span')!
+    expect(inner instanceof Element).toBe(false)
+    expect(scrollsInside(inner, 40, 0)).toBe(true)
+    expect(scrollsInside(inner, -40, 0)).toBe(false)
   })
 })

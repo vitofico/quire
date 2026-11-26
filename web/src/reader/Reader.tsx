@@ -556,11 +556,10 @@ export default function Reader({
     const wheel = (event: WheelEvent) => {
       // One wheel or trackpad gesture turns one page, however many events it sends.
       if (event.ctrlKey || scrollsInside(event.target, event.deltaX, event.deltaY)) return
-      const sideways = Math.abs(event.deltaX) > Math.abs(event.deltaY)
-      const turn = wheelTurn.current(sideways ? event.deltaX : event.deltaY, event.timeStamp)
-      if (!turn) return
-      const rtl = sideways && doc.defaultView?.getComputedStyle(doc.body).direction === 'rtl'
-      page(turn * (rtl ? -1 : 1))
+      const swipe = wheelTurn.current(event.deltaX, event.deltaY, event.timeStamp)
+      if (!swipe) return
+      const rtl = swipe.sideways && doc.defaultView?.getComputedStyle(doc.body).direction === 'rtl'
+      page(swipe.turn * (rtl ? -1 : 1))
     }
     const key = (event: globalThis.KeyboardEvent) => handleReaderKey.current(event)
     doc.addEventListener('scroll', scroll, { passive: true })
