@@ -19,4 +19,6 @@
     <string name="whats_new_open_catalogs_description">Add a free, legal catalog of classics with one tap in %1$s → %2$s, or from the Catalog tab when you have none yet. Those in your language come first.</string>
     <string name="whats_new_reading_stats_title">See how you read</string>
     <string name="whats_new_reading_stats_description">Quire now counts how long, when and how fast you read. It is kept on this device and in your phone’s own backup, never sent to Quire’s server or to AI. See your streaks, your speed and how long a book has left in the library under %1$s → %2$s. You can turn it off in Settings.</string>
+    <string name="whats_new_details_preview_title">See what improving details changes</string>
+    <string name="whats_new_details_preview_description">In a book’s %1$s → %2$s, see each change beside the current details, keep the ones you want, and choose the cover: the book’s own, one from Open Library, or one drawn by Quire.</string>
 </resources>

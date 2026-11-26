@@ -19,4 +19,6 @@
     <string name="whats_new_open_catalogs_description">Añade con un toque un catálogo gratuito y legal de clásicos en %1$s → %2$s, o desde la pestaña Catálogo si aún no tienes ninguno. Los de tu idioma aparecen primero.</string>
     <string name="whats_new_reading_stats_title">Descubre cómo lees</string>
     <string name="whats_new_reading_stats_description">Quire ahora cuenta cuánto, cuándo y a qué velocidad lees. Se guarda en este dispositivo y en la copia de seguridad de tu teléfono, y nunca se envía al servidor de Quire ni a la IA. Consulta tus rachas, tu velocidad y cuánto le queda a un libro en la biblioteca, en %1$s → %2$s. Puedes desactivarlo en Ajustes.</string>
+    <string name="whats_new_details_preview_title">Mira qué cambia al mejorar los datos</string>
+    <string name="whats_new_details_preview_description">En %1$s → %2$s de un libro, ves cada cambio junto a los datos actuales, conservas los que quieras y eliges la portada: la del libro, una de Open Library o una dibujada por Quire.</string>
 </resources>

@@ -12,6 +12,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -382,7 +383,12 @@ class AiClient(
 
 /** [retryAfterSeconds] is the server's `Retry-After`, when it sent one in seconds. */
 open class AiHttpException(val code: Int, val body: String, val retryAfterSeconds: Long? = null) :
-    RuntimeException("AI request failed: $code body=${body.take(200)}")
+    RuntimeException("AI request failed: $code body=${body.take(200)}") {
+    /** The body's `detail` when it is a plain code, such as `details_rate_limited`. */
+    val detail: String? by lazy {
+        runCatching { (Json.parseToJsonElement(body) as? JsonObject)?.get("detail")?.jsonPrimitive?.content }.getOrNull()
+    }
+}
 
 /**
  * Issue #102: a provider failure the server described. [serverMessage] is

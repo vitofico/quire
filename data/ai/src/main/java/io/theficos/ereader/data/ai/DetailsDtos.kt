@@ -1,6 +1,8 @@
 package io.theficos.ereader.data.ai
 
 import io.theficos.ereader.core.model.DocumentIdentity
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -20,6 +22,7 @@ data class DetailsBook(
 )
 
 /** Body of `POST /details/v1/lookup` and `POST /details/v1/tidy`. */
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class DetailsLookupBody(
     val identity: DocumentIdentity,
@@ -28,6 +31,8 @@ data class DetailsLookupBody(
     val source: String,
     /** Where the cover the book already has came from, or null when it has none. */
     val cover: String?,
+    /** [COVER_FIND], [COVER_DRAW] or [COVER_PAINT]; never sent when null, since a server without the field rejects it. */
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("cover_choice") val coverChoice: String? = null,
 )
 
 @Serializable
@@ -38,6 +43,8 @@ data class DetailsCover(
     val generated: Boolean = false,
     /** Painted artwork for this generated cover is on its way: a later lookup answers with a new [url]. */
     val painting: Boolean = false,
+    /** This generated cover is drawn on painted artwork. */
+    val painted: Boolean = false,
 )
 
 @Serializable
@@ -48,10 +55,21 @@ data class DetailsResponse(
     val origins: Map<String, String> = emptyMap(),
     val cover: DetailsCover = DetailsCover(),
     val tidy: String,
+    /** Served from the shared store, at no cost, including the record the reader was last given. */
+    val cached: Boolean = false,
     /** The matched Open Library work, for attribution. */
     @SerialName("openlibrary_url") val openLibraryUrl: String? = null,
     /** How often the app has asked again for artwork still being painted. The app's own count, kept with the answer. */
     @SerialName("painting_checks") val paintingChecks: Int = 0,
+    // The reader's choices, kept by the app with the answer; the server never sends them.
+    /** The field groups ([DETAILS_FIELDS]) the reader kept from this answer; null keeps them all. */
+    val accepted: List<String>? = null,
+    /** The cover the reader chose, [COVER_FIND], [COVER_DRAW] or [COVER_PAINT]; null keeps the book's own. */
+    @SerialName("cover_choice") val coverChoice: String? = null,
+    /** The key of a tidied record the reader rejected: served again, it shows none of its changes. */
+    val declined: String? = null,
+    /** The book's details as sent for this answer, so a field the catalog changed since shows the catalog's value. */
+    val basis: DetailsBook? = null,
 )
 
 const val ORIGIN_FILE = "file"
@@ -72,3 +90,16 @@ fun detailsOrigin(origin: String?): DetailsOrigin? = when (origin) {
 
 const val TIDY_QUOTA_EXCEEDED = "quota_exceeded"
 const val TIDY_FAILED = "failed"
+
+const val COVER_KEEP = "keep"
+const val COVER_FIND = "find"
+const val COVER_DRAW = "draw"
+const val COVER_PAINT = "paint"
+
+const val FIELD_TITLE = "title"
+const val FIELD_AUTHORS = "authors"
+const val FIELD_SERIES = "series"
+const val FIELD_DESCRIPTION = "description"
+
+/** The details a reader accepts or rejects one by one. */
+val DETAILS_FIELDS = listOf(FIELD_TITLE, FIELD_AUTHORS, FIELD_SERIES, FIELD_DESCRIPTION)

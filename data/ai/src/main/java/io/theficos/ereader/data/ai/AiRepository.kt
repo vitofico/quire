@@ -61,6 +61,12 @@ class AiRepository(
         runCatching { client.getPreferences() }.getOrNull()?.let { _prefs.value = it }
     }
 
+    /** Drops the config and preferences, as for another account, until [refresh] fetches its own. */
+    suspend fun forget() = refreshMutex.withLock {
+        _config.value = null
+        _prefs.value = null
+    }
+
     suspend fun setProvider(providerId: String) = refreshMutex.withLock {
         // Keep Settings stable while fencing cached output during provider selection.
         changingProvider = true

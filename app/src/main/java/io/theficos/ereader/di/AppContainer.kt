@@ -81,6 +81,7 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -114,20 +115,21 @@ private fun AccountCredentials.detailsOwner(): String? = quireServerUrlOrNull()?
 /** An account on a Quire server, as book details and PDF conversions record their owner. */
 internal fun accountOwner(serverUrl: String, subject: String): String = "$serverUrl $subject"
 
-/** True while the device's default network is not metered, such as Wi-Fi. */
-private fun unmeteredNetwork(context: Context): Flow<Boolean> = callbackFlow {
+/** The device's default network's capabilities, or null while it has none. */
+private fun defaultNetwork(context: Context): Flow<NetworkCapabilities?> = callbackFlow {
     val connectivity = context.getSystemService(ConnectivityManager::class.java)
-    fun offer(capabilities: NetworkCapabilities?) {
-        trySend(capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == true)
-    }
     val callback = object : ConnectivityManager.NetworkCallback() {
-        override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) = offer(capabilities)
-        override fun onLost(network: Network) = offer(null)
+        override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+            trySend(capabilities)
+        }
+        override fun onLost(network: Network) {
+            trySend(null)
+        }
     }
-    offer(connectivity.getNetworkCapabilities(connectivity.activeNetwork))
+    trySend(connectivity.getNetworkCapabilities(connectivity.activeNetwork))
     connectivity.registerDefaultNetworkCallback(callback)
     awaitClose { connectivity.unregisterNetworkCallback(callback) }
-}.distinctUntilChanged()
+}
 
 /** Key of the reading-pause notes kept on a device with no account. */
 internal const val DEVICE_MEMORY_KEY = "device-local"
@@ -327,6 +329,10 @@ class AppContainer internal constructor(context: Context, private val db: EReade
         metered = { appContext.getSystemService(ConnectivityManager::class.java).isActiveNetworkMetered },
     )
 
+    /** The default network, shared by everything that waits for one. */
+    private val network: StateFlow<NetworkCapabilities?> =
+        defaultNetwork(appContext).stateIn(libraryUploaderScope, SharingStarted.Eagerly, null)
+
     val aiRepository: AiRepository = AiRepository(
         client = aiClient,
         insightDao = insightDao,
@@ -398,7 +404,9 @@ class AppContainer internal constructor(context: Context, private val db: EReade
             .map { it.tidyDetails }
             .stateIn(libraryUploaderScope, SharingStarted.Eagerly, libraryPreferencesStore.flow.value.tidyDetails),
         owner = credentialStore.accountFlow.map { it?.detailsOwner() },
-        unmetered = unmeteredNetwork(appContext).stateIn(libraryUploaderScope, SharingStarted.Eagerly, false),
+        unmetered = network
+            .map { it?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == true }
+            .stateIn(libraryUploaderScope, SharingStarted.Eagerly, false),
         prefs = appContext.getSharedPreferences("book_details", Context.MODE_PRIVATE),
         scope = libraryUploaderScope,
     )
@@ -622,6 +630,20 @@ class AppContainer internal constructor(context: Context, private val db: EReade
                     // On app start and on every sign-in; usually an empty 304.
                     catalogSyncRepository.pull()
                 }
+            }
+        }
+        // The AI features read the server's AI config and the reader's opt-in from here: fetch them
+        // at start and for each account, not only when Settings happens to be built. Another
+        // account starts from nothing, so the last one's never gates it, and a config that could
+        // not be fetched (offline at start) is fetched again once a network is back.
+        libraryUploaderScope.launch {
+            credentialStore.accountFlow.map { it?.detailsOwner() }.distinctUntilChanged().collectLatest { owner ->
+                aiRepository.forget()
+                if (owner == null) return@collectLatest
+                aiRepository.refresh()
+                network.map { it?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true }
+                    .distinctUntilChanged()
+                    .collect { online -> if (online && aiRepository.config.value == null) aiRepository.refresh() }
             }
         }
         // Quietly fill in missing book details and covers, once per book, while AI is on and on Wi-Fi.

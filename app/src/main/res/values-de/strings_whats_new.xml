@@ -19,4 +19,6 @@
     <string name="whats_new_open_catalogs_description">Füge unter %1$s → %2$s mit einem Tippen einen kostenlosen, legalen Katalog mit Klassikern hinzu, oder im Tab „Katalog“, solange du noch keinen hast. Kataloge in deiner Sprache stehen oben.</string>
     <string name="whats_new_reading_stats_title">Sieh, wie du liest</string>
     <string name="whats_new_reading_stats_description">Quire zählt jetzt, wie lange, wann und wie schnell du liest. Das bleibt auf diesem Gerät und in der Sicherung deines Telefons und wird nie an den Quire-Server oder an KI gesendet. Serien, Tempo und die verbleibende Zeit eines Buchs findest du in der Bibliothek unter %1$s → %2$s. In den Einstellungen lässt es sich ausschalten.</string>
+    <string name="whats_new_details_preview_title">Sieh, was das Verbessern der Angaben ändert</string>
+    <string name="whats_new_details_preview_description">Unter %1$s → %2$s in einem Buch siehst du jede Änderung neben den aktuellen Angaben, behältst die gewünschten und wählst das Cover: das des Buchs, eins von Open Library oder eins, das Quire zeichnet.</string>
 </resources>
