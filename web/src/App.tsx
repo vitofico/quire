@@ -976,6 +976,10 @@ function Workspace({
           setNotice(t('{name} added.').replace('{name}', c.name))
           setFocusCatalog(c.id)
         }}
+        onRemoved={(c) => {
+          setSaved((list) => list.filter((item) => item.id !== c.id))
+          setNotice(t('{name} removed.').replace('{name}', c.name))
+        }}
       />
     )
     // While a catalog is open, the other ways to add one wait behind a summary.

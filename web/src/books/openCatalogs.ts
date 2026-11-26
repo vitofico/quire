@@ -25,12 +25,12 @@ export function orderedFor(catalogs: OpenCatalog[], language: string): OpenCatal
 }
 
 /**
- * Whether the account already lists `catalog`. The list shows only names and
- * hosts, and several open catalogs share a host, so both must match.
+ * The account's entry for `catalog`, if it holds one. The list shows only names
+ * and hosts, and a reader's own catalog can share a host, so both must match.
  */
-export function isAdded(saved: SavedCatalog[], catalog: OpenCatalog): boolean {
+export function addedEntry(saved: SavedCatalog[], catalog: OpenCatalog): SavedCatalog | undefined {
   const host = new URL(catalog.url).origin
-  return saved.some(c => c.host === host && c.name === catalog.name)
+  return saved.find(c => c.host === host && c.name === catalog.name)
 }
 
 const problems: Record<string, string> = {

@@ -53,6 +53,7 @@
     <string name="open_catalogs_privacy">Free, legal books to start with. Adding one lets this device contact that catalog’s site directly.</string>
     <string name="open_catalogs_add">Add</string>
     <string name="open_catalogs_add_named">Add %1$s</string>
+    <string name="open_catalogs_remove_named">Remove %1$s</string>
     <string name="open_catalogs_added">Added</string>
     <string name="open_catalogs_public_domain">Public domain</string>
     <string name="open_catalogs_open_licence">Open licence</string>

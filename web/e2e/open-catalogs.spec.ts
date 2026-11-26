@@ -93,7 +93,16 @@ test('an open catalog is checked, added in one click and opens through the serve
   await page.getByText('Use a different catalog').click()
   const listed = page.getByRole('region', { name: 'Open catalogs' }).getByRole('listitem').filter({ hasText: libresName })
   await expect(listed).toContainText('Added')
-  await expect(listed.getByRole('button')).toHaveCount(0)
+  await expect(listed.getByRole('button', { name: 'Add ' + libresName })).toHaveCount(0)
+
+  // It can be removed again: from the account, so from the reader's other devices too.
+  await listed.getByRole('button', { name: 'Remove ' + libresName }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Remove' }).click()
+  await expect(page.getByRole('status').filter({ hasText: libresName + ' removed.' })).toBeVisible()
+  expect(server.deletes).toEqual([server.puts[0].path.split('/').pop()])
+  await page.reload()
+  const again = page.getByRole('region', { name: 'Open catalogs' }).getByRole('listitem').filter({ hasText: libresName })
+  await expect(again.getByRole('button', { name: 'Add ' + libresName })).toBeEnabled()
 })
 
 test('a catalog that does not open is removed again and the reason shown', async ({ page }) => {
