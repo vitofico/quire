@@ -6,8 +6,11 @@
   font-display: swap;
 }
 
-/* Tokens follow the Android app's palettes so both clients read as one product. */
-:root {
+/* Tokens follow the Android app's palettes so both clients read as one product.
+   A [data-preview] element takes one theme's tokens whatever the page's theme is. */
+:root,
+[data-preview='paper'],
+[data-preview='sage'] {
   color-scheme: light;
   --paper: #f8f4ec;
   --card: #fffdf8;
@@ -23,6 +26,8 @@
   --shadow-card: 0 0 0 1px var(--line), 0 1px 2px #1f1a140a, 0 8px 24px -16px #1f1a1440;
   --shadow-cover: inset 4px 0 0 #0002, 0 1px 2px #0003, 0 10px 22px -12px #0007;
   --shadow-pop: 0 0 0 1px var(--line), 0 18px 40px -18px #1f1a1466;
+}
+:root {
   --radius-control: 10px;
   --radius-card: 16px;
   --display: 'Quire Lora', Georgia, 'Times New Roman', serif;
@@ -32,7 +37,8 @@
   color: var(--ink);
   accent-color: var(--accent);
 }
-:root[data-theme='sage'] {
+:root[data-theme='sage'],
+[data-preview='sage'] {
   --paper: #edf0e7;
   --card: #f9faf4;
   --surface: #e2e7da;
@@ -43,7 +49,9 @@
   --mark: #355e43;
 }
 :root[data-theme='ink'],
-:root[data-theme='midnight'] {
+:root[data-theme='midnight'],
+[data-preview='ink'],
+[data-preview='midnight'] {
   color-scheme: dark;
   --paper: #1a1612;
   --card: #241f18;
@@ -59,7 +67,8 @@
   --shadow-card: 0 0 0 1px var(--line), 0 10px 28px -18px #000c;
   --shadow-pop: 0 0 0 1px var(--line), 0 18px 40px -16px #000e;
 }
-:root[data-theme='midnight'] {
+:root[data-theme='midnight'],
+[data-preview='midnight'] {
   --paper: #191f28;
   --card: #212a35;
   --surface: #2a3441;
@@ -595,113 +604,328 @@ a.account-chip:hover {
 }
 
 /* Settings */
-.tabs {
+.settings {
+  max-width: 46rem;
+}
+.settings-index ul {
   display: flex;
-  gap: 0.25rem;
-  margin: 0 0 1.5rem;
-  border-bottom: 1px solid var(--line);
-  overflow-x: auto;
-  scrollbar-width: none;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 0 0 2rem;
+  padding: 0;
+  list-style: none;
 }
-.tabs a {
-  flex: none;
-  padding: 0.65rem 0.9rem;
-  color: var(--muted);
+.settings-index a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.2rem;
+  padding: 0.3rem 0.9rem;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--ink);
+  font-size: 0.9rem;
   text-decoration: none;
-  font-weight: 500;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
 }
-.tabs a:hover {
-  color: var(--ink);
+.settings-index a:hover {
+  box-shadow: inset 0 0 0 1px var(--control-line);
 }
-.tabs a[aria-current='page'] {
-  color: var(--ink);
-  font-weight: 600;
-  border-bottom-color: var(--accent);
+.settings-section {
+  margin: 0 0 2rem;
+  scroll-margin-top: 1.5rem;
 }
-.panel > .field,
-.panel > .check {
-  margin-top: 1.25rem;
+.settings-section:focus {
+  outline: none;
 }
-.swatches {
+.settings-section:focus-visible > h2 {
+  text-decoration: underline;
+  text-decoration-color: var(--accent);
+}
+.settings-section > .panel {
+  padding-block: 0.4rem;
+}
+.settings-section > .panel > .hint:first-child {
+  margin: 0.75rem 0 0.5rem;
+}
+/* A row: the label and what it does, then its control, which drops under the text when the row is narrow. */
+.setting {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem 1.25rem;
+  min-width: 0;
+  margin: 0;
+  padding: 1rem 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+.panel > .setting:first-child,
+.panel > .hint:first-child + .setting,
+.panel > .reading-sample + .setting,
+.catalog-rows > .setting:first-child {
+  border-top: 0;
+}
+.setting.stacked {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
+  justify-content: stretch;
+  gap: 0.5rem;
+}
+.setting-text {
+  flex: 1 1 15rem;
+  min-width: 0;
+}
+.setting-label {
+  display: block;
+  margin: 0;
+  padding: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.setting-text .hint,
+.setting.stacked > .hint {
+  margin: 0.2rem 0 0;
+  overflow-wrap: anywhere;
+}
+.setting-control {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+.setting-control > select,
+.setting-control > button {
+  max-width: 100%;
+}
+/* On the narrowest phones a settings panel gives its text a little more room. */
+@media (max-width: 400px) {
+  .settings-section > .panel {
+    padding-inline: 0.9rem;
+  }
+}
+/* A stacked setting's select takes the row, so a long choice such as a provider's name shows whole. */
+.setting.stacked > .setting-control > select {
+  width: 100%;
+}
+.setting-control.actions {
+  justify-content: flex-end;
+}
+.setting-value {
+  margin: 0;
+  color: var(--muted);
+}
+/* The hint stays readable: it says why the group is off. */
+.setting:disabled > :not(legend, .hint) {
+  opacity: 0.45;
+}
+.setting:disabled .theme-option {
+  cursor: default;
+}
+.panel > .notice,
+.panel > [role='alert'],
+.panel > [role='status'] {
+  margin: 0.5rem 0 1rem;
+}
+.panel > .actions {
+  padding: 0.5rem 0 1rem;
+}
+.panel > h3 {
+  margin: 1rem 0 0.4rem;
+}
+.panel > .identity {
+  margin-top: 1rem;
+}
+/* An on and off switch, still a checkbox to assistive technology and the keyboard. */
+input.switch {
+  appearance: none;
+  position: relative;
+  width: 2.75rem;
+  height: 1.6rem;
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--control-line);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+input.switch::after {
+  content: '';
+  position: absolute;
+  top: 0.2rem;
+  left: 0.2rem;
+  width: 1.2rem;
+  height: 1.2rem;
+  border-radius: 50%;
+  background: var(--control-line);
+  transition: transform 0.15s;
+}
+input.switch:checked {
+  background: var(--accent);
+  box-shadow: none;
+}
+input.switch:checked::after {
+  transform: translateX(1.15rem);
+  background: var(--on-accent);
+}
+@media (prefers-reduced-motion: reduce) {
+  input.switch,
+  input.switch::after {
+    transition: none;
+  }
+}
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.choice {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.choice.boxed {
+  min-height: 2.6rem;
+  padding: 0.4rem 1rem 0.4rem 0.8rem;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px var(--line);
+  cursor: pointer;
+}
+.choice.boxed:has(input:checked) {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  font-weight: 600;
+}
+.choice:has(input:checked) {
+  font-weight: 600;
+}
+/* Each theme as a tiny page of itself: its paper, a card with a heading and lines of text, and its accent. */
+.theme-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 9rem), 1fr));
   gap: 0.75rem;
 }
-.swatches legend {
-  grid-column: 1 / -1;
-}
-.swatch {
-  position: relative;
+.theme-option {
+  /* Resolved here, in the page's theme, before the preview inside takes its own tokens. */
+  --ring: var(--control-line);
   display: grid;
-  gap: 0.5rem;
-  padding: 0.6rem;
+  gap: 0.55rem;
+  min-width: 0;
+  padding: 0.5rem 0.5rem 0.6rem;
   border-radius: var(--radius-control);
-  box-shadow: 0 0 0 1px var(--line);
+  box-shadow: inset 0 0 0 1px var(--line);
   cursor: pointer;
-  font-weight: 500;
 }
-.swatch input {
-  position: absolute;
-  opacity: 0;
+.theme-option:has(input:checked) {
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
-.swatch:has(input:checked) {
-  box-shadow: 0 0 0 2px var(--accent);
-  font-weight: 600;
-}
-.swatch:has(input:focus-visible) {
+.theme-option:has(input:focus-visible) {
   outline: 3px solid var(--accent);
   outline-offset: 2px;
 }
-.swatch-preview {
-  display: flex;
-  align-items: flex-end;
-  gap: 0.35rem;
-  height: 3.25rem;
-  padding: 0.5rem;
+.theme-option input:focus-visible {
+  outline: none;
+}
+.theme-page {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-content: start;
+  gap: 0.35rem 0.5rem;
+  height: 4.75rem;
+  padding: 0.55rem 0.6rem;
   border-radius: 6px;
-  background: var(--sw-paper);
-  box-shadow: inset 0 0 0 1px #0001;
+  background: var(--paper);
+  color: var(--ink);
+  /* Its own edge, and the page's control line around it, so it stands out on any theme. */
+  box-shadow: inset 0 0 0 1px var(--line), 0 0 0 1px var(--ring);
+  overflow: hidden;
 }
-.swatch-preview i {
-  height: 0.45rem;
+.theme-page-title {
+  font: 600 1.1rem/1 var(--display);
+}
+.theme-page-button {
+  grid-row: 1;
+  grid-column: 2;
+  width: 1.6rem;
+  height: 0.8rem;
+  border-radius: 999px;
+  background: var(--accent);
+}
+.theme-page-line {
+  grid-column: 1 / -1;
+  height: 0.35rem;
   border-radius: 3px;
-  background: var(--sw-ink);
-  flex: 1;
+  background: var(--muted);
+  opacity: 0.7;
 }
-.swatch-preview i + i {
-  flex: 0.5;
-  background: var(--sw-accent);
+.theme-page-line.short {
+  width: 60%;
+  background: var(--card);
+  opacity: 1;
+  height: 0.9rem;
+  box-shadow: inset 0 0 0 1px var(--line);
 }
-[data-swatch='system'] .swatch-preview {
-  background: linear-gradient(135deg, #f8f4ec 50%, #1a1612 50%);
+.background-preview {
+  height: 4.75rem;
+  border-radius: 6px;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--control-line);
 }
-[data-swatch='system'] .swatch-preview i {
-  background: #8e7d68;
+.background-preview.artwork {
+  background:
+    url(../../branding/background-ink.webp) right bottom / 18rem auto no-repeat,
+    var(--surface);
 }
-[data-swatch='system'] .swatch-preview i + i {
-  background: #7a2e2a;
+.range {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
 }
-[data-swatch='paper'] {
-  --sw-paper: #f8f4ec;
-  --sw-ink: #1f1a14;
-  --sw-accent: #7a2e2a;
+.range input {
+  width: min(14rem, 60vw);
 }
-[data-swatch='sage'] {
-  --sw-paper: #edf0e7;
-  --sw-ink: #1f1a14;
-  --sw-accent: #355e43;
+.range output {
+  min-width: 3.5rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
-[data-swatch='ink'] {
-  --sw-paper: #1a1612;
-  --sw-ink: #ede5d5;
-  --sw-accent: #d88a82;
+.reading-sample {
+  margin: 0.75rem 0 0.5rem;
+  padding-block: 0.9rem;
+  border-radius: var(--radius-control);
+  box-shadow: inset 0 0 0 1px var(--line);
+  overflow-wrap: break-word;
 }
-[data-swatch='midnight'] {
-  --sw-paper: #191f28;
-  --sw-ink: #ede5d5;
-  --sw-accent: #a4c7db;
+.facts {
+  display: grid;
+  gap: 0;
+  margin: 0;
+}
+.facts > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+  padding: 0.85rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.facts dt {
+  font-weight: 600;
+}
+.facts dd {
+  margin: 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.catalog-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.catalog-rows .saved-catalog-remove {
+  margin: 0;
+}
+.catalog-rows .actions button.ghost {
+  min-width: 2.6rem;
+  padding-inline: 0.8rem;
 }
 
 /* In-app dialogs and menus */

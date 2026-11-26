@@ -131,6 +131,8 @@ Open `/quire/` on an installation of Quire Server that includes the web client. 
 
 Sign in under **Settings → Account** to sync your shelf, progress and highlighted passages with Android. Books imported on another device appear with **Open your copy**, and show their cover once you have signed in to the catalog they came from. Select the same EPUB or download it from the catalog to resume reading. The private pause bookmark stays on the device where you saved it. [Browser setup and deployment](server/README.md)
 
+**Settings** in Quire Web is one page. Appearance holds the light, dark or system mode with its light and dark palettes, the background and the language. Reading sets the font, size, spacing and margins books open with. AI features, catalog order and removal use the same account settings as Android, so a change on one shows on the other. Storage and offline shows what this browser keeps, protects downloads from cleanup and removes them all at once. Appearance and reading choices stay in the browser, as the Android app keeps them on the phone.
+
 ## Bring your books
 
 - **On this device:** import EPUB files and keep your reading place locally.

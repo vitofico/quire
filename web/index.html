@@ -4,6 +4,23 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="theme-color" content="#f8f4ec" />
+    <script>
+      // The saved theme, set before the first paint so a dark theme opens dark.
+      // It reads what src/settings/theme.ts stores; keep the two in step.
+      try {
+        var read = function (key) { return localStorage.getItem('quire-ui:' + key) }
+        var legacy = (read('theme') || '').toLowerCase()
+        var light = /^(paper|sage)$/.test(read('theme-light')) ? read('theme-light') : legacy === 'sage' ? 'sage' : 'paper'
+        var dark = /^(ink|midnight)$/.test(read('theme-dark')) ? read('theme-dark') : legacy === 'midnight' ? 'midnight' : 'ink'
+        var mode = /^(system|light|dark)$/.test(read('theme-mode')) ? read('theme-mode')
+          : /^(paper|sage)$/.test(legacy) ? 'light' : /^(ink|midnight)$/.test(legacy) ? 'dark' : 'system'
+        var isDark = mode === 'dark' || (mode === 'system' && matchMedia('(prefers-color-scheme: dark)').matches)
+        var theme = isDark ? dark : light
+        document.documentElement.dataset.theme = theme
+        document.querySelector('meta[name=theme-color]').setAttribute('content',
+          { paper: '#f8f4ec', sage: '#edf0e7', ink: '#1a1612', midnight: '#191f28' }[theme])
+      } catch (error) {}
+    </script>
     <link rel="icon" href="/quire/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/quire/favicon.ico" sizes="any" />
     <link rel="apple-touch-icon" href="/quire/apple-touch-icon.png" />

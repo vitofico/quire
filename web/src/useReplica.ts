@@ -21,6 +21,8 @@ export function useReplica(
   const [replica, setReplica] = useState<Replica | null>(null)
   const [snapshot, setSnapshot] = useState(empty)
   const [busy, setBusy] = useState(false)
+  // The browser's storage did not open, so nothing that waits for it will come.
+  const [unavailable, setUnavailable] = useState(false)
   const failures = useRef(0)
   const running = useRef<Promise<void> | null>(null)
   useEffect(() => {
@@ -30,6 +32,7 @@ export function useReplica(
       serial = 0
     setReplica(null)
     setSnapshot(empty)
+    setUnavailable(false)
     openReplica(namespace, request, { syncEnabled })
       .then(async (value) => {
         if (closed) {
@@ -51,7 +54,9 @@ export function useReplica(
         if (!closed) setReplica(value)
       })
       .catch((e) => {
-        if (!closed) report(String(e))
+        if (closed) return
+        setUnavailable(true)
+        report(String(e))
       })
     return () => {
       closed = true
@@ -107,5 +112,5 @@ export function useReplica(
     )
     return () => clearTimeout(id)
   }, [busy, snapshot.readyToSync, sync, request, report])
-  return { replica, snapshot, sync, busy }
+  return { replica, snapshot, sync, busy, unavailable }
 }

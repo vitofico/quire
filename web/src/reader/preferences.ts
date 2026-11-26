@@ -16,7 +16,7 @@ export const palettes: Record<Palette, {background: string; text: string; link: 
   ink: {background: '#242420', text: '#e6dfd1', link: '#d8b98b'},
   midnight: {background: '#161c2b', text: '#dce6f5', link: '#a1c7e8'},
 }
-const fonts: Record<Font, string> = {
+export const fonts: Record<Font, string> = {
   serif: '"Quire Literata", Georgia, serif',
   sans: 'system-ui, sans-serif',
   mono: 'ui-monospace, monospace',

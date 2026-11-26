@@ -9,10 +9,12 @@ type Props = {
   request: (path: string, init?: RequestInit) => Promise<Response>
   onRemoved: (catalog: SavedCatalog) => void
   t: (key: string) => string
+  /** A short Remove button, named in full for screen readers, for a row that already shows the name. */
+  compact?: boolean
 }
 
 /** Removes the open saved catalog from the account, after the same question the open catalogs list asks. */
-export function RemoveSavedCatalog({ catalog, saved, request, onRemoved, t }: Props) {
+export function RemoveSavedCatalog({ catalog, saved, request, onRemoved, t, compact }: Props) {
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState('')
 
@@ -33,9 +35,10 @@ export function RemoveSavedCatalog({ catalog, saved, request, onRemoved, t }: Pr
     }
   }
 
+  const named = t('Remove {name}').replace('{name}', catalog.name)
   return <p className="saved-catalog-remove">
-    <button type="button" onClick={() => void remove()} disabled={busy}>
-      {busy ? t('Removing…') : t('Remove {name}').replace('{name}', catalog.name)}
+    <button type="button" onClick={() => void remove()} disabled={busy} aria-label={compact && !busy ? named : undefined}>
+      {busy ? t('Removing…') : compact ? t('Remove') : named}
     </button>
     {failed && <span role="alert">{t(failed)}</span>}
   </p>

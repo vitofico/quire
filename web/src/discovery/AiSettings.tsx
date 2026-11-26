@@ -1,98 +1,129 @@
 import { english, interpolate, type Translate } from "./translation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Setting, SwitchSetting } from "../settings/Settings";
 import {
   type AiConfig, type DiscoveryRequest, type Preferences, type Profile, type Recommendation,
-  discoveryJson, isHttpStatus, jsonBody, publicLink, translateRequestMessage,
+  discoveryJson, isHttpStatus, jsonBody, publicLink, requestMessage, translateRequestMessage,
 } from "./api";
 import { applyAiPreferences, missingProvider, refreshAiState, useAiState } from "./aiState";
 import { useAiOperation } from "./aiOperation";
 import { type AiPanelProps, Citations } from "./Insights";
 
 const toneOptions = { neutral: "Neutral", enthusiastic: "Enthusiastic", scholarly: "Scholarly", casual: "Casual" };
+/** The languages the Android app offers for insights, each named in itself. */
+export const insightLanguages: Record<string, string> = {
+  auto: "Auto", en: "English", zh: "中文", hi: "हिन्दी", es: "Español", ar: "العربية", fr: "Français",
+  pt: "Português", ru: "Русский", ja: "日本語", de: "Deutsch", ko: "한국어", it: "Italiano", tr: "Türkçe",
+  pl: "Polski", nl: "Nederlands", uk: "Українська", sv: "Svenska", vi: "Tiếng Việt", id: "Bahasa Indonesia",
+};
 
+/** AI features for the signed-in account: the same account preferences the Android app reads and writes. */
 export function AiSettingsPanel({ request, aiAvailable, t = english }: AiPanelProps) {
-  const { settings, loading, error } = useAiState(request, aiAvailable);
-  return (
-    <section className="discovery-panel panel">
-      <h2>{t("AI settings")}</h2>
-      {!request && <p>{t("Connect an account to manage AI features.")}</p>}
-      {request && (aiAvailable === false || settings?.config.configured === false) && <p>{t("AI is unavailable on this server.")}</p>}
-      {request && loading && <p role="status">{t("Checking AI settings…")}</p>}
-      {request && error && <p role="alert">{translateRequestMessage(t, error)} <button onClick={() => void refreshAiState(request)}>{t("Retry")}</button></p>}
-      {request && settings?.config.configured && (
-        <PreferenceForm
-          key={JSON.stringify(settings.preferences)}
-          request={request}
-          t={t}
-          config={settings.config}
-          preferences={settings.preferences}
-        />
-      )}
-    </section>
-  );
+  const { settings, error } = useAiState(request, aiAvailable);
+  if (!request) return <p>{t("Connect an account to manage AI features.")}</p>;
+  if (aiAvailable === false || settings?.config.configured === false) return <p>{t("AI is unavailable on this server.")}</p>;
+  if (error && !settings) {
+    return <p role="alert">{translateRequestMessage(t, error)} <button type="button" onClick={() => void refreshAiState(request)}>{t("Retry")}</button></p>;
+  }
+  if (!settings) return <p role="status" className="hint">{t("Checking AI settings…")}</p>;
+  return <PreferenceForm request={request} t={t} config={settings.config} preferences={settings.preferences} />;
 }
 
+/** Each change is saved at once; one the server refuses is undone and says so. */
 function PreferenceForm({ request, config, preferences, t }: {
   request: DiscoveryRequest;
   config: AiConfig;
   preferences: Preferences;
   t: Translate;
 }) {
-  const [draft, setDraft] = useState(preferences);
-  const { run, busy, error } = useAiOperation(request, "preferences");
-  const retired = missingProvider(config, preferences);
+  const [shown, setShown] = useState(preferences);
+  const [failed, setFailed] = useState("");
+  // What the server holds: what a refused change goes back to.
+  const saved = useRef(preferences);
+  const latest = useRef(0);
+  // Saves still waiting for an answer: while any is, what shows is the newest change.
+  const pending = useRef(0);
+  // A change made elsewhere, such as the account answering again, shows here too.
+  useEffect(() => {
+    if (pending.current) return;
+    saved.current = preferences;
+    setShown(preferences);
+  }, [preferences]);
+  const retired = missingProvider(config, shown);
   const profilesAvailable = config.progress_supported !== false;
   const providers = (config.providers ?? []).filter((provider) => provider.id !== "default");
-  const validLanguage = draft.style.language === "auto" || /^[a-z]{2}$/.test(draft.style.language);
+  const language = Object.hasOwn(insightLanguages, shown.style.language) ? shown.style.language : "auto";
 
-  function save() {
+  async function save(next: Preferences) {
+    const attempt = ++latest.current;
+    pending.current++;
+    setShown(next);
+    setFailed("");
     const body = {
-      ai_enabled: draft.ai_enabled, style: draft.style,
-      provider_id: draft.provider_id !== preferences.provider_id ? draft.provider_id : undefined,
+      ai_enabled: next.ai_enabled, style: next.style,
+      provider_id: next.provider_id !== saved.current.provider_id ? next.provider_id : undefined,
     };
-    void run(
-      (signal) => discoveryJson<Preferences>(request, "/ai/v1/preferences", jsonBody("PUT", body, signal)),
-      (updated) => {
-        applyAiPreferences(request, updated);
-        void refreshAiState(request);
-      },
-    );
+    try {
+      const updated = await discoveryJson<Preferences>(request, "/ai/v1/preferences", jsonBody("PUT", body));
+      // Only the answer to the newest change says what the account now holds.
+      if (attempt !== latest.current) return;
+      saved.current = updated;
+      setShown(updated);
+      applyAiPreferences(request, updated);
+    } catch (cause) {
+      if (attempt !== latest.current) return;
+      setShown(saved.current);
+      setFailed(`${t("Quire could not save this change, so the previous setting is kept.")} ${translateRequestMessage(t, requestMessage(cause))}`);
+      // An earlier change may have landed after all: ask the account what it holds.
+      void refreshAiState(request);
+    } finally {
+      pending.current--;
+    }
   }
 
   return (
     <>
-      <p>{t(profilesAvailable
-        ? "Book insights use edition metadata and feedback you submit. Reader profiles use eligible reading statistics from your connected library. Quire sends these inputs to the configured AI provider."
-        : "Book insights use edition metadata and feedback you submit. Quire sends these inputs to the configured AI provider.")}</p>
-      <form onSubmit={(event) => { event.preventDefault(); save(); }}>
-        <label>
-          <input type="checkbox" checked={draft.ai_enabled} onChange={(event) => setDraft({ ...draft, ai_enabled: event.target.checked })} />
-          {t(profilesAvailable ? "Enable AI insights and reader profiles" : "Enable AI insights")}
-        </label>
-        <label>
-          {t("Provider")}
-          <select value={draft.provider_id} onChange={(event) => setDraft({ ...draft, provider_id: event.target.value })}>
-            <option value="default">{t("Server default")}</option>
-            {retired && <option disabled value={preferences.provider_id}>{t("Unavailable provider")}</option>}
-            {providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.label} ({provider.model_id})</option>)}
-          </select>
-        </label>
-        {retired && <p role="status">{t("The previously selected provider is no longer available. Select another provider to generate insights.")}</p>}
-        <label>
-          {t("Tone")}
-          <select value={draft.style.tone} onChange={(event) => setDraft({ ...draft, style: { ...draft.style, tone: event.target.value } })}>
+      <SwitchSetting
+        label={t(profilesAvailable ? "Enable AI insights and reader profiles" : "Enable AI insights")}
+        description={t(profilesAvailable
+          ? "Book insights use edition metadata and feedback you submit. Reader profiles use eligible reading statistics from your connected library. Quire sends these inputs to the configured AI provider."
+          : "Book insights use edition metadata and feedback you submit. Quire sends these inputs to the configured AI provider.")}
+        checked={shown.ai_enabled}
+        // AI cannot be turned on for a provider the server no longer offers.
+        disabled={!shown.ai_enabled && retired}
+        onChange={(on) => void save({ ...shown, ai_enabled: on })}
+      />
+      {providers.length > 0 && (
+        <Setting stacked label={t("Provider")} description={t("The AI service that writes for this account.")}>
+          {({ id, describedBy }) => (
+            <select id={id} aria-describedby={describedBy} value={shown.provider_id}
+              onChange={(event) => void save({ ...shown, provider_id: event.target.value })}>
+              <option value="default">{t("Server default")}</option>
+              {retired && <option disabled value={shown.provider_id}>{t("Unavailable provider")}</option>}
+              {providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.label} ({provider.model_id})</option>)}
+            </select>
+          )}
+        </Setting>
+      )}
+      {retired && <p role="status">{t("The previously selected provider is no longer available. Select another provider to generate insights.")}</p>}
+      <Setting label={t("Tone")} description={t("How book insights are written.")}>
+        {({ id, describedBy }) => (
+          <select id={id} aria-describedby={describedBy} value={shown.style.tone}
+            onChange={(event) => void save({ ...shown, style: { ...shown.style, tone: event.target.value } })}>
             {Object.entries(toneOptions).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}
           </select>
-        </label>
-        <label>
-          {t("Insight language (auto follows the app’s language, or a two-letter language code)")}
-          <input value={draft.style.language} maxLength={4} onChange={(event) => setDraft({ ...draft, style: { ...draft.style, language: event.target.value.toLowerCase() } })} />
-        </label>
-        <button disabled={busy || !validLanguage || (draft.ai_enabled && missingProvider(config, draft)) || JSON.stringify(draft) === JSON.stringify(preferences)}>
-          {t("Save AI settings")}
-        </button>
-        {error && <p role="alert">{translateRequestMessage(t, error)}</p>}
-      </form>
+        )}
+      </Setting>
+      <Setting label={t("Insight language")} description={t("The language insights are written in. Auto follows the app’s language.")}>
+        {({ id, describedBy }) => (
+          <select id={id} aria-describedby={describedBy} value={language}
+            onChange={(event) => void save({ ...shown, style: { ...shown.style, language: event.target.value } })}>
+            {Object.entries(insightLanguages).map(([code, name]) => <option key={code} value={code}>{code === "auto" ? t("Auto") : name}</option>)}
+          </select>
+        )}
+      </Setting>
+      {failed && <p role="alert">{failed}</p>}
+      {profilesAvailable && <p className="hint">{t("Your reader profile, and deleting it, are in Discover.")} <a href="#/discover">{t("Discover")}</a></p>}
     </>
   );
 }

@@ -1,5 +1,6 @@
 import { discoveryLabels } from './discovery/labels'
 import { accountLabels } from './account/labels'
+import { settingsLabels } from './settings/labels'
 
 const labels: Record<string, [string, string, string, string]> = {
   'Open catalogs': ['Catálogos abiertos', 'Cataloghi aperti', 'Catalogues ouverts', 'Offene Kataloge'],
@@ -159,7 +160,6 @@ const labels: Record<string, [string, string, string, string]> = {
   Publisher: ['Editorial','Editore','Éditeur','Verlag'],
   Progress: ['Progreso','Progresso','Progression','Fortschritt'],
   'File size': ['Tamaño del archivo','Dimensione del file','Taille du fichier','Dateigröße'],
-  "pending": ["pendientes", "in attesa", "en attente", "ausstehend"],
   "Open your copy to read this book.": ["Abre tu copia para leer este libro.", "Apri la tua copia per leggere questo libro.", "Ouvrez votre exemplaire pour lire ce livre.", "Öffne dein Exemplar, um dieses Buch zu lesen."],
   "Storage is unavailable.": ["El almacenamiento no está disponible.", "Lo spazio di archiviazione non è disponibile.", "Le stockage est indisponible.", "Der Speicher ist nicht verfügbar."],
   "Another edition has this identifier. Keep this copy only in this browser?": ["Otra edición tiene este identificador. ¿Guardar esta copia solo en este navegador?", "Un’altra edizione ha questo identificatore. Conservare la copia solo in questo browser?", "Une autre édition utilise cet identifiant. Garder cet exemplaire uniquement dans ce navigateur ?", "Eine andere Ausgabe hat dieselbe Kennung. Diese Kopie nur in diesem Browser behalten?"],
@@ -356,7 +356,6 @@ const labels: Record<string, [string, string, string, string]> = {
   ],
   Account: ['Cuenta', 'Account', 'Compte', 'Konto'],
   Cancel: ['Cancelar', 'Annulla', 'Annuler', 'Abbrechen'],
-  Storage: ['Almacenamiento', 'Archivio', 'Stockage', 'Speicher'],
   'Skip to content': [
     'Ir al contenido',
     'Vai al contenuto',
@@ -554,11 +553,9 @@ const labels: Record<string, [string, string, string, string]> = {
     'Keine passenden Passagen',
   ],
   'Offline': ["Sin conexión", "Offline", "Hors ligne", "Offline"],
-  'Theme': ["Tema", "Tema", "Thème", "Design"],
   'View': ["Vista", "Vista", "Affichage", "Ansicht"],
   'Show': ["Mostrar", "Mostra", "Afficher", "Anzeigen"],
   'About': ["Acerca de", "Informazioni", "À propos", "Über"],
-  'Insights': ["Análisis", "Approfondimenti", "Analyses", "Einblicke"],
   'Paper': ["Papel", "Carta", "Papier", "Papier"],
   'Sage': ["Salvia", "Salvia", "Sauge", "Salbei"],
   'Ink': ["Tinta", "Inchiostro", "Encre", "Tinte"],
@@ -744,7 +741,7 @@ export function translator(lang: string) {
   if (known) return known
   const index = ['es', 'it', 'fr', 'de'].indexOf(lang)
   const t = (english: string) =>
-    (labels[english] ?? accountLabels[english] ?? discoveryLabels[english])?.[
+    (labels[english] ?? accountLabels[english] ?? discoveryLabels[english] ?? settingsLabels[english])?.[
       index
     ] ?? english
   translators.set(lang, t)

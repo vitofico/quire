@@ -85,7 +85,8 @@ describe('offline replica', () => {
     expect(await other.getBookmark(book.key)).toBeUndefined()
     await same.removeDownload(book.key)
     expect(await same.snapshot()).toMatchObject({ books: [{ hasDownload: false }], highlights: [highlight] })
-    expect(await same.getBookmark(book.key)).toBeUndefined()
+    // The file goes; the pause bookmark and its note wait for the same file to come back.
+    expect(await same.getBookmark(book.key)).toEqual({ note: 'private' })
     await same.removeBook(book.key)
     expect(await same.getBookmark(book.key)).toBeUndefined()
   })
