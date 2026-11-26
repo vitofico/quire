@@ -344,6 +344,14 @@ test('in full screen a click on the right or left of the page turns it', async (
   await expect.poll(pageNumber).toBe(2)
   await click(0.1)
   await expect.poll(pageNumber).toBe(1)
+  // Two quick clicks turn two pages instead of selecting a word.
+  const box = (await page.locator('.qr-frame').boundingBox())!
+  await page.mouse.dblclick(box.x + box.width * 0.8, box.y + box.height / 2)
+  await expect.poll(pageNumber).toBe(3)
+  expect(await frame.locator('html').evaluate(root => root.ownerDocument.getSelection()?.toString())).toBe('')
+  await click(0.1)
+  await click(0.1)
+  await expect.poll(pageNumber).toBe(1)
   // The middle is left alone.
   await click(0.5)
   await page.waitForTimeout(300)

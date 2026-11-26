@@ -518,15 +518,21 @@ export default function Reader({
       dismissing = !!doc.getSelection()?.toString()
       deliberate()
     }
+    // In full screen the page's own edges turn it; elsewhere a click is only a click.
+    const edgeTurn = (event: MouseEvent) =>
+      document.fullscreenElement !== reader.current || event.button !== 0 ||
+        event.ctrlKey || event.metaKey || event.shiftKey || event.altKey ||
+        (event.target as Element | null)?.closest?.('a[href], button, input, select, textarea, summary, audio, video')
+        ? 0 : clickTurn(event.clientX, doc.documentElement.clientWidth)
+    const mouseDown = (event: MouseEvent) => {
+      // Quick clicks on an edge keep turning pages: without this the second one selects a word.
+      if (event.detail > 1 && edgeTurn(event)) event.preventDefault()
+    }
     const clickPage = (event: MouseEvent) => {
-      // In full screen the toolbar is out of the way, so the page's own edges turn it.
-      if (document.fullscreenElement !== reader.current || event.button !== 0 ||
-          event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return
-      if (dismissing || doc.getSelection()?.toString()) return
-      if ((event.target as Element | null)?.closest?.('a, button, input, select, textarea, summary, audio, video')) return
+      const turn = edgeTurn(event)
+      if (!turn || dismissing || doc.getSelection()?.toString()) return
       const rtl = doc.defaultView?.getComputedStyle(doc.body).direction === 'rtl'
-      const turn = clickTurn(event.clientX, doc.documentElement.clientWidth)
-      if (turn) page(turn * (rtl ? -1 : 1))
+      page(turn * (rtl ? -1 : 1))
     }
     const link = (event: MouseEvent) => {
       const item = (event.target as Element | null)?.closest?.('[data-quire-link]')
@@ -589,6 +595,7 @@ export default function Reader({
     doc.addEventListener('touchend', endTouch, { passive: true })
     doc.addEventListener('selectionchange', selectionChanged)
     doc.addEventListener('click', link)
+    doc.addEventListener('mousedown', mouseDown)
     doc.addEventListener('keydown', key)
     doc.defaultView?.addEventListener('resize', resize)
     return () => {
@@ -601,6 +608,7 @@ export default function Reader({
       doc.removeEventListener('touchend', endTouch)
       doc.removeEventListener('selectionchange', selectionChanged)
       doc.removeEventListener('click', link)
+      doc.removeEventListener('mousedown', mouseDown)
       doc.removeEventListener('keydown', key)
       doc.defaultView?.removeEventListener('resize', resize)
     }
