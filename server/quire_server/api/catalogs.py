@@ -27,7 +27,7 @@ import tempfile
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import UTC, datetime
 from typing import Annotated, Literal
-from urllib.parse import quote, unquote, urlsplit
+from urllib.parse import quote, unquote, urljoin, urlsplit
 from uuid import UUID
 
 import httpx
@@ -172,8 +172,35 @@ def _origin(url: str, allow_http: bool = True) -> str | None:
         return None
 
 
-def _item(secrets: CatalogSecrets, row: AccountCatalog) -> dict:
-    secret = open_secret(secrets, row.user_id, row.id, row.secret)
+def _address(url: str) -> str | None:
+    """``url`` compared as one catalog address.
+
+    Scheme and host case, a default port and trailing slashes do not count.
+    """
+    origin = _origin(url)
+    if origin is None:
+        return None
+    parts = urlsplit(url.strip())
+    query = "?" + parts.query if parts.query else ""
+    return origin + (parts.path.rstrip("/") or "/") + query
+
+
+def _server_catalog(request: Request, settings: Settings) -> str | None:
+    """The address of the catalog this server offers every account (``web_catalog_url``).
+
+    A path such as ``/opds`` is on this server: resolved against its public
+    address when one is set, as the request's own scheme is ``http`` behind a
+    proxy whose forwarded headers are not trusted.
+    """
+    if not settings.web_catalog_url:
+        return None
+    identity = getattr(request.app.state, "identity_settings", None)
+    public = settings.canonical_url or getattr(identity, "public_url", None)
+    base = public.rstrip("/") + "/" if public else str(request.base_url)
+    return _address(urljoin(base, settings.web_catalog_url))
+
+
+def _item(row: AccountCatalog, secret: dict | None) -> dict:
     return {
         "id": str(row.id),
         "name": row.name,
@@ -195,14 +222,29 @@ async def _lock(session: AsyncSession, account: str) -> None:
 
 
 async def _list(
-    secrets: CatalogSecrets, session: AsyncSession, account: str, if_none_match: str | None
+    secrets: CatalogSecrets,
+    session: AsyncSession,
+    account: str,
+    if_none_match: str | None,
+    server_catalog: str | None,
 ) -> Response:
     rows = await session.scalars(
         select(AccountCatalog)
         .where(AccountCatalog.user_id == account)
         .order_by(AccountCatalog.position, AccountCatalog.id)
     )
-    items = [_item(secrets, row) for row in rows]
+    # The same catalog can be saved more than once (and the Android app saves the
+    # server's own one with its login), so a browser that sees only hosts can show
+    # each catalog once: ``duplicate_of`` names the first entry with the address.
+    items, first = [], {}
+    for row in rows:
+        secret = open_secret(secrets, row.user_id, row.id, row.secret)
+        address = _address(secret["url"]) if secret else None
+        item = _item(row, secret)
+        item["server_catalog"] = address is not None and address == server_catalog
+        held = first.setdefault(address, item["id"]) if address else item["id"]
+        item["duplicate_of"] = None if held == item["id"] else held
+        items.append(item)
     # Derived from everything the list shows, so any write (and a key that
     # starts or stops reading a row) gives a new revision.
     revision = hashlib.sha256(json.dumps(items).encode()).hexdigest()[:32]
@@ -216,12 +258,14 @@ async def _list(
 
 @router.get("/catalogs")
 async def list_catalogs(
+    request: Request,
     secrets: Secrets,
     account: Account,
     session: Session,
+    settings: Annotated[Settings, Depends(get_settings)],
     if_none_match: Annotated[str | None, Header()] = None,
 ) -> Response:
-    return await _list(secrets, session, account, if_none_match)
+    return await _list(secrets, session, account, if_none_match, _server_catalog(request, settings))
 
 
 @router.get("/catalogs/{catalog_id}/secret")
@@ -277,12 +321,12 @@ async def put_catalog(
     if row is None and body.unique_url:
         # Only rows on the same host can hold the address, so few secrets are opened.
         for other in await session.scalars(
-            select(AccountCatalog).where(
-                AccountCatalog.user_id == account, AccountCatalog.host == host
-            )
+            select(AccountCatalog)
+            .where(AccountCatalog.user_id == account, AccountCatalog.host == host)
+            .order_by(AccountCatalog.position, AccountCatalog.id)
         ):
             held = open_secret(secrets, account, other.id, other.secret)
-            if held is not None and held["url"] == url:
+            if held is not None and _address(held["url"]) == _address(url):
                 return JSONResponse(
                     {"detail": "catalog_exists", "id": str(other.id)},
                     status_code=status.HTTP_409_CONFLICT,
@@ -308,13 +352,13 @@ async def put_catalog(
             row.secret = secrets.encrypt(account, catalog_id, secret)
             await session.commit()
             logger.info("event=catalogs.resealed id=%s", catalog_id)
-        return _item(secrets, row)
+        return _item(row, stored)
     row.name, row.kind, row.host = name, body.kind, host
     row.secret = secrets.encrypt(account, catalog_id, secret)
     row.updated_at = datetime.now(UTC)
     await session.commit()
     logger.info("event=catalogs.saved id=%s", catalog_id)
-    return _item(secrets, row)
+    return _item(row, secret)
 
 
 @router.delete("/catalogs/{catalog_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -331,7 +375,12 @@ async def delete_catalog(catalog_id: UUID, account: Account, session: Session) -
 
 @router.put("/order")
 async def put_order(
-    body: CatalogOrderBody, secrets: Secrets, account: Account, session: Session
+    body: CatalogOrderBody,
+    request: Request,
+    secrets: Secrets,
+    account: Account,
+    session: Session,
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> Response:
     await _lock(session, account)
     rows = {
@@ -348,7 +397,7 @@ async def put_order(
         if row.position != position:
             row.position, row.updated_at = position, now
     await session.commit()
-    return await _list(secrets, session, account, None)
+    return await _list(secrets, session, account, None, _server_catalog(request, settings))
 
 
 # What the browser may ask the catalog for, and what of the answer it sees.

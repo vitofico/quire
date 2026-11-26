@@ -757,7 +757,9 @@ Rules for every route:
       "has_login": true,
       "needs_login": false,
       "position": 0,
-      "updated_at": "2026-11-25T10:15:32.123456+00:00"
+      "updated_at": "2026-11-25T10:15:32.123456+00:00",
+      "server_catalog": false,
+      "duplicate_of": null
     }
   ]
 }
@@ -775,6 +777,19 @@ login, typically after a database restore without its key file. The row is
 still listed (one unreadable row never fails the list), `has_login` is then
 `false` because the server cannot tell, and the reader has to enter the
 catalog again with a `PUT`.
+
+`server_catalog: true` means the stored address is the catalog this server
+offers every account (`QUIRE_SERVER_WEB_CATALOG_URL`), as when the Android app
+saves its Calibre-Web login to the account. A path setting such as `/opds` is
+resolved against `QUIRE_SERVER_CANONICAL_URL`, else `QUIRE_IDENTITY_PUBLIC_URL`,
+else the address the request arrived at. `duplicate_of` names the first
+entry, in `position` order, holding the same address, else `null`. Addresses
+are compared with scheme and host case, a default port and trailing slashes
+ignored, so `https://Books.example.org:443/opds/` and
+`https://books.example.org/opds` are one catalog. Quire Web shows each catalog
+once from these. Both are `false` and `null` for a row that cannot be read.
+The list and the `PUT /catalogs/v1/order` answer carry them; the answer to
+`PUT /catalogs/v1/catalogs/{id}` does not.
 
 The response carries `ETag: "<revision>"`. Send it back as `If-None-Match`
 and an unchanged list is a `304` with no body. The revision changes on every
@@ -822,8 +837,8 @@ it also needs the stored value, so on a row that cannot be decrypted that
 save is `409 needs_login`: send the password again.
 
 `unique_url` is an optional boolean, `false` by default. When it is `true` and
-the id is new, a catalog whose stored address equals `url` (both trimmed) is
-not saved a second time: the answer is `409` with
+the id is new, a catalog whose stored address equals `url` (compared as for
+`duplicate_of` above) is not saved a second time: the answer is `409` with
 `{"detail": "catalog_exists", "id": "<the existing id>"}`. Quire Web sets it
 when adding a suggested open catalog. Without it, as older apps send, the same
 address can be saved under two ids.

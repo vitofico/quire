@@ -98,6 +98,8 @@ async def test_round_trip_keeps_the_address_and_login_out_of_the_list(
             "needs_login",
             "position",
             "updated_at",
+            "server_catalog",
+            "duplicate_of",
         }
         for secret in (ACCOUNT_KEY, "reader", LOGIN_PASSWORD, "/api/opds", "ebooks.opds"):
             assert secret not in response.text
@@ -393,6 +395,79 @@ async def test_a_new_entry_for_a_held_address_names_the_existing_one_when_asked(
         assert len((await listed(client, auth))["catalogs"]) == 3
 
 
+async def test_the_list_marks_the_servers_own_catalog_and_repeated_addresses(
+    client_factory, app, session, monkeypatch
+):
+    server = "https://Books.example.org:443/opds"
+    catalog_url = "https://books.example.org/opds"
+    async with catalogs(client_factory, web_catalog_url=server) as client:
+        auth = await bearer(app)
+        ids = [uuid4() for _ in range(5)]
+        for catalog_id, url in zip(
+            ids,
+            (
+                "https://books.example.org/opds/",
+                "https://shelf.example.org/opds",
+                "https://BOOKS.example.org/opds",
+                "https://books.example.org/opds/new",
+                "https://shelf.example.org/opds//",
+            ),
+            strict=True,
+        ):
+            body = CATALOG | {"url": url}
+            assert (await client.put(path(catalog_id), headers=auth, json=body)).status_code == 200
+        listed_catalogs = (await listed(client, auth))["catalogs"]
+        assert [(c["server_catalog"], c["duplicate_of"]) for c in listed_catalogs] == [
+            (True, None),
+            (False, None),
+            (True, str(ids[0])),
+            (False, None),
+            (False, str(ids[1])),
+        ]
+        # The variants count as the held address when a new entry asks for a unique one.
+        again = await client.put(
+            path(uuid4()),
+            headers=auth,
+            json=CATALOG | {"url": "https://books.example.org:443/opds", "unique_url": True},
+        )
+        assert again.json() == {"detail": "catalog_exists", "id": str(ids[0])}
+
+    # Another account's list is its own: the first entry there is not a repeat of this one's.
+    async with catalogs(client_factory, web_catalog_url=server) as client:
+        other = await bearer(app, "other@example.test")
+        await client.put(path(uuid4()), headers=other, json=CATALOG | {"url": catalog_url})
+        assert [
+            (c["server_catalog"], c["duplicate_of"])
+            for c in (await listed(client, other))["catalogs"]
+        ] == [(True, None)]
+
+    # With no catalog configured, nothing is the server's.
+    monkeypatch.delenv("QUIRE_SERVER_WEB_CATALOG_URL")
+    async with catalogs(client_factory) as client:
+        auth = await bearer(app, "third@example.test")
+        await client.put(path(uuid4()), headers=auth, json=CATALOG | {"url": catalog_url})
+        assert (await listed(client, auth))["catalogs"][0]["server_catalog"] is False
+
+
+@pytest.mark.parametrize(
+    ("env", "expected"),
+    [
+        # A path is on the server's public address, whatever scheme the request arrived with.
+        ({"canonical_url": "https://quire.example.org/"}, True),
+        # Without one it falls back to the request, here plain http, so it cannot match.
+        ({}, False),
+    ],
+)
+async def test_a_relative_catalog_setting_is_on_the_servers_public_address(
+    client_factory, app, session, env, expected
+):
+    async with catalogs(client_factory, web_catalog_url="/opds", **env) as client:
+        auth = await bearer(app)
+        body = CATALOG | {"url": "https://quire.example.org/opds/"}
+        assert (await client.put(path(uuid4()), headers=auth, json=body)).status_code == 200
+        assert (await listed(client, auth))["catalogs"][0]["server_catalog"] is expected
+
+
 async def test_reorder_needs_exactly_the_current_set(client_factory, app, session):
     async with catalogs(client_factory) as client:
         auth = await bearer(app)
@@ -528,6 +603,12 @@ async def test_an_unreadable_row_is_listed_as_needing_its_login(client_factory, 
             for c in (await listed(client, auth))["catalogs"]
         }
         assert flags == {str(readable): (True, False), str(lost): (False, True)}
+        # Its address is unknown, so it is neither the server's catalog nor a repeat.
+        marks = [
+            (c["server_catalog"], c["duplicate_of"])
+            for c in (await listed(client, auth))["catalogs"]
+        ]
+        assert marks == [(False, None), (False, None)]
         response = await client.get(path(lost) + "/secret", headers=auth)
         assert (response.status_code, response.json()) == (409, {"detail": "needs_login"})
         without = {key: value for key, value in CATALOG.items() if key != "password"}
@@ -538,6 +619,8 @@ async def test_an_unreadable_row_is_listed_as_needing_its_login(client_factory, 
             False
         )
         assert (await client.get(path(lost) + "/secret", headers=auth)).status_code == 200
+        # Readable again, it is the same address as the first.
+        assert (await listed(client, auth))["catalogs"][1]["duplicate_of"] == str(readable)
 
 
 async def test_feature_off_is_a_404_everywhere(client_factory, app, session):

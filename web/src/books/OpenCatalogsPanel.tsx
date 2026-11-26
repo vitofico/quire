@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { ask } from '../ask'
 import { addOpenCatalog, addedEntry, openCatalogs, orderedFor, type OpenCatalog } from './openCatalogs'
-import { removeSavedCatalog, type SavedCatalog } from './saved'
+import { removeWithCopies, type SavedCatalog } from './saved'
 
 interface Props {
   language: string
@@ -55,7 +55,7 @@ export function OpenCatalogs({ language, saved, request, onAdded, onRemoved, t }
     setBusy(catalog.id)
     setFailed(undefined)
     try {
-      await removeSavedCatalog(request, entry.id)
+      await removeWithCopies(request, entry, saved)
       onRemoved(entry)
     } catch (reason) {
       setFailed({ id: catalog.id, message: reason instanceof Error ? reason.message : String(reason) })

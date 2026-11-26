@@ -1,16 +1,18 @@
 import { useState } from 'react'
 import { ask } from '../ask'
-import { removeSavedCatalog, type SavedCatalog } from './saved'
+import { removeWithCopies, type SavedCatalog } from './saved'
 
 type Props = {
   catalog: SavedCatalog
+  /** The account's list: entries repeating this one's address are removed with it. */
+  saved: SavedCatalog[]
   request: (path: string, init?: RequestInit) => Promise<Response>
   onRemoved: (catalog: SavedCatalog) => void
   t: (key: string) => string
 }
 
 /** Removes the open saved catalog from the account, after the same question the open catalogs list asks. */
-export function RemoveSavedCatalog({ catalog, request, onRemoved, t }: Props) {
+export function RemoveSavedCatalog({ catalog, saved, request, onRemoved, t }: Props) {
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState('')
 
@@ -22,7 +24,7 @@ export function RemoveSavedCatalog({ catalog, request, onRemoved, t }: Props) {
     setBusy(true)
     setFailed('')
     try {
-      await removeSavedCatalog(request, catalog.id)
+      await removeWithCopies(request, catalog, saved)
       onRemoved(catalog)
     } catch (reason) {
       setFailed(reason instanceof Error ? reason.message : String(reason))

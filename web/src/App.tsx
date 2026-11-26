@@ -22,10 +22,12 @@ import {
 import { openEpub, type Epub } from './books/epub'
 import { makeCatalogClient } from './books/opds'
 import {
+  distinctSaved,
   listSavedCatalogs,
   needsLogin,
   savedCatalogHome,
   savedCatalogRequest,
+  shownEntry,
   type SavedCatalog,
 } from './books/saved'
 import { RemoveSavedCatalog } from './books/RemoveSavedCatalog'
@@ -91,9 +93,10 @@ function publicAcquisition(href?: string | null) {
   }
 }
 /** The server's own catalog, named for its chip. */
-function catalogLabel(url: string, t: (key: string) => string) {
+function catalogLabel(url: string, t: (key: string) => string, withPath = false) {
   try {
     const parsed = new URL(url, location.origin)
+    if (withPath) return parsed.host + parsed.pathname.replace(/\/+$/, '')
     return parsed.origin === location.origin ? t('This server') : parsed.host
   } catch {
     return t('Catalog')
@@ -256,7 +259,9 @@ function Workspace({
     !!active.request
   const savedBrowsable = savedListed && bootstrap?.catalogProxy === true
   const [saved, setSaved] = useState<SavedCatalog[]>([]),
-    [chosenCatalog, setChosenCatalog] = useState('')
+    [chosenCatalog, setChosenCatalog] = useState(''),
+    // The account whose list has answered once (or failed to).
+    [savedOf, setSavedOf] = useState<unknown>()
   const viewingCatalog = route.view === 'catalog'
   useEffect(() => {
     if (!savedListed || !active.request) {
@@ -266,11 +271,44 @@ function Workspace({
     // Asked again each time the catalog view opens, so a catalog added on a
     // phone shows up. A failed refresh keeps the list already shown.
     const stop = new AbortController()
-    listSavedCatalogs(active.request, stop.signal).then(setSaved, () => undefined)
+    const request = active.request
+    listSavedCatalogs(request, stop.signal).then(
+      (list) => {
+        setSaved(list)
+        setSavedOf(() => request)
+      },
+      () => {
+        if (!stop.signal.aborted) setSavedOf(() => request)
+      },
+    )
     return () => stop.abort()
   }, [savedListed, active.request, viewingCatalog])
+  // The server's catalog can also be saved to the account, as the Android app
+  // does with its Calibre login. It is one catalog: one chip, browsed through
+  // that saved copy, which holds the login, unless the reader signed in here.
+  const serverCatalogShown =
+    !!catalogUrl &&
+    !!bootstrap?.catalogUrl &&
+    new URL(catalogUrl, location.origin).href ===
+      new URL(bootstrap.catalogUrl, location.origin).href
+  const serverCopy =
+    savedBrowsable && serverCatalogShown && !active.catalogRequest
+      ? saved.find((c) => c.server_catalog && !c.needs_login && c.has_login)
+      : undefined
+  const catalogRequest = useMemo(
+    () =>
+      active.catalogRequest ??
+      (serverCopy && active.request
+        ? savedCatalogRequest(active.request, serverCopy)
+        : undefined),
+    [active.catalogRequest, active.request, serverCopy?.id, serverCopy?.host],
+  )
+  // Until the list answers, the server's catalog may yet turn out to be saved with its login.
+  const savedReady = !savedListed || savedOf === active.request
+  const distinct = distinctSaved(saved, serverCatalogShown)
+  const chosen = shownEntry(saved, chosenCatalog, serverCatalogShown)
   const activeSaved = savedBrowsable
-    ? (saved.find((c) => c.id === chosenCatalog) ?? (catalogUrl ? undefined : saved[0]))
+    ? (distinct.find((c) => c.id === chosen) ?? (catalogUrl ? undefined : distinct[0]))
     : undefined
   const savedRequest = useMemo(
     () =>
@@ -307,8 +345,8 @@ function Workspace({
             })
           : undefined
       }
-      return catalogUrl
-        ? makeCatalogClient({ url: catalogUrl, request: active.catalogRequest })
+      return catalogUrl && savedReady
+        ? makeCatalogClient({ url: catalogUrl, request: catalogRequest })
         : undefined
     } catch {
       return undefined
@@ -320,6 +358,7 @@ function Workspace({
   const [catalogChecked, setCatalogChecked] = useState(0)
   const awaitsCatalogCover = (b: ShelfBook) =>
     !!catalogUrl &&
+    savedReady &&
     !!b.opds_href &&
     !b.catalog_id &&
     !(b.cover instanceof Blob) &&
@@ -329,7 +368,7 @@ function Workspace({
     if (!replica || !missing.length) return
     const stop = new AbortController()
     void (async () => {
-      const catalog = makeCatalogClient({ url: catalogUrl, request: active.catalogRequest })
+      const catalog = makeCatalogClient({ url: catalogUrl, request: catalogRequest })
       for (const b of missing) {
         try {
           const cover = await catalog.coverOf(b.title, b.opds_href!, stop.signal)
@@ -345,7 +384,7 @@ function Workspace({
       setCatalogChecked((n) => n + 1)
     })()
     return () => stop.abort()
-  }, [replica, snapshot.books, catalogUrl, active.catalogRequest])
+  }, [replica, snapshot.books, catalogUrl, catalogRequest, savedReady])
   const file = useRef<HTMLInputElement>(null),
     target = useRef<string | undefined>(undefined),
     alive = useRef(true)
@@ -938,9 +977,19 @@ function Workspace({
         <button disabled={!catalogDraft.trim()}>{t('Open catalog')}</button>
       </form>
     )
+    const shownSaved = savedBrowsable ? distinct : []
+    const label = catalogUrl ? catalogLabel(catalogUrl, t) : ''
     const choices = [
-      ...(catalogUrl ? [{ id: '', name: catalogLabel(catalogUrl, t) }] : []),
-      ...(savedBrowsable ? saved : []),
+      ...(catalogUrl
+        ? [{
+            id: '',
+            // Another catalog on the same host is told apart by its path.
+            name: shownSaved.some((c) => c.name === label)
+              ? catalogLabel(catalogUrl, t, true)
+              : label,
+          }]
+        : []),
+      ...shownSaved,
     ]
     const switcher = choices.length > 1 && (
       <div className="chips" role="group" aria-label={t('Catalogs')} ref={switcherRef}>
@@ -966,7 +1015,7 @@ function Workspace({
         </p>
       ) : null)
     const removedSaved = (c: SavedCatalog) => {
-      setSaved((list) => list.filter((item) => item.id !== c.id))
+      setSaved((list) => list.filter((item) => item.id !== c.id && item.duplicate_of !== c.id))
       setNotice(t('{name} removed.').replace('{name}', c.name))
     }
     const open = savedBrowsable && active.request && (
@@ -985,7 +1034,13 @@ function Workspace({
       />
     )
     const removeSaved = activeSaved && active.request && (
-      <RemoveSavedCatalog catalog={activeSaved} request={active.request} onRemoved={removedSaved} t={t} />
+      <RemoveSavedCatalog
+        catalog={activeSaved}
+        saved={saved}
+        request={active.request}
+        onRemoved={removedSaved}
+        t={t}
+      />
     )
     // While a catalog is open, the other ways to add one wait behind a summary.
     const otherSource = (!active.catalogUrl || open) && (
@@ -1024,12 +1079,14 @@ function Workspace({
         )}
         {otherSource}
       </>
+    ) : catalogUrl && !savedReady ? (
+      <p role="status">{t('Loading catalog…')}</p>
     ) : catalogUrl ? (
       <>
         <Catalog
           key={catalogUrl + ':' + (active.catalogRevision ?? 0)}
           url={catalogUrl}
-          request={active.catalogRequest}
+          request={catalogRequest}
           apiRequest={active.request}
           aiAvailable={aiAvailable}
           t={t}
@@ -1038,6 +1095,8 @@ function Workspace({
             imported(blob, p.epubHref, undefined, cover)
           }
           signInCatalog={account.signInCatalog}
+          // Through the saved copy no login is asked, unless that copy fails.
+          signInOnError={!!serverCopy}
           signOutCatalog={account.signOutCatalog}
           catalogAuthenticated={active.catalogAuthenticated}
         >

@@ -104,7 +104,7 @@
 .catalog-credentials {
   display: grid;
   gap: .85rem;
-  justify-self: center;
+  justify-self: start;
   width: min(100%, 26rem);
   padding: 1.5rem;
   border-radius: var(--radius-card);
