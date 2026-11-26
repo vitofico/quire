@@ -1545,3 +1545,38 @@ label:has(> input[type='radio']) {
     transition-duration: 0.01ms !important;
   }
 }
+
+.open-catalogs {
+  margin-top: 2rem;
+}
+.open-catalogs ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.open-catalogs li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--line);
+}
+.open-catalogs li > div {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+.open-catalogs-facts {
+  color: var(--accent);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.open-catalogs-added {
+  color: var(--muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.open-catalogs li button {
+  flex: none;
+}

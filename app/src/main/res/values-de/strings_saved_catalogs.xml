@@ -49,4 +49,14 @@
     <string name="quire_account_legacy_retiring_admin">Die Calibre-Web-Anmeldung wird eingestellt. Bitte deinen Administrator, Quire-Konten zu aktivieren.</string>
     <string name="quire_account_legacy_sign_in">Calibre-Web-Anmeldung</string>
     <string name="catalog_needs_login">Gib die Adresse und die Anmeldedaten von %1$s unter Einstellungen → Kataloge erneut ein.</string>
+    <string name="open_catalogs_title">Offene Kataloge</string>
+    <string name="open_catalogs_privacy">Kostenlose, legale Bücher für den Anfang. Wenn du einen hinzufügst, verbindet sich dieses Gerät direkt mit der Website des Katalogs.</string>
+    <string name="open_catalogs_add">Hinzufügen</string>
+    <string name="open_catalogs_add_named">%1$s hinzufügen</string>
+    <string name="open_catalogs_added">Hinzugefügt</string>
+    <string name="open_catalogs_public_domain">Gemeinfrei</string>
+    <string name="open_catalogs_open_licence">Offene Lizenz</string>
+    <string name="open_catalogs_public_domain_us">Gemeinfrei in den USA</string>
+    <string name="open_catalogs_synced">Er wird auch in deinem Quire-Konto gespeichert, wie jeder Katalog.</string>
+    <string name="open_catalogs_no_catalog">Noch kein Katalog. Füge einen dieser kostenlosen Kataloge hinzu, um Bücher zu finden, oder deinen eigenen unter Einstellungen → Kataloge.</string>
 </resources>
