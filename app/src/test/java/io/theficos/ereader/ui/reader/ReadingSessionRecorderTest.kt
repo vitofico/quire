@@ -5,9 +5,12 @@ import org.junit.Test
 
 class ReadingSessionRecorderTest {
     private var clock = 1_000_000L
+    /** The wall clock runs far from the monotonic one and can be changed under the recorder. */
+    private var wallShift = 1_700_000_000_000L
     private val sessions = mutableListOf<RecordedSession>()
     private val recorder = ReadingSessionRecorder(
-        now = { clock },
+        elapsed = { clock },
+        wallNow = { clock + wallShift },
         emit = { sessions += it },
         utcOffsetSecondsAt = { 3_600 },
     ).apply { maxStep = 0.01 }
@@ -34,44 +37,66 @@ class ReadingSessionRecorderTest {
         recorder.end()
 
         val s = sessions.single()
-        assertThat(s.startedAt).isEqualTo(start)
-        assertThat(s.endedAt).isEqualTo(clock)
+        assertThat(s.startedAt).isEqualTo(start + wallShift)
+        assertThat(s.endedAt).isEqualTo(clock + wallShift)
         assertThat(s.utcOffsetSeconds).isEqualTo(3_600)
-        assertThat(s.startProgression).isEqualTo(0.10)
-        assertThat(s.endProgression).isEqualTo(0.115)
         assertThat(s.progressionRead).isWithin(1e-9).of(0.015)
         assertThat(s.activeSeconds).isEqualTo(70)
     }
 
     @Test
-    fun `an idle pause ends the session three minutes after the last activity`() {
+    fun `an idle pause ends the session a usual page-turn gap after the last activity`() {
         recorder.onPosition(0.2)
         recorder.begin()
-        turn(0.205)
+        val start = clock
+        turn(0.205, after = 40_000)
+        turn(0.21, after = 50_000)
+        turn(0.215, after = 60_000)
         val lastTurn = clock - 300
         advance(10 * 60_000)
-        turn(0.21, after = 0)
+        turn(0.22, after = 0)
         advance(40_000)
         recorder.end()
 
         assertThat(sessions).hasSize(2)
-        assertThat(sessions[0].endedAt).isEqualTo(lastTurn + ReadingSessionRecorder.IDLE_CUTOFF_MS)
-        assertThat(sessions[0].progressionRead).isWithin(1e-9).of(0.005)
-        assertThat(sessions[1].startedAt).isEqualTo(clock - 40_300)
-        assertThat(sessions[1].startProgression).isEqualTo(0.205)
+        // Gaps between gestures: 40 s, 50.3 s, 60.3 s. The median is 50.3 s.
+        assertThat(sessions[0].endedAt - wallShift).isEqualTo(lastTurn + 50_300)
+        assertThat(sessions[0].startedAt - wallShift).isEqualTo(start)
+        assertThat(sessions[0].progressionRead).isWithin(1e-9).of(0.015)
+        assertThat(sessions[1].startedAt - wallShift).isEqualTo(clock - 40_300)
         assertThat(sessions[1].progressionRead).isWithin(1e-9).of(0.005)
     }
 
     @Test
-    fun `stopping long after the last page turn counts only up to the idle cut-off`() {
+    fun `stopping long after the last page turn counts only a short grace`() {
         recorder.onPosition(0.0)
         recorder.begin()
         val start = clock
-        turn(0.005)
+        turn(0.005, after = 10_000)
+        turn(0.01, after = 10_000)
         advance(30 * 60_000)
         recorder.end()
 
-        assertThat(sessions.single().endedAt).isEqualTo(start + 20_000 + ReadingSessionRecorder.IDLE_CUTOFF_MS)
+        // Gaps of about 10 s are below the floor, so the grace is 30 s.
+        assertThat(sessions.single().endedAt - wallShift)
+            .isEqualTo(start + 20_300 + ReadingSessionRecorder.MIN_GRACE_MS)
+    }
+
+    @Test
+    fun `a wall clock change does not stretch a session, it only dates its start`() {
+        recorder.onPosition(0.0)
+        recorder.begin()
+        val startWall = clock + wallShift
+        turn(0.005)
+        wallShift += 3_600_000 // the clock jumps an hour ahead
+        turn(0.01)
+        advance(20_000)
+        recorder.end()
+
+        val s = sessions.single()
+        assertThat(s.startedAt).isEqualTo(startWall)
+        assertThat(s.activeSeconds).isEqualTo(60)
+        assertThat(s.endedAt).isEqualTo(startWall + 60_600)
     }
 
     @Test
@@ -89,7 +114,7 @@ class ReadingSessionRecorderTest {
         recorder.end()
 
         assertThat(sessions).hasSize(2)
-        assertThat(sessions[1].startProgression).isEqualTo(0.305)
+        assertThat(sessions[1].progressionRead).isWithin(1e-9).of(0.005)
         assertThat(sessions[1].activeSeconds).isEqualTo(40)
     }
 
@@ -103,7 +128,7 @@ class ReadingSessionRecorderTest {
         advance(20_000)
         recorder.end()
 
-        assertThat(sessions.single().startedAt).isEqualTo(start)
+        assertThat(sessions.single().startedAt - wallShift).isEqualTo(start)
     }
 
     @Test
@@ -132,9 +157,7 @@ class ReadingSessionRecorderTest {
         advance(10_000)
         recorder.end()
 
-        val s = sessions.single()
-        assertThat(s.progressionRead).isWithin(1e-9).of(0.010)
-        assertThat(s.endProgression).isEqualTo(0.505)
+        assertThat(sessions.single().progressionRead).isWithin(1e-9).of(0.010)
     }
 
     @Test
@@ -175,7 +198,6 @@ class ReadingSessionRecorderTest {
         advance(20_000)
         recorder.end()
 
-        assertThat(sessions.single().startProgression).isEqualTo(0.105)
         assertThat(sessions.single().progressionRead).isWithin(1e-9).of(0.005)
     }
 

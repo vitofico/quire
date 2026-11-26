@@ -1,6 +1,7 @@
 package io.theficos.ereader.ui.stats
 
 import android.content.SharedPreferences
+import android.util.Log
 import io.theficos.ereader.core.model.Document
 import io.theficos.ereader.core.model.Progress
 import io.theficos.ereader.data.local.db.BookProgressRow
@@ -8,6 +9,7 @@ import io.theficos.ereader.data.local.db.BookWordCountEntity
 import io.theficos.ereader.data.local.db.ReadingSessionDao
 import io.theficos.ereader.data.local.db.ReadingSessionEntity
 import io.theficos.ereader.ui.reader.RecordedSession
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -56,7 +58,9 @@ class ReadingStatsRepository(
         _recording.value = on
     }
 
-    suspend fun clear() = dao.clear()
+    suspend fun clear() {
+        runCatching { dao.clear() }.onFailure { failed("clear", it) }
+    }
 
     /** About how long the rest of the book with [bookKey] takes at the reader's pace. */
     fun secondsLeft(bookKey: String, progress: Flow<Progress?>): Flow<Long?> =
@@ -73,20 +77,20 @@ class ReadingStatsRepository(
     override fun record(book: StatsBook, session: RecordedSession) {
         if (!_recording.value) return
         scope.launch {
-            val words = dao.wordCount(book.key)?.let { (session.progressionRead * it).roundToLong() }
-            dao.insert(ReadingSessionEntity(
-                bookKey = book.key,
-                title = book.title,
-                author = book.author,
-                startedAt = session.startedAt,
-                endedAt = session.endedAt,
-                utcOffsetSeconds = session.utcOffsetSeconds,
-                activeSeconds = session.activeSeconds,
-                startProgression = session.startProgression,
-                endProgression = session.endProgression,
-                progressionRead = session.progressionRead,
-                wordsRead = words,
-            ))
+            runCatching {
+                val words = dao.wordCount(book.key)?.let { (session.progressionRead * it).roundToLong() }
+                dao.insert(ReadingSessionEntity(
+                    bookKey = book.key,
+                    title = book.title,
+                    author = book.author,
+                    startedAt = session.startedAt,
+                    endedAt = session.endedAt,
+                    utcOffsetSeconds = session.utcOffsetSeconds,
+                    activeSeconds = session.activeSeconds,
+                    progressionRead = session.progressionRead,
+                    wordsRead = words,
+                ))
+            }.onFailure { failed("store a session", it) }
         }
     }
 
@@ -96,7 +100,14 @@ class ReadingStatsRepository(
         dao.saveWordCount(BookWordCountEntity(bookKey, words))
     }
 
+    /** Statistics are a nicety: a full disk or a broken database must not take the app down. */
+    private fun failed(what: String, error: Throwable) {
+        if (error is CancellationException) throw error
+        Log.w(TAG, "Could not $what", error)
+    }
+
     private companion object {
         const val KEY_RECORDING = "record_reading_statistics"
+        const val TAG = "ReadingStats"
     }
 }

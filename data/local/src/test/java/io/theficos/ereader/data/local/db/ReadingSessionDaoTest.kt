@@ -29,7 +29,7 @@ class ReadingSessionDaoTest {
     private fun session(bookKey: String, startedAt: Long) = ReadingSessionEntity(
         bookKey = bookKey, title = "Book $bookKey", author = null, startedAt = startedAt,
         endedAt = startedAt + 60_000, utcOffsetSeconds = 0, activeSeconds = 60,
-        startProgression = 0.1, endProgression = 0.12, progressionRead = 0.02, wordsRead = 200,
+        progressionRead = 0.02, wordsRead = 200,
     )
 
     @Test fun `a removed book keeps its sessions until statistics are cleared`() = runTest {

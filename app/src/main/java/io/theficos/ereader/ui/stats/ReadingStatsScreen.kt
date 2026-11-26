@@ -1,5 +1,6 @@
 package io.theficos.ereader.ui.stats
 
+import android.text.format.DateFormat
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
@@ -304,11 +306,16 @@ private fun WhenYouReadCard(stats: ReadingStats, locale: Locale) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Heading(stringResource(R.string.stats_when_you_read))
             Text(stringResource(R.string.stats_by_hour), style = MaterialTheme.typography.titleSmall)
-            val timeFormat = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(locale)
+            // The device's 12 or 24 hour setting, in the locale's own pattern.
+            val is24 = DateFormat.is24HourFormat(LocalContext.current)
+            fun pattern(skeleton: String) =
+                DateTimeFormatter.ofPattern(DateFormat.getBestDateTimePattern(locale, skeleton), locale)
+            val timeFormat = pattern(if (is24) "Hm" else "hma")
+            val hourFormat = pattern(if (is24) "H" else "ha")
             val peakHour = stats.byHour.indices.maxBy { stats.byHour[it] }
             BarChart(
                 values = stats.byHour,
-                labels = stats.byHour.indices.map { if (it % 6 == 0) it.toString() else "" },
+                labels = stats.byHour.indices.map { if (it % 6 == 0) hourFormat.format(LocalTime.of(it, 0)) else "" },
                 description = stringResource(
                     R.string.stats_hour_description,
                     timeFormat.format(LocalTime.of(peakHour, 0)),
@@ -323,7 +330,7 @@ private fun WhenYouReadCard(stats: ReadingStats, locale: Locale) {
             val peak = days[values.indices.maxBy { values[it] }]
             BarChart(
                 values = values,
-                labels = days.map { it.getDisplayName(TextStyle.SHORT_STANDALONE, locale) },
+                labels = days.map { it.getDisplayName(TextStyle.NARROW, locale) },
                 description = stringResource(
                     R.string.stats_weekday_description,
                     peak.getDisplayName(TextStyle.FULL_STANDALONE, locale),

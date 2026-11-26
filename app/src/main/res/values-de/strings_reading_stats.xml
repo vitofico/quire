@@ -2,7 +2,7 @@
 <resources>
     <string name="stats_title">Lesestatistik</string>
     <string name="stats_empty_title">Die Statistik beginnt jetzt</string>
-    <string name="stats_empty_body">Quire zählt dein Lesen ab dieser Version und nur auf diesem Gerät, frühere Zeiten gibt es also nicht. Lies ein paar Minuten in einem Buch und schau dann wieder vorbei.</string>
+    <string name="stats_empty_body">Quire zählt dein Lesen ab dieser Version, frühere Zeiten gibt es also nicht. Es bleibt auf diesem Gerät und in der Sicherung deines Telefons und wird nie an den Quire-Server oder an KI gesendet. Lies ein paar Minuten in einem Buch und schau dann wieder vorbei.</string>
     <string name="stats_recording_off">Die Aufzeichnung ist aus. Schalte sie unter %1$s → %2$s ein, damit dein Lesen gezählt wird.</string>
     <string name="stats_today">Heute</string>
     <string name="stats_this_week">Diese Woche</string>
@@ -10,7 +10,7 @@
     <string name="stats_all_time">Insgesamt</string>
     <string name="stats_current_streak">Aktuelle Serie</string>
     <string name="stats_longest_streak">Längste Serie</string>
-    <string name="stats_books_finished">Gelesene Bücher</string>
+    <string name="stats_books_finished">Ausgelesene Bücher</string>
     <string name="stats_streak_note">Ein Tag zählt zur Serie, wenn du mindestens 5 Minuten liest.</string>
     <plurals name="stats_days">
         <item quantity="one">%d Tag</item>
@@ -51,7 +51,7 @@
     <string name="stats_clear_body">Damit werden alle auf diesem Gerät gespeicherten Lesesitzungen entfernt. Das lässt sich nicht rückgängig machen.</string>
     <string name="stats_clear_confirm">Löschen</string>
     <string name="settings_record_stats">Lesestatistik aufzeichnen</string>
-    <string name="settings_record_stats_description">Zählt, wie lange, wann und wie schnell du liest, nur auf diesem Gerät. Zu finden in der Bibliothek unter %1$s → %2$s.</string>
+    <string name="settings_record_stats_description">Zählt, wie lange, wann und wie schnell du liest. Bleibt auf diesem Gerät und in der Sicherung deines Telefons und wird nie an den Quire-Server oder an KI gesendet. Zu finden in der Bibliothek unter %1$s → %2$s.</string>
     <string name="settings_stats_off_title">Gespeicherte Statistik löschen?</string>
     <string name="settings_stats_off_body">Die Aufzeichnung ist beendet. Möchtest du die bereits gespeicherte Statistik behalten oder löschen?</string>
     <string name="settings_stats_keep">Behalten</string>

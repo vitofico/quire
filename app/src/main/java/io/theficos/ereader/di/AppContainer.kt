@@ -248,11 +248,14 @@ class AppContainer internal constructor(context: Context, private val db: EReade
     val libraryUploaderScope: CoroutineScope =
         CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    /** Reading sessions and their statistics, kept on this device only. */
+    /** Background work that outlives any screen, for as long as the process runs. */
+    val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /** Reading sessions and their statistics, kept on this device and in its own backup. */
     val readingStats: ReadingStatsRepository = ReadingStatsRepository(
         dao = db.readingSessionDao(),
         prefs = appContext.getSharedPreferences("reading_stats", Context.MODE_PRIVATE),
-        scope = libraryUploaderScope,
+        scope = appScope,
     )
 
     val libraryUploader: LibraryUploader = LibraryUploader(

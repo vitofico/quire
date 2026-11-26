@@ -322,8 +322,6 @@ abstract class EReaderDatabase : RoomDatabase() {
                         endedAt INTEGER NOT NULL,
                         utcOffsetSeconds INTEGER NOT NULL,
                         activeSeconds INTEGER NOT NULL,
-                        startProgression REAL NOT NULL,
-                        endProgression REAL NOT NULL,
                         progressionRead REAL NOT NULL,
                         wordsRead INTEGER
                     )

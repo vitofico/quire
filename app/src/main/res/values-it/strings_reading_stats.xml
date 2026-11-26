@@ -2,7 +2,7 @@
 <resources>
     <string name="stats_title">Statistiche di lettura</string>
     <string name="stats_empty_title">Le statistiche iniziano adesso</string>
-    <string name="stats_empty_body">Quire conta la tua lettura da questa versione in poi, solo su questo dispositivo, quindi non c’è uno storico precedente. Leggi un libro per qualche minuto e poi torna qui.</string>
+    <string name="stats_empty_body">Quire conta la tua lettura da questa versione in poi, quindi non c’è uno storico precedente. I dati restano su questo dispositivo e nel backup del telefono, e non vengono mai inviati al server di Quire né all’IA. Leggi un libro per qualche minuto e poi torna qui.</string>
     <string name="stats_recording_off">La registrazione è disattivata. Attivala in %1$s → %2$s per contare la tua lettura.</string>
     <string name="stats_today">Oggi</string>
     <string name="stats_this_week">Questa settimana</string>
@@ -28,8 +28,8 @@
     <string name="stats_when_you_read">Quando leggi</string>
     <string name="stats_by_hour">Per ora del giorno</string>
     <string name="stats_by_weekday">Per giorno della settimana</string>
-    <string name="stats_hour_description">Tempo di lettura per ora del giorno. Di più tra le %1$s e le %2$s, con %3$s.</string>
-    <string name="stats_weekday_description">Tempo di lettura per giorno della settimana. Di più il %1$s, con %2$s.</string>
+    <string name="stats_hour_description">Tempo di lettura per ora del giorno. Ora più frequente: %1$s–%2$s, con %3$s.</string>
+    <string name="stats_weekday_description">Tempo di lettura per giorno della settimana. Soprattutto di %1$s, con %2$s.</string>
     <string name="stats_speed">Velocità</string>
     <plurals name="stats_words_per_minute">
         <item quantity="one">%d parola al minuto</item>
@@ -54,7 +54,7 @@
     <string name="stats_clear_body">Verranno eliminate tutte le sessioni di lettura salvate su questo dispositivo. L’operazione non può essere annullata.</string>
     <string name="stats_clear_confirm">Cancella</string>
     <string name="settings_record_stats">Registra statistiche di lettura</string>
-    <string name="settings_record_stats_description">Conta quanto, quando e a che velocità leggi, solo su questo dispositivo. Le trovi nella biblioteca, in %1$s → %2$s.</string>
+    <string name="settings_record_stats_description">Conta quanto, quando e a che velocità leggi. I dati restano su questo dispositivo e nel backup del telefono, e non vengono mai inviati al server di Quire né all’IA. Le trovi nella biblioteca, in %1$s → %2$s.</string>
     <string name="settings_stats_off_title">Cancellare le statistiche salvate?</string>
     <string name="settings_stats_off_body">La registrazione si è fermata. Vuoi tenere le statistiche già salvate o cancellarle?</string>
     <string name="settings_stats_keep">Tieni</string>

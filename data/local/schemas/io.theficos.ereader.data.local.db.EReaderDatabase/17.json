@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 17,
-    "identityHash": "a1b3ed1f2f407e25b5eaee678b6311e3",
+    "identityHash": "6213f8703d8e3eed7299fee7dc240c7f",
     "entities": [
       {
         "tableName": "documents",
@@ -782,7 +782,7 @@
       },
       {
         "tableName": "reading_sessions",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `bookKey` TEXT NOT NULL, `title` TEXT NOT NULL, `author` TEXT, `startedAt` INTEGER NOT NULL, `endedAt` INTEGER NOT NULL, `utcOffsetSeconds` INTEGER NOT NULL, `activeSeconds` INTEGER NOT NULL, `startProgression` REAL NOT NULL, `endProgression` REAL NOT NULL, `progressionRead` REAL NOT NULL, `wordsRead` INTEGER)",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `bookKey` TEXT NOT NULL, `title` TEXT NOT NULL, `author` TEXT, `startedAt` INTEGER NOT NULL, `endedAt` INTEGER NOT NULL, `utcOffsetSeconds` INTEGER NOT NULL, `activeSeconds` INTEGER NOT NULL, `progressionRead` REAL NOT NULL, `wordsRead` INTEGER)",
         "fields": [
           {
             "fieldPath": "id",
@@ -830,18 +830,6 @@
             "fieldPath": "activeSeconds",
             "columnName": "activeSeconds",
             "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "startProgression",
-            "columnName": "startProgression",
-            "affinity": "REAL",
-            "notNull": true
-          },
-          {
-            "fieldPath": "endProgression",
-            "columnName": "endProgression",
-            "affinity": "REAL",
             "notNull": true
           },
           {
@@ -915,7 +903,7 @@
     "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'a1b3ed1f2f407e25b5eaee678b6311e3')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '6213f8703d8e3eed7299fee7dc240c7f')"
     ]
   }
 }

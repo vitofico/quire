@@ -16,7 +16,7 @@ import kotlin.math.roundToLong
 /** A day counts towards a streak with at least this much reading. */
 internal const val STREAK_DAY_SECONDS = 5 * 60L
 
-/** Skimming or flipping pages, not reading: such sessions count for time, not for speed. */
+/** Skimming or flipping pages, not reading: such a book counts for time, not for speed. */
 internal const val MAX_PLAUSIBLE_WPM = 1_500.0
 
 /** A speed is shown only once this much reading backs it. */
@@ -188,17 +188,21 @@ internal fun streaks(daily: Map<LocalDate, Long>, today: LocalDate): Pair<Int, I
 
 /**
  * Words per minute over [sessions], weighted by time; null until enough reading backs it.
- * Sessions without a word count, with nothing read, or faster than anyone reads are left out.
+ *
+ * Progress moves in steps (a Readium position is about a thousand characters), so one session
+ * may be credited a whole step and the next nothing: both count, or the speed would come out
+ * far too high. Only sessions without a word count are left out, and a book whose own total is
+ * faster than anyone reads (skimming, flipping pages) is left out as a whole.
  */
 internal fun wordsPerMinute(sessions: List<ReadingSessionEntity>): Double? {
     var words = 0L
     var seconds = 0L
-    for (s in sessions) {
-        val w = s.wordsRead ?: continue
-        if (w <= 0 || s.activeSeconds <= 0) continue
-        if (w * 60.0 / s.activeSeconds > MAX_PLAUSIBLE_WPM) continue
-        words += w
-        seconds += s.activeSeconds
+    for (book in sessions.filter { it.wordsRead != null && it.activeSeconds > 0 }.groupBy { it.bookKey }.values) {
+        val bookWords = book.sumOf { it.wordsRead ?: 0L }
+        val bookSeconds = book.sumOf { it.activeSeconds }
+        if (bookWords * 60.0 / bookSeconds > MAX_PLAUSIBLE_WPM) continue
+        words += bookWords
+        seconds += bookSeconds
     }
     if (seconds < MIN_SPEED_SECONDS || words < MIN_SPEED_WORDS) return null
     return words * 60.0 / seconds
@@ -217,7 +221,7 @@ internal fun secondsLeft(
 ): Long? {
     if (progress.finishedAt != null || progress.abandonedAt != null) return null
     if (words == null || words <= 0) return null
-    val ownTime = bookSessions.filter { (it.wordsRead ?: 0) > 0 }.sumOf { it.activeSeconds }
+    val ownTime = bookSessions.filter { it.wordsRead != null }.sumOf { it.activeSeconds }
     val pace = wordsPerMinute(bookSessions)?.takeIf { ownTime >= MIN_BOOK_PACE_SECONDS } ?: overallWpm ?: return null
     val left = (1.0 - progress.percent.coerceIn(0.0, 1.0)) * words
     return (left / pace * 60).roundToLong()

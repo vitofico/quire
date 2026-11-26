@@ -2,7 +2,7 @@
 <resources>
     <string name="stats_title">Estadísticas de lectura</string>
     <string name="stats_empty_title">Las estadísticas empiezan ahora</string>
-    <string name="stats_empty_body">Quire cuenta tu lectura a partir de esta versión y solo en este dispositivo, así que no hay historial anterior. Lee un libro unos minutos y vuelve.</string>
+    <string name="stats_empty_body">Quire cuenta tu lectura a partir de esta versión, así que no hay historial anterior. Se guarda en este dispositivo y en la copia de seguridad de tu teléfono, y nunca se envía al servidor de Quire ni a la IA. Lee un libro unos minutos y vuelve.</string>
     <string name="stats_recording_off">El registro está desactivado. Actívalo en %1$s → %2$s para contar tu lectura.</string>
     <string name="stats_today">Hoy</string>
     <string name="stats_this_week">Esta semana</string>
@@ -28,7 +28,7 @@
     <string name="stats_when_you_read">Cuándo lees</string>
     <string name="stats_by_hour">Por hora del día</string>
     <string name="stats_by_weekday">Por día de la semana</string>
-    <string name="stats_hour_description">Tiempo de lectura por hora del día. Más entre las %1$s y las %2$s, con %3$s.</string>
+    <string name="stats_hour_description">Tiempo de lectura por hora del día. Hora más frecuente: %1$s–%2$s, con %3$s.</string>
     <string name="stats_weekday_description">Tiempo de lectura por día de la semana. Más el %1$s, con %2$s.</string>
     <string name="stats_speed">Velocidad</string>
     <plurals name="stats_words_per_minute">
@@ -54,7 +54,7 @@
     <string name="stats_clear_body">Esto elimina todas las sesiones de lectura guardadas en este dispositivo. No se puede deshacer.</string>
     <string name="stats_clear_confirm">Borrar</string>
     <string name="settings_record_stats">Registrar estadísticas de lectura</string>
-    <string name="settings_record_stats_description">Cuenta cuánto, cuándo y a qué velocidad lees, solo en este dispositivo. Las encontrarás en la biblioteca, en %1$s → %2$s.</string>
+    <string name="settings_record_stats_description">Cuenta cuánto, cuándo y a qué velocidad lees. Se guarda en este dispositivo y en la copia de seguridad de tu teléfono, y nunca se envía al servidor de Quire ni a la IA. Las encontrarás en la biblioteca, en %1$s → %2$s.</string>
     <string name="settings_stats_off_title">¿Borrar las estadísticas guardadas?</string>
     <string name="settings_stats_off_body">El registro se ha detenido. ¿Quieres conservar las estadísticas ya guardadas o borrarlas?</string>
     <string name="settings_stats_keep">Conservar</string>

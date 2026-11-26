@@ -1,6 +1,7 @@
 package io.theficos.ereader.ui.reader
 
 import io.theficos.ereader.reader.evaluateReaderJavascript
+import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.theficos.ereader.core.model.Document
@@ -70,13 +71,15 @@ class ReaderViewModel(
     },
     private val stats: ReadingStatsSink? = null,
     private val countWords: suspend (Publication) -> Long? = { it.countWords() },
+    /** A clock that only moves forward, for how long a session lasts. */
+    elapsedMs: () -> Long = SystemClock::elapsedRealtime,
 ) : ViewModel() {
 
     // Reading statistics. Nothing the reader composes reads from here, and nothing is written
     // until a session ends, so recording adds no work to a page turn and no recomposition.
     private var statsBook: StatsBook? = null
     private var inForeground = false
-    private val session = ReadingSessionRecorder(now = nowMs, emit = { recorded ->
+    private val session = ReadingSessionRecorder(elapsed = elapsedMs, wallNow = nowMs, emit = { recorded ->
         statsBook?.let { book -> stats?.record(book, recorded) }
     })
 

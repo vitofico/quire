@@ -16,5 +16,5 @@
     <string name="whats_new_pdf_conversion_title">Aus PDFs werden Bücher</string>
     <string name="whats_new_pdf_conversion_description">Teile ein PDF mit Quire oder füge es in der Bibliothek mit + hinzu, und dein Quire-Server wandelt es in ein EPUB in deiner Bibliothek um. Die Umwandlung geschieht auf deinem eigenen Server, nichts wird anderswohin geschickt. Verfolgen kannst du sie in der Bibliothek unter %1$s → %2$s.</string>
     <string name="whats_new_reading_stats_title">Sieh, wie du liest</string>
-    <string name="whats_new_reading_stats_description">Quire zählt jetzt, wie lange, wann und wie schnell du liest, nur auf diesem Gerät. Serien, Tempo und die verbleibende Zeit eines Buchs findest du in der Bibliothek unter %1$s → %2$s. In den Einstellungen lässt es sich ausschalten.</string>
+    <string name="whats_new_reading_stats_description">Quire zählt jetzt, wie lange, wann und wie schnell du liest. Das bleibt auf diesem Gerät und in der Sicherung deines Telefons und wird nie an den Quire-Server oder an KI gesendet. Serien, Tempo und die verbleibende Zeit eines Buchs findest du in der Bibliothek unter %1$s → %2$s. In den Einstellungen lässt es sich ausschalten.</string>
 </resources>

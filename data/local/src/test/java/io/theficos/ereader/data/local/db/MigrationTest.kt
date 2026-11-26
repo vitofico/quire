@@ -479,7 +479,7 @@ class MigrationTest {
             }
             db.execSQL(
                 "INSERT INTO reading_sessions (bookKey, title, author, startedAt, endedAt, utcOffsetSeconds, activeSeconds, " +
-                    "startProgression, endProgression, progressionRead, wordsRead) VALUES ('h8', 'Book', 'Author', 1000, 61000, 3600, 60, 0.2, 0.25, 0.05, NULL)"
+                    "progressionRead, wordsRead) VALUES ('h8', 'Book', 'Author', 1000, 61000, 3600, 60, 0.05, NULL)"
             )
             db.execSQL("INSERT INTO book_word_counts (bookKey, words) VALUES ('h8', 90000)")
             // No foreign key: the statistics outlive the book they were read from.

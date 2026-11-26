@@ -7,24 +7,25 @@ import org.readium.r2.shared.util.mediatype.MediaType
 import org.readium.r2.shared.util.use
 
 /**
- * Words in the publication's reading order, or null when a document cannot be read (a partial
- * count would make every speed after it wrong). Reads each document once: call it off the main
+ * Words in the publication's reading order. A document that cannot be read is left out, so a
+ * damaged book still gets a count (a little low) instead of being read again on every open;
+ * null only when no document can be read. Reads each document once: call it off the main
  * thread, once per book, and keep the answer.
  */
 suspend fun Publication.countWords(): Long? {
-    var total = 0L
+    var total: Long? = null
     for (link in readingOrder) {
         currentCoroutineContext().ensureActive()
-        val bytes = get(link)?.use { it.read().getOrNull() } ?: return null
+        val bytes = get(link)?.use { it.read().getOrNull() } ?: continue
         val html = link.mediaType?.matches(MediaType.HTML) == true
-        total += countWords(utf8Document(bytes, html).toString(Charsets.UTF_8))
+        total = (total ?: 0L) + countWords(utf8Document(bytes, html).toString(Charsets.UTF_8))
     }
     return total
 }
 
 private val IGNORED = Regex("(?is)<(head|script|style)\\b.*?</\\1\\s*>|<!--.*?-->")
 private val TAG = Regex("(?s)<[^>]*>")
-private val SPACE_ENTITY = Regex("(?i)&(nbsp|#160|#x0*a0|ensp|emsp|thinsp);")
+private val APOSTROPHE_ENTITY = Regex("(?i)&(apos|rsquo|#0*39|#x0*27|#0*8217|#x0*2019);")
 private val ENTITY = Regex("&#?\\w+;")
 
 /**
@@ -36,9 +37,9 @@ internal fun countWords(markup: String): Long {
     val text = markup
         .replace(IGNORED, " ")
         .replace(TAG, " ")
-        .replace(SPACE_ENTITY, " ")
-        // Other entities are mostly punctuation inside a word ("don&rsquo;t"): drop them.
-        .replace(ENTITY, "")
+        // An apostrophe stays inside its word ("don&rsquo;t"); other entities separate words.
+        .replace(APOSTROPHE_ENTITY, "’")
+        .replace(ENTITY, " ")
     var words = 0L
     var inWord = false
     var i = 0
@@ -46,6 +47,8 @@ internal fun countWords(markup: String): Long {
         val c = text.codePointAt(i)
         i += Character.charCount(c)
         when {
+            // The long vowel mark lengthens the kana before it ("ラーメン"): not a word of its own.
+            c == 0x30FC || c == 0xFF70 -> Unit
             c.isIdeographic() -> {
                 words++
                 inWord = false

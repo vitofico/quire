@@ -34,8 +34,6 @@ data class ReadingSessionEntity(
     val endedAt: Long,
     val utcOffsetSeconds: Int,
     val activeSeconds: Long,
-    val startProgression: Double,
-    val endProgression: Double,
     val progressionRead: Double,
     val wordsRead: Long?,
 )

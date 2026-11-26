@@ -29,8 +29,6 @@ class ReadingStatisticsTest {
             endedAt = startMs + seconds * 1_000,
             utcOffsetSeconds = start.offset.totalSeconds,
             activeSeconds = seconds,
-            startProgression = 0.0,
-            endProgression = 0.1,
             progressionRead = 0.1,
             wordsRead = words,
         )
@@ -142,14 +140,43 @@ class ReadingStatisticsTest {
     }
 
     @Test
-    fun `speed is weighted by time and leaves out skimming`() {
+    fun `speed is weighted by time and leaves out a book that was only skimmed`() {
         val now = at(2026, 11, 25, 9)
         val speed = wordsPerMinute(listOf(
             session(now, minutes = 10, words = 2_000),
             session(now, minutes = 30, words = 9_000),
-            session(now, minutes = 1, words = 5_000), // 5,000 wpm: flipping pages
+            session(now, minutes = 5, words = 0), // read, but no new position reached yet
+            session(now, minutes = 2, words = 5_000, book = "b"), // 2,500 wpm: flipping pages
+            session(now, minutes = 60, book = "c"), // no word count: left out
         ))
-        assertThat(speed).isWithin(1e-9).of(11_000 / 40.0)
+        assertThat(speed).isWithin(1e-9).of(11_000 / 45.0)
+    }
+
+    /**
+     * Readium moves its position about every 1,000 characters, but some books report a new one
+     * only at a chapter. A session then gains nothing, or a whole chapter at once. Reading at a
+     * true 250 wpm, the long-run total still comes out near 250.
+     */
+    private fun lumpySpeed(wordsPerPosition: Long, maxSeconds: Int): Double? {
+        val random = java.util.Random(1)
+        val now = at(2026, 11, 25, 9)
+        var trueWords = 0.0
+        var credited = 0L
+        val sessions = (1..200).mapNotNull {
+            val seconds = 60 + random.nextInt(maxSeconds - 60)
+            trueWords += 250.0 * seconds / 60
+            val reached = (trueWords / wordsPerPosition).toLong()
+            val words = (reached - credited) * wordsPerPosition
+            credited = reached
+            session(now, minutes = 0, words = words, seconds = seconds.toLong())
+        }
+        return wordsPerMinute(sessions)
+    }
+
+    @Test
+    fun `speed stays true when progress arrives in lumps`() {
+        assertThat(lumpySpeed(wordsPerPosition = 2_000, maxSeconds = 900)).isWithin(5.0).of(250.0)
+        assertThat(lumpySpeed(wordsPerPosition = 5_000, maxSeconds = 1_200)).isWithin(5.0).of(250.0)
     }
 
     @Test

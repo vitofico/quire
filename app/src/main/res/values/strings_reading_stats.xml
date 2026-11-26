@@ -2,7 +2,7 @@
 <resources>
     <string name="stats_title">Reading statistics</string>
     <string name="stats_empty_title">Statistics start now</string>
-    <string name="stats_empty_body">Quire counts your reading from this version on, on this device only, so there is no history from before. Read a book for a few minutes and come back.</string>
+    <string name="stats_empty_body">Quire counts your reading from this version on, so there is no history from before. It is kept on this device and in your phone’s own backup, never sent to Quire’s server or to AI. Read a book for a few minutes and come back.</string>
     <string name="stats_recording_off">Recording is off. Turn on %1$s → %2$s to count your reading.</string>
     <string name="stats_today">Today</string>
     <string name="stats_this_week">This week</string>
@@ -51,7 +51,7 @@
     <string name="stats_clear_body">This removes every reading session stored on this device. It can’t be undone.</string>
     <string name="stats_clear_confirm">Clear</string>
     <string name="settings_record_stats">Record reading statistics</string>
-    <string name="settings_record_stats_description">Counts how long, when and how fast you read, on this device only. See them in the library under %1$s → %2$s.</string>
+    <string name="settings_record_stats_description">Counts how long, when and how fast you read. Kept on this device and in your phone’s own backup, never sent to Quire’s server or to AI. See them in the library under %1$s → %2$s.</string>
     <string name="settings_stats_off_title">Clear stored statistics?</string>
     <string name="settings_stats_off_body">Recording has stopped. Keep the statistics already stored, or clear them?</string>
     <string name="settings_stats_keep">Keep</string>

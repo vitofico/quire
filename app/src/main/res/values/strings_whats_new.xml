@@ -16,5 +16,5 @@
     <string name="whats_new_pdf_conversion_title">Turn PDFs into books</string>
     <string name="whats_new_pdf_conversion_description">Share a PDF with Quire, or add one with + in the library, and your Quire server converts it to an EPUB in your library. It’s converted on your own server and sent nowhere else. Follow it in %1$s → %2$s in the library.</string>
     <string name="whats_new_reading_stats_title">See how you read</string>
-    <string name="whats_new_reading_stats_description">Quire now counts how long, when and how fast you read, on this device only. See your streaks, your speed and how long a book has left in the library under %1$s → %2$s. You can turn it off in Settings.</string>
+    <string name="whats_new_reading_stats_description">Quire now counts how long, when and how fast you read. It is kept on this device and in your phone’s own backup, never sent to Quire’s server or to AI. See your streaks, your speed and how long a book has left in the library under %1$s → %2$s. You can turn it off in Settings.</string>
 </resources>

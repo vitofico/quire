@@ -2,7 +2,7 @@
 <resources>
     <string name="stats_title">Statistiques de lecture</string>
     <string name="stats_empty_title">Les statistiques commencent maintenant</string>
-    <string name="stats_empty_body">Quire compte votre lecture à partir de cette version, sur cet appareil uniquement : il n’y a donc pas d’historique antérieur. Lisez un livre quelques minutes, puis revenez.</string>
+    <string name="stats_empty_body">Quire compte votre lecture à partir de cette version : il n’y a donc pas d’historique antérieur. Les données restent sur cet appareil et dans la sauvegarde de votre téléphone, et ne sont jamais envoyées au serveur de Quire ni à l’IA. Lisez un livre quelques minutes, puis revenez.</string>
     <string name="stats_recording_off">L’enregistrement est désactivé. Activez-le dans %1$s → %2$s pour compter votre lecture.</string>
     <string name="stats_today">Aujourd’hui</string>
     <string name="stats_this_week">Cette semaine</string>
@@ -54,7 +54,7 @@
     <string name="stats_clear_body">Toutes les séances de lecture enregistrées sur cet appareil seront supprimées. Cette action est irréversible.</string>
     <string name="stats_clear_confirm">Effacer</string>
     <string name="settings_record_stats">Enregistrer les statistiques de lecture</string>
-    <string name="settings_record_stats_description">Compte combien de temps, quand et à quelle vitesse vous lisez, sur cet appareil uniquement. À retrouver dans la bibliothèque, sous %1$s → %2$s.</string>
+    <string name="settings_record_stats_description">Compte combien de temps, quand et à quelle vitesse vous lisez. Les données restent sur cet appareil et dans la sauvegarde de votre téléphone, et ne sont jamais envoyées au serveur de Quire ni à l’IA. À retrouver dans la bibliothèque, sous %1$s → %2$s.</string>
     <string name="settings_stats_off_title">Effacer les statistiques enregistrées ?</string>
     <string name="settings_stats_off_body">L’enregistrement est arrêté. Conserver les statistiques déjà enregistrées, ou les effacer ?</string>
     <string name="settings_stats_keep">Conserver</string>
