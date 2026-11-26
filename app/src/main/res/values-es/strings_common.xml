@@ -114,7 +114,6 @@
     <string name="common_abandoned_books_hidden">"Libros abandonados ocultos"</string>
     <string name="common_show_abandoned">"Mostrar abandonados"</string>
     <string name="common_insights">"Análisis"</string>
-    <string name="common_stats">"Estadísticas"</string>
     <string name="common_search_library">"Buscar en la biblioteca"</string>
     <string name="common_close_search">"Cerrar búsqueda"</string>
     <string name="common_library">"Biblioteca · %1$s"</string>
@@ -131,7 +130,6 @@
     <string name="common_your_shelf_is_empty">"Tu estantería está vacía."</string>
     <string name="common_restoring">"Restaurando… (%1$s/%2$s)"</string>
     <string name="common_restoring_2">"Restaurando…"</string>
-    <string name="common_library_stats">"Estadísticas de la biblioteca"</string>
     <string name="common_loading">"Cargando…"</string>
     <string name="common_reading">"Leyendo"</string>
     <string name="common_top_authors_2">"Autores principales"</string>

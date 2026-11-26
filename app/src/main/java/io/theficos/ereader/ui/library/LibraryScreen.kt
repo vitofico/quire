@@ -127,7 +127,6 @@ fun LibraryScreen(
     viewModel: LibraryViewModel,
     onOpenBook: (documentId: Long) -> Unit,
     onShowDetails: (documentId: Long) -> Unit = {},
-    onShowStats: () -> Unit = {},
     onShowReadingStats: () -> Unit = {},
     onShowInsights: () -> Unit = {},
     sideloadImporter: SideloadImporter? = null,
@@ -372,13 +371,6 @@ fun LibraryScreen(
                                 onClick = {
                                     moreMenuOpen = false
                                     onShowInsights()
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.common_stats)) },
-                                onClick = {
-                                    moreMenuOpen = false
-                                    onShowStats()
                                 },
                             )
                             DropdownMenuItem(

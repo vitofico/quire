@@ -1,10 +1,24 @@
 # Reading statistics
 
 **More → Reading statistics** in the library (also the chart button on the insights
-screen) shows how long, when and how fast someone reads. Settings has **Record
-reading statistics**, on by default; turning it off stops new sessions and offers
-to clear the stored ones. Statistics are kept on the device and in the phone's own
-Android backup; they are never synchronised with Quire's server or sent to AI.
+screen) is the app's one statistics screen. It shows how long, when and how fast
+someone reads, from sessions recorded on this device, and a **Your library** card
+with the figures Quire's server counts. Settings has **Record reading statistics**,
+on by default; turning it off stops new sessions and offers to clear the stored
+ones. Statistics are kept on the device and in the phone's own Android backup;
+they are never synchronised with Quire's server or sent to AI.
+
+## Library figures
+
+The **Your library** card comes from the server's `GET /library/v1/stats`: how many
+books the library holds, how many are finished, being read and abandoned, the top
+authors and the top themes from AI insights. The server counts every book in the
+library and the progress synced from every device, so it needs no recorded sessions
+and still shows with recording off. Its finished count therefore replaces the
+device's own **Books finished** tile while it is there; when the server can't be
+reached the card says why with a retry, and the tile counts the books finished on
+this device instead. Without a Quire server set up the card is left out. The last figures received are kept in memory for the life of
+the app and shown at once on reopening while fresh ones load.
 
 ## What a session is
 

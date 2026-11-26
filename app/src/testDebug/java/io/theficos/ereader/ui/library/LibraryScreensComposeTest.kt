@@ -3,11 +3,7 @@ package io.theficos.ereader.ui.library
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
-import io.theficos.ereader.data.library.LibraryStatsResponse
-import io.theficos.ereader.data.library.TopAuthor
-import io.theficos.ereader.data.library.TopTheme
 import io.theficos.ereader.ui.englishContext
-import kotlinx.coroutines.CompletableDeferred
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -50,38 +46,5 @@ class LibraryScreensComposeTest {
             .assertIsDisplayed()
         composeRule.onNodeWithText("Open AI settings").assertIsDisplayed()
         composeRule.onNodeWithText("Library insights").assertIsDisplayed()
-    }
-
-    @Test
-    fun libraryStats_ready_rendersAbandonedTileWithCount() {
-        val stats = LibraryStatsResponse(
-            totalBooks = 10,
-            finishedCount = 4,
-            inProgressCount = 2,
-            abandonedCount = 3,
-            topAuthors = listOf(TopAuthor("Ursula K. Le Guin", 4)),
-            topThemes = listOf(TopTheme("science_fiction", 5, "v3+ insights only")),
-            themesCaveat = "Themes are AI-derived",
-        )
-
-        // Block the background fetch on a never-completed deferred so the VM
-        // keeps the `Ready(cached)` we seeded via the cache — no flakiness
-        // from a parallel fetch() racing with the assertions.
-        val never = CompletableDeferred<LibraryStatsResponse>()
-        val cache = LibraryStatsCache().apply { lastReady = stats }
-        val vm = LibraryStatsViewModel(
-            fetch = { never.await() },
-            cache = cache,
-        )
-
-        composeRule.setContent {
-            LibraryStatsScreen(viewModel = vm, onBack = {})
-        }
-
-        composeRule.onNodeWithText("Library stats").assertIsDisplayed()
-        composeRule.onNodeWithText("Abandoned").assertIsDisplayed()
-        // Abandoned count (3) + top-author count (4) both render; spot-check both.
-        composeRule.onNodeWithText("3").assertIsDisplayed()
-        composeRule.onNodeWithText("Ursula K. Le Guin").assertIsDisplayed()
     }
 }

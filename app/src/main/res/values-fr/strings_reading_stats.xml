@@ -58,4 +58,6 @@
     <string name="settings_stats_off_title">Effacer les statistiques enregistrées ?</string>
     <string name="settings_stats_off_body">L’enregistrement est arrêté. Conserver les statistiques déjà enregistrées, ou les effacer ?</string>
     <string name="settings_stats_keep">Conserver</string>
+    <string name="stats_library">Votre bibliothèque</string>
+    <string name="stats_library_note">Comptés par votre serveur Quire, pour tous les livres de votre bibliothèque et sur tous vos appareils.</string>
 </resources>

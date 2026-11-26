@@ -55,4 +55,6 @@
     <string name="settings_stats_off_title">Gespeicherte Statistik löschen?</string>
     <string name="settings_stats_off_body">Die Aufzeichnung ist beendet. Möchtest du die bereits gespeicherte Statistik behalten oder löschen?</string>
     <string name="settings_stats_keep">Behalten</string>
+    <string name="stats_library">Deine Bibliothek</string>
+    <string name="stats_library_note">Von deinem Quire-Server gezählt: alle Bücher deiner Bibliothek, auf all deinen Geräten.</string>
 </resources>

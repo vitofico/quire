@@ -2,16 +2,24 @@ package io.theficos.ereader.ui.stats
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import io.theficos.ereader.data.library.LibraryHttpException
+import io.theficos.ereader.data.library.LibraryStatsResponse
+import io.theficos.ereader.ui.UiText
+import io.theficos.ereader.ui.uiText
+import io.theficos.quire.R
 import java.time.DayOfWeek
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
 import java.time.temporal.WeekFields
 import java.util.Locale
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -20,8 +28,38 @@ import kotlinx.coroutines.launch
 
 data class ReadingStatsUiState(val stats: ReadingStats, val recording: Boolean)
 
+/** The library figures Quire's server counts: every book in the library, on every device. */
+sealed interface LibraryStatsUiState {
+    data object Loading : LibraryStatsUiState
+    data class Ready(val stats: LibraryStatsResponse) : LibraryStatsUiState
+    data class Error(val message: UiText) : LibraryStatsUiState
+
+    /** No Quire server is set up, so there are no library figures to show. */
+    data object NoServer : LibraryStatsUiState
+}
+
+/**
+ * The last library figures the server sent, for the life of the process. It lives on
+ * `AppContainer`, not on the view model, so reopening the screen shows them at once
+ * while a fresh copy loads.
+ */
+class LibraryStatsCache {
+    @Volatile var lastReady: LibraryStatsResponse? = null
+}
+
+/**
+ * The Statistics screen: reading sessions recorded on this device ([state]) and the
+ * server's library figures ([library]).
+ *
+ * The library figures are fetched on every [loadLibrary], showing the cached ones
+ * meanwhile. A failed fetch keeps cached figures on screen and shows an error only when
+ * there are none. Only the latest fetch may change [library], so an earlier one that
+ * ends late cannot overwrite it.
+ */
 class ReadingStatsViewModel(
     private val repository: ReadingStatsRepository,
+    private val fetchLibrary: suspend () -> LibraryStatsResponse,
+    private val libraryCache: LibraryStatsCache = LibraryStatsCache(),
     nowMs: () -> Long = System::currentTimeMillis,
     zone: () -> ZoneId = ZoneId::systemDefault,
     firstDayOfWeek: () -> DayOfWeek = { WeekFields.of(Locale.getDefault()).firstDayOfWeek },
@@ -53,7 +91,41 @@ class ReadingStatsViewModel(
         )
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    private val _library = MutableStateFlow(libraryCache.readyOrLoading())
+    val library: StateFlow<LibraryStatsUiState> = _library.asStateFlow()
+
+    @Volatile private var libraryRequest = 0L
+
+    fun loadLibrary() {
+        _library.value = libraryCache.readyOrLoading()
+        val mine = ++libraryRequest
+        viewModelScope.launch {
+            val result = try {
+                LibraryStatsUiState.Ready(fetchLibrary())
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: LibraryHttpException) {
+                // The client throws code 0 before any request when no server address is set.
+                if (e.code == 0) LibraryStatsUiState.NoServer else LibraryStatsUiState.Error(messageForHttp(e.code))
+            } catch (e: Throwable) {
+                LibraryStatsUiState.Error(uiText(R.string.library_couldn_t_reach_the_server_2, e.message ?: ""))
+            }
+            if (mine != libraryRequest) return@launch
+            if (result is LibraryStatsUiState.Ready) libraryCache.lastReady = result.stats
+            if (result is LibraryStatsUiState.Ready || libraryCache.lastReady == null) _library.value = result
+        }
+    }
+
     fun clear() {
         viewModelScope.launch { repository.clear() }
+    }
+
+    private fun LibraryStatsCache.readyOrLoading(): LibraryStatsUiState =
+        lastReady?.let { LibraryStatsUiState.Ready(it) } ?: LibraryStatsUiState.Loading
+
+    private fun messageForHttp(code: Int): UiText = when (code) {
+        401 -> uiText(R.string.library_sign_in_to_your_calibre_web_instance)
+        404 -> uiText(R.string.library_library_stats_aren_t_available_on_this)
+        else -> uiText(R.string.library_couldn_t_load_stats_http, code)
     }
 }

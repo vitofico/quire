@@ -57,8 +57,6 @@ import io.theficos.ereader.ui.convert.ConversionsViewModel
 import io.theficos.ereader.ui.library.LibraryInsightsScreen
 import io.theficos.ereader.ui.library.LibraryInsightsViewModel
 import io.theficos.ereader.ui.library.LibraryScreen
-import io.theficos.ereader.ui.library.LibraryStatsScreen
-import io.theficos.ereader.ui.library.LibraryStatsViewModel
 import io.theficos.ereader.ui.library.LibraryViewModel
 import io.theficos.ereader.ui.main.MainScaffold
 import io.theficos.ereader.ui.main.Tab
@@ -298,7 +296,6 @@ fun AppNavGraph(
                         viewModel = libVm,
                         onOpenBook = { id -> nav.navigate("reader/$id") },
                         onShowDetails = { id -> nav.navigate("book/$id") },
-                        onShowStats = { nav.navigate("library/stats") },
                         onShowReadingStats = { nav.navigate("library/reading-stats") },
                         onShowInsights = { nav.navigate("library/insights") },
                         sideloadImporter = container.sideloadImporter,
@@ -525,18 +522,17 @@ fun AppNavGraph(
             LaunchedEffect(Unit) { container.whatsNewPreferencesStore.markSeen(WHATS_NEW_LATEST_ENTRY_ID) }
             WhatsNewScreen(onBack = { nav.popBackStack() })
         }
-        composable("library/stats") {
-            val vm: LibraryStatsViewModel = viewModel(
-                factory = viewModelFactory { initializer { container.libraryStatsViewModelFactory.create() } },
-            )
-            LibraryStatsScreen(
-                viewModel = vm,
-                onBack = { nav.popBackStack() },
-            )
-        }
         composable("library/reading-stats") {
             val vm: ReadingStatsViewModel = viewModel(
-                factory = viewModelFactory { initializer { ReadingStatsViewModel(container.readingStats) } },
+                factory = viewModelFactory {
+                    initializer {
+                        ReadingStatsViewModel(
+                            repository = container.readingStats,
+                            fetchLibrary = container.libraryClient::getStats,
+                            libraryCache = container.libraryStatsCache,
+                        )
+                    }
+                },
             )
             ReadingStatsScreen(viewModel = vm, onBack = { nav.popBackStack() })
         }
