@@ -1717,6 +1717,15 @@ The full-stack Compose defaults to `/opds`. Leave unset in the minimal stack
 to let readers configure their own catalogue. Credentials belong in the
 browser's catalogue settings.
 
+A Quire account can also hold this catalogue as a saved catalogue with its
+login (the Android app saves it so). Quire Web then shows it once and browses
+it with that login. To recognise it, the server compares the saved address
+with this setting; a path such as `/opds` is resolved against
+`QUIRE_SERVER_CANONICAL_URL`, else `QUIRE_IDENTITY_PUBLIC_URL`, else the
+address each request arrived at. Behind a reverse proxy whose forwarded
+headers the server does not trust, that last one is plain `http`, so set one
+of the first two.
+
 #### `QUIRE_SERVER_WEB_GUEST_READING`
 
 Defaults to `true`. When the server offers sign-in, signed-out visitors first

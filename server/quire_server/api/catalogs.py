@@ -186,10 +186,18 @@ def _address(url: str) -> str | None:
 
 
 def _server_catalog(request: Request, settings: Settings) -> str | None:
-    """The address of the catalog this server offers every account (``web_catalog_url``)."""
+    """The address of the catalog this server offers every account (``web_catalog_url``).
+
+    A path such as ``/opds`` is on this server: resolved against its public
+    address when one is set, as the request's own scheme is ``http`` behind a
+    proxy whose forwarded headers are not trusted.
+    """
     if not settings.web_catalog_url:
         return None
-    return _address(urljoin(str(request.base_url), settings.web_catalog_url))
+    identity = getattr(request.app.state, "identity_settings", None)
+    public = settings.canonical_url or getattr(identity, "public_url", None)
+    base = public.rstrip("/") + "/" if public else str(request.base_url)
+    return _address(urljoin(base, settings.web_catalog_url))
 
 
 def _item(row: AccountCatalog, secret: dict | None) -> dict:

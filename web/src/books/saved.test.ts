@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeCatalogClient } from './opds'
-import { distinctSaved, listSavedCatalogs, removeSavedCatalog, savedCatalogHome, savedCatalogRequest, shownEntry, type SavedCatalog } from './saved'
+import { distinctSaved, listSavedCatalogs, removeSavedCatalog, removeWithCopies, savedCatalogHome, savedCatalogRequest, shownEntry, type SavedCatalog } from './saved'
 
 const catalog: SavedCatalog = {
   id: '6f1c',
@@ -43,6 +43,14 @@ describe('saved catalogs', () => {
     expect(shownEntry(list, 'twin', true)).toBe('kavita')
     expect(shownEntry(list, 'kavita', true)).toBe('kavita')
     expect(shownEntry(list, 'gone', true)).toBe('gone')
+  })
+
+  it('removes the entries repeating a catalog’s address with it, the shown one last', async () => {
+    const request = vi.fn(async (_path: string, _init?: RequestInit) => new Response(null, { status: 204 }))
+    const shown = { ...catalog, id: 'shown' }
+    const list = [shown, { ...catalog, id: 'twin', duplicate_of: 'shown' }, { ...catalog, id: 'other' }]
+    await removeWithCopies(request, shown, list)
+    expect(request.mock.calls.map(call => call[0])).toEqual(['/catalogs/v1/catalogs/twin', '/catalogs/v1/catalogs/shown'])
   })
 
   it('counts a catalog another device already removed as removed', async () => {

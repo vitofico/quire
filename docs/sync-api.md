@@ -780,13 +780,16 @@ catalog again with a `PUT`.
 
 `server_catalog: true` means the stored address is the catalog this server
 offers every account (`QUIRE_SERVER_WEB_CATALOG_URL`), as when the Android app
-saves its Calibre-Web login to the account. `duplicate_of` names the first
+saves its Calibre-Web login to the account. A path setting such as `/opds` is
+resolved against `QUIRE_SERVER_CANONICAL_URL`, else `QUIRE_IDENTITY_PUBLIC_URL`,
+else the address the request arrived at. `duplicate_of` names the first
 entry, in `position` order, holding the same address, else `null`. Addresses
 are compared with scheme and host case, a default port and trailing slashes
 ignored, so `https://Books.example.org:443/opds/` and
 `https://books.example.org/opds` are one catalog. Quire Web shows each catalog
 once from these. Both are `false` and `null` for a row that cannot be read.
-Only the list carries them, not the `PUT` answer.
+The list and the `PUT /catalogs/v1/order` answer carry them; the answer to
+`PUT /catalogs/v1/catalogs/{id}` does not.
 
 The response carries `ETag: "<revision>"`. Send it back as `If-None-Match`
 and an unchanged list is a `304` with no body. The revision changes on every

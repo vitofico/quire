@@ -20,6 +20,8 @@ export interface CatalogProps {
   catalogAuthenticated?: boolean
   signInCatalog?: (username: string, password: string, url?: string) => Promise<void>
   signOutCatalog?: () => void
+  /** Offer `signInCatalog` only once the catalog fails to open. */
+  signInOnError?: boolean
   /** Shown under the heading: the switcher between catalogs. */
   children?: ReactNode
   /** Move the focus to the heading when shown, as after adding this catalog. */
@@ -54,13 +56,16 @@ function Cover({ client, publication }: { client: Client; publication: OpdsPubli
 
 export function Catalog({
   url, authorization, request, onAcquire, onImport, t = key => key, apiRequest, aiAvailable,
-  catalogAuthenticated, signInCatalog, signOutCatalog, children, focusHeading,
+  catalogAuthenticated, signInCatalog: signIn, signOutCatalog, signInOnError, children, focusHeading,
 }: CatalogProps) {
   const heading = useRef<HTMLHeadingElement>(null)
   useEffect(() => {
     if (focusHeading) heading.current?.focus()
   }, [focusHeading])
   const [feed, setFeed] = useState<OpdsFeed>()
+  // The catalog's home did not open, so the sign-in held back by `signInOnError` is offered.
+  const [homeFailed, setHomeFailed] = useState(false)
+  const signInCatalog = signInOnError && !homeFailed ? undefined : signIn
   const [latest, setLatest] = useState<OpdsFeed>()
   const [client, setClient] = useState<Client>()
   const [trail, setTrail] = useState<OpdsFeed[]>([])
@@ -98,7 +103,9 @@ export function Catalog({
       }
       if (result.search) setSearchLink(result.search)
     } catch (reason) {
-      if (!operation.signal.aborted) setError(reason instanceof Error ? reason.message : String(reason))
+      if (operation.signal.aborted) return
+      setError(reason instanceof Error ? reason.message : String(reason))
+      if (!history.length) setHomeFailed(true)
     } finally {
       if (!operation.signal.aborted) setLoading(false)
     }
@@ -115,6 +122,7 @@ export function Catalog({
     setAcquired(undefined)
     setDownloading(false)
     setError('')
+    setHomeFailed(false)
     setLoading(false)
     try {
       const active = makeCatalogClient({ url, authorization, request })

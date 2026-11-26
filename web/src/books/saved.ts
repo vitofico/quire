@@ -35,13 +35,24 @@ export function shownEntry(saved: SavedCatalog[], id: string, serverCatalogShown
   return entry.duplicate_of ?? id
 }
 
+export const listDeadlineMs = 8_000
+
 /** The account's saved catalogs; none when the server keeps no list. */
 export async function listSavedCatalogs(request: ApiRequest, signal?: AbortSignal): Promise<SavedCatalog[]> {
-  const response = await request('/catalogs/v1/catalogs', { signal })
+  // A list that does not answer soon is given up on: what waits for it goes ahead without it.
+  const deadline = AbortSignal.timeout(listDeadlineMs)
+  const response = await request('/catalogs/v1/catalogs', { signal: signal ? AbortSignal.any([signal, deadline]) : deadline })
   if (response.status === 404) return []
   if (!response.ok) throw new Error('Could not load your saved catalogs.')
   const body = await response.json() as { catalogs?: SavedCatalog[] }
   return Array.isArray(body.catalogs) ? body.catalogs : []
+}
+
+/** Remove `catalog` and the entries repeating its address, so none of them comes back in its place. */
+export async function removeWithCopies(request: ApiRequest, catalog: SavedCatalog, saved: SavedCatalog[]): Promise<void> {
+  for (const entry of [...saved.filter(c => c.duplicate_of === catalog.id), catalog]) {
+    await removeSavedCatalog(request, entry.id)
+  }
 }
 
 /** Remove a saved catalog from the account, and so from the reader's other devices. */

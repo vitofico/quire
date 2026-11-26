@@ -293,7 +293,7 @@ function Workspace({
       new URL(bootstrap.catalogUrl, location.origin).href
   const serverCopy =
     savedBrowsable && serverCatalogShown && !active.catalogRequest
-      ? saved.find((c) => c.server_catalog && !c.needs_login)
+      ? saved.find((c) => c.server_catalog && !c.needs_login && c.has_login)
       : undefined
   const catalogRequest = useMemo(
     () =>
@@ -1036,7 +1036,7 @@ function Workspace({
     const removeSaved = activeSaved && active.request && (
       <RemoveSavedCatalog
         catalog={activeSaved}
-        copies={saved.filter((c) => c.duplicate_of === activeSaved.id)}
+        saved={saved}
         request={active.request}
         onRemoved={removedSaved}
         t={t}
@@ -1094,7 +1094,9 @@ function Workspace({
           onAcquire={(blob, p, cover) =>
             imported(blob, p.epubHref, undefined, cover)
           }
-          signInCatalog={serverCopy ? undefined : account.signInCatalog}
+          signInCatalog={account.signInCatalog}
+          // Through the saved copy no login is asked, unless that copy fails.
+          signInOnError={!!serverCopy}
           signOutCatalog={account.signOutCatalog}
           catalogAuthenticated={active.catalogAuthenticated}
         >
