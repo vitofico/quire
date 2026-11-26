@@ -148,8 +148,11 @@ class BookDetailViewModelDetailsTest {
         assertThat(preview.changes.first().proposed).isEqualTo("Dune")
         assertThat(preview.coverOptions).isEmpty()
         assertThat(details.observe(bookId).first()).isNull()
+        assertThat(preview.kept(FIELD_TITLE)).isEqualTo("Dune")
+        assertThat(preview.kept(FIELD_SERIES)).isNull()
 
         vm.toggleChange(FIELD_AUTHORS)
+        assertThat(vm.state.value.details.preview!!.kept(FIELD_AUTHORS)).isNull()
         vm.applyPreview()
         val done = vm.state.first { it.details.preview == null && it.details.outcome.isNotEmpty() && it.details.shown?.let { shown -> shown.response.declined == null } == true }
 

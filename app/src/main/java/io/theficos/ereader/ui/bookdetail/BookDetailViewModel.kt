@@ -112,6 +112,9 @@ data class DetailsPreview(
     /** The preview of the cover that Apply would keep. */
     val cover: CoverLoad? get() = covers[if (coverOptions.isEmpty()) COVER_KEEP else choice]
 
+    /** What [field] reads after Apply when its change is ticked, else null: the book keeps its own. */
+    fun kept(field: String): String? = changes.firstOrNull { it.field == field && field in ticked }?.proposed
+
     val canApply: Boolean get() {
         val loading = cover.let { it == null || (it.preview == null && it.failed == null) }
         return !applying && !(loading && (coverOptions.isNotEmpty() || (newCover && keepCover)))

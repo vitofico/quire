@@ -194,7 +194,7 @@ private fun Covers(preview: DetailsPreview, shown: Document, ownCover: String?) 
         verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.padding(start = 48.dp),
     ) {
-        Value(R.string.details_current, indent = false) { Cover(shown.coverPath, shown) }
+        Value(R.string.details_current, indent = false) { Cover(shown.coverPath, shown.title, shown.author) }
         Value(R.string.details_proposed, indent = false) {
             val load = preview.cover
             val cover = load?.preview
@@ -209,8 +209,13 @@ private fun Covers(preview: DetailsPreview, shown: Document, ownCover: String?) 
                     CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
                 }
                 else -> {
-                    // No image of its own: the book's cover, when it has one, else none.
-                    Cover(cover.coverPath ?: ownCover.takeIf { cover.response.cover.url == null }, shown)
+                    // No image of its own: the book's cover, when it has one, else one drawn from
+                    // the details Apply would leave, as the book will draw it.
+                    Cover(
+                        cover.coverPath ?: ownCover.takeIf { cover.response.cover.url == null },
+                        preview.kept(FIELD_TITLE) ?: shown.title,
+                        preview.kept(FIELD_AUTHORS) ?: shown.author,
+                    )
                     val note = when {
                         cover.coverPath == null -> null
                         cover.response.cover.generated -> R.string.details_generated_cover
@@ -227,9 +232,9 @@ private fun Covers(preview: DetailsPreview, shown: Document, ownCover: String?) 
 }
 
 @Composable
-private fun Cover(path: String?, shown: Document) {
+private fun Cover(path: String?, title: String, author: String?) {
     Box(Modifier.width(96.dp).aspectRatio(2f / 3f)) {
-        CoverImage(source = path, title = shown.title, author = shown.author, modifier = Modifier.fillMaxSize())
+        CoverImage(source = path, title = title, author = author, modifier = Modifier.fillMaxSize())
     }
 }
 
