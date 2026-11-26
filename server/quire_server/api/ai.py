@@ -16,7 +16,7 @@ from typing import Annotated
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, Response, status
-from sqlalchemy import and_, case, or_, select
+from sqlalchemy import and_, case, false, func, or_, select
 from sqlalchemy import delete as sa_delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -56,6 +56,7 @@ from quire_server.config import get_settings
 from quire_server.core.ai.client import ProviderError, ProviderTimeout
 from quire_server.core.ai.discuss import DiscussInvalid, check_limits, discuss
 from quire_server.core.ai.health_state import AiHealthState
+from quire_server.core.ai.prompts import _ISO_639_2_TO_1
 from quire_server.core.ai.provider_errors import describe
 from quire_server.core.ai.service import (
     IdentityUnresolvable,
@@ -181,6 +182,14 @@ def _effective_style(pref: UserAIPreference | None, request: Request) -> AiStyle
         return style
     language = _app_language(request)
     return style if language is None else style.model_copy(update={"language": language})
+
+
+def _book_language_is(column, code: str):
+    """SQL for "this language tag folds to ``code``", the same folding as
+    ``_normalize_book_language`` (``it``, ``it-IT``, ``it_IT``, ``ita``)."""
+    primaries = [code, *(three for three, two in _ISO_639_2_TO_1.items() if two == code)]
+    primary = func.split_part(func.replace(func.trim(column), "_", "-"), "-", 1)
+    return func.lower(primary).in_(primaries)
 
 
 def _truncate(value: str | None, *, limit: int) -> str | None:
@@ -670,6 +679,19 @@ async def sync_insights(
         # must be set; treat the absence as a 503 rather than a 500.
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="ai_disabled")
 
+    # An insight cached while `auto` meant the book's own language already
+    # reads right when that is the language asked for, so it syncs too, after
+    # one written in the language itself.
+    language_match = or_(
+        BookInsight.language == style.language,
+        and_(
+            BookInsight.language == "auto", _book_language_is(LibraryItem.language, style.language)
+        )
+        if style.language != "auto"
+        else false(),
+    )
+    language_priority = case((BookInsight.language == style.language, 0), else_=1)
+
     # PR9 priority pattern: prefer metadata-id matches over content-hash-only.
     pick_priority = case(
         (
@@ -706,7 +728,7 @@ async def sync_insights(
                 BookInsight.model_id == current_model,
                 BookInsight.prompt_version == current_pv,
                 BookInsight.tone == style.tone,
-                BookInsight.language == style.language,
+                language_match,
                 or_(
                     and_(
                         BookInsight.metadata_id.is_not(None),
@@ -720,7 +742,7 @@ async def sync_insights(
             LibraryItem.user_id == principal.subject,
             LibraryItem.deleted_at.is_(None),
         )
-        .order_by(LibraryItem.pk, pick_priority, BookInsight.generated_at.desc())
+        .order_by(LibraryItem.pk, language_priority, pick_priority, BookInsight.generated_at.desc())
         .distinct(LibraryItem.pk)
         .subquery()
     )
@@ -774,7 +796,8 @@ async def sync_insights(
             prompt_version=r.ins_prompt_version,
             schema_version=(r.ins_payload or {}).get("schema_version", 4),
             tone=r.ins_tone,
-            language=r.ins_language,
+            # The key the reader's cache is on, also for a reused `auto` row.
+            language=style.language,
             generated_at=r.ins_generated_at.isoformat(),
         )
         for r in rows
