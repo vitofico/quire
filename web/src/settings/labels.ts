@@ -66,11 +66,11 @@ export const settingsLabels: Record<string, [string, string, string, string]> = 
     'Supprimer tous les livres téléchargés',
     'Alle heruntergeladenen Bücher entfernen',
   ],
-  'Frees space in this browser. Your library, reading progress and passages stay, and books only on this device keep their files.': [
-    'Libera espacio en este navegador. Tu biblioteca, tu progreso de lectura y tus pasajes se conservan, y los libros que solo están en este dispositivo mantienen sus archivos.',
-    'Libera spazio in questo browser. La libreria, i progressi di lettura e i brani restano, e i libri presenti solo su questo dispositivo mantengono i loro file.',
-    'Libère de l’espace dans ce navigateur. Votre bibliothèque, votre progression et vos passages restent, et les livres présents uniquement sur cet appareil gardent leurs fichiers.',
-    'Gibt Platz in diesem Browser frei. Deine Bibliothek, dein Lesefortschritt und deine Passagen bleiben, und Bücher, die nur auf diesem Gerät sind, behalten ihre Dateien.',
+  'Frees space in this browser. Books you can download again from a catalog are cleared; books you added from a file keep theirs. Your library, reading progress and passages stay.': [
+    'Libera espacio en este navegador. Se quitan los libros que puedes volver a descargar de un catálogo; los que añadiste desde un archivo lo conservan. Tu biblioteca, tu progreso de lectura y tus pasajes se conservan.',
+    'Libera spazio in questo browser. Vengono rimossi i libri che puoi riscaricare da un catalogo; quelli aggiunti da un file lo conservano. La libreria, i progressi di lettura e i brani restano.',
+    'Libère de l’espace dans ce navigateur. Les livres que vous pouvez retélécharger depuis un catalogue sont supprimés ; ceux ajoutés depuis un fichier le gardent. Votre bibliothèque, votre progression et vos passages restent.',
+    'Gibt Platz in diesem Browser frei. Bücher, die du erneut aus einem Katalog laden kannst, werden entfernt; aus einer Datei hinzugefügte behalten ihre. Deine Bibliothek, dein Lesefortschritt und deine Passagen bleiben.',
   ],
   'Remove all {count} downloaded books from this browser?': [
     '¿Quitar los {count} libros descargados de este navegador?',

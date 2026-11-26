@@ -48,15 +48,18 @@ describe('settings text', () => {
 })
 
 describe('removing all downloads', () => {
-  it('clears only the files of books the account holds', () => {
-    const book = (key: string, synced: boolean, localOnly: boolean, hasDownload = true) => ({ key, synced, localOnly, hasDownload })
+  it('clears only files Quire can fetch again from a catalog', () => {
+    const book = (key: string, synced: boolean, localOnly: boolean, opds_href?: string, hasDownload = true) =>
+      ({ key, synced, localOnly, opds_href, hasDownload })
+    const catalog = 'https://books.example.org/opds/download/7/epub/'
     const books = [
-      book('synced', true, false),
+      book('from a catalog', true, false, catalog),
+      book('added from a file, details synced', true, false),
       book('imported here, never uploaded', false, true),
-      book('waiting to upload', false, false),
-      book('kept in this browser beside the account edition', true, true),
-      book('not downloaded', true, false, false),
+      book('waiting to upload', false, false, catalog),
+      book('kept in this browser beside the account edition', true, true, catalog),
+      book('not downloaded', true, false, catalog, false),
     ]
-    expect(removableDownloads(books).map((b) => b.key)).toEqual(['synced'])
+    expect(removableDownloads(books).map((b) => b.key)).toEqual(['from a catalog'])
   })
 })

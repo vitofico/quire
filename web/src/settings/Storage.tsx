@@ -3,12 +3,15 @@ import { ask } from '../ask'
 import { Setting, type Translate } from './Settings'
 
 /**
- * The downloads Remove all may clear: books the Quire account holds. A book only
- * in this browser, or one still waiting to reach the account, keeps its file,
- * since that file may be its only copy.
+ * The downloads Remove all may clear: those Quire can fetch again, books the
+ * account holds that came from a catalog. The account keeps a book's details,
+ * not its file, so a book added from a file keeps it: that may be its only copy.
+ * The catalog source is what the app needs to offer Download from catalog.
  */
-export function removableDownloads<Book extends { hasDownload: boolean; synced: boolean; localOnly: boolean }>(books: Book[]): Book[] {
-  return books.filter((book) => book.hasDownload && book.synced && !book.localOnly)
+export function removableDownloads<Book extends {
+  hasDownload: boolean; synced: boolean; localOnly: boolean; opds_href?: string | null
+}>(books: Book[]): Book[] {
+  return books.filter((book) => book.hasDownload && book.synced && !book.localOnly && !!book.opds_href)
 }
 
 /** Whether the app works offline, what this browser holds, and keeping or clearing the downloads. */
@@ -95,7 +98,7 @@ export function StorageSettings({ t, downloads, removable, removeDownloads }: {
         <Setting
           action
           label={t('Remove all downloaded books')}
-          description={t('Frees space in this browser. Your library, reading progress and passages stay, and books only on this device keep their files.')}
+          description={t('Frees space in this browser. Books you can download again from a catalog are cleared; books you added from a file keep theirs. Your library, reading progress and passages stay.')}
         >
           {({ id, describedBy }) => (
             <button

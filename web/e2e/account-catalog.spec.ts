@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { strToU8, zipSync } from 'fflate'
 import { sampledContentHash } from '../src/books/epub'
 
 test.use({ actionTimeout: 10_000, navigationTimeout: 15_000 })
@@ -197,4 +198,45 @@ test('removing a saved catalog removes its repeated entries too', async ({ page 
   await page.getByRole('dialog').getByRole('button', { name: 'Remove' }).click()
   await expect(page.getByRole('status').filter({ hasText: 'Textos removed.' })).toBeVisible()
   expect(server.deletes.sort()).toEqual(['textos', 'textos-again'])
+})
+
+test('removing all downloads clears a catalog book, which downloads again, and keeps a book added from a file', async ({ page }) => {
+  const files = {
+    'META-INF/container.xml': strToU8('<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="book.opf"/></rootfiles></container>'),
+    'book.opf': strToU8('<package xmlns="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/" unique-identifier="id"><metadata><dc:title>From a File</dc:title><dc:identifier id="id">urn:uuid:0c3e2f1a-7b6d-4e5f-8a9b-1c2d3e4f5a6b</dc:identifier><dc:language>en</dc:language></metadata><manifest><item id="one" href="one.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="one"/></spine></package>'),
+    'one.xhtml': strToU8('<html xmlns="http://www.w3.org/1999/xhtml"><head><title>One</title></head><body><p>Added from a file.</p></body></html>'),
+  }
+  const local = Buffer.from(zipSync(files))
+  const fromCatalog = sampledContentHash(new Uint8Array(epub))
+  const fromFile = sampledContentHash(new Uint8Array(local))
+  const row = { authors: ['Quire'], updated_at: '2026-11-25T10:00:00Z', deleted_at: null }
+  await connect(page, { books: [
+    { ...row, content_hash: fromCatalog, title: 'Reader Pause Fixture', opds_href: 'https://books.example.org/opds/download/7/epub/', catalog_id: null },
+    // Its details reached the account, but the file never leaves this browser.
+    { ...row, content_hash: fromFile, title: 'From a File' },
+  ] })
+  await page.goto('/quire/#/book/' + encodeURIComponent(fromCatalog))
+  await page.getByRole('button', { name: 'Download from catalog' }).click()
+  await expect(page.getByRole('button', { name: 'Read', exact: true })).toBeVisible()
+  await page.goto('/quire/#/library')
+  await page.locator('input[type=file]').setInputFiles({ name: 'file.epub', mimeType: 'application/epub+zip', buffer: local })
+  await expect(page.getByRole('heading', { name: 'From a File' })).toBeVisible()
+
+  await page.goto('/quire/#/settings/storage')
+  const storage = page.getByRole('region', { name: 'Storage and offline' })
+  await expect(storage.getByRole('definition').nth(1)).toHaveText('2')
+  await expect(storage.getByRole('button', { name: 'Remove all', exact: true })).toHaveAccessibleDescription(/added from a file keep theirs/)
+  await storage.getByRole('button', { name: 'Remove all', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toContainText('Remove all 1 downloaded books')
+  await dialog.getByRole('button', { name: 'Remove all' }).click()
+  await expect(storage.getByRole('definition').nth(1)).toHaveText('1')
+  await expect(storage.getByRole('button', { name: 'Remove all', exact: true })).toHaveCount(0)
+
+  // The book from a file still opens; the catalog book downloads again.
+  await page.goto('/quire/#/book/' + encodeURIComponent(fromFile))
+  await expect(page.getByRole('button', { name: 'Read', exact: true })).toBeVisible()
+  await page.goto('/quire/#/book/' + encodeURIComponent(fromCatalog))
+  await page.getByRole('button', { name: 'Download from catalog' }).click()
+  await expect(page.getByRole('button', { name: 'Read', exact: true })).toBeVisible()
 })

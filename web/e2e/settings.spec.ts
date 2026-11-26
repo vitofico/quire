@@ -284,7 +284,7 @@ test('saved catalogs reorder and remove from settings through the account', asyn
   await expect(page.getByRole('region', { name: 'Catalogs' }).getByRole('listitem').first()).toContainText('Home shelf')
 })
 
-test('removing all downloads keeps the files of books only in this browser', async ({ page }) => {
+test('books added from a file keep their files, synced or still waiting to upload', async ({ page }) => {
   const server = await signedIn(page)
   await page.goto('/quire/#/library')
   await page.locator('input[type=file]').setInputFiles(book('Synced Fixture'))
@@ -299,15 +299,8 @@ test('removing all downloads keeps the files of books only in this browser', asy
   await expect.poll(() => server.rows.map(row => row.title)).toEqual(['Synced Fixture'])
   const storage = page.getByRole('region', { name: 'Storage and offline' })
   await expect(storage.getByRole('definition').nth(1)).toHaveText('2')
-  await storage.getByRole('button', { name: 'Remove all', exact: true }).click()
-  const dialog = page.getByRole('dialog')
-  await expect(dialog).toContainText('Remove all 1 downloaded books')
-  await dialog.getByRole('button', { name: 'Remove all' }).click()
-  await expect(storage.getByRole('definition').nth(1)).toHaveText('1')
-  // Nothing more the account holds: the waiting book keeps its file and the button goes.
+  // The account holds the synced book's details, not its file: neither file can come back.
   await expect(storage.getByRole('button', { name: 'Remove all', exact: true })).toHaveCount(0)
-  await page.goto('/quire/#/library')
-  await expect(page.getByRole('button', { name: /Synced Fixture/ }).first()).toBeVisible()
 })
 
 test('a book imported without an account is never offered for removal', async ({ page }) => {
