@@ -75,6 +75,9 @@ services:
       QUIRE_SERVER_DATABASE_URL: postgresql+asyncpg://opds_sync:${POSTGRES_PASSWORD:-changeme}@postgres:5432/opds_sync
       QUIRE_SERVER_CWA_BASE_URL: http://calibre-web:8083
       QUIRE_SERVER_WEB_CATALOG_URL: ${QUIRE_SERVER_WEB_CATALOG_URL:-/opds}
+      # Believe X-Forwarded-For so the sign-in limit counts readers, not
+      # Caddy. Safe only while Caddy is the sole way in: see `ports:` below.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-*}
     # Lets QUIRE_SERVER_AI_BASE_URL=http://host.docker.internal:11434/v1 reach
     # an Ollama running on the Docker host, on Linux as well as Docker Desktop.
     extra_hosts:
@@ -90,7 +93,8 @@ services:
       sh -c "python /app/scripts/migrate.py &&
              uvicorn quire_server.main:app --host 0.0.0.0 --port 8000"
     # No `ports:` mapping - quire-server is reached through Caddy.
-    # Add `ports: ["8000:8000"]` temporarily for direct debugging.
+    # Add `ports: ["127.0.0.1:8000:8000"]` temporarily for direct debugging;
+    # anything that can reach this port can forge a client address.
     healthcheck:
       # /readyz verifies DB connectivity + required-branch-head check.
       # 200 means migrations applied and dependent services reachable.

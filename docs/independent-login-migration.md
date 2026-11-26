@@ -52,7 +52,12 @@ For a server with many readers, start with one volunteer who uses two devices. S
 
 ## Let readers migrate themselves
 
-Set `QUIRE_SERVER_SELF_MIGRATION_ENABLED=true` in `transition` mode and route `POST /auth/v1/migrate`, `POST /auth/v1/migrate/claim`, `POST /auth/v1/pairing` and `POST /auth/v1/pairing/exchange` to Quire on the address the phones already use. The server accepts a migration only with a Calibre login that Calibre-Web confirms at that moment, which is stronger evidence than a matching name or email. `QUIRE_SERVER_LEGACY_CLAIM_DAYS` sets how long a reader's other devices may sign in with that same Calibre login (`0` turns it off). The manual procedure below remains for readers who cannot update the app, for conflicting emails, and for installations that prefer to verify each reader. An account you migrate by hand is never claimable.
+A server set up from `server/.env.example` already runs `transition` with `QUIRE_SERVER_SELF_MIGRATION_ENABLED=true`; an older `.env` needs both lines added. Route `POST /auth/v1/migrate`, `POST /auth/v1/migrate/claim`, `POST /auth/v1/pairing` and `POST /auth/v1/pairing/exchange` to Quire on the address the phones already use (the full-stack `server/caddy/Caddyfile` already does). The server accepts a migration only with a Calibre login that Calibre-Web confirms at that moment, which is stronger evidence than a matching name or email. `QUIRE_SERVER_LEGACY_CLAIM_DAYS` sets how long a reader's other devices may sign in with that same Calibre login (`0` turns it off). The manual procedure below remains for readers who cannot update the app, for conflicting emails, and for installations that prefer to verify each reader. An account you migrate by hand is never claimable.
+
+Know what this trusts. Whoever holds a reader's Calibre-Web password can migrate that reader, and nothing in Quire tells the real owner apart from someone who learned the password. Once that happens, the reader's own Calibre-Web sign-in to Quire stops and their reading data answers to the new account, and there is no button to undo it: see [If someone else migrated a reader](#if-someone-else-migrated-a-reader). Two things keep the window small:
+
+- **Calibre-Web's Guest account never signs in.** With anonymous browsing on, Calibre-Web accepts `Guest` with any password, so Quire refuses Guest on every route, including migration. A reader who used to sync as Guest loses sync after this upgrade until they sign in with their own Calibre-Web account ([details](configuration.md#quire_server_cwa_base_url)).
+- **Attempts are counted per reader.** Migration, claims and sign-in share a limit of 8 attempts per client address per minute. Behind your own reverse proxy or ingress, set [`FORWARDED_ALLOW_IPS`](configuration.md#forwarded_allow_ips) to the proxy's address, or every reader shares one address and one client can block the rest. The full-stack compose already does this.
 
 ## Migrate an existing reader
 
@@ -79,6 +84,35 @@ Arrange this with the reader. Verify control of both the historical Calibre acco
 
 4. If the reader administered Quire, the operator must add their verified `native:<id>` to `QUIRE_SERVER_ADMIN_USERS` and verify access under that principal. Explicit admin grants use the Quire identity. Handle pre-existing grants for remaining administrators separately.
 5. Tell the reader their account is ready and have them complete the [Android sign-in and two-device checks](#if-you-read-on-android). Keep the server in transition mode for the remaining readers.
+
+## If someone else migrated a reader
+
+Signs: the reader's Calibre-Web sign-in to Quire stops with `native_login_required` although they never created a Quire account, or the app offers to sign in to an email they do not know. There is no supported undo command yet. The manual recovery below closes the unknown account and gives the reader their Calibre-Web sign-in back. It cannot undo what the other person changed or downloaded while they held the account; only a backup from before the migration has that.
+
+1. Have the reader change their Calibre-Web password first, then wait a minute: Quire remembers a good Calibre-Web login for `QUIRE_SERVER_AUTH_CACHE_POSITIVE_TTL_S` (60 seconds by default). Without this, the other person can migrate the reader again straight away. Take a backup with `scripts/pg_backup.py`.
+2. Open the database (`docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'`) and find the account, replacing `alice` with the reader's Calibre-Web username in lower case:
+
+   ```sql
+   SELECT b.native_user_id, b.self_migrated_at, u.email
+   FROM calibre_account_bindings b JOIN native_users u ON u.id = b.native_user_id
+   WHERE b.calibre_user_id = 'alice';
+   ```
+
+   A filled `self_migrated_at` means the migration came from the app; an empty one means an operator ran it. Check with the reader that the email is not theirs.
+3. Close that account and release the reader's data, using the `native_user_id` from step 2 in place of `42`:
+
+   ```sql
+   BEGIN;
+   UPDATE native_users SET closed_at = now() WHERE id = 42;
+   UPDATE native_sessions SET revoked_at = COALESCE(revoked_at, now()) WHERE user_id = 42;
+   DELETE FROM pairing_tickets WHERE user_id = 42;
+   DELETE FROM calibre_account_bindings WHERE calibre_user_id = 'alice';
+   COMMIT;
+   ```
+
+   Every device signed in to the closed account loses access at once. The reader signs in with their Calibre-Web username and new password as before, and can then migrate to a Quire account of their own. The closed account keeps its email, so that address cannot be reused.
+
+Never run step 3 for a migration the reader made themselves: they would lose their Quire sign-in on every device.
 
 ## Troubleshooting and rollback
 

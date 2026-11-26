@@ -114,3 +114,47 @@ async def test_non_basic_header_rejected():
     with pytest.raises(HTTPException) as exc:
         await v.validate("Bearer xyz")
     assert exc.value.status_code == 401
+
+
+def _anonymous_browsing_transport():
+    """Calibre-Web with anonymous browsing on: Guest passes with any password."""
+    calls = {"count": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["count"] += 1
+        user, pw = base64.b64decode(request.headers["authorization"][6:]).decode().split(":", 1)
+        if user.lower() == "guest" or (user == "alice" and pw == "alicepass"):
+            return httpx.Response(200, text="<feed/>")
+        return httpx.Response(401)
+
+    return httpx.MockTransport(handler), calls
+
+
+@pytest.mark.parametrize("name", ["guest", "Guest", "GUEST"])
+async def test_calibre_web_guest_is_refused_without_asking_calibre_web(name):
+    t, calls = _anonymous_browsing_transport()
+    v = _validator(t, clock=_Clock())
+    with pytest.raises(HTTPException) as exc:
+        await v.validate(_basic(name, "any-password"))
+    assert (exc.value.status_code, exc.value.detail) == (401, "calibre_web_guest_login")
+    assert calls["count"] == 0
+
+
+async def test_guest_refusal_warns_the_operator_once(caplog):
+    t, _ = _anonymous_browsing_transport()
+    v = _validator(t, clock=_Clock())
+    for password in ("one", "two"):
+        with pytest.raises(HTTPException):
+            await v.validate(_basic("guest", password))
+    warnings = [r for r in caplog.records if "event=auth.guest_refused" in r.getMessage()]
+    assert len(warnings) == 1
+    assert "one" not in warnings[0].getMessage()
+
+
+async def test_anonymous_browsing_still_checks_real_readers():
+    t, _ = _anonymous_browsing_transport()
+    v = _validator(t, clock=_Clock())
+    assert await v.validate(_basic("alice", "alicepass")) == "alice"
+    with pytest.raises(HTTPException) as exc:
+        await v.validate(_basic("alice", "wrong"))
+    assert exc.value.detail == "invalid credentials"
