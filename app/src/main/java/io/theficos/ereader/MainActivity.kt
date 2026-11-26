@@ -40,7 +40,7 @@ class MainActivity : FragmentActivity() {
         // inset in AppNavGraph. Android 15 forces this anyway.
         styleSystemBars(dark = resources.configuration.uiModeIsNight())
         // A recreated activity already acted on the intent that started it.
-        if (savedInstanceState == null) intent.openRequest()?.let(openRequests::trySend)
+        if (savedInstanceState == null) intent.openRequest(this)?.let(openRequests::trySend)
         setContent {
             val container = (application as EReaderApp).container
             val theme by container.appThemePreferencesStore.flow.collectAsState()
@@ -62,7 +62,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        intent.openRequest()?.let(openRequests::trySend)
+        intent.openRequest(this)?.let(openRequests::trySend)
     }
 
     override fun onStart() {

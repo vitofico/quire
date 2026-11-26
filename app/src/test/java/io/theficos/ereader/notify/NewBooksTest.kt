@@ -39,6 +39,7 @@ class NewBooksTest {
     private fun newest(url: String, vararg books: OpdsPublication) { feeds[url] = OpdsFeed("new", emptyList(), books.toList()) }
 
     private val check get() = NewBooksCheck(
+        enabled = { store.settings.value.newBooks },
         catalogs = { catalogs.toList() },
         fetch = { url ->
             when (val value = feeds[url] ?: throw OpdsHttpException(404, "missing")) {
@@ -51,8 +52,11 @@ class NewBooksTest {
     )
 
     @Before fun setUp() {
-        context.getSharedPreferences("notification_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+        for (file in listOf("notification_prefs", "new_books_seen", DEVICE_PREFS)) {
+            context.getSharedPreferences(file, Context.MODE_PRIVATE).edit().clear().commit()
+        }
         store = NotificationPreferencesStore(context)
+        store.setNewBooks(true)
     }
 
     @Test fun `the first check records a baseline without notifying`() = runTest {
@@ -109,7 +113,7 @@ class NewBooksTest {
 
         assertThat(posted).isEmpty()
         assertThat(store.seenIds("plain")).isNull()
-        assertThat(store.settings.value.catalogsWithoutLatest).containsExactly("plain")
+        assertThat(store.catalogsWithoutLatest()).containsExactly("plain")
     }
 
     @Test fun `a refused login or a missing feed is quiet and not retried`() = runTest {
@@ -162,5 +166,41 @@ class NewBooksTest {
         check.run()
         store.setNewBooks(false)
         assertThat(store.seenIds("b")).isNull()
+    }
+
+    @Test fun `switching off while a check runs stops it before remembering or announcing`() = runTest {
+        catalog("a", "https://a.example/opds")
+        root("https://a.example/opds", "https://a.example/opds/new")
+        newest("https://a.example/opds/new", book("1"))
+        check.run()
+
+        newest("https://a.example/opds/new", book("2"), book("1"))
+        val racing = NewBooksCheck(
+            enabled = { store.settings.value.newBooks },
+            catalogs = { catalogs.toList() },
+            fetch = { url ->
+                // The reader switches the feature off while the newest feed is downloading.
+                if (url.endsWith("/new")) store.setNewBooks(false)
+                feeds.getValue(url) as OpdsFeed
+            },
+            store = store,
+            notify = { catalog, added -> posted += catalog.id to added.map { it.title } },
+        )
+        assertThat(racing.run()).isTrue()
+
+        assertThat(posted).isEmpty()
+        assertThat(store.seenIds("a")).isNull()
+        assertThat(store.catalogsWithoutLatest()).isEmpty()
+    }
+
+    @Test fun `remembered ids are kept apart from the backed-up switches`() = runTest {
+        catalog("a", "https://a.example/opds")
+        root("https://a.example/opds", "https://a.example/opds/new")
+        newest("https://a.example/opds/new", book("1"))
+        check.run()
+
+        val switches = context.getSharedPreferences("notification_prefs", Context.MODE_PRIVATE).all.keys
+        assertThat(switches.filter { it.startsWith("seen_") }).isEmpty()
+        assertThat(context.getSharedPreferences("new_books_seen", Context.MODE_PRIVATE).all).containsKey("seen_a")
     }
 }

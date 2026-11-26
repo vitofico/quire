@@ -2,6 +2,7 @@ package io.theficos.ereader.notify
 
 import android.content.Context
 import android.util.Log
+import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -49,10 +50,12 @@ internal fun diffNewBooks(previous: List<String>?, current: List<OpdsPublication
 /**
  * One pass over every saved catalog. Failures stay quiet: a catalog that refuses the login, is
  * gone, or answers with something unreadable is skipped until the next run; a timeout, a dropped
- * connection or a server error asks WorkManager to retry with its usual backoff. Logs carry the
- * catalog id and status codes only, never an address or a login.
+ * connection or a server error asks WorkManager to retry, an hour later. Logs carry the catalog
+ * id and status codes only, never an address or a login. If the reader switches the feature off
+ * mid-run, the run stops before remembering or announcing anything.
  */
 internal class NewBooksCheck(
+    private val enabled: () -> Boolean,
     private val catalogs: () -> List<SavedCatalog>,
     private val fetch: suspend (String) -> OpdsFeed,
     private val store: NotificationPreferencesStore,
@@ -72,6 +75,7 @@ internal class NewBooksCheck(
                     continue
                 }
                 val diff = diffNewBooks(store.seenIds(catalog.id), fetch(latest).publications)
+                if (!enabled()) return true
                 store.setSeenIds(catalog.id, diff.remembered)
                 if (diff.added.isNotEmpty()) notify(catalog, diff.added)
             } catch (e: CancellationException) {
@@ -87,7 +91,7 @@ internal class NewBooksCheck(
                 Log.i(TAG, "catalog=${catalog.id} unreadable: ${e.javaClass.simpleName}")
             }
         }
-        store.recordCheck(saved.map { it.id }.toSet(), withoutLatest)
+        if (enabled()) store.recordCheck(saved.map { it.id }.toSet(), withoutLatest)
         return !retry
     }
 
@@ -99,9 +103,11 @@ internal class NewBooksCheck(
 }
 
 /**
- * About every 12 hours, on any network with the battery not low. Any network rather than
- * unmetered: a check is a couple of small XML pages per catalog, and waiting for Wi-Fi would hold
- * the news back for days from a reader who is mostly on mobile data.
+ * About every 12 hours, on any network with the battery not low, and only while there is a saved
+ * catalog. Any network rather than unmetered: a check is a couple of small XML pages per catalog,
+ * and waiting for Wi-Fi would hold the news back for days from a reader who is mostly on mobile
+ * data. A failed run retries an hour later (not WorkManager's 30-second default), since a retry
+ * fetches every catalog again.
  */
 internal object NewBooksScheduler {
     private const val UNIQUE = "new-books-check"
@@ -114,6 +120,7 @@ internal object NewBooksScheduler {
                     .setRequiresBatteryNotLow(true)
                     .build(),
             )
+            .setBackoffCriteria(BackoffPolicy.LINEAR, 1, TimeUnit.HOURS)
             .build()
         WorkManager.getInstance(context.applicationContext)
             .enqueueUniquePeriodicWork(UNIQUE, ExistingPeriodicWorkPolicy.KEEP, request)
@@ -127,11 +134,15 @@ internal object NewBooksScheduler {
 class NewBooksWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val container = (applicationContext as? EReaderApp)?.container ?: return Result.success()
-        if (!container.notificationPreferencesStore.settings.value.newBooks) return Result.success()
+        val store = container.notificationPreferencesStore
+        if (!store.settings.value.newBooks) return Result.success()
+        // Notifications refused or this channel blocked: fetching would only move the baseline on.
+        if (!Notifier.canPost(applicationContext, Notifier.CHANNEL_NEW_BOOKS)) return Result.success()
         val check = NewBooksCheck(
+            enabled = { store.settings.value.newBooks },
             catalogs = { container.credentialStore.catalogs.value },
             fetch = container.opdsClient::fetch,
-            store = container.notificationPreferencesStore,
+            store = store,
             notify = { catalog, added -> Notifier.showNewBooks(applicationContext, catalog, added) },
         )
         return if (check.run()) Result.success() else Result.retry()
