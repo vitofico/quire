@@ -29,7 +29,7 @@
     <string name="details_cover_find_hint">"Da Open Library se ne ha una, altrimenti la disegna Quire."</string>
     <string name="details_cover_draw">"Copertina disegnata da Quire"</string>
     <string name="details_cover_paint">"Una copertina dipinta"</string>
-    <string name="details_cover_paint_hint">"Dipingerla richiede un po’: si vede la copertina disegnata finché non arriva."</string>
+    <string name="details_cover_paint_hint">"Per dipingerla ci vuole un po’: finché non arriva si vede la copertina disegnata."</string>
     <string name="details_apply">"Applica"</string>
     <string name="details_updated">"Aggiornato: %1$s."</string>
     <string name="details_changed_title">"titolo"</string>

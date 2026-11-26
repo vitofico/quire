@@ -234,7 +234,8 @@ class BookDetailViewModel(
             val changes = detailsChanges(doc, state.metadata, stored, proposal.answer.book)
             val newCover = proposedCover(doc, proposal.answer.cover) != shownCover(doc, stored)
             if (!choices && changes.isEmpty() && !newCover) {
-                details.close(proposal)
+                // Nothing to decide, so nothing is declined: the book keeps all it showed.
+                details.dismiss(proposal)
                 _state.update { it.copy(details = it.details.copy(improving = false, outcome = listOf(uiText(R.string.details_nothing_to_tidy)))) }
                 return@launch
             }
@@ -268,7 +269,7 @@ class BookDetailViewModel(
         loadCover(choice)
     }
 
-    /** Ends the preview, rejecting the tidy: a later lookup served the same record shows none of it. */
+    /** Ends the preview, rejecting the tidy: a later lookup served the same record brings none of its changes. */
     fun cancelPreview() {
         val preview = _state.value.details.preview ?: return
         if (preview.applying) return
@@ -330,8 +331,8 @@ class BookDetailViewModel(
     }
 
     override fun onCleared() {
-        // Leaving the book ends the preview, so the automatic pass goes on.
-        _state.value.details.preview?.let { details.close(it.proposal) }
+        // Leaving the book ends the preview, so the automatic pass goes on; an Apply under way finishes on its own.
+        _state.value.details.preview?.takeUnless { it.applying }?.let { details.close(it.proposal) }
     }
 
     private fun updatePreview(change: (DetailsPreview) -> DetailsPreview) = _state.update { state ->
@@ -372,7 +373,10 @@ private fun shownFields(own: Document, metadata: MetadataBundle?, stored: BookDe
     )
 }
 
-/** The fields whose [proposed] value differs from what the book shows now. */
+/**
+ * The fields whose [proposed] value differs from what the book shows now. A field proposed
+ * empty is left out: a found answer never empties a field, the book's own value shows instead.
+ */
 internal fun detailsChanges(own: Document, metadata: MetadataBundle?, stored: BookDetails?, proposed: DetailsBook): List<DetailsChange> {
     val now = shownFields(own, metadata, stored)
     val found = stored?.takeUnless { it.useOriginal }
@@ -388,7 +392,7 @@ internal fun detailsChanges(own: Document, metadata: MetadataBundle?, stored: Bo
         val current = now.getValue(field)
         val shownText = if (html) plainText(current) else current
         DetailsChange(field, current, next.getValue(field), currentIsHtml = html)
-            .takeIf { shownText.collapse() != it.proposed.collapse() }
+            .takeIf { it.proposed.isNotBlank() && shownText.collapse() != it.proposed.collapse() }
     }
 }
 

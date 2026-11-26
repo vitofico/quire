@@ -151,7 +151,7 @@ class BookDetailViewModelDetailsTest {
 
         vm.toggleChange(FIELD_AUTHORS)
         vm.applyPreview()
-        val done = vm.state.first { it.details.preview == null && it.details.outcome.isNotEmpty() && it.details.shown != null }
+        val done = vm.state.first { it.details.preview == null && it.details.outcome.isNotEmpty() && it.details.shown?.let { shown -> shown.response.declined == null } == true }
 
         assertThat(done.details.outcome.joinToString(" ") { it.asString(englishContext()) }).isEqualTo("Updated: title.")
         assertThat(done.details.shown!!.response.accepted).containsExactly(FIELD_TITLE, FIELD_SERIES, FIELD_DESCRIPTION)
@@ -169,6 +169,27 @@ class BookDetailViewModelDetailsTest {
 
         assertThat(done.details.preview).isNull()
         assertThat(done.details.outcome.single().asString(englishContext())).isEqualTo("These details already look right.")
+        // Nothing was there to reject, so nothing is kept.
+        assertThat(db.bookDetailsDao().find(bookId)).isNull()
+    }
+
+    @Test fun `a field the tidy would leave empty is not offered as a change`() = runTest {
+        bookId = documents.insert(
+            DocumentIdentity(contentHash = "h2"), "dune_frank_herbert", "Frank Herbert",
+            "${SIDELOAD_URL_PREFIX}v1/h2", "/nowhere2.epub", null, 0L,
+        )
+        answer("/details/v1/tidy", """{"key":"k","book":{"title":"Dune","authors":[]},"origins":{"title":"ai"},"tidy":"done"}""")
+        holdTidy.countDown()
+        val vm = viewModel()
+        vm.state.first { it.details.available }
+
+        vm.improveDetails()
+        val preview = vm.state.first { it.details.preview?.cover?.preview != null }.details.preview!!
+
+        assertThat(preview.changes.map { it.field }).containsExactly(FIELD_TITLE)
+        vm.applyPreview()
+        val done = vm.state.first { it.details.preview == null && it.details.outcome.isNotEmpty() }
+        assertThat(done.details.outcome.joinToString(" ") { it.asString(englishContext()) }).isEqualTo("Updated: title.")
     }
 
     @Test fun `the cover choices offered follow the server and the book`() = runTest {

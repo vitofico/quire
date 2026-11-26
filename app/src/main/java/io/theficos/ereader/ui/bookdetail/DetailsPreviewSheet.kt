@@ -4,6 +4,8 @@ import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -24,11 +26,14 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -67,9 +72,14 @@ internal fun DetailsPreviewSheet(
     onApply: () -> Unit,
     onCancel: () -> Unit,
 ) {
+    // While Apply runs the sheet stays: hiding it would reject what is being kept.
+    val applying by rememberUpdatedState(preview.applying)
     ModalBottomSheet(
-        onDismissRequest = { if (!preview.applying) onCancel() },
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        onDismissRequest = { if (!applying) onCancel() },
+        sheetState = rememberModalBottomSheetState(
+            skipPartiallyExpanded = true,
+            confirmValueChange = { it != SheetValue.Hidden || !applying },
+        ),
     ) {
         Column(
             modifier = Modifier
@@ -148,8 +158,8 @@ private fun Ticked(label: String, checked: Boolean, onToggle: () -> Unit) {
 }
 
 @Composable
-private fun Value(@StringRes label: Int, content: @Composable () -> Unit) {
-    Column(Modifier.padding(start = 48.dp)) {
+private fun Value(@StringRes label: Int, indent: Boolean = true, content: @Composable () -> Unit) {
+    Column(Modifier.padding(start = if (indent) 48.dp else 0.dp)) {
         Text(
             stringResource(label),
             style = MaterialTheme.typography.labelMedium,
@@ -174,12 +184,18 @@ private fun FieldText(value: String, field: String, html: Boolean) {
 }
 
 /** The cover shown now beside the one the choice gives. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Covers(preview: DetailsPreview, shown: Document, ownCover: String?) {
     Spacer(Modifier.height(8.dp))
-    Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(start = 48.dp)) {
-        Value(R.string.details_current) { Cover(shown.coverPath, shown) }
-        Value(R.string.details_proposed) {
+    // Wraps to two lines when large text leaves no room for both side by side.
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.padding(start = 48.dp),
+    ) {
+        Value(R.string.details_current, indent = false) { Cover(shown.coverPath, shown) }
+        Value(R.string.details_proposed, indent = false) {
             val load = preview.cover
             val cover = load?.preview
             when {

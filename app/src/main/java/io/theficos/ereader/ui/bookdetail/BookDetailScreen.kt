@@ -85,10 +85,10 @@ fun BookDetailScreen(
                 actions = {
                     val details = state.details
                     val hasInsight = state.insight !is InsightUiState.Hidden
-                    val stored = details.stored
-                    // Offered even with AI off, so found details can always be put away; only when it changes something.
-                    val switchable = stored != null && doc != null && differsFromOriginal(doc, state.metadata, stored)
-                    if (hasInsight || details.available || switchable) {
+                    // The stored answer, offered even with AI off so found details can always be put away,
+                    // but only while switching to or from it changes something the reader can see.
+                    val switchable = details.stored?.takeIf { doc != null && differsFromOriginal(doc, state.metadata, it) }
+                    if (hasInsight || details.available || switchable != null) {
                         IconButton(onClick = { menuExpanded = true }) {
                             Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.common_more))
                         }
@@ -116,18 +116,18 @@ fun BookDetailScreen(
                                     },
                                 )
                             }
-                            if (stored != null && switchable) {
+                            if (switchable != null) {
                                 DropdownMenuItem(
                                     text = {
                                         Text(
                                             stringResource(
-                                                if (stored.useOriginal) R.string.details_use_found else R.string.details_use_original,
+                                                if (switchable.useOriginal) R.string.details_use_found else R.string.details_use_original,
                                             ),
                                         )
                                     },
                                     onClick = {
                                         menuExpanded = false
-                                        viewModel.useOriginalDetails(!stored.useOriginal)
+                                        viewModel.useOriginalDetails(!switchable.useOriginal)
                                     },
                                 )
                             }
