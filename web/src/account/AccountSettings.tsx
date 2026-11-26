@@ -104,8 +104,7 @@ export function AccountSettings({ account, pending, sync, clear, t = label => la
   const connected = active.mode === 'connected'
   const reconnectBasic = active.offline && active.identity?.backend === 'calibreweb' && account.online && allowsBasic(bootstrap)
 
-  return <section aria-label={t('Account')}>
-    <h2>{t('Account')}</h2>
+  return <>
     {error && <p role="alert" className="notice">{t(error)}</p>}
     {account.nativeWebUrl && <p><a href={account.nativeWebUrl} target="_blank" rel="noopener noreferrer">
       {t('Open Quire sign-in')}
@@ -156,5 +155,5 @@ export function AccountSettings({ account, pending, sync, clear, t = label => la
         </> : <button type="button" disabled={busy || inspecting} onClick={() => void inspect(namespace)}>{t('Clear device data')}</button>}
       </div>)}
     </>}
-  </section>
+  </>
 }

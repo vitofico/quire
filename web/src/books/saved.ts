@@ -68,6 +68,37 @@ export async function removeSavedCatalog(request: ApiRequest, id: string): Promi
 }
 
 /**
+ * Every entry's id in the order that moves `id` one place up (-1) or down (1)
+ * among the catalogs shown, each repeat staying right after the entry it repeats.
+ * The server takes the whole list, repeats included.
+ */
+export function movedOrder(saved: SavedCatalog[], id: string, by: -1 | 1): string[] {
+  const sorted = [...saved].sort((a, b) => a.position - b.position)
+  const shown = sorted.filter(c => !c.duplicate_of)
+  const from = shown.findIndex(c => c.id === id), to = from + by
+  if (from >= 0 && to >= 0 && to < shown.length) [shown[from], shown[to]] = [shown[to], shown[from]]
+  const repeats = (c: SavedCatalog) => sorted.filter(entry => entry.duplicate_of === c.id)
+  const ids = shown.flatMap(c => [c, ...repeats(c)]).map(c => c.id)
+  // A repeat whose entry is gone keeps its place at the end.
+  return [...ids, ...sorted.filter(c => !ids.includes(c.id)).map(c => c.id)]
+}
+
+/** Save the account's catalog order, the same order the Android app shows; returns the list as it now stands. */
+export async function reorderSavedCatalogs(request: ApiRequest, ids: string[]): Promise<SavedCatalog[]> {
+  let response
+  try {
+    response = await request('/catalogs/v1/order', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
+    })
+  } catch {
+    throw new Error('Quire could not reach the server. Try again.')
+  }
+  if (!response.ok) throw new Error('Quire could not change the order. Try again later.')
+  const body = await response.json() as { catalogs?: SavedCatalog[] }
+  return Array.isArray(body.catalogs) ? body.catalogs : []
+}
+
+/**
  * Where browsing a saved catalog starts. The list gives only the catalog's
  * host, so this stands in for the saved address and the server fetches the
  * real one. The page then sees the catalog's paths, never its login.

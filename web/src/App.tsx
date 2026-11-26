@@ -4,6 +4,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -32,7 +33,11 @@ import {
 } from './books/saved'
 import { RemoveSavedCatalog } from './books/RemoveSavedCatalog'
 import { OpenCatalogs } from './books/OpenCatalogsPanel'
-import { OfflineSettings } from './OfflineSettings'
+import { BackgroundPicker, SettingsPage, Setting, ThemePicker, sectionFor, useVersion } from './settings/Settings'
+import { ReadingDefaults } from './settings/ReadingDefaults'
+import { SavedCatalogs } from './settings/SavedCatalogs'
+import { StorageSettings } from './settings/Storage'
+import { readThemeChoice, resolveTheme, type ThemeChoice } from './settings/theme'
 import { BookDetails } from './BookDetails'
 import { Passages } from './Passages'
 import { GuestImport } from './GuestImport'
@@ -71,7 +76,6 @@ const sectionIcons: Record<string, IconName> = {
   Discover: 'discover',
   Settings: 'settings',
 }
-const themes = ['System', 'Paper', 'Sage', 'Ink', 'Midnight']
 const href = (section: string, id?: string) =>
   '#/' + section.toLowerCase() + (id ? '/' + encodeURIComponent(id) : '')
 const go = (section: string, id?: string) => {
@@ -114,24 +118,28 @@ function getRoute() {
   }
   return { view: view || 'library', id }
 }
-function preference(key: string, fallback: string) {
+function stored(key: string) {
   try {
-    return localStorage.getItem('quire-ui:' + key) ?? fallback
+    return localStorage.getItem('quire-ui:' + key)
   } catch {
-    return fallback
+    return null
+  }
+}
+function store(key: string, value: string | null) {
+  try {
+    if (value === null) localStorage.removeItem('quire-ui:' + key)
+    else localStorage.setItem('quire-ui:' + key, value)
+  } catch {
+    /* private mode */
   }
 }
 function useOption(key: string, initial: string) {
-  const [value, set] = useState(() => preference(key, initial))
+  const [value, set] = useState(() => stored(key) ?? initial)
   return [
     value,
     (next: string) => {
       set(next)
-      try {
-        localStorage.setItem('quire-ui:' + key, next)
-      } catch {
-        /* private mode */
-      }
+      store(key, next)
     },
   ] as const
 }
@@ -163,17 +171,25 @@ function usePreferences() {
       ? navigator.language.split('-')[0]
       : 'en',
   )
-  const [theme, setTheme] = useOption('theme', 'System'),
+  const [theme, chooseTheme] = useState(() => readThemeChoice(stored)),
     [art, setArt] = useOption('art', 'on')
+  const setTheme = (next: ThemeChoice) => {
+    chooseTheme(next)
+    store('theme-mode', next.mode)
+    store('theme-light', next.light)
+    store('theme-dark', next.dark)
+    // The single theme an earlier version kept is now these three.
+    store('theme', null)
+  }
   useEffect(() => {
     document.documentElement.lang = lang
   }, [lang])
-  useEffect(() => {
+  // Before the first paint, so a dark theme never opens on a flash of paper.
+  useLayoutEffect(() => {
     const media = matchMedia('(prefers-color-scheme: dark)')
     const update = () => {
       const root = document.documentElement
-      root.dataset.theme =
-        theme === 'System' ? (media.matches ? 'ink' : 'paper') : theme.toLowerCase()
+      root.dataset.theme = resolveTheme(theme, media.matches)
       // Browser chrome follows the page, not the system scheme.
       document
         .querySelector('meta[name=theme-color]')
@@ -263,6 +279,8 @@ function Workspace({
     // The account whose list has answered once (or failed to).
     [savedOf, setSavedOf] = useState<unknown>()
   const viewingCatalog = route.view === 'catalog'
+  // Settings lists them too.
+  const listingCatalogs = viewingCatalog || route.view === 'settings' ? route.view : ''
   useEffect(() => {
     if (!savedListed || !active.request) {
       setSaved([])
@@ -282,7 +300,7 @@ function Workspace({
       },
     )
     return () => stop.abort()
-  }, [savedListed, active.request, viewingCatalog])
+  }, [savedListed, active.request, listingCatalogs])
   // The server's catalog can also be saved to the account, as the Android app
   // does with its Calibre login. It is one catalog: one chip, browsed through
   // that saved copy, which holds the login, unless the reader signed in here.
@@ -453,7 +471,9 @@ function Workspace({
     previousRoute.current = route
     if (
       (previous.view !== route.view || previous.id !== route.id) &&
-      route.view !== 'read'
+      route.view !== 'read' &&
+      // A link to one part of the settings focuses that part instead.
+      !(route.view === 'settings' && sectionFor(route.id))
     )
       main.current?.focus()
   }, [route])
@@ -1158,115 +1178,83 @@ function Workspace({
       </>
     )
   } else if (route.view === 'settings') {
-    const tabs = ['Appearance', 'Account', 'Storage', ...(aiAvailable ? ['Insights'] : []), 'About']
-    const tab = tabs.find((name) => name.toLowerCase() === route.id) ?? 'Appearance'
+    const downloaded = snapshot.books.filter((b) => b.hasDownload)
     content = (
-      <div className="narrow">
-        <h1>{t('Settings')}</h1>
-        <nav className="tabs" aria-label={t('Settings sections')}>
-          {tabs.map((name) => (
-            <a
-              key={name}
-              href={href('Settings', name.toLowerCase())}
-              aria-current={tab === name ? 'page' : undefined}
-            >
-              {t(name)}
-            </a>
-          ))}
-        </nav>
-        {tab === 'Appearance' && (
-          <section className="panel">
-            <fieldset className="swatches">
-              <legend>{t('Theme')}</legend>
-              {themes.map((name) => (
-                <label key={name} className="swatch" data-swatch={name.toLowerCase()}>
-                  <input
-                    type="radio"
-                    name="theme"
-                    value={name}
-                    checked={theme === name}
-                    onChange={() => setTheme(name)}
-                  />
-                  <span className="swatch-preview" aria-hidden="true">
-                    <i />
-                    <i />
-                  </span>
-                  {t(name)}
-                </label>
-              ))}
-            </fieldset>
-            <label className="field">
-              {t('Language')}
-              <select
-                aria-label={t('Language')}
-                value={lang}
-                onChange={(e) => setLang(e.target.value)}
-              >
-                {Object.entries(languages).map(([key, v]) => (
-                  <option key={key} value={key}>
-                    {v}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={art === 'on'}
-                onChange={(e) => setArt(e.target.checked ? 'on' : 'off')}
-              />
-              {t('Artwork')}
-            </label>
-          </section>
-        )}
-        {tab === 'Account' && (
-          <div className="panel">
-            <AccountSettings
-              account={account}
-              pending={snapshot.pending}
-              sync={sync}
-              clear={clearNamespace}
+      <SettingsPage t={t} focus={sectionFor(route.id)}>
+        {{
+          appearance: (
+            <>
+              <ThemePicker choice={theme} onChange={setTheme} t={t} />
+              <BackgroundPicker artwork={art === 'on'} onChange={(on) => setArt(on ? 'on' : 'off')} t={t} />
+              <Setting label={t('Language')} description={t('The language of Quire’s menus and messages in this browser.')}>
+                {({ id, describedBy }) => (
+                  <select id={id} aria-describedby={describedBy} value={lang} onChange={(e) => setLang(e.target.value)}>
+                    {Object.entries(languages).map(([key, v]) => (
+                      <option key={key} value={key} lang={key}>
+                        {v}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </Setting>
+            </>
+          ),
+          reading: <ReadingDefaults store={replica ?? undefined} lang={lang} t={t} />,
+          ai: <AiSettings t={t} request={active.request} aiAvailable={aiAvailable} />,
+          catalogs: savedListed && active.request && (
+            <SavedCatalogs
+              saved={saved}
+              request={active.request}
+              onChange={setSaved}
+              onRemoved={(c) => {
+                setSaved((list) => list.filter((item) => item.id !== c.id && item.duplicate_of !== c.id))
+                setNotice(t('{name} removed.').replace('{name}', c.name))
+              }}
               t={t}
             />
-            {transport && (
-              <p className="actions">
-                <button disabled={busy} onClick={() => void run(sync)}>
-                  {t(busy ? 'Syncing…' : 'Sync now')}
-                </button>
-                <span className="muted">
-                  {snapshot.pending} {t('pending')}
-                </span>
-              </p>
-            )}
-            {active.mode === 'connected' && syncEnabled && replica && (
-              <GuestImport destination={replica} t={t} />
-            )}
-          </div>
-        )}
-        {tab === 'Storage' && (
-          <OfflineSettings
-            t={t}
-            downloads={snapshot.books.filter((book) => book.hasDownload).length}
-          />
-        )}
-        {tab === 'Insights' && aiAvailable && (
-          <AiSettings t={t} request={active.request} aiAvailable={aiAvailable} />
-        )}
-        {tab === 'About' && (
-          <section className="panel">
-            <h2>{t('What’s new')}</h2>
-            <p>
-              {t(
-                'Read EPUBs, keep passages and continue from another device with Quire Web.',
+          ),
+          account: (
+            <>
+              <AccountSettings
+                account={account}
+                pending={snapshot.pending}
+                sync={sync}
+                clear={clearNamespace}
+                t={t}
+              />
+              {transport && (
+                <Setting
+                  action
+                  label={t('Sync now')}
+                  description={t(snapshot.pending === 1 ? '{count} pending change.' : '{count} pending changes.').replace(
+                    '{count}',
+                    String(snapshot.pending),
+                  )}
+                >
+                  {({ id, describedBy }) => (
+                    <button id={id} aria-describedby={describedBy} disabled={busy} onClick={() => void run(sync)}>
+                      {t(busy ? 'Syncing…' : 'Sync now')}
+                    </button>
+                  )}
+                </Setting>
               )}
-            </p>
-            <p className="actions">
-              <a href={noticesUrl}>{t('Open-source licenses')}</a>
-              <a href="https://github.com/vitofico/quire">{t('Source code')}</a>
-            </p>
-          </section>
-        )}
-      </div>
+              {active.mode === 'connected' && syncEnabled && replica && (
+                <GuestImport destination={replica} t={t} />
+              )}
+            </>
+          ),
+          storage: (
+            <StorageSettings
+              t={t}
+              downloads={downloaded.length}
+              removeDownloads={async () => {
+                for (const b of downloaded) await replica?.removeDownload(b.key)
+              }}
+            />
+          ),
+          about: <About t={t} />,
+        }}
+      </SettingsPage>
     )
   } else
     content = (
@@ -1373,5 +1361,23 @@ function Workspace({
         >{content}</Suspense>
       </main>
     </div>
+  )
+}
+function About({ t }: { t: (s: string) => string }) {
+  const version = useVersion()
+  return (
+    <>
+      <h3>{t('What’s new')}</h3>
+      <p>{t('Read EPUBs, keep passages and continue from another device with Quire Web.')}</p>
+      {version && (
+        <dl className="facts">
+          <div><dt>{t('Version')}</dt><dd>{version}</dd></div>
+        </dl>
+      )}
+      <p className="actions">
+        <a href={noticesUrl}>{t('Open-source licenses')}</a>
+        <a href="https://github.com/vitofico/quire">{t('Source code')}</a>
+      </p>
+    </>
   )
 }
