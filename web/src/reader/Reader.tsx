@@ -7,6 +7,7 @@ import { chapterStyles, palettes, sanitizePreferences, type PauseBookmark, type 
 import { findMatches, matchRange, searchableText } from './search'
 import { loadReaderFonts } from './fonts'
 import { readerStrings } from './strings'
+import { clickTurn } from './clickTurn'
 import { scrollsInside, wheelGesture } from './wheelGesture'
 import { Icon, type IconName } from '../icons'
 import { ask } from '../ask'
@@ -511,9 +512,28 @@ export default function Reader({
         if (doc.hasFocus()) setSelected(null)
       }
     }
+    let dismissing = false
+    const press = () => {
+      // A click that only puts a selection away is not a page turn.
+      dismissing = !!doc.getSelection()?.toString()
+      deliberate()
+    }
+    const clickPage = (event: MouseEvent) => {
+      // In full screen the toolbar is out of the way, so the page's own edges turn it.
+      if (document.fullscreenElement !== reader.current || event.button !== 0 ||
+          event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return
+      if (dismissing || doc.getSelection()?.toString()) return
+      if ((event.target as Element | null)?.closest?.('a, button, input, select, textarea, summary, audio, video')) return
+      const rtl = doc.defaultView?.getComputedStyle(doc.body).direction === 'rtl'
+      const turn = clickTurn(event.clientX, doc.documentElement.clientWidth)
+      if (turn) page(turn * (rtl ? -1 : 1))
+    }
     const link = (event: MouseEvent) => {
       const item = (event.target as Element | null)?.closest?.('[data-quire-link]')
-      if (!item) return
+      if (!item) {
+        clickPage(event)
+        return
+      }
       event.preventDefault()
       const href = item.getAttribute('data-quire-link')!
       if (item.hasAttribute('data-quire-external')) {
@@ -564,7 +584,7 @@ export default function Reader({
     const key = (event: globalThis.KeyboardEvent) => handleReaderKey.current(event)
     doc.addEventListener('scroll', scroll, { passive: true })
     doc.addEventListener('wheel', wheel, { passive: true })
-    doc.addEventListener('pointerdown', deliberate, { passive: true })
+    doc.addEventListener('pointerdown', press, { passive: true })
     doc.addEventListener('touchstart', startTouch, { passive: true })
     doc.addEventListener('touchend', endTouch, { passive: true })
     doc.addEventListener('selectionchange', selectionChanged)
@@ -576,7 +596,7 @@ export default function Reader({
       cancelAnimationFrame(resizeFrame)
       doc.removeEventListener('scroll', scroll)
       doc.removeEventListener('wheel', wheel)
-      doc.removeEventListener('pointerdown', deliberate)
+      doc.removeEventListener('pointerdown', press)
       doc.removeEventListener('touchstart', startTouch)
       doc.removeEventListener('touchend', endTouch)
       doc.removeEventListener('selectionchange', selectionChanged)

@@ -305,3 +305,47 @@ test('turns one page per trackpad swipe, even when the next swipe starts during 
   for (const delta of [-10, -40, -60, -20, -5]) await page.mouse.wheel(delta, 0)
   await expect.poll(pageNumber).toBe(1)
 })
+
+test('in full screen a click on the right or left of the page turns it', async ({ page }) => {
+  const { execFileSync } = await import('node:child_process')
+  const { mkdtempSync, rmSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const temp = mkdtempSync(join(tmpdir(), 'quire-reader-'))
+  try {
+    const file = join(temp, 'fixture.epub')
+    execFileSync('python3', ['../scripts/make-reader-pause-fixture.py', file])
+    await page.goto(base)
+    await expect(page.getByRole('button', {name: 'Import EPUB', exact: true}).first()).toBeEnabled()
+    await page.locator('input[type=file]').setInputFiles(file)
+    await page.getByRole('button', {name: 'Read', exact: true}).click()
+  } finally {
+    rmSync(temp, { recursive: true, force: true })
+  }
+  const frame = page.frameLocator('.qr-frame')
+  await expect(frame.locator('p').first()).toBeVisible()
+  const pageNumber = () => frame.locator('html').evaluate(root =>
+    Math.round((root.ownerDocument.scrollingElement?.scrollLeft ?? 0) / root.clientWidth))
+  const click = async (across: number) => {
+    const box = (await page.locator('.qr-frame').boundingBox())!
+    await page.mouse.click(box.x + box.width * across, box.y + box.height / 2)
+  }
+  // Outside full screen a click is only a click.
+  await click(0.9)
+  await page.waitForTimeout(300)
+  expect(await pageNumber()).toBe(0)
+  const fullscreen = page.getByRole('button', { name: 'Fullscreen', exact: true })
+  test.skip(!await fullscreen.count(), 'this browser offers no full screen')
+  await fullscreen.click()
+  await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(true)
+  await click(0.9)
+  await expect.poll(pageNumber).toBe(1)
+  await click(0.9)
+  await expect.poll(pageNumber).toBe(2)
+  await click(0.1)
+  await expect.poll(pageNumber).toBe(1)
+  // The middle is left alone.
+  await click(0.5)
+  await page.waitForTimeout(300)
+  expect(await pageNumber()).toBe(1)
+})
