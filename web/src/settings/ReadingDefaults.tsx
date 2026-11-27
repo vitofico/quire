@@ -1,7 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import type { Replica } from '../data'
 import {
-  fonts, palettes, sanitizePreferences, type Font, type Palette, type ReaderPreferences,
+  fonts, pageLayouts, palettes, sanitizePreferences, type Font, type Palette, type ReaderPreferences,
 } from '../reader/preferences'
 import { readerStrings } from '../reader/strings'
 import { Setting, type Translate } from './Settings'
@@ -75,6 +75,14 @@ export function ReadingDefaults({ store, unavailable, lang, t }: {
       >
         {t('A page of your book looks like this, with the font, size and spacing you choose.')}
       </div>
+      <Setting label={reader('Page layout')} description={reader('Automatic layout shows two pages when there is room.')}>
+        {({ id, describedBy }) => (
+          <select id={id} aria-describedby={describedBy} value={prefs.layout}
+            onChange={(event) => change({ layout: event.target.value as ReaderPreferences['layout'] })}>
+            {Object.entries(pageLayouts).map(([value, label]) => <option key={value} value={value}>{reader(label)}</option>)}
+          </select>
+        )}
+      </Setting>
       <Setting label={reader('Palette')}>
         {({ id, describedBy }) => (
           <select id={id} aria-describedby={describedBy} value={prefs.palette}

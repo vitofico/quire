@@ -181,29 +181,41 @@ export async function captureRange(doc: Document, locator: Locator, range: Range
   } catch { /* The selection may include content outside the publication. */ }
 }
 
-// A chapter is laid out in columns exactly one window wide, so page N starts
-// N window widths to the right.
+// A turn moves one window width in the chapter's reading direction.
 function pitch(doc: Document) {
   return doc.documentElement.getBoundingClientRect().width || 1
 }
 
+function columnsPerView(doc: Document) {
+  return Number(doc.defaultView?.getComputedStyle(doc.documentElement).columnCount) || 1
+}
+
+function scrollDirection(doc: Document) {
+  return doc.defaultView?.getComputedStyle(doc.documentElement).direction === 'rtl' ? -1 : 1
+}
+
 export function pageCount(doc: Document): number {
   const scroller = doc.scrollingElement
-  return scroller ? Math.max(1, Math.round(scroller.scrollWidth / pitch(doc))) : 1
+  if (!scroller) return 1
+  const columns = columnsPerView(doc)
+  const total = Math.round(scroller.scrollWidth / pitch(doc) * columns)
+  // Two-column mode adds a trailing blank column for odd-length chapters.
+  return Math.max(1, Math.floor(total / columns))
 }
 
 export function currentPage(doc: Document): number {
-  return Math.round((doc.scrollingElement?.scrollLeft ?? 0) / pitch(doc))
+  const page = Math.round((doc.scrollingElement?.scrollLeft ?? 0) * scrollDirection(doc) / pitch(doc))
+  return Math.min(pageCount(doc) - 1, Math.max(0, page))
 }
 
 export function aligned(doc: Document): boolean {
-  const left = doc.scrollingElement?.scrollLeft ?? 0
-  return Math.abs(left - currentPage(doc) * pitch(doc)) < 1
+  const offset = (doc.scrollingElement?.scrollLeft ?? 0) * scrollDirection(doc)
+  return Math.abs(offset - currentPage(doc) * pitch(doc)) < 1
 }
 
 export function showPage(doc: Document, page: number) {
   const scroller = doc.scrollingElement
-  if (scroller) scroller.scrollLeft = Math.min(pageCount(doc) - 1, Math.max(0, page)) * pitch(doc)
+  if (scroller) scroller.scrollLeft = Math.min(pageCount(doc) - 1, Math.max(0, page)) * pitch(doc) * scrollDirection(doc)
 }
 
 export function chapterProgress(doc: Document): number {
@@ -213,7 +225,12 @@ export function chapterProgress(doc: Document): number {
 
 function showRect(doc: Document, rect: DOMRect | undefined) {
   // Measured from the chapter start, so a page left misaligned by a resize still lands right.
-  if (rect && doc.scrollingElement) showPage(doc, Math.floor((doc.scrollingElement.scrollLeft + rect.left + 1) / pitch(doc)))
+  if (!rect || !doc.scrollingElement) return
+  const width = pitch(doc)
+  const direction = scrollDirection(doc)
+  const edge = direction === 1 ? rect.left : width - rect.right
+  const offset = doc.scrollingElement.scrollLeft * direction + edge
+  showPage(doc, Math.floor((offset + 1) / width))
 }
 
 export function displayRange(doc: Document, range: Range) {
@@ -244,28 +261,38 @@ export function viewportRange(doc: Document): Range | undefined {
   const width = doc.documentElement.clientWidth
   const height = doc.documentElement.clientHeight
   const body = doc.body
-  const rightToLeft = doc.defaultView?.getComputedStyle(body).direction === 'rtl'
-  const padding = parseFloat(doc.defaultView?.getComputedStyle(body).paddingLeft ?? '0')
-  const xs = rightToLeft ? [width - padding - 4, width / 2, padding + 4] : [padding + 4, width / 2, width - padding - 4]
+  const bodyStyle = doc.defaultView?.getComputedStyle(body)
+  const padding = parseFloat(bodyStyle?.paddingLeft ?? '0')
+  const columns = columnsPerView(doc)
+  const columnWidth = width / columns
+  const direction = scrollDirection(doc)
   const caretAt = (doc as Document & {
     caretPositionFromPoint?(x: number, y: number): {offsetNode: Node; offset: number} | null
   }).caretPositionFromPoint
-  for (let y = 2; y < height; y += 13) {
-    for (const x of xs) {
-      const position = caretAt?.call(doc, x, y)
-      const caret = position ? undefined : doc.caretRangeFromPoint?.(x, y)
-      const node = position?.offsetNode ?? caret?.startContainer
-      if (!node || !body.contains(node) || !characterData(node)) continue
-      const offset = position?.offset ?? caret!.startOffset
-      for (let i = Math.max(0, offset - 1); i < Math.min(node.length, offset + 8); i++) {
-        const point = node.data.codePointAt(i)!
-        if (point >= 0xdc00 && point <= 0xdfff) continue
-        const range = doc.createRange()
-        range.setStart(node, i)
-        range.setEnd(node, i + (point > 0xffff ? 2 : 1))
-        const rect = range.getBoundingClientRect()
-        if (range.toString().trim() && rect.width && rect.height && rect.bottom > 0 && rect.top < height
-            && rect.right > 0 && rect.left < width) return range
+  // Look across the first page before considering the facing page, even if the
+  // first page starts with a figure or more whitespace.
+  for (let i = 0; i < columns; i++) {
+    const left = (direction === 1 ? i : columns - i - 1) * columnWidth
+    const right = left + columnWidth
+    const xs = [left + padding + 4, left + columnWidth / 2, right - padding - 4]
+    if (bodyStyle?.direction === 'rtl') xs.reverse()
+    for (let y = 2; y < height; y += 13) {
+      for (const x of xs) {
+        const position = caretAt?.call(doc, x, y)
+        const caret = position ? undefined : doc.caretRangeFromPoint?.(x, y)
+        const node = position?.offsetNode ?? caret?.startContainer
+        if (!node || !body.contains(node) || !characterData(node)) continue
+        const offset = position?.offset ?? caret!.startOffset
+        for (let char = Math.max(0, offset - 1); char < Math.min(node.length, offset + 8); char++) {
+          const point = node.data.codePointAt(char)!
+          if (point >= 0xdc00 && point <= 0xdfff) continue
+          const range = doc.createRange()
+          range.setStart(node, char)
+          range.setEnd(node, char + (point > 0xffff ? 2 : 1))
+          const rect = range.getBoundingClientRect()
+          if (range.toString().trim() && rect.width && rect.height && rect.bottom > 0 && rect.top < height
+              && rect.right > left && rect.left < right) return range
+        }
       }
     }
   }
