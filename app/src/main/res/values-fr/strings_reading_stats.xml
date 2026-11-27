@@ -5,8 +5,8 @@
     <string name="stats_empty_body">Quire compte votre lecture à partir de cette version : il n’y a donc pas d’historique antérieur. Les données restent sur cet appareil et dans la sauvegarde de votre téléphone, et ne sont jamais envoyées au serveur de Quire ni à l’IA. Lisez un livre quelques minutes, puis revenez.</string>
     <string name="stats_recording_off">L’enregistrement est désactivé. Activez-le dans %1$s → %2$s pour compter votre lecture.</string>
     <string name="stats_today">Aujourd’hui</string>
-    <string name="stats_this_week">Cette semaine</string>
-    <string name="stats_this_month">Ce mois-ci</string>
+    <string name="stats_last_week">7 derniers jours</string>
+    <string name="stats_last_month">30 derniers jours</string>
     <string name="stats_all_time">Au total</string>
     <string name="stats_current_streak">Série en cours</string>
     <string name="stats_longest_streak">Plus longue série</string>
@@ -60,4 +60,8 @@
     <string name="settings_stats_keep">Conserver</string>
     <string name="stats_library">Votre bibliothèque</string>
     <string name="stats_library_note">Comptés par votre serveur Quire, pour tous les livres de votre bibliothèque et sur tous vos appareils.</string>
+    <string name="stats_sync_title">Synchroniser l’activité de lecture</string>
+    <string name="stats_sync_description">Partagez l’activité de lecture passée et future de ce téléphone avec votre compte Quire.</string>
+    <string name="stats_sync_error">Impossible de synchroniser l’activité de lecture.</string>
+    <string name="stats_sync_clear_body">Effacer les statistiques de lecture de votre compte Quire et des appareils synchronisés ?</string>
 </resources>

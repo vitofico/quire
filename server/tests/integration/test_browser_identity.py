@@ -322,6 +322,8 @@ PRIVATE_ROWS = {
     "documents": "user_id",
     "library_items": "user_id",
     "library_sync_receipts": "user_id",
+    "reading_activity": "user_id",
+    "reading_activity_resets": "user_id",
     "user_ai_preferences": "user_id",
     "ai_usage_daily": "user_id",
     "ai_usage_monthly": "user_id",
@@ -380,7 +382,7 @@ async def test_export_close_purge_isolation_and_shared_cache(
         progress_enabled=True,
         skip_auth_overrides=True,
     ) as client:
-        me, _ = await signin(client, app)
+        me, proof = await signin(client, app)
         account = me["user"]["id"]
         bob = await app.state.auth_backend.register(
             email="synthetic-bob@example.test", password=PASSWORD
@@ -434,6 +436,29 @@ async def test_export_close_purge_isolation_and_shared_cache(
                 json={"items": [{"identity_hash": "not-on-the-shelf", "status": "deleted"}]},
             )
             assert keyed.status_code == 200, keyed.text
+        activity = "/library/v1/reading-activity"
+        for headers in (proof, {"Authorization": "Bearer " + bob_token}):
+            reset = await client.delete(activity, headers=headers)
+            assert reset.status_code == 200, reset.text
+            cutoff = reset.json()["cleared_before"]
+            uploaded = await client.put(
+                activity,
+                headers=headers,
+                json={
+                    "cleared_before": cutoff,
+                    "sessions": [
+                        {
+                            "id": "private-session",
+                            "book_key": "private-book",
+                            "title": "Reading activity",
+                            "started_at": cutoff + 1,
+                            "utc_offset_seconds": 0,
+                            "active_seconds": 60,
+                        }
+                    ],
+                },
+            )
+            assert uploaded.status_code == 204, uploaded.text
         exported_response = await client.get("/auth/v1/account/export", headers=auth)
         assert exported_response.headers["Cache-Control"] == "no-store"
         exported = exported_response.json()
@@ -443,6 +468,8 @@ async def test_export_close_purge_isolation_and_shared_cache(
         assert exported["highlights"][0]["deleted_at"] is not None
         assert exported["highlight_sync_state"] == [{"user_id": account, "revision": 2}]
         assert [receipt["user_id"] for receipt in exported["library_sync_receipts"]] == [account]
+        assert [row["user_id"] for row in exported["reading_activity"]] == [account]
+        assert [row["user_id"] for row in exported["reading_activity_resets"]] == [account]
         assert "password_hash" not in str(exported) and "token_hash" not in str(exported)
         for owner in (account, f"native:{bob}"):
             for statement in (

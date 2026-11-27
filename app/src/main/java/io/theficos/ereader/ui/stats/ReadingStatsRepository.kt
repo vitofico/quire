@@ -45,11 +45,14 @@ class ReadingStatsRepository(
     private val dao: ReadingSessionDao,
     private val prefs: SharedPreferences,
     private val scope: CoroutineScope,
+    private val owner: StateFlow<String?> = MutableStateFlow(null),
 ) : ReadingStatsSink {
     private val _recording = MutableStateFlow(prefs.getBoolean(KEY_RECORDING, true))
     val recording: StateFlow<Boolean> = _recording.asStateFlow()
 
-    val sessions: Flow<List<ReadingSessionEntity>> = dao.observeAll()
+    val sessions: Flow<List<ReadingSessionEntity>> = combine(dao.observeAll(), owner) { rows, account ->
+        rows.filter { it.owner == null || it.owner == account }
+    }.distinctUntilChanged()
     val wordCounts: Flow<List<BookWordCountEntity>> = dao.observeWordCounts()
     val bookProgress: Flow<List<BookProgressRow>> = dao.observeBookProgress()
 
@@ -59,8 +62,15 @@ class ReadingStatsRepository(
     }
 
     suspend fun clear() {
-        runCatching { dao.clear() }.onFailure { failed("clear", it) }
+        val account = owner.value
+        runCatching { dao.clearForOwner(account) }.onFailure { failed("clear", it) }
     }
+
+    suspend fun assignHistory(account: String) = dao.assignUnowned(account)
+
+    suspend fun syncableHistory(account: String): List<ReadingSessionEntity> = dao.forOwner(account)
+
+    suspend fun clearSyncedHistory(account: String, cutoff: Long) = dao.clearSyncedHistory(account, cutoff)
 
     /** About how long the rest of the book with [bookKey] takes at the reader's pace. */
     fun secondsLeft(bookKey: String, progress: Flow<Progress?>): Flow<Long?> =
@@ -76,6 +86,7 @@ class ReadingStatsRepository(
 
     override fun record(book: StatsBook, session: RecordedSession) {
         if (!_recording.value) return
+        val account = owner.value
         scope.launch {
             runCatching {
                 val words = dao.wordCount(book.key)?.let { (session.progressionRead * it).roundToLong() }
@@ -89,6 +100,7 @@ class ReadingStatsRepository(
                     activeSeconds = session.activeSeconds,
                     progressionRead = session.progressionRead,
                     wordsRead = words,
+                    owner = account,
                 ))
             }.onFailure { failed("store a session", it) }
         }

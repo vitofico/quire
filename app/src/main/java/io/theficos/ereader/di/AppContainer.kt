@@ -73,6 +73,7 @@ import io.theficos.ereader.ui.reader.memoryAccountKey
 import io.theficos.ereader.ui.settings.WhatsNewPreferencesStore
 import io.theficos.ereader.ui.stats.LibraryStatsCache
 import io.theficos.ereader.ui.stats.ReadingStatsRepository
+import io.theficos.ereader.ui.stats.ReadingActivitySync
 import io.theficos.ereader.ui.scan.ScanResultRegistry
 import io.theficos.ereader.ui.theme.AppThemePreferencesStore
 import io.theficos.quire.R
@@ -280,10 +281,24 @@ class AppContainer internal constructor(context: Context, private val db: EReade
         scope = appScope,
     )
 
-    /** Reading sessions and their statistics, kept on this device and in its own backup. */
+    private val readingStatsOwner = credentialStore.accountFlow.map { it?.detailsOwner() }
+        .stateIn(appScope, SharingStarted.Eagerly, credentialStore.getAccount()?.detailsOwner())
+
     val readingStats: ReadingStatsRepository = ReadingStatsRepository(
         dao = db.readingSessionDao(),
         prefs = appContext.getSharedPreferences("reading_stats", Context.MODE_PRIVATE),
+        scope = appScope,
+        owner = readingStatsOwner,
+    )
+
+    val readingActivitySync = ReadingActivitySync(
+        repository = readingStats,
+        preferences = appContext.getSharedPreferences("reading_activity_sync", Context.MODE_PRIVATE),
+        account = credentialStore.accountFlow,
+        ownerOf = { it.detailsOwner() },
+        clientFor = { account ->
+            LibraryClient(baseUrlProvider = { account.quireServerUrlOrNull() }, http = opdsHttp.quireHttpFor(account))
+        },
         scope = appScope,
     )
 
@@ -588,6 +603,9 @@ class AppContainer internal constructor(context: Context, private val db: EReade
     }
 
     init {
+        appScope.launch {
+            network.collect { if (it != null) readingActivitySync.refresh() }
+        }
         SyncDependencies.holder = SyncDependencies.Holder(syncOrchestrator)
         // Phase-0 / A-3: clean up any `*.epub.part` files leaked by an
         // import that was killed mid-copy (process death between

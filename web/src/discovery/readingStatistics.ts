@@ -33,7 +33,7 @@ export function readingStatistics(sessions: readonly ReadingSession[], now = new
 
     // Shift by the offset captured when reading, then split at local hour
     // boundaries. Travel does not move a session to a different day.
-    let cursor = Math.floor(session.startedAt / 1000) + session.utcOffsetMinutes * 60
+    let cursor = Math.floor(session.startedAt / 1000) + Math.round(session.utcOffsetMinutes * 60)
     let remaining = session.seconds
     while (remaining > 0) {
       const hourIndex = Math.floor(cursor / hour)
@@ -51,13 +51,14 @@ export function readingStatistics(sessions: readonly ReadingSession[], now = new
     .map(([date]) => date).sort((a, b) => a - b)
   let run = 0
   let longest = 0
+  let currentStreak = 0
   let previous: number | undefined
   for (const date of streakDays) {
     run = date - 1 === previous ? run + 1 : 1
     longest = Math.max(longest, run)
+    if (date === today || date === today - 1) currentStreak = run
     previous = date
   }
-  const currentStreak = previous === today || previous === today - 1 ? run : 0
 
   let measuredSeconds = 0
   let words = 0

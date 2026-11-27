@@ -41,7 +41,7 @@ class MigrationTest {
             } catch (e: IllegalStateException) {
                 throw AssertionError("The production Room builder must open existing version-two data", e)
             }
-            assertThat(sqlite.version).isEqualTo(17)
+            assertThat(sqlite.version).isEqualTo(18)
             assertThat(db.documentDao().findById(1)?.title).isEqualTo("Book")
             val progress = checkNotNull(db.progressDao().findByDocument(1))
             assertThat(progress.locator).isEqualTo("loc")
@@ -367,7 +367,7 @@ class MigrationTest {
         val db = EReaderDatabase.build(context)
         try {
             val sqlite = db.openHelper.writableDatabase
-            assertThat(sqlite.version).isEqualTo(17)
+            assertThat(sqlite.version).isEqualTo(18)
             sqlite.query("SELECT identityHashVersion FROM book_insights").use { rows ->
                 assertThat(rows.count).isEqualTo(0)
             }
@@ -489,6 +489,26 @@ class MigrationTest {
                 assertThat(c.getString(0)).isEqualTo("Book")
                 assertThat(c.getInt(1)).isEqualTo(3600)
                 assertThat(c.isNull(2)).isTrue()
+            }
+        }
+    }
+
+    @Test fun `migrate 17 to 18 preserves pre-sync reading history`() {
+        helper.createDatabase(DB, 17).use { db ->
+            db.execSQL(
+                "INSERT INTO reading_sessions (id, bookKey, title, startedAt, endedAt, utcOffsetSeconds, activeSeconds, " +
+                    "progressionRead, wordsRead) VALUES (9, 'hash', 'Book', 1000, 61000, 3600, 60, 0.05, 800)"
+            )
+        }
+
+        helper.runMigrationsAndValidate(DB, 18, true, EReaderDatabase.MIGRATION_17_18).use { db ->
+            db.query("SELECT id, utcOffsetSeconds, activeSeconds, wordsRead, owner FROM reading_sessions").use { row ->
+                assertThat(row.moveToFirst()).isTrue()
+                assertThat(row.getLong(0)).isEqualTo(9L)
+                assertThat(row.getInt(1)).isEqualTo(3600)
+                assertThat(row.getLong(2)).isEqualTo(60L)
+                assertThat(row.getLong(3)).isEqualTo(800L)
+                assertThat(row.isNull(4)).isTrue()
             }
         }
     }

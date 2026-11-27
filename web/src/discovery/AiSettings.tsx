@@ -1,5 +1,5 @@
 import { english, interpolate, type Translate } from "./translation";
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Setting, SwitchSetting } from "../settings/Settings";
 import {
   type AiConfig, type DiscoveryRequest, type Preferences, type Profile, type Recommendation,
@@ -180,23 +180,29 @@ function ProfileControls({ request, settings, t }: {
   const { preferences, config } = settings;
   const canRefresh = preferences.ai_enabled && !missingProvider(config, preferences);
 
-  function load(refresh: boolean) {
+  const loadSaved = useCallback(() => {
     setMessage("");
     void run(async (signal) => {
       try {
-        return await discoveryJson<Profile>(
-          request, refresh ? "/ai/v1/profile/refresh" : "/ai/v1/profile",
-          { method: refresh ? "POST" : "GET", signal },
-        );
+        return await discoveryJson<Profile>(request, "/ai/v1/profile", { signal });
       } catch (cause) {
-        if (!refresh && isHttpStatus(cause, 404)) return undefined;
+        if (isHttpStatus(cause, 404)) return undefined;
         throw cause;
       }
     }, (value) => {
-      if (!refresh) recover(value?.generated_at);
+      recover(value?.generated_at);
       setProfile(value);
       if (!value) setMessage("No reader profile has been saved.");
-    }, refresh ? { previous: profile?.generated_at } : undefined);
+    });
+  }, [request, run, recover]);
+
+  useEffect(loadSaved, [loadSaved]);
+
+  function refresh() {
+    setMessage("");
+    void run((signal) => discoveryJson<Profile>(request, "/ai/v1/profile/refresh", {
+      method: "POST", signal,
+    }), setProfile, { previous: profile?.generated_at });
   }
 
   function remove() {
@@ -211,11 +217,11 @@ function ProfileControls({ request, settings, t }: {
     <section className="discovery-panel panel reader-profile">
       <h3>{t("Reader profile")}</h3>
       <div className="discovery-actions profile-actions">
-        <button className="primary" disabled={busy} onClick={() => load(false)}>{t("Open saved profile")}</button>
-        <button className="ghost" aria-describedby={refreshNote} disabled={busy || ambiguous || !canRefresh}
-          onClick={() => load(true)}>{t("Refresh profile")}</button>
-        {busy && <button onClick={cancel}>{t(paid ? "Stop waiting" : "Cancel")}</button>}
-        <button className="link profile-delete" disabled={busy} onClick={() => setConfirmDelete(true)}>{t("Delete profile")}</button>
+        <button className="primary" aria-describedby={refreshNote} disabled={busy || ambiguous || !canRefresh}
+          onClick={refresh}>{t("Refresh profile")}</button>
+        {(error || ambiguous) && <button className="ghost" disabled={busy} onClick={loadSaved}>{t("Check saved profile")}</button>}
+        {busy && paid && <button onClick={cancel}>{t("Stop waiting")}</button>}
+        {profile && <button className="link profile-delete" disabled={busy} onClick={() => setConfirmDelete(true)}>{t("Delete profile")}</button>}
       </div>
       <p className="hint profile-note" id={refreshNote}>
         {t("Refreshing sends connected library statistics to your AI provider and can use your daily quota.")}

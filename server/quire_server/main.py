@@ -517,11 +517,13 @@ def create_app() -> FastAPI:
         from quire_server.api.highlights import router as highlights_router
         from quire_server.api.library import router as library_router
         from quire_server.api.progress import router as progress_router
+        from quire_server.api.reading_activity import router as reading_activity_router
         from quire_server.mcp import mount_highlight_mcp
 
         app.include_router(progress_router, prefix="/sync/v1")
         app.include_router(highlights_router, prefix="/sync/v1")
         app.include_router(library_router, prefix="/library/v1")
+        app.include_router(reading_activity_router, prefix="/library/v1")
         app.include_router(agent_highlights_router)
         mount_highlight_mcp(app, settings, session_factory)
 

@@ -82,7 +82,7 @@ class ReadingStatisticsTest {
     }
 
     @Test
-    fun `today, this week and this month use the current zone`() {
+    fun `today and rolling totals use the current zone`() {
         val now = at(2026, 11, 25, 9) // a Wednesday
         val s = stats(
             listOf(
@@ -95,8 +95,8 @@ class ReadingStatisticsTest {
         )
 
         assertThat(s.todaySeconds).isEqualTo(10 * 60L)
-        assertThat(s.weekSeconds).isEqualTo(30 * 60L)
-        assertThat(s.monthSeconds).isEqualTo(60 * 60L)
+        assertThat(s.weekSeconds).isEqualTo(60 * 60L)
+        assertThat(s.monthSeconds).isEqualTo(100 * 60L)
         assertThat(s.totalSeconds).isEqualTo(100 * 60L)
     }
 

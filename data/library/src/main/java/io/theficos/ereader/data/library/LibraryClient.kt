@@ -69,6 +69,31 @@ class LibraryClient(
         }
     }
 
+    private fun readingActivityRequest() =
+        Request.Builder().url(resolveBaseUrl() + LibraryApi.PATH_READING_ACTIVITY)
+
+    private suspend fun activityResponse(request: Request): String = withContext(Dispatchers.IO) {
+        http.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw LibraryHttpException(response.code, body)
+            body
+        }
+    }
+
+    suspend fun listReadingActivity(after: String?): ReadingActivityPage {
+        val url = (resolveBaseUrl() + LibraryApi.PATH_READING_ACTIVITY).toHttpUrl().newBuilder()
+        if (after != null) url.addQueryParameter("after", after)
+        return json.decodeFromString(ReadingActivityPage.serializer(), activityResponse(Request.Builder().url(url.build()).build()))
+    }
+
+    suspend fun uploadReadingActivity(changes: ReadingActivityUpload) {
+        val body = json.encodeToString(ReadingActivityUpload.serializer(), changes)
+        activityResponse(readingActivityRequest().put(body.toRequestBody(JSON_MEDIA_TYPE)).build())
+    }
+
+    suspend fun clearReadingActivity(): ReadingActivityReset =
+        json.decodeFromString(ReadingActivityReset.serializer(), activityResponse(readingActivityRequest().delete().build()))
+
     /**
      * Upsert a single library item.
      *

@@ -123,8 +123,8 @@ fun readingStats(
     }.sortedByDescending { it.lastReadAt }
     return ReadingStats(
         todaySeconds = daily[today] ?: 0L,
-        weekSeconds = daily.filterKeys { !it.isBefore(weekStart) && !it.isAfter(today) }.values.sum(),
-        monthSeconds = daily.filterKeys { YearMonth.from(it) == YearMonth.from(today) && !it.isAfter(today) }.values.sum(),
+        weekSeconds = daily.filterKeys { it in today.minusDays(6)..today }.values.sum(),
+        monthSeconds = daily.filterKeys { it in today.minusDays(29)..today }.values.sum(),
         totalSeconds = sessions.sumOf { it.activeSeconds },
         currentStreak = current,
         longestStreak = longest,

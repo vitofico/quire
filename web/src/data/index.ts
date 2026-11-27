@@ -32,6 +32,7 @@ const epoch = '1970-01-01T00:00:00.000Z'
 const libraryPageSize = 200
 const highlightCursor = 'cursor:highlights'
 const readingRecordingKey = 'preference:reading-recording'
+const readingActivityCutoff = 'preference:reading-activity-cutoff'
 const readingSessionPrefix = 'reading-session:'
 const readingSessionRange = () => IDBKeyRange.bound(readingSessionPrefix, readingSessionPrefix + '\uffff')
 
@@ -390,9 +391,24 @@ export class Replica {
     await transaction(this.db, ['settings'], 'readwrite', async store => {
       const settings = store('settings')
       const recording = await readRecording(settings)
-      if (recording.enabled && recording.generation === generation) {
+      const cutoff = await result(settings.get(readingActivityCutoff)) as number | undefined
+      if (recording.enabled && recording.generation === generation && session.startedAt > (cutoff ?? 0)) {
         await result(settings.put(session, readingSessionPrefix + session.id))
       }
+    })
+  }
+
+  async applyReadingActivityReset(cutoff: number): Promise<void> {
+    this.assertActive()
+    await transaction(this.db, ['settings'], 'readwrite', async store => {
+      const settings = store('settings')
+      const previous = await result(settings.get(readingActivityCutoff)) as number | undefined
+      if (cutoff <= (previous ?? 0)) return
+      const sessions: ReadingSession[] = await result(settings.getAll(readingSessionRange()))
+      for (const row of sessions) {
+        if (row.startedAt <= cutoff) await result(settings.delete(readingSessionPrefix + row.id))
+      }
+      await result(settings.put(cutoff, readingActivityCutoff))
     })
   }
 

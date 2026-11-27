@@ -82,7 +82,7 @@ async def test_readyz_200_when_at_ai_head(
         "auth_005",
         "catalogs_001",
         "convert_001",
-        "progress_007",
+        "progress_008",
     ]
 
 

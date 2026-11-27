@@ -10,7 +10,7 @@ import androidx.room.Query
 import kotlinx.coroutines.flow.Flow
 
 /**
- * One continuous stretch of reading a book in the foreground. Device-local: never synced.
+ * One continuous stretch of reading a book in the foreground, recorded on this device.
  *
  * Keyed by the book's content hash, with its title and author copied in, and no foreign key, so
  * a removed book still counts in the totals. Times are UTC epoch milliseconds; [utcOffsetSeconds]
@@ -36,6 +36,7 @@ data class ReadingSessionEntity(
     val activeSeconds: Long,
     val progressionRead: Double,
     val wordsRead: Long?,
+    val owner: String? = null,
 )
 
 /** Words in a book's reading order, counted once in the background and kept by content hash. */
@@ -60,6 +61,18 @@ interface ReadingSessionDao {
 
     @Query("SELECT * FROM reading_sessions ORDER BY startedAt")
     fun observeAll(): Flow<List<ReadingSessionEntity>>
+
+    @Query("SELECT * FROM reading_sessions WHERE owner = :owner")
+    suspend fun forOwner(owner: String): List<ReadingSessionEntity>
+
+    @Query("UPDATE reading_sessions SET owner = :owner WHERE owner IS NULL")
+    suspend fun assignUnowned(owner: String)
+
+    @Query("DELETE FROM reading_sessions WHERE owner = :owner AND startedAt <= :cutoff")
+    suspend fun clearSyncedHistory(owner: String, cutoff: Long)
+
+    @Query("DELETE FROM reading_sessions WHERE owner = :owner OR owner IS NULL")
+    suspend fun clearForOwner(owner: String?)
 
     @Query("DELETE FROM reading_sessions")
     suspend fun clear()

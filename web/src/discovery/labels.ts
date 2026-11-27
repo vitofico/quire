@@ -1,5 +1,9 @@
 export const discoveryLabels: Record<string, [string, string, string, string]> = {
   "Discovery": ["Descubrimiento", "Scoperte", "Découvertes", "Entdecken"],
+  "Sync reading activity": ["Sincronizar actividad de lectura", "Sincronizza l’attività di lettura", "Synchroniser l’activité de lecture", "Leseaktivität synchronisieren"],
+  "Share this browser’s existing and future reading activity with your Quire account.": ["Comparte la actividad de lectura anterior y futura de este navegador con tu cuenta de Quire.", "Condividi l’attività di lettura passata e futura di questo browser con il tuo account Quire.", "Partagez l’activité de lecture passée et future de ce navigateur avec votre compte Quire.", "Teile bisherige und künftige Leseaktivitäten dieses Browsers mit deinem Quire-Konto."],
+  "Could not sync reading activity.": ["No se pudo sincronizar la actividad de lectura.", "Impossibile sincronizzare l’attività di lettura.", "Impossible de synchroniser l’activité de lecture.", "Die Leseaktivität konnte nicht synchronisiert werden."],
+  "Clear reading statistics from your Quire account and synced devices?": ["¿Borrar las estadísticas de lectura de tu cuenta de Quire y de los dispositivos sincronizados?", "Cancellare le statistiche di lettura dall’account Quire e dai dispositivi sincronizzati?", "Effacer les statistiques de lecture de votre compte Quire et des appareils synchronisés ?", "Lesestatistiken aus deinem Quire-Konto und von synchronisierten Geräten löschen?"],
   "Library stats": ["Estadísticas de lectura", "Statistiche della biblioteca", "Statistiques de la bibliothèque", "Bibliotheksstatistik"],
   "Connected library": ["Biblioteca conectada", "Biblioteca connessa", "Bibliothèque connectée", "Verbundene Bibliothek"],
   "Library on this device": ["Biblioteca en este dispositivo", "Biblioteca su questo dispositivo", "Bibliothèque sur cet appareil", "Bibliothek auf diesem Gerät"],
@@ -80,7 +84,7 @@ export const discoveryLabels: Record<string, [string, string, string, string]> =
   "Could not access reading statistics.": ["No se pudo acceder a las estadísticas de lectura.", "Impossibile accedere alle statistiche di lettura.", "Impossible d’accéder aux statistiques de lecture.", "Die Lesestatistik ist nicht verfügbar."],
   "Enable AI in Settings to refresh your profile.": ["Activa la IA en Ajustes para actualizar tu perfil.", "Attiva l’IA nelle impostazioni per aggiornare il profilo.", "Activez l’IA dans les réglages pour actualiser votre profil.", "Aktiviere KI in den Einstellungen, um dein Profil zu aktualisieren."],
   "Select an available AI provider in Settings.": ["Elige un proveedor de IA disponible en Ajustes.", "Seleziona un fornitore IA disponibile nelle impostazioni.", "Sélectionnez un fournisseur d’IA disponible dans les réglages.", "Wähle in den Einstellungen einen verfügbaren KI-Anbieter aus."],
-  "Open saved profile": ["Abrir perfil guardado", "Apri il profilo salvato", "Ouvrir le profil enregistré", "Gespeichertes Profil öffnen"],
+  "Check saved profile": ["Buscar perfil guardado", "Cerca il profilo salvato", "Rechercher le profil enregistré", "Nach gespeichertem Profil suchen"],
   "Written in {written}. Refresh to write it in {wanted}.": ["Escrito en {written}. Actualiza para escribirlo en {wanted}.", "Scritto in {written}. Aggiorna per scriverlo in {wanted}.", "Rédigé en {written}. Actualisez pour le rédiger en {wanted}.", "Auf {written} geschrieben. Aktualisiere, um es auf {wanted} zu schreiben."],
   "Refresh profile": ["Actualizar perfil", "Aggiorna profilo", "Actualiser le profil", "Profil aktualisieren"],
   "Delete profile": ["Eliminar perfil", "Elimina profilo", "Supprimer le profil", "Profil löschen"],
