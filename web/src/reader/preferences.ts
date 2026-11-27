@@ -60,9 +60,10 @@ export function chapterStyles(prefs: ReaderPreferences) {
       @media (min-width: 75rem) {
         :root:not([data-quire-fixed]) { column-count: 2; }
         :root:not([data-quire-fixed]):has(body:dir(rtl)) { direction: rtl; }
-        /* Leave room to align the last spread when it only has one page. */
+        /* An empty, unfragmentable page lets an odd last spread align,
+           including in engines that ignore forced column breaks. */
         :root:not([data-quire-fixed]) body::after {
-          content: ''; display: block; block-size: 1px; break-before: column;
+          content: ''; display: block; block-size: var(--qr-column); overflow: hidden;
         }
       }` : ''}
     body { font: ${prefs.size}px/${prefs.spacing} ${fonts[prefs.font]}; max-width: 42rem;

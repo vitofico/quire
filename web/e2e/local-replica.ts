@@ -14,7 +14,7 @@ export async function waitForSavedChapter(page: Page, href: string, passage?: st
         request.onsuccess = () => resolve(request.result.some(item => {
           if (!item.locator) return false
           const locator = JSON.parse(item.locator)
-          return locator.href === href && (passage === undefined || locator.text?.highlight === passage)
+          return locator.href === href && (passage === undefined || locator.text?.highlight?.trim() === passage)
         }))
         request.onerror = () => reject(request.error)
       })

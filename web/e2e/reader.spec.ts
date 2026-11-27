@@ -233,9 +233,12 @@ test('preserves a private pause through chapter changes, reader resize and reloa
 
 test('turns facing pages on wide screens and keeps the passage when switching layouts', async ({ page }) => {
   const fixture = unzipSync(readFileSync(new URL('../../app/src/test/resources/reader-pause.epub', import.meta.url)))
+  // At this viewport, twenty lines fill a column. Use natural pagination
+  // so the fixture also works in browsers without forced column breaks.
+  const fillPage = '<br />&#160;'.repeat(19)
   const chapterWithPages = (count: number, dir: 'ltr' | 'rtl') => html(
     Array.from({ length: count }, (_, i) =>
-      `<p id="leaf-${i + 1}"${i ? ' style="break-before:column"' : ''}>Passage ${i + 1}</p>`).join(''),
+      `<p id="leaf-${i + 1}" style="margin:0">Passage ${i + 1}${fillPage}</p>`).join(''),
   ).replace('<body>', `<body dir="${dir}">`)
   fixture['EPUB/part1.xhtml'] = strToU8(chapterWithPages(3, 'ltr'))
   fixture['EPUB/part2.xhtml'] = strToU8(chapterWithPages(4, 'rtl'))
@@ -257,7 +260,7 @@ test('turns facing pages on wide screens and keeps the passage when switching la
   const visiblePages = () => frame.locator('body').evaluate(body => {
     const width = body.ownerDocument.documentElement.clientWidth
     return [...body.querySelectorAll('p[id]')].flatMap(paragraph => {
-      const rect = paragraph.getBoundingClientRect()
+      const rect = paragraph.getClientRects()[0]
       if (rect.right <= 0 || rect.left >= width) return []
       return [paragraph.id + (rect.left >= width / 2 ? ' right' : ' left')]
     })
