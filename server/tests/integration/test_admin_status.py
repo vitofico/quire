@@ -137,7 +137,7 @@ async def test_status_reports_what_the_server_runs_with(admin_client, alice):
         "auth_005",
         "catalogs_001",
         "convert_001",
-        "progress_007",
+        "progress_008",
     ]
     rows = {row["name"]: row for row in body["settings"]}
     assert rows["QUIRE_SERVER_ADMIN_USERS"] == {

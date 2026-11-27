@@ -18,6 +18,8 @@ PRIVATE = {
     "documents": "user_id",
     "library_items": "user_id",
     "library_sync_receipts": "user_id",
+    "reading_activity": "user_id",
+    "reading_activity_resets": "user_id",
     "user_ai_preferences": "user_id",
     "ai_usage_daily": "user_id",
     "ai_usage_monthly": "user_id",

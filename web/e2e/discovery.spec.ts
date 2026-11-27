@@ -38,7 +38,7 @@ test('Discover shows browser reading activity, even with AI off', async ({ page 
   await expect(stats.locator('.reading-metrics > div').filter({ hasText: 'Total time' }).locator('dd')).toHaveText('1 min')
   await stats.getByRole('combobox', { name: 'Activity period' }).selectOption('month')
   await expect(stats.locator('.reading-chart-bars').first().locator(':scope > span')).toHaveCount(30)
-  await stats.getByText('Time by book', { exact: true }).click()
+  await expect(stats.getByText('By day of the week', { exact: true })).toBeVisible()
   await expect(stats.getByText('Reader Pause Fixture', { exact: true })).toBeVisible()
   expect(await stats.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
 
@@ -50,6 +50,75 @@ test('Discover shows browser reading activity, even with AI off', async ({ page 
   await expect(recording).toBeEnabled()
   await page.reload()
   await expect(recording).not.toBeChecked()
+})
+
+test('Discover syncs existing phone and browser sessions only after opt-in', async ({ page }) => {
+  await page.clock.install()
+  await page.addInitScript(() => Reflect.deleteProperty(Navigator.prototype, 'serviceWorker'))
+  await page.route('**/quire/v1/bootstrap', route => route.fulfill({ json: {
+    version: 1, sync: true, ai: false, aiAvailable: false, login: 'native', password: true,
+  } }))
+  await page.route('**/auth/v1/me', route => route.fulfill({ json: {
+    version: 1, user: { id: 'reader', backend: 'native' }, csrf_token: 'test',
+    capabilities: { progress_metadata_sync: true },
+  } }))
+  await page.route('**/library/v1/**', route => route.fulfill({ status: 404 }))
+  await page.route('**/sync/v1/**', route => route.fulfill({ status: 404 }))
+  const phone = {
+    id: 'android-history', book_key: 'android-book', title: 'Read on Android',
+    started_at: Date.now() - 86_400_000, utc_offset_seconds: 3600, active_seconds: 120, words: 500,
+  }
+  const history = [phone]
+  let cutoff = 0
+  const methods: string[] = []
+  await page.route('**/library/v1/reading-activity', async route => {
+    const method = route.request().method()
+    methods.push(method)
+    if (method === 'PUT') {
+      history.push(...route.request().postDataJSON().sessions)
+      await route.fulfill({ status: 204 })
+    } else if (method === 'DELETE') {
+      cutoff = Date.now() + 120_000
+      history.length = 0
+      await route.fulfill({ json: { cleared_before: cutoff } })
+    } else {
+      await route.fulfill({ json: { cleared_before: cutoff, sessions: history, next: null } })
+    }
+  })
+  await page.goto('/quire/')
+  await expect(page.getByRole('button', { name: 'Import EPUB', exact: true })).toBeEnabled()
+  await page.locator('input[type=file]').setInputFiles(fileURLToPath(new URL('../../app/src/test/resources/reader-pause.epub', import.meta.url)))
+  await page.getByRole('button', { name: 'Read', exact: true }).click()
+  await expect(page.frameLocator('.qr-frame').getByRole('heading', { name: 'Part 1' })).toBeVisible()
+  await page.clock.runFor(200)
+  await page.clock.fastForward(65_000)
+  await page.getByRole('button', { name: 'Close book', exact: true }).click()
+  await page.getByRole('link', { name: 'Discover', exact: true }).click()
+
+  const stats = page.getByRole('region', { name: 'Reading statistics', exact: true })
+  const sync = stats.getByRole('checkbox', { name: 'Sync reading activity' })
+  await expect(stats.getByText('Reader Pause Fixture', { exact: true })).toBeVisible()
+  await expect(sync).toBeEnabled()
+  await expect(sync).not.toBeChecked()
+  expect(methods).toEqual([])
+
+  await sync.click()
+  await expect(sync).toBeChecked()
+  await expect(stats.getByText(phone.title)).toBeVisible()
+  await expect.poll(() => history.length).toBe(2)
+  expect(history[1].title).toBe('Reader Pause Fixture')
+  await page.reload()
+  await expect(sync).toBeChecked()
+  await expect(stats.getByText(phone.title)).toBeVisible()
+  expect(history).toHaveLength(2)
+
+  await stats.getByRole('button', { name: 'Clear statistics', exact: true }).click()
+  const confirmation = page.getByRole('dialog')
+  await expect(confirmation.getByText(/from your Quire account/)).toBeVisible()
+  await confirmation.getByRole('button', { name: 'Clear statistics', exact: true }).click()
+  await expect(stats.getByText(phone.title)).toHaveCount(0)
+  await expect(stats.getByText('Reader Pause Fixture', { exact: true })).toHaveCount(0)
+  expect(history).toHaveLength(0)
 })
 
 test('the Italian reader profile keeps its disclosure and actions in a narrow card', async ({ page }) => {
@@ -68,13 +137,17 @@ test('the Italian reader profile keeps its disclosure and actions in a narrow ca
   await page.route('**/ai/v1/preferences', route => route.fulfill({ json: {
     ai_enabled: true, provider_id: 'default', style: { tone: 'neutral', language: 'auto' },
   } }))
+  await page.route('**/ai/v1/profile', route => route.fulfill({ json: {
+    payload: { narrative: 'Un profilo già salvato', language: 'it', in_library_recommendations: [], discovery_recommendations: [], ai_suggested_recommendations: [] },
+    generated_at: '2025-11-01T00:00:00Z', model_id: 'test-model',
+  } }))
   await page.route('**/library/v1/**', route => route.fulfill({ status: 404 }))
   await page.route('**/sync/v1/**', route => route.fulfill({ status: 404 }))
   await page.setViewportSize({ width: 320, height: 844 })
   await page.goto('/quire/#/discover')
 
   const panel = page.locator('.reader-profile')
-  await expect(panel.getByRole('button', { name: 'Apri il profilo salvato' })).toHaveClass('primary')
+  await expect(panel.getByText('Un profilo già salvato')).toBeVisible()
   await expect(panel.getByRole('button', { name: 'Aggiorna profilo' }))
     .toHaveAccessibleDescription(/statistiche della biblioteca connessa/)
   await panel.getByRole('button', { name: 'Elimina profilo', exact: true }).click()

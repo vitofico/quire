@@ -183,32 +183,37 @@ describe("AI panels", () => {
       },
       generated_at: "2025-11-01T00:00:00Z", model_id: "test-model",
     });
-    let saved = profile();
     const request = vi.fn<DiscoveryRequest>(async (path) => {
       switch (path) {
         case "/ai/v1/config": return response({ configured: true, providers: [], progress_supported: true });
         case "/ai/v1/preferences": return response({ ai_enabled: true, style: { tone: "neutral", language: "it" }, provider_id: "default" });
-        case "/ai/v1/profile": return response(saved);
+        case "/ai/v1/profile": return response(profile());
+        case "/ai/v1/profile/refresh": return response(profile("it"));
         default: throw new Error(`Unexpected request ${path}`);
       }
     });
     render(<ReaderProfilePanel request={request} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Open saved profile" }));
     await screen.findByText("A vivid reader");
+    expect(request.mock.calls.some(([path]) => path === "/ai/v1/profile/refresh")).toBe(false);
     expect(screen.getByText("Written in English. Refresh to write it in Italian.")).toBeTruthy();
-    saved = profile("it");
-    fireEvent.click(screen.getByRole("button", { name: "Open saved profile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh profile" }));
     await waitFor(() => expect(screen.queryByText(/Written in/)).toBeNull());
   });
 
   it("requires confirmation for deleting a saved profile even when AI is opted out", async () => {
     const account = mockAccount();
-    const request = vi.fn<DiscoveryRequest>((path, init) => path === "/ai/v1/profile" && init?.method === "DELETE"
-      ? Promise.resolve(new Response(null, { status: 204 }))
-      : account(path, init));
+    const request = vi.fn<DiscoveryRequest>(async (path, init) => {
+      if (path !== "/ai/v1/profile") return account(path, init);
+      if (init?.method === "DELETE") return new Response(null, { status: 204 });
+      return response({
+        payload: { narrative: "A saved profile", in_library_recommendations: [], discovery_recommendations: [], ai_suggested_recommendations: [] },
+        generated_at: "2025-11-01T00:00:00Z", model_id: "test-model",
+      });
+    });
     render(<ReaderProfilePanel request={request} />);
+    await screen.findByText("A saved profile");
     fireEvent.click(await screen.findByRole("button", { name: "Delete profile" }));
-    expect(request.mock.calls.some(([path]) => path === "/ai/v1/profile")).toBe(false);
+    expect(request.mock.calls.some(([path, init]) => path === "/ai/v1/profile" && init?.method === "DELETE")).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Delete saved profile" }));
     await waitFor(() => expect(screen.getByText("Reader profile deleted.")).toBeTruthy());
   });

@@ -68,7 +68,12 @@ class ReadingStatsViewModel(
     nowMs: () -> Long = System::currentTimeMillis,
     zone: () -> ZoneId = ZoneId::systemDefault,
     firstDayOfWeek: () -> DayOfWeek = { WeekFields.of(Locale.getDefault()).firstDayOfWeek },
+    private val activitySync: ReadingActivitySync? = null,
 ) : ViewModel() {
+    val activity = activitySync?.state ?: MutableStateFlow(ReadingActivityState()).asStateFlow()
+    private val sessions = activitySync?.let { sync ->
+        combine(repository.sessions, activity, sync::merged)
+    } ?: repository.sessions
     /** Ticks now and just after each midnight, so a screen left open moves on to the new day. */
     private val days = flow {
         while (true) {
@@ -86,7 +91,7 @@ class ReadingStatsViewModel(
      * background thread while the screen was composing.
      */
     val state: StateFlow<ReadingStatsUiState?> = combine(
-        repository.sessions, repository.bookProgress, repository.wordCounts, repository.recording, days,
+        sessions, repository.bookProgress, repository.wordCounts, repository.recording, days,
     ) { sessions, progress, counts, recording, _ ->
         val stats = withContext(Dispatchers.Default) {
             readingStats(
@@ -130,8 +135,17 @@ class ReadingStatsViewModel(
         }
     }
 
+    fun refreshActivity() { activitySync?.refresh() }
+
+    fun syncActivity(enabled: Boolean) {
+        viewModelScope.launch { activitySync?.setEnabled(enabled) }
+    }
+
     fun clear() {
-        viewModelScope.launch { repository.clear() }
+        viewModelScope.launch {
+            if (activitySync != null && activity.value.enabled && activity.value.owner == owner()) activitySync.clear()
+            else repository.clear()
+        }
     }
 
     private fun cachedOrLoading(account: String?): LibraryStatsUiState = when (account) {

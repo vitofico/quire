@@ -5,8 +5,23 @@ screen) is the app's one statistics screen. It shows how long, when and how fast
 someone reads, from sessions recorded on this device, and a **Your library** card
 with the figures Quire's server counts. Settings has **Record reading statistics**,
 on by default; turning it off stops new sessions and offers to clear the stored
-ones. Statistics are kept on the device and in the phone's own Android backup;
-they are never synchronised with Quire's server or sent to AI.
+ones. By default these sessions are kept on the device and in the phone's own
+Android backup.
+
+## Sync reading activity
+
+Sign in to the same Quire account on both devices and enable **Sync reading
+activity** in Android's **Reading statistics** and Web's **Discover**. Each
+device keeps recording locally and shares its existing and future sessions
+after you enable sync there. An upgraded Android app can upload the sessions
+already on the phone, with their original dates and reading times. Recorded time
+and pace are separate from the AI reader profile and never go to the AI provider.
+
+Turning sync off stops uploads and hides activity from other devices on this
+device. Data already synced stays in the Quire account. While sync is on,
+**Clear statistics** on the statistics screen clears the account's activity and
+its synced copies as the devices reconnect. The control in Android Settings
+clears this phone's own recordings.
 
 ## Library figures
 
@@ -62,11 +77,11 @@ left uses its own pace after 10 minutes of reading, otherwise the overall pace.
 ## Storage
 
 Rows live in the local Room tables `reading_sessions` and `book_word_counts`
-(database version 17). Sessions are keyed by the book's content hash and keep a
+(database version 18). Sessions are keyed by the book's content hash and keep a
 title and author snapshot, so removing a book from the library keeps its
 history. Each row stores UTC instants and the device's UTC offset at the start,
 so a session stays in the local hour and day it was read even after travel or
-a clock change. **Clear statistics** on the screen or in Settings deletes every
-session. The tables are part of the app's data in the phone's own Android
-backup (the backup rules leave out only Calibre credentials), and are never
-sent to Quire's server or to AI.
+a clock change. The tables are part of the app's data in the phone's own
+Android backup; the backup rules leave out Calibre credentials. Synced rows
+store only a session ID, book key, title, start time, offset, duration and
+estimated word count.

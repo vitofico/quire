@@ -30,6 +30,26 @@ class Base(DeclarativeBase):
     pass
 
 
+class ReadingActivity(Base):
+    __tablename__ = "reading_activity"
+
+    user_id: Mapped[str] = mapped_column(String, primary_key=True)
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    book_key: Mapped[str] = mapped_column(String(256))
+    title: Mapped[str] = mapped_column(String(1024))
+    started_at: Mapped[int] = mapped_column(BigInteger)
+    utc_offset_seconds: Mapped[int]
+    active_seconds: Mapped[int]
+    words: Mapped[int | None] = mapped_column(BigInteger)
+
+
+class ReadingActivityReset(Base):
+    __tablename__ = "reading_activity_resets"
+
+    user_id: Mapped[str] = mapped_column(String, primary_key=True)
+    cleared_before: Mapped[int] = mapped_column(BigInteger)
+
+
 class HighlightSyncState(Base):
     __tablename__ = "highlight_sync_state"
 

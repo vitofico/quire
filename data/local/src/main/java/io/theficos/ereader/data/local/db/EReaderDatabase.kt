@@ -20,7 +20,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ReadingSessionEntity::class,
         BookWordCountEntity::class,
     ],
-    version = 17,
+    version = 18,
     exportSchema = true,
 )
 abstract class EReaderDatabase : RoomDatabase() {
@@ -334,6 +334,12 @@ abstract class EReaderDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE reading_sessions ADD COLUMN owner TEXT")
+            }
+        }
+
         fun build(context: Context): EReaderDatabase =
             Room.databaseBuilder(context, EReaderDatabase::class.java, "ereader.db")
                 .addMigrations(
@@ -353,6 +359,7 @@ abstract class EReaderDatabase : RoomDatabase() {
                     MIGRATION_14_15,
                     MIGRATION_15_16,
                     MIGRATION_16_17,
+                    MIGRATION_17_18,
                 )
                 .build()
     }

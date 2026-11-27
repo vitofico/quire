@@ -44,6 +44,10 @@ internal fun fixedReadingStatsRepository(
     dao = object : ReadingSessionDao {
         override suspend fun insert(session: ReadingSessionEntity) = Unit
         override fun observeAll(): Flow<List<ReadingSessionEntity>> = flowOf(sessions)
+        override suspend fun forOwner(owner: String): List<ReadingSessionEntity> = sessions.filter { it.owner == owner }
+        override suspend fun assignUnowned(owner: String) = Unit
+        override suspend fun clearSyncedHistory(owner: String, cutoff: Long) = Unit
+        override suspend fun clearForOwner(owner: String?) = Unit
         override suspend fun clear() = Unit
         override suspend fun wordCount(bookKey: String): Long? = null
         override fun observeWordCounts(): Flow<List<BookWordCountEntity>> = flowOf(emptyList())

@@ -50,6 +50,7 @@ import io.theficos.ereader.data.library.LibraryStatsResponse
 import io.theficos.ereader.ui.components.QuireCard
 import io.theficos.ereader.ui.components.QuireLoading
 import io.theficos.ereader.ui.components.SectionLabel
+import io.theficos.ereader.ui.settings.SettingsSwitchRow
 import io.theficos.ereader.ui.themeLabel
 import io.theficos.quire.R
 import java.time.LocalTime
@@ -57,6 +58,7 @@ import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.time.format.TextStyle
 import java.util.Locale
+import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
 private enum class Range { WEEK, MONTH, YEAR }
@@ -67,6 +69,16 @@ fun ReadingStatsScreen(viewModel: ReadingStatsViewModel, onBack: () -> Unit) {
     LaunchedEffect(Unit) { viewModel.loadLibrary() }
     val state by viewModel.state.collectAsState()
     val library by viewModel.library.collectAsState()
+    val activity by viewModel.activity.collectAsState()
+    LaunchedEffect(activity.enabled) {
+        viewModel.refreshActivity()
+        if (activity.enabled) {
+            while (true) {
+                delay(60_000)
+                viewModel.refreshActivity()
+            }
+        }
+    }
     var menuOpen by rememberSaveable { mutableStateOf(false) }
     var confirmClear by rememberSaveable { mutableStateOf(false) }
     Scaffold(
@@ -102,11 +114,15 @@ fun ReadingStatsScreen(viewModel: ReadingStatsViewModel, onBack: () -> Unit) {
         val current = state
         Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
             if (current == null) QuireLoading(Modifier.align(Alignment.Center))
-            else StatsContent(current, library, onRetryLibrary = viewModel::loadLibrary)
+            else StatsContent(
+                current, library, onRetryLibrary = viewModel::loadLibrary,
+                activity = activity, onSync = viewModel::syncActivity, onRetrySync = viewModel::refreshActivity,
+            )
         }
     }
     if (confirmClear) {
         ClearStatisticsDialog(
+            synced = activity.enabled,
             onConfirm = {
                 viewModel.clear()
                 confirmClear = false
@@ -117,11 +133,11 @@ fun ReadingStatsScreen(viewModel: ReadingStatsViewModel, onBack: () -> Unit) {
 }
 
 @Composable
-internal fun ClearStatisticsDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+internal fun ClearStatisticsDialog(onConfirm: () -> Unit, onDismiss: () -> Unit, synced: Boolean = false) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.stats_clear_title)) },
-        text = { Text(stringResource(R.string.stats_clear_body)) },
+        text = { Text(stringResource(if (synced) R.string.stats_sync_clear_body else R.string.stats_clear_body)) },
         confirmButton = {
             TextButton(
                 onClick = onConfirm,
@@ -158,7 +174,14 @@ private fun RecordingOffNote() {
 }
 
 @Composable
-private fun StatsContent(state: ReadingStatsUiState, library: LibraryStatsUiState, onRetryLibrary: () -> Unit) {
+private fun StatsContent(
+    state: ReadingStatsUiState,
+    library: LibraryStatsUiState,
+    onRetryLibrary: () -> Unit,
+    activity: ReadingActivityState,
+    onSync: (Boolean) -> Unit,
+    onRetrySync: () -> Unit,
+) {
     val stats = state.stats
     val locale = LocalConfiguration.current.locales[0]
     LazyColumn(
@@ -167,6 +190,23 @@ private fun StatsContent(state: ReadingStatsUiState, library: LibraryStatsUiStat
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         if (!state.recording) item { RecordingOffNote() }
+        if (activity.owner != null) item {
+            QuireCard {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.stats_sync_title),
+                        description = stringResource(R.string.stats_sync_description),
+                        checked = activity.enabled,
+                        enabled = !activity.busy,
+                        onCheckedChange = onSync,
+                    )
+                    if (activity.failed) {
+                        Text(stringResource(R.string.stats_sync_error), color = MaterialTheme.colorScheme.error)
+                        if (activity.enabled) TextButton(onClick = onRetrySync) { Text(stringResource(R.string.common_retry)) }
+                    }
+                }
+            }
+        }
         // The server counts finished books across the whole library and every device, so
         // its figure replaces this device's own while it is there.
         val showFinished = library !is LibraryStatsUiState.Ready
@@ -196,10 +236,10 @@ private fun Headline(stats: ReadingStats, locale: Locale, showFinished: Boolean)
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         TileRow(
             stringResource(R.string.stats_today) to formatDuration(stats.todaySeconds, locale),
-            stringResource(R.string.stats_this_week) to formatDuration(stats.weekSeconds, locale),
+            stringResource(R.string.stats_last_week) to formatDuration(stats.weekSeconds, locale),
         )
         TileRow(
-            stringResource(R.string.stats_this_month) to formatDuration(stats.monthSeconds, locale),
+            stringResource(R.string.stats_last_month) to formatDuration(stats.monthSeconds, locale),
             stringResource(R.string.stats_all_time) to formatDuration(stats.totalSeconds, locale),
         )
         TileRow(

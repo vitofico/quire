@@ -47,6 +47,7 @@ import noticesUrl from './legal/notices.txt?url'
 import { translator, languages } from './language'
 import { catalogInsightIdentity, promotePreview } from './discovery/api'
 import { missingProvider, useAiState } from './discovery/aiState'
+import { useReadingActivitySync } from './discovery/useReadingActivitySync'
 import { bookIdentity, fillDetails } from './details'
 import { TidyDetails } from './TidyDetails'
 import { ConversionList, useConversions } from './Conversions'
@@ -264,6 +265,7 @@ function Workspace({
     report,
     syncEnabled,
   )
+  const readingSync = useReadingActivitySync(replica, transport)
   const [epub, setEpub] = useState<Epub>(),
     [jump, setJump] = useState<Highlight>()
   const [catalogOverride, setCatalogOverride] = useState(''),
@@ -1158,6 +1160,7 @@ function Workspace({
         <Discovery
           t={t}
           readingStorage={replica ?? undefined}
+          readingSync={readingSync}
           syncAvailable={syncEnabled}
           request={active.request}
           aiAvailable={aiAvailable}

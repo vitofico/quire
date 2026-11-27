@@ -7,7 +7,13 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 _BRANCH_TABLES = {
     "ai": {"ai_generation_log", "book_themes"},
-    "progress": {"library_items", "highlights", "library_sync_receipts"},
+    "progress": {
+        "library_items",
+        "highlights",
+        "library_sync_receipts",
+        "reading_activity",
+        "reading_activity_resets",
+    },
 }
 
 

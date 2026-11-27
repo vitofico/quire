@@ -532,6 +532,7 @@ fun AppNavGraph(
                             owner = { container.credentialStore.getAccount()?.detailsOwner() },
                             fetchLibrary = container.libraryClient::getStats,
                             libraryCache = container.libraryStatsCache,
+                            activitySync = container.readingActivitySync,
                         )
                     }
                 },

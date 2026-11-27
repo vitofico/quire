@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { DiscoveryHttpError, type DiscoveryRequest, type RequestMessage, requestMessage } from "./api";
 
 type Generation = { active: boolean; previous?: string };
@@ -26,11 +26,11 @@ export function useAiOperation(request: DiscoveryRequest | undefined, scope: str
     };
   }, [request, scope]);
 
-  async function run<T>(
+  const run = useCallback(async <T,>(
     action: (signal: AbortSignal) => Promise<T>,
     receive: (value: T) => void,
     generation?: { previous?: string },
-  ) {
+  ) => {
     if (current.current || !request) return;
     const operations = costlyRequests.get(request) ?? new Map<string, Generation>();
     const costly = Boolean(generation);
@@ -66,9 +66,9 @@ export function useAiOperation(request: DiscoveryRequest | undefined, scope: str
         setAmbiguous(operations.has(scope));
       }
     }
-  }
+  }, [request, scope]);
 
-  function recover(savedTimestamp?: string) {
+  const recover = useCallback((savedTimestamp?: string) => {
     if (!request || !savedTimestamp) return;
     const operations = costlyRequests.get(request);
     const generation = operations?.get(scope);
@@ -76,7 +76,7 @@ export function useAiOperation(request: DiscoveryRequest | undefined, scope: str
       operations?.delete(scope);
       setAmbiguous(false);
     }
-  }
+  }, [request, scope]);
 
   function cancel() {
     const operation = current.current;

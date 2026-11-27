@@ -5,8 +5,8 @@
     <string name="stats_empty_body">Quire cuenta tu lectura a partir de esta versión, así que no hay historial anterior. Se guarda en este dispositivo y en la copia de seguridad de tu teléfono, y nunca se envía al servidor de Quire ni a la IA. Lee un libro unos minutos y vuelve.</string>
     <string name="stats_recording_off">El registro está desactivado. Actívalo en %1$s → %2$s para contar tu lectura.</string>
     <string name="stats_today">Hoy</string>
-    <string name="stats_this_week">Esta semana</string>
-    <string name="stats_this_month">Este mes</string>
+    <string name="stats_last_week">Últimos 7 días</string>
+    <string name="stats_last_month">Últimos 30 días</string>
     <string name="stats_all_time">En total</string>
     <string name="stats_current_streak">Racha actual</string>
     <string name="stats_longest_streak">Racha más larga</string>
@@ -60,4 +60,8 @@
     <string name="settings_stats_keep">Conservar</string>
     <string name="stats_library">Tu biblioteca</string>
     <string name="stats_library_note">Lo cuenta tu servidor de Quire: todos los libros de tu biblioteca, en todos tus dispositivos.</string>
+    <string name="stats_sync_title">Sincronizar actividad de lectura</string>
+    <string name="stats_sync_description">Comparte la actividad de lectura anterior y futura de este teléfono con tu cuenta de Quire.</string>
+    <string name="stats_sync_error">No se pudo sincronizar la actividad de lectura.</string>
+    <string name="stats_sync_clear_body">¿Borrar las estadísticas de lectura de tu cuenta de Quire y de los dispositivos sincronizados?</string>
 </resources>
