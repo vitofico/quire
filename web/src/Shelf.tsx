@@ -70,12 +70,17 @@ function Meter({ percent }: { percent: number }) {
     </span>
   )
 }
+export const shelfFilters = ['All books', 'In progress', 'Finished', 'Downloaded', 'Abandoned'] as const
+type ShelfFilter = typeof shelfFilters[number]
+
 type Props = {
   ready: boolean
   /** Books live only in this browser. */
   local?: boolean
   art?: boolean
   data: ReplicaSnapshot
+  filter: ShelfFilter
+  onFilterChange: (filter: ShelfFilter) => void
   loadCover?: LoadCover
   t: (s: string) => string
   choose: () => void
@@ -86,10 +91,9 @@ type Props = {
   /** PDF conversions under way, shown by the add control. */
   conversions?: ReactNode
 }
-export function Shelf({ ready, local, art, data, loadCover, t, choose, details, read, pdf, conversions }: Props) {
+export function Shelf({ ready, local, art, data, filter, onFilterChange, loadCover, t, choose, details, read, pdf, conversions }: Props) {
   const importLabel = t(pdf ? 'Import EPUB or PDF' : 'Import EPUB')
   const [search, setSearch] = useState(''),
-    [filter, setFilter] = useState('All books'),
     [sort, setSort] = useState('Recently read'),
     [compact, setCompact] = useState(false)
   const rows = useMemo(
@@ -249,8 +253,8 @@ export function Shelf({ ready, local, art, data, loadCover, t, choose, details, 
             </div>
           </div>
           <div className="chips" role="group" aria-label={t('Show')}>
-            {['All books', 'In progress', 'Finished', 'Downloaded', 'Abandoned'].map((s) => (
-              <button key={s} className="chip" aria-pressed={filter === s} onClick={() => setFilter(s)}>
+            {shelfFilters.map((s) => (
+              <button key={s} className="chip" aria-pressed={filter === s} onClick={() => onFilterChange(s)}>
                 {t(s)}
               </button>
             ))}

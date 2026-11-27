@@ -41,7 +41,7 @@ import { readThemeChoice, resolveTheme, type ThemeChoice } from './settings/them
 import { BookDetails } from './BookDetails'
 import { Passages } from './Passages'
 import { GuestImport } from './GuestImport'
-import { authors, findProgress, Shelf } from './Shelf'
+import { authors, findProgress, Shelf, shelfFilters } from './Shelf'
 import { useReplica } from './useReplica'
 import noticesUrl from './legal/notices.txt?url'
 import { translator, languages } from './language'
@@ -249,6 +249,7 @@ function Workspace({
     [working, setWorking] = useState(false)
   const previousRoute = useRef(route)
   const main = useRef<HTMLElement>(null)
+  const [savedShelfFilter, setShelfFilter] = useOption('shelf-filter', shelfFilters[0])
   const { lang, setLang, theme, setTheme, art, setArt, t } = prefs
   const report = useCallback((s: string) => setNotice(s), [])
   const syncEnabled =
@@ -1278,6 +1279,8 @@ function Workspace({
           art={art === 'on'}
           t={t}
           data={snapshot}
+          filter={shelfFilters.find(filter => filter === savedShelfFilter) ?? shelfFilters[0]}
+          onFilterChange={setShelfFilter}
           loadCover={loadCover}
           choose={() => choose()}
           read={read}
@@ -1317,6 +1320,7 @@ function Workspace({
           (route.view === 'read' ? '' : 'workspace ') +
           (drag ? 'drop-zone' : '')
         }
+        data-view={route.view}
         id="content"
         ref={main}
         tabIndex={-1}
