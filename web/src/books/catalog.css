@@ -36,12 +36,25 @@
 
 .catalog-book {
   display: flex;
-  align-items: start;
   flex-direction: column;
+  align-items: start;
+  justify-content: start;
   gap: .35rem;
   width: 100%;
   height: 100%;
-  text-align: left;
+  padding: .5rem;
+  border: 0;
+  background: none;
+  border-radius: var(--radius-card);
+  text-align: start;
+}
+
+.catalog-book .catalog-cover {
+  flex: none;
+}
+
+.catalog-book .who {
+  align-self: stretch;
 }
 
 .catalog-cover {
@@ -60,13 +73,6 @@
   color: var(--muted);
   font-family: var(--display);
   font-size: 2rem;
-}
-
-.catalog-book {
-  padding: .5rem;
-  border: 0;
-  background: none;
-  border-radius: var(--radius-card);
 }
 
 .catalog-book:hover:not(:disabled) {

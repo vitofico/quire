@@ -9,6 +9,7 @@ import { loadReaderFonts } from './fonts'
 import { readerStrings } from './strings'
 import { clickTurn } from './clickTurn'
 import { scrollsInside, wheelGesture } from './wheelGesture'
+import { useReadingSession, wordsInView } from './useReadingSession'
 import { Icon, type IconName } from '../icons'
 import { ask } from '../ask'
 import './reader.css'
@@ -180,6 +181,7 @@ export default function Reader({
   const [progress, setProgress] = useState(() => clamp(parseLocator(locator)?.locations?.totalProgression ?? 0))
   const index = destination.index
   const rtl = active?.doc.defaultView?.getComputedStyle(active.doc.body).direction === 'rtl'
+  const recordTurn = useReadingSession(readerStorage, bookId, title, !!active)
 
   // The same frame is kept mounted while reading. Its document contains only
   // the inert shell, trusted stylesheet and sanitized publication nodes.
@@ -416,9 +418,13 @@ export default function Reader({
     const doc = active?.doc
     if (!doc || pendingNavigation.current) return
     const current = currentPage(doc)
-    if ((direction > 0 && current >= pageCount(doc) - 1) || (direction < 0 && current <= 0)) {
+    const pages = pageCount(doc)
+    if ((direction > 0 && current >= pages - 1) || (direction < 0 && current <= 0)) {
       const next = index + direction
-      if (next >= 0 && next < epub.spine.length) go({index: next, fraction: direction > 0 ? 0 : 1})
+      if (next >= 0 && next < epub.spine.length) {
+        recordTurn(direction > 0 ? () => wordsInView(doc, pages) : undefined)
+        go({index: next, fraction: direction > 0 ? 0 : 1})
+      }
       else if (direction > 0 && index === epub.spine.length - 1) {
         const completion = locatorAt(epub, index, 1)
         latest.current = completion
@@ -427,6 +433,7 @@ export default function Reader({
       }
       return
     }
+    recordTurn(direction > 0 ? () => wordsInView(doc, pages) : undefined)
     intentional.current = true
     showPage(doc, current + direction)
     remember(doc)

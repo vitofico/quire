@@ -71,7 +71,10 @@ function Meter({ percent }: { percent: number }) {
   )
 }
 export const shelfFilters = ['All books', 'In progress', 'Finished', 'Downloaded', 'Abandoned'] as const
+export const shelfSortOrders = ['Recently read', 'Title', 'Author'] as const
 type ShelfFilter = typeof shelfFilters[number]
+type ShelfSortOrder = typeof shelfSortOrders[number]
+type ShelfView = 'cover' | 'list'
 
 type Props = {
   ready: boolean
@@ -81,6 +84,10 @@ type Props = {
   data: ReplicaSnapshot
   filter: ShelfFilter
   onFilterChange: (filter: ShelfFilter) => void
+  sort: ShelfSortOrder
+  onSortChange: (sort: ShelfSortOrder) => void
+  view: ShelfView
+  onViewChange: (view: ShelfView) => void
   loadCover?: LoadCover
   t: (s: string) => string
   choose: () => void
@@ -91,11 +98,13 @@ type Props = {
   /** PDF conversions under way, shown by the add control. */
   conversions?: ReactNode
 }
-export function Shelf({ ready, local, art, data, filter, onFilterChange, loadCover, t, choose, details, read, pdf, conversions }: Props) {
+export function Shelf({
+  ready, local, art, data, filter, onFilterChange, sort, onSortChange, view, onViewChange,
+  loadCover, t, choose, details, read, pdf, conversions,
+}: Props) {
   const importLabel = t(pdf ? 'Import EPUB or PDF' : 'Import EPUB')
-  const [search, setSearch] = useState(''),
-    [sort, setSort] = useState('Recently read'),
-    [compact, setCompact] = useState(false)
+  const [search, setSearch] = useState('')
+  const compact = view === 'list'
   const rows = useMemo(
     () =>
       data.books.map((book) => ({
@@ -225,9 +234,9 @@ export function Shelf({ ready, local, art, data, filter, onFilterChange, loadCov
               className="quiet"
               aria-label={t('Sort by')}
               value={sort}
-              onChange={(e) => setSort(e.target.value)}
+              onChange={(e) => onSortChange(e.target.value as ShelfSortOrder)}
             >
-              {['Recently read', 'Title', 'Author'].map((s) => (
+              {shelfSortOrders.map((s) => (
                 <option key={s} value={s}>
                   {t(s)}
                 </option>
@@ -238,7 +247,7 @@ export function Shelf({ ready, local, art, data, filter, onFilterChange, loadCov
                 aria-pressed={!compact}
                 aria-label={t('Cover view')}
                 title={t('Cover view')}
-                onClick={() => setCompact(false)}
+                onClick={() => onViewChange('cover')}
               >
                 <Icon name="grid" />
               </button>
@@ -246,7 +255,7 @@ export function Shelf({ ready, local, art, data, filter, onFilterChange, loadCov
                 aria-pressed={compact}
                 aria-label={t('Compact list')}
                 title={t('Compact list')}
-                onClick={() => setCompact(true)}
+                onClick={() => onViewChange('list')}
               >
                 <Icon name="list" />
               </button>
