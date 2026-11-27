@@ -1231,12 +1231,15 @@ dialog.ask .actions {
   font-size: 0.85rem;
 }
 .book-detail .facts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem 2.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(11rem, 100%), 1fr));
+  column-gap: 1.5rem;
   margin: 1.75rem 0 0;
-  padding-top: 1.25rem;
+  padding-top: 0.25rem;
   border-top: 1px solid var(--line);
+}
+.book-detail .facts > div {
+  display: block;
+  min-width: 0;
 }
 .facts dt {
   font-size: 0.8rem;
@@ -1246,6 +1249,18 @@ dialog.ask .actions {
 }
 .facts dd {
   margin: 0.25rem 0 0;
+}
+.book-detail .facts dt {
+  overflow-wrap: anywhere;
+}
+.book-detail .facts dd {
+  color: var(--ink);
+}
+.book-detail .facts .origin {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--muted);
+  white-space: normal;
 }
 .book-detail details {
   margin-top: 1rem;

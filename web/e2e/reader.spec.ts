@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { build } from 'vite'
+import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import { waitForSavedChapter } from './local-replica'
 
 const androidSource = readFileSync(new URL('../../reader/src/main/assets/quire-structural-anchors.js', import.meta.url), 'utf8')
@@ -230,12 +231,78 @@ test('preserves a private pause through chapter changes, reader resize and reloa
   await expect.poll(isOnPage).toBe(true)
 })
 
+test('turns facing pages on wide screens and keeps the passage when switching layouts', async ({ page }) => {
+  const fixture = unzipSync(readFileSync(new URL('../../app/src/test/resources/reader-pause.epub', import.meta.url)))
+  // At this viewport, twenty lines fill a column. Use natural pagination
+  // so the fixture also works in browsers without forced column breaks.
+  const fillPage = '<br />&#160;'.repeat(19)
+  const chapterWithPages = (count: number, dir: 'ltr' | 'rtl') => html(
+    Array.from({ length: count }, (_, i) =>
+      `<p id="leaf-${i + 1}" style="margin:0">Passage ${i + 1}${fillPage}</p>`).join(''),
+  ).replace('<body>', `<body dir="${dir}">`)
+  fixture['EPUB/part1.xhtml'] = strToU8(chapterWithPages(3, 'ltr'))
+  fixture['EPUB/part2.xhtml'] = strToU8(chapterWithPages(4, 'rtl'))
+  fixture['EPUB/part3.xhtml'] = strToU8(html('<p>Fixed page</p>')
+    .replace('</head>', '<meta name="viewport" content="width=600,height=800"/></head>'))
+
+  await page.setViewportSize({ width: 1800, height: 840 })
+  await page.goto(base)
+  await expect(page.getByRole('button', { name: 'Import EPUB', exact: true }).first()).toBeEnabled()
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'facing-pages.epub', mimeType: 'application/epub+zip', buffer: Buffer.from(zipSync(fixture)),
+  })
+  await page.getByRole('button', { name: 'Read', exact: true }).click()
+
+  const frame = page.frameLocator('.qr-frame')
+  const next = page.getByRole('button', { name: 'Next', exact: true })
+  const previous = page.getByRole('button', { name: 'Previous', exact: true })
+  const layout = page.getByLabel('Page layout')
+  const visiblePages = () => frame.locator('body').evaluate(body => {
+    const width = body.ownerDocument.documentElement.clientWidth
+    return [...body.querySelectorAll('p[id]')].flatMap(paragraph => {
+      const rect = paragraph.getClientRects()[0]
+      if (rect.right <= 0 || rect.left >= width) return []
+      return [paragraph.id + (rect.left >= width / 2 ? ' right' : ' left')]
+    })
+  })
+  await expect.poll(visiblePages).toEqual(['leaf-1 left', 'leaf-2 right'])
+  await next.click()
+  await expect.poll(visiblePages).toEqual(['leaf-3 left'])
+  await waitForSavedChapter(page, 'EPUB/part1.xhtml', 'Passage 3')
+  await page.reload()
+  await expect.poll(visiblePages).toEqual(['leaf-3 left'])
+
+  await page.setViewportSize({ width: 1000, height: 840 })
+  await expect.poll(visiblePages).toEqual(['leaf-3 left'])
+  await page.setViewportSize({ width: 1800, height: 840 })
+  await expect.poll(visiblePages).toEqual(['leaf-3 left'])
+  await page.getByRole('button', { name: 'Appearance', exact: true }).click()
+  await layout.selectOption('single')
+  await page.getByRole('button', { name: 'Close panel' }).click()
+  await expect.poll(() => frame.locator('html').evaluate(root => getComputedStyle(root).columnCount)).toBe('1')
+  await expect.poll(visiblePages).toEqual(['leaf-3 left'])
+  await page.reload()
+  await page.getByRole('button', { name: 'Appearance', exact: true }).click()
+  await expect(layout).toHaveValue('single')
+  await layout.selectOption('auto')
+  await page.getByRole('button', { name: 'Close panel' }).click()
+
+  await next.click()
+  await expect.poll(visiblePages).toEqual(['leaf-1 right', 'leaf-2 left'])
+  await page.getByRole('button', { name: 'Next page', exact: true }).click()
+  await expect.poll(visiblePages).toEqual(['leaf-3 right', 'leaf-4 left'])
+  await next.click()
+  await expect(frame.locator('html')).toHaveAttribute('data-quire-fixed', '')
+  await expect(frame.getByText('Fixed page')).toBeInViewport()
+  await previous.click()
+  await expect.poll(visiblePages).toEqual(['leaf-3 right', 'leaf-4 left'])
+})
+
 test('verifies an APK-recorded repeated passage and refuses the changed edition', async ({ page }) => {
   const { execFileSync } = await import('node:child_process')
   const { mkdtempSync, rmSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
-  const { unzipSync, strFromU8 } = await import('fflate')
   const apk = JSON.parse(readFileSync(new URL('./fixtures/android-v2026.11.22.346.json', import.meta.url), 'utf8'))
   const locator = JSON.parse(apk.highlight.locator)
   const temp = mkdtempSync(join(tmpdir(), 'quire-apk-anchor-'))
@@ -306,43 +373,33 @@ test('turns one page per trackpad swipe, even when the next swipe starts during 
   await expect.poll(pageNumber).toBe(1)
 })
 
-test('in full screen a click on the right or left of the page turns it', async ({ page }) => {
-  const { execFileSync } = await import('node:child_process')
-  const { mkdtempSync, rmSync } = await import('node:fs')
-  const { tmpdir } = await import('node:os')
-  const { join } = await import('node:path')
-  const temp = mkdtempSync(join(tmpdir(), 'quire-reader-'))
-  try {
-    const file = join(temp, 'fixture.epub')
-    execFileSync('python3', ['../scripts/make-reader-pause-fixture.py', file])
-    await page.goto(base)
-    await expect(page.getByRole('button', {name: 'Import EPUB', exact: true}).first()).toBeEnabled()
-    await page.locator('input[type=file]').setInputFiles(file)
-    await page.getByRole('button', {name: 'Read', exact: true}).click()
-  } finally {
-    rmSync(temp, { recursive: true, force: true })
-  }
+for (const mode of ['normal', 'fullscreen'] as const) test(`clicks and chevrons turn pages in ${mode} reading mode`, async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 740 })
+  await page.goto(base)
+  await expect(page.getByRole('button', {name: 'Import EPUB', exact: true}).first()).toBeEnabled()
+  await page.locator('input[type=file]').setInputFiles(fileURLToPath(new URL('../../app/src/test/resources/reader-pause.epub', import.meta.url)))
+  await page.getByRole('button', {name: 'Read', exact: true}).click()
   const frame = page.frameLocator('.qr-frame')
   await expect(frame.locator('p').first()).toBeVisible()
+  if (mode === 'fullscreen') {
+    const fullscreen = page.getByRole('button', { name: 'Fullscreen', exact: true })
+    test.skip(!await fullscreen.count(), 'this browser offers no full screen')
+    await fullscreen.click()
+    await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(true)
+  }
   const pageNumber = () => frame.locator('html').evaluate(root =>
     Math.round((root.ownerDocument.scrollingElement?.scrollLeft ?? 0) / root.clientWidth))
   const click = async (across: number) => {
     const box = (await page.locator('.qr-frame').boundingBox())!
     await page.mouse.click(box.x + box.width * across, box.y + box.height / 2)
   }
-  // Outside full screen a click is only a click.
-  await click(0.9)
-  await page.waitForTimeout(300)
-  expect(await pageNumber()).toBe(0)
-  const fullscreen = page.getByRole('button', { name: 'Fullscreen', exact: true })
-  test.skip(!await fullscreen.count(), 'this browser offers no full screen')
-  await fullscreen.click()
-  await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(true)
-  await click(0.9)
+  const next = page.getByRole('button', { name: 'Next page', exact: true })
+  const previous = page.getByRole('button', { name: 'Previous page', exact: true })
+  await next.click()
   await expect.poll(pageNumber).toBe(1)
   await click(0.9)
   await expect.poll(pageNumber).toBe(2)
-  await click(0.1)
+  await previous.click()
   await expect.poll(pageNumber).toBe(1)
   // Two quick clicks turn two pages instead of selecting a word.
   const box = (await page.locator('.qr-frame').boundingBox())!
@@ -352,8 +409,22 @@ test('in full screen a click on the right or left of the page turns it', async (
   await click(0.1)
   await click(0.1)
   await expect.poll(pageNumber).toBe(1)
-  // The middle is left alone.
+  // Closing a text selection and clicking the middle both leave the page in place.
+  await frame.locator('body').evaluate(body => {
+    const doc = body.ownerDocument
+    const paragraph = [...body.querySelectorAll('p')].find(p => {
+      const rect = p.getBoundingClientRect()
+      return rect.left >= 0 && rect.right <= doc.documentElement.clientWidth
+    })!
+    const range = doc.createRange()
+    range.selectNodeContents(paragraph)
+    const selection = doc.getSelection()!
+    selection.removeAllRanges()
+    selection.addRange(range)
+  })
+  await expect(page.getByRole('button', {name: 'Save highlight'})).toBeVisible()
+  await click(0.9)
+  expect(await pageNumber()).toBe(1)
   await click(0.5)
-  await page.waitForTimeout(300)
   expect(await pageNumber()).toBe(1)
 })

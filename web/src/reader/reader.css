@@ -19,9 +19,20 @@
 }
 .qr-bar { padding: .65rem .8rem; border-bottom: 1px solid var(--qr-border); grid-row: 1; }
 .qr-bar h1 { flex: 1 1 10rem; font-size: 1.15rem; margin: 0 .5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.qr-body { display: flex; min-height: 0; position: relative; grid-area: 2 / 1; }
-.qr-frame { display: block; flex: 1; min-width: 0; width: 100%; height: 100%; border: none; background: var(--qr-page); }
+.qr-body { display: flex; min-height: 0; position: relative; grid-area: 2 / 1; background: var(--qr-page); }
+.qr-pages { display: flex; flex: 1; min-width: 0; container-type: inline-size; direction: ltr; }
+.qr-frame { display: block; flex: 1 1 100%; min-width: 0; width: 100%; height: 100%; border: none; background: var(--qr-page); }
+.qr-frame-spread { max-width: 96rem; margin-inline: auto; }
 .qr-reader button { font: inherit; }
+.qr-reader .qr-page-edge {
+  display: none; flex: 1 0 2.75rem; place-items: center; padding: 0;
+  border: 0; border-radius: 0; background: none; color: var(--qr-page-ink); cursor: pointer;
+}
+.qr-page-edge .icon { opacity: .52; }
+.qr-page-edge:is(:hover, :focus-visible) .icon { opacity: 1; }
+@container (min-width: 48rem) {
+  .qr-reader .qr-page-edge { display: grid; }
+}
 .qr-reader button[aria-pressed="true"], .qr-reader button[aria-current] { font-weight: 700; border-color: currentColor; }
 .qr-reader .qr-tool { min-height: 2.5rem; padding: .4rem .8rem; background: none; }
 .qr-reader .qr-tool:not(:has(span)) { width: 2.5rem; padding: 0; }
@@ -31,6 +42,7 @@
 .qr-reader button:focus-visible, .qr-reader a:focus-visible, .qr-reader input:focus-visible, .qr-reader select:focus-visible, .qr-reader textarea:focus-visible {
   outline: 2px solid currentColor; outline-offset: 2px;
 }
+.qr-reader .qr-page-edge:focus-visible { outline-offset: -4px; }
 .qr-panel { box-sizing: border-box; width: min(23rem, 40%); overflow: auto; overscroll-behavior: contain; padding: .8rem; background: var(--qr-panel); border-inline-start: 1px solid var(--qr-border); }
 .qr-panel > header { justify-content: space-between; margin-bottom: .65rem; }
 .qr-panel > header h2 { margin: 0; font-size: 1.1rem; }

@@ -3,7 +3,7 @@ import type { Replica } from '../data'
 import type { Epub } from '../books/epub'
 import { aligned, captureRange, chapterProgress, currentPage, displayRange, pageCount, parseLocator, readAnchor, resolveRange, showElement, showPage, startOf, viewportRange, type Locator } from './anchors'
 import { chapterShell, readerSandbox, jumpFragment, mountChapter, chapterSearchText } from './publication'
-import { chapterStyles, palettes, sanitizePreferences, type PauseBookmark, type ReaderPreferences } from './preferences'
+import { chapterStyles, pageLayouts, palettes, sanitizePreferences, type PauseBookmark, type ReaderPreferences } from './preferences'
 import { findMatches, matchRange, searchableText } from './search'
 import { loadReaderFonts } from './fonts'
 import { readerStrings } from './strings'
@@ -179,6 +179,7 @@ export default function Reader({
   })
   const [progress, setProgress] = useState(() => clamp(parseLocator(locator)?.locations?.totalProgression ?? 0))
   const index = destination.index
+  const rtl = active?.doc.defaultView?.getComputedStyle(active.doc.body).direction === 'rtl'
 
   // The same frame is kept mounted while reading. Its document contains only
   // the inert shell, trusted stylesheet and sanitized publication nodes.
@@ -431,6 +432,19 @@ export default function Reader({
     remember(doc)
   }
 
+  function turnFromEdge(direction: number) {
+    page(rtl ? -direction : direction)
+  }
+
+  function clickGutter(direction: number) {
+    if (selected) {
+      active?.doc.getSelection()?.removeAllRanges()
+      setSelected(null)
+      return
+    }
+    turnFromEdge(direction)
+  }
+
   function closePanel() {
     setPanel(null)
     panelTrigger.current?.focus()
@@ -448,7 +462,6 @@ export default function Reader({
     const target = event.target as Element | null
     if (target?.matches?.('input,textarea,select,button,a,[contenteditable]')) return
     if (event.shiftKey && event.key !== ' ') return
-    const rtl = active?.doc.defaultView?.getComputedStyle(active.doc.body).direction === 'rtl'
     const keys: Record<string, number> = {PageDown: 1, PageUp: -1, ArrowRight: rtl ? -1 : 1, ArrowLeft: rtl ? 1 : -1, ArrowDown: 1, ArrowUp: -1, ' ': event.shiftKey ? -1 : 1}
     if (event.key in keys) {
       event.preventDefault()
@@ -518,9 +531,8 @@ export default function Reader({
       dismissing = !!doc.getSelection()?.toString()
       deliberate()
     }
-    // In full screen the page's own edges turn it; elsewhere a click is only a click.
     const edgeTurn = (event: MouseEvent) =>
-      document.fullscreenElement !== reader.current || event.button !== 0 ||
+      event.button !== 0 ||
         event.ctrlKey || event.metaKey || event.shiftKey || event.altKey ||
         (event.target as Element | null)?.closest?.('a[href], button, input, select, textarea, summary, audio, video')
         ? 0 : clickTurn(event.clientX, doc.documentElement.clientWidth)
@@ -531,8 +543,7 @@ export default function Reader({
     const clickPage = (event: MouseEvent) => {
       const turn = edgeTurn(event)
       if (!turn || dismissing || doc.getSelection()?.toString()) return
-      const rtl = doc.defaultView?.getComputedStyle(doc.body).direction === 'rtl'
-      page(turn * (rtl ? -1 : 1))
+      turnFromEdge(turn)
     }
     const link = (event: MouseEvent) => {
       const item = (event.target as Element | null)?.closest?.('[data-quire-link]')
@@ -573,8 +584,7 @@ export default function Reader({
         const deltaX = first.clientX - touch.x
         const deltaY = first.clientY - touch.y
         if (Math.abs(deltaX) > 65 && Math.abs(deltaY) < 35) {
-          const rtl = doc.defaultView?.getComputedStyle(doc.body).direction === 'rtl'
-          page((deltaX < 0 ? 1 : -1) * (rtl ? -1 : 1))
+          turnFromEdge(deltaX < 0 ? 1 : -1)
         }
       }
       touch = undefined
@@ -584,8 +594,8 @@ export default function Reader({
       if (event.ctrlKey || scrollsInside(event.target, event.deltaX, event.deltaY)) return
       const swipe = wheelTurn.current(event.deltaX, event.deltaY, event.timeStamp)
       if (!swipe) return
-      const rtl = swipe.sideways && doc.defaultView?.getComputedStyle(doc.body).direction === 'rtl'
-      page(swipe.turn * (rtl ? -1 : 1))
+      if (swipe.sideways) turnFromEdge(swipe.turn)
+      else page(swipe.turn)
     }
     const key = (event: globalThis.KeyboardEvent) => handleReaderKey.current(event)
     doc.addEventListener('scroll', scroll, { passive: true })
@@ -707,7 +717,9 @@ export default function Reader({
       if (action === 'note' && pause) mark = {...pause, note: note.trim()}
       if (action === 'save' && active) {
         const { doc } = active
-        const range = viewportRange(doc)
+        // Opening this panel can reflow the spread. Keep the passage that led
+        // to the current view, which may be on its facing page.
+        const range = warm.current && doc.body.contains(warm.current.startContainer) ? warm.current : viewportRange(doc)
         const base = baseLocator(doc)
         const current = range ? await captureRange(doc, base, range, range.toString(), true) : undefined
         mark = {locator: JSON.stringify(current ?? base), note: note.trim(), passage: current?.text?.highlight?.trim().slice(0, 500) ?? ''}
@@ -779,9 +791,13 @@ export default function Reader({
   ]
   const panelName = panel === 'contents' ? 'Contents' : panel === 'find' ? 'Find' : panel === 'type' ? 'Appearance'
     : panel === 'pause' ? 'Pause & return' : 'Passages'
+  const fixed = active?.doc.documentElement.hasAttribute('data-quire-fixed')
+  const palette = palettes[preferences.palette]
+  const leftLabel = t(rtl ? 'Next page' : 'Previous page')
+  const rightLabel = t(rtl ? 'Previous page' : 'Next page')
 
   return <section className="qr-reader" ref={reader} tabIndex={-1} onKeyDown={keyAction}
-    style={{'--qr-page': palettes[preferences.palette].background} as CSSProperties} aria-label={t('Reader')}>
+    style={{'--qr-page': palette.background, '--qr-page-ink': palette.text} as CSSProperties} aria-label={t('Reader')}>
     <header className="qr-bar">
       <button type="button" className="qr-tool" aria-label={t('Close book')} title={t('Close book')} onClick={onBack}><Icon name="back" /></button>
       <h1>{title}</h1>
@@ -793,8 +809,15 @@ export default function Reader({
       </div>
     </header>
     <div className="qr-body">
-      <iframe className="qr-frame" title={title} ref={frame} sandbox={readerSandbox} srcDoc={chapterShell}
-        onLoad={() => setLoaded(true)} referrerPolicy="no-referrer" />
+      <div className="qr-pages">
+        <button type="button" className="qr-page-edge" aria-label={leftLabel} title={leftLabel}
+          onClick={() => clickGutter(-1)}><Icon name="back" /></button>
+        <iframe className={`qr-frame${!fixed && preferences.layout === 'auto' ? ' qr-frame-spread' : ''}`}
+          title={title} ref={frame} sandbox={readerSandbox} srcDoc={chapterShell}
+          onLoad={() => setLoaded(true)} referrerPolicy="no-referrer" />
+        <button type="button" className="qr-page-edge" aria-label={rightLabel} title={rightLabel}
+          onClick={() => clickGutter(1)}><Icon name="next" /></button>
+      </div>
       {panel && <aside className="qr-panel" aria-label={t(panelName)}>
         <header><h2 tabIndex={-1} ref={panelHeading}>{t(panelName)}</h2><button type="button" aria-label={t('Close panel')} onClick={closePanel}>×</button></header>
         {panel === 'contents' && (epub.toc.length ? toc(epub.toc) : <ol className="qr-toc">
@@ -812,6 +835,10 @@ export default function Reader({
           </div>
         </form>}
         {settingsReady && panel === 'type' && <div className="qr-fields">
+          {!fixed && <label>{t('Page layout')} <select value={preferences.layout}
+            onChange={event => changePreferences({layout: event.target.value as ReaderPreferences['layout']})}>
+            {Object.entries(pageLayouts).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}
+          </select></label>}
           <label>{t('Palette')} <select value={preferences.palette} onChange={event => changePreferences({palette: event.target.value as ReaderPreferences['palette']})}>
             {Object.keys(palettes).map(item => <option key={item} value={item}>{option(item)}</option>)}
           </select></label>

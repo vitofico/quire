@@ -7,9 +7,11 @@ export interface ReaderPreferences {
   size: number
   spacing: number
   margin: number
+  layout: keyof typeof pageLayouts
 }
 
-export const defaults: ReaderPreferences = {palette: 'paper', font: 'serif', size: 19, spacing: 1.65, margin: 32}
+export const pageLayouts = {auto: 'Automatic', single: 'Single page'} as const
+export const defaults: ReaderPreferences = {palette: 'paper', font: 'serif', size: 19, spacing: 1.65, margin: 32, layout: 'auto'}
 export const palettes: Record<Palette, {background: string; text: string; link: string}> = {
   paper: {background: '#f9f5ea', text: '#302820', link: '#72502a'},
   sage: {background: '#e8ecde', text: '#233528', link: '#2d5a4b'},
@@ -36,6 +38,7 @@ export function sanitizePreferences(value: Partial<ReaderPreferences> | undefine
     size: bounded(value?.size, 14, 36, defaults.size),
     spacing: bounded(value?.spacing, 1.2, 2.4, defaults.spacing),
     margin: bounded(value?.margin, 12, 64, defaults.margin),
+    layout: value?.layout === 'single' ? 'single' : defaults.layout,
   }
 }
 
@@ -49,11 +52,20 @@ export function chapterStyles(prefs: ReaderPreferences) {
   const palette = palettes[prefs.palette]
   return `
     html { background: ${palette.background}; color: ${palette.text}; overflow-wrap: break-word; overflow-anchor: none; }
-    /* Each column is one window wide and one page tall: the reader turns pages by
-       moving one column sideways, never by scrolling down. */
+    /* Pages flow sideways. The reader advances by one window, including in spreads. */
     :root:not([data-quire-fixed]) { --qr-column: calc(100vh - 2 * min(${prefs.margin}px, 5vh));
       height: 100vh; box-sizing: border-box; overflow: hidden; padding: min(${prefs.margin}px, 5vh) 0;
-      column-width: 100vw; column-gap: 0; column-fill: auto; direction: ltr; }
+      column-count: 1; column-gap: 0; column-fill: auto; direction: ltr; }
+    ${prefs.layout === 'auto' ? `
+      @media (min-width: 75rem) {
+        :root:not([data-quire-fixed]) { column-count: 2; }
+        :root:not([data-quire-fixed]):has(body:dir(rtl)) { direction: rtl; }
+        /* An empty, unfragmentable page lets an odd last spread align,
+           including in engines that ignore forced column breaks. */
+        :root:not([data-quire-fixed]) body::after {
+          content: ''; display: block; block-size: var(--qr-column); overflow: hidden;
+        }
+      }` : ''}
     body { font: ${prefs.size}px/${prefs.spacing} ${fonts[prefs.font]}; max-width: 42rem;
       padding: 0 min(${prefs.margin}px, 8vw); margin: 0 auto; box-sizing: content-box; }
     ${prefs.font !== 'publisher' ? `body :where(p, span, div, h1, h2, h3, h4, h5, h6, blockquote, li, table, td, em, strong, a) { font-family: ${fonts[prefs.font]} !important; }` : ''}
