@@ -70,15 +70,16 @@ export function useReadingActivitySync(storage: Replica | null | undefined, requ
   const snapshot = result && result.storage === storage && result.request === request ? result.value : undefined
 
   useEffect(() => {
-    const replica = storage
-    const transport = request
-    if (!replica || !transport) return
+    if (!storage || !request) return
+    const replica: Replica = storage
+    const transport: DiscoveryRequest = request
     const controller = new AbortController()
     const {signal} = controller
     let running = false
     const update = (get: (current: Snapshot) => Snapshot) => {
       if (!signal.aborted) setResult(previous => ({
-        storage, request, value: get(previous?.storage === storage && previous.request === request ? previous.value : empty),
+        storage: replica, request: transport,
+        value: get(previous?.storage === replica && previous.request === transport ? previous.value : empty),
       }))
     }
 
