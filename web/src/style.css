@@ -537,7 +537,17 @@ a.account-chip:hover {
 .workspace {
   width: 100%;
   max-width: 76rem;
+  margin-inline: auto;
   padding: clamp(1.25rem, 3.5vw, 2.75rem);
+}
+.workspace:is([data-view='library'], [data-view='catalog']) {
+  max-width: 112rem;
+}
+.workspace[data-view='book'] {
+  max-width: 65.5rem;
+}
+.workspace[data-view='settings'] {
+  max-width: 51.5rem;
 }
 .heading {
   display: flex;
