@@ -145,6 +145,45 @@ test('a messy book gets found details once, labelled, kept offline, and the read
   await expect(entry).toHaveAccessibleName(/Generated cover, Tidied by AI/)
 })
 
+test('book facts use even columns on desktop and stack on a narrow phone', async ({ page }) => {
+  await connect(page, {
+    lookup: () => {
+      const details = answer('Dune')
+      return { ...details, book: { ...details.book, publisher: 'Pearson Education and Professional Publishing', isbn: '9780136462989' } }
+    },
+  })
+  await page.addInitScript(() => localStorage.setItem('quire-ui:language', 'it'))
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/quire/')
+  await page.locator('input[type=file]').setInputFiles(messyBook())
+
+  const facts = page.locator('.book-detail .facts')
+  const cells = facts.locator(':scope > div')
+  await expect(facts.getByText('Prima edizione', { exact: true })).toBeVisible()
+  await expect(facts.getByText('Da Open Library', { exact: true })).toBeVisible()
+  await expect(cells).toHaveCount(5)
+  const geometry = () => cells.evaluateAll(items => items.map(cell => {
+    const box = cell.getBoundingClientRect()
+    const label = cell.querySelector('dt')!.getBoundingClientRect()
+    const value = cell.querySelector('dd')!.getBoundingClientRect()
+    return { x: Math.round(box.left), y: Math.round(box.top), width: Math.round(box.width),
+      stacked: label.bottom <= value.top && label.left === value.left,
+      fits: [...cell.children].every(item => item.scrollWidth <= item.clientWidth + 1) }
+  }))
+
+  const desktop = await geometry()
+  expect(new Set(desktop.map(cell => cell.width)).size).toBe(1)
+  expect(new Set(desktop.slice(0, 4).map(cell => cell.y)).size).toBe(1)
+  expect(desktop[4].x).toBe(desktop[0].x)
+  expect(desktop[4].y).toBeGreaterThan(desktop[0].y)
+  expect(desktop.every(cell => cell.stacked && cell.fits)).toBe(true)
+
+  await page.setViewportSize({ width: 320, height: 844 })
+  const phone = await geometry()
+  expect(new Set(phone.map(cell => cell.x)).size).toBe(1)
+  expect(phone.every(cell => cell.stacked && cell.fits)).toBe(true)
+})
+
 test('details labels and controls stay readable, focusable and inside a phone screen', async ({ page, browserName }) => {
   await connect(page)
   await page.setViewportSize({ width: 390, height: 844 })
