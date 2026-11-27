@@ -13,6 +13,21 @@ export interface Progress {
   abandoned_at?: string | null
 }
 
+export interface ReadingSession {
+  id: string
+  bookId: string
+  title: string
+  startedAt: number
+  utcOffsetMinutes: number
+  seconds: number
+  words?: number
+}
+
+export interface ReadingRecording {
+  enabled: boolean
+  generation: string
+}
+
 export interface Highlight {
   id: string
   document: DocumentIdentity

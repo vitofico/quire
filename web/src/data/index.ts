@@ -1,5 +1,5 @@
 import { clearStorage, openStorage, result, transaction, type Store } from './storage'
-import { EditionConflict, SyncError, type BookDetails, type Highlight, type LocalBook, type Progress, type ReplicaSnapshot, type ShelfBook, type SyncTransport } from './types'
+import { EditionConflict, SyncError, type BookDetails, type Highlight, type LocalBook, type Progress, type ReadingRecording, type ReadingSession, type ReplicaSnapshot, type ShelfBook, type SyncTransport } from './types'
 import {
   compareTimestamps, libraryEntry, newerProgress, requestJson,
   type HighlightsPull, type HighlightsPush, type LibraryPull, type LibraryRow,
@@ -31,6 +31,13 @@ type GetStore = (name: Store) => IDBObjectStore
 const epoch = '1970-01-01T00:00:00.000Z'
 const libraryPageSize = 200
 const highlightCursor = 'cursor:highlights'
+const readingRecordingKey = 'preference:reading-recording'
+const readingSessionPrefix = 'reading-session:'
+const readingSessionRange = () => IDBKeyRange.bound(readingSessionPrefix, readingSessionPrefix + '\uffff')
+
+async function readRecording(settings: IDBObjectStore): Promise<ReadingRecording> {
+  return await result(settings.get(readingRecordingKey)) ?? {enabled: true, generation: ''}
+}
 
 function blockedEdition(entry: Queued | undefined): boolean {
   return Boolean(entry?.kind === 'library' && !entry.value.deleted && entry.value.editionConflict)
@@ -356,6 +363,49 @@ export class Replica {
 
   getPreference<T>(key: string): Promise<T | undefined> {
     return this.read(['settings'], (store) => result(store('settings').get(`preference:${key}`)))
+  }
+
+  async readReadingRecording(): Promise<ReadingRecording> {
+    this.assertActive()
+    return transaction(this.db, ['settings'], 'readwrite', async store => {
+      const settings = store('settings')
+      const recording = await readRecording(settings)
+      if (!recording.generation) {
+        recording.generation = crypto.randomUUID()
+        await result(settings.put(recording, readingRecordingKey))
+      }
+      return recording
+    })
+  }
+
+  readingStatistics(): Promise<[ReadingRecording, ReadingSession[]]> {
+    return this.read(['settings'], store => {
+      const settings = store('settings')
+      return Promise.all([readRecording(settings), result(settings.getAll(readingSessionRange()))])
+    })
+  }
+
+  async saveReadingSession(session: ReadingSession, generation: string): Promise<void> {
+    this.assertActive()
+    await transaction(this.db, ['settings'], 'readwrite', async store => {
+      const settings = store('settings')
+      const recording = await readRecording(settings)
+      if (recording.enabled && recording.generation === generation) {
+        await result(settings.put(session, readingSessionPrefix + session.id))
+      }
+    })
+  }
+
+  async updateReadingRecording(changes: {enabled?: boolean; clear?: boolean}): Promise<ReadingRecording> {
+    this.assertActive()
+    return transaction(this.db, ['settings'], 'readwrite', async store => {
+      const settings = store('settings')
+      const current = await readRecording(settings)
+      const next = {enabled: changes.enabled ?? current.enabled, generation: crypto.randomUUID()}
+      if (changes.clear) await result(settings.delete(readingSessionRange()))
+      await result(settings.put(next, readingRecordingKey))
+      return next
+    })
   }
 
   setPreference<T>(key: string, value: T): Promise<void> {

@@ -275,8 +275,10 @@ export function Catalog({
         {publications.map(book => <li key={book.epubHref}>
           <button type="button" className="catalog-book" onClick={() => setSelected(book)} disabled={loading}>
             <Cover client={client} publication={book} />
-            <strong>{book.title}</strong>
-            <span>{book.authors.join(', ')}</span>
+            <span className="who">
+              <strong>{book.title}</strong>
+              {book.authors.length > 0 && <small>{book.authors.join(', ')}</small>}
+            </span>
           </button>
         </li>)}
       </ul>}

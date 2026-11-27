@@ -41,7 +41,7 @@ import { readThemeChoice, resolveTheme, type ThemeChoice } from './settings/them
 import { BookDetails } from './BookDetails'
 import { Passages } from './Passages'
 import { GuestImport } from './GuestImport'
-import { authors, findProgress, Shelf, shelfFilters } from './Shelf'
+import { authors, findProgress, Shelf, shelfFilters, shelfSortOrders } from './Shelf'
 import { useReplica } from './useReplica'
 import noticesUrl from './legal/notices.txt?url'
 import { translator, languages } from './language'
@@ -250,6 +250,8 @@ function Workspace({
   const previousRoute = useRef(route)
   const main = useRef<HTMLElement>(null)
   const [savedShelfFilter, setShelfFilter] = useOption('shelf-filter', shelfFilters[0])
+  const [savedShelfSort, setShelfSort] = useOption('shelf-sort', shelfSortOrders[0])
+  const [savedShelfView, setShelfView] = useOption('shelf-view', 'cover')
   const { lang, setLang, theme, setTheme, art, setArt, t } = prefs
   const report = useCallback((s: string) => setNotice(s), [])
   const syncEnabled =
@@ -1155,6 +1157,7 @@ function Workspace({
         )}
         <Discovery
           t={t}
+          readingStorage={replica ?? undefined}
           syncAvailable={syncEnabled}
           request={active.request}
           aiAvailable={aiAvailable}
@@ -1281,6 +1284,10 @@ function Workspace({
           data={snapshot}
           filter={shelfFilters.find(filter => filter === savedShelfFilter) ?? shelfFilters[0]}
           onFilterChange={setShelfFilter}
+          sort={shelfSortOrders.find(sort => sort === savedShelfSort) ?? shelfSortOrders[0]}
+          onSortChange={setShelfSort}
+          view={savedShelfView === 'list' ? 'list' : 'cover'}
+          onViewChange={setShelfView}
           loadCover={loadCover}
           choose={() => choose()}
           read={read}

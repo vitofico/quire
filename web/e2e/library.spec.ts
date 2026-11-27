@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 
 const readerFixture = fileURLToPath(new URL('../../app/src/test/resources/reader-pause.epub', import.meta.url))
 
-test('the book status filter survives navigation and reload', async ({ page }) => {
+test('the library keeps its status filter, sort order and view after navigation and reload', async ({ page }) => {
   await page.goto('/quire/')
   await expect(page.getByRole('button', { name: 'Import EPUB', exact: true })).toBeEnabled()
   await page.locator('input[type=file]').setInputFiles(readerFixture)
@@ -17,11 +17,19 @@ test('the book status filter survives navigation and reload', async ({ page }) =
   const filters = page.getByRole('group', { name: 'Show', exact: true })
   const finished = filters.getByRole('button', { name: 'Finished', exact: true })
   const inProgress = filters.getByRole('button', { name: 'In progress', exact: true })
-  const entry = page.locator('.library-grid').getByRole('button', { name: /Reader Pause Fixture/ })
+  const grid = page.locator('.library-grid')
+  const entry = grid.getByRole('button', { name: /Reader Pause Fixture/ })
+  const sort = page.getByRole('combobox', { name: 'Sort by' })
+  const compact = page.getByRole('button', { name: 'Compact list', exact: true })
+  const covers = page.getByRole('button', { name: 'Cover view', exact: true })
   await finished.click()
+  await sort.selectOption('Author')
+  await compact.click()
   await entry.click()
   await page.getByRole('link', { name: 'Back to library' }).click()
   await expect(finished).toHaveAttribute('aria-pressed', 'true')
+  await expect(sort).toHaveValue('Author')
+  await expect(compact).toHaveAttribute('aria-pressed', 'true')
   await expect(entry).toBeVisible()
 
   await inProgress.click()
@@ -31,11 +39,19 @@ test('the book status filter survives navigation and reload', async ({ page }) =
   await expect(inProgress).toHaveAttribute('aria-pressed', 'true')
   await page.reload()
   await expect(inProgress).toHaveAttribute('aria-pressed', 'true')
+  await expect(sort).toHaveValue('Author')
+  await expect(compact).toHaveAttribute('aria-pressed', 'true')
+  await expect(grid).toHaveClass(/\bcompact\b/)
   await expect(entry).toHaveCount(0)
 
   await filters.getByRole('button', { name: 'All books', exact: true }).click()
+  await sort.selectOption('Title')
+  await covers.click()
   await page.reload()
   await expect(entry).toBeVisible()
+  await expect(sort).toHaveValue('Title')
+  await expect(covers).toHaveAttribute('aria-pressed', 'true')
+  await expect(grid).toHaveClass('library-grid')
 })
 
 test('wide libraries gain cover columns and other pages center beside the rail', async ({ page }) => {

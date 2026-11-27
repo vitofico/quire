@@ -35,6 +35,106 @@
   gap: 0.5rem 1rem;
 }
 
+.profile-actions,
+.reading-recording {
+  align-items: center;
+}
+
+.reader-profile .profile-delete,
+.reading-recording button.link {
+  color: var(--danger);
+}
+
+.profile-note {
+  max-inline-size: 62ch;
+}
+
+.profile-confirmation {
+  display: grid;
+  gap: .65rem;
+  padding: .75rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+}
+
+.reading-metrics dd {
+  overflow-wrap: anywhere;
+  font-size: clamp(1.05rem, 2vw, 1.55rem);
+}
+
+.reading-chart {
+  display: grid;
+  gap: .35rem;
+  margin: 0;
+  min-width: 0;
+}
+
+.reading-chart figcaption {
+  font-weight: 600;
+}
+
+.reading-chart-bars {
+  display: flex;
+  height: 5rem;
+  gap: clamp(2px, .4vw, 7px);
+}
+
+.reading-chart-bars > span {
+  flex: 1;
+  display: flex;
+  align-items: end;
+  border-radius: 3px;
+  background: var(--surface);
+}
+
+.reading-chart-bars > span > span {
+  width: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+}
+
+.reading-chart-range {
+  display: flex;
+  justify-content: space-between;
+}
+
+.reading-chart-values {
+  margin: .5rem 0 0;
+}
+
+.reading-chart-values > div {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: .25rem 1rem;
+  padding-block: .3rem;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+
+.reading-chart-values dd {
+  margin: 0;
+  color: var(--muted);
+}
+
+.reading-patterns > div {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
+  gap: 1rem;
+  padding-top: .5rem;
+}
+
+.reading-period label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .4rem .75rem;
+}
+
+.reading-period select {
+  max-width: 100%;
+}
+
 .discovery-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));

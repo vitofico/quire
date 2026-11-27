@@ -3,6 +3,8 @@ import { english, type Translate } from "./translation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { discoveryJson, insightBundle, jsonBody, type InsightMetadata } from "./api";
 import { ReaderProfilePanel } from "./AiSettings";
+import { ReadingStatisticsPanel } from "./ReadingStatisticsPanel";
+import type { Replica } from "../data";
 import { CameraScan, supportsCameraScanning } from "./CameraScan";
 import { Icon } from "../icons";
 import { InsightPanel, type AiPanelProps } from "./Insights";
@@ -12,6 +14,7 @@ import { themeLabel } from "./themes";
 type DiscoveryPanelProps = AiPanelProps & {
   books: readonly DiscoveryBook[];
   syncAvailable?: boolean;
+  readingStorage?: Replica;
   onOpenBook?: (bookId: string) => void;
 };
 
@@ -36,12 +39,13 @@ type Affinity = {
   reasons: { message: string }[];
 };
 
-export function DiscoveryPanel({ books, onOpenBook, request, aiAvailable, syncAvailable = true, t = english }: DiscoveryPanelProps) {
+export function DiscoveryPanel({ books, onOpenBook, request, aiAvailable, syncAvailable = true, readingStorage, t = english }: DiscoveryPanelProps) {
   return (
     <section className="discovery-panel" aria-label={t("Discovery")}>
       <LibraryStats books={books} onOpenBook={onOpenBook} request={syncAvailable ? request : undefined} t={t} />
       <IsbnLookup books={books} onOpenBook={onOpenBook} request={request} aiAvailable={aiAvailable} syncAvailable={syncAvailable} t={t} />
       {syncAvailable && <ReaderProfilePanel request={request} aiAvailable={aiAvailable} t={t} />}
+      {readingStorage && <ReadingStatisticsPanel storage={readingStorage} t={t} />}
     </section>
   );
 }

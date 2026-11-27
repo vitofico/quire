@@ -11,7 +11,7 @@ const feed = `<?xml version="1.0" encoding="utf-8"?>
 </feed>`
 
 type Item = { id: string; name: string; kind: string; host: string; has_login: boolean; needs_login: boolean; position: number; updated_at: string }
-type Options = { held?: { item: Item; url: string }; failing?: boolean }
+type Options = { held?: { item: Item; url: string }; failing?: boolean; feed?: string }
 
 /** A signed-in Quire server that keeps the account's catalogs and fetches them for the page. */
 async function connect(page: Page, options: Options = {}) {
@@ -31,13 +31,18 @@ async function connect(page: Page, options: Options = {}) {
   await page.route('**/convert/v1/**', route => route.fulfill({ status: 404, json: { detail: 'Not Found' } }))
   await page.route('**/catalogs/v1/**', async route => {
     const request = route.request()
-    const path = new URL(request.url()).pathname
+    const url = new URL(request.url())
+    const path = url.pathname
     const id = path.split('/').filter(Boolean)[3]
     if (path.endsWith('/fetch')) {
       fetches.push(request.url())
+      if (url.searchParams.get('url')?.endsWith('/cover.png'))
+        return route.fulfill({ contentType: 'image/png', body: Buffer.from(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64',
+        ) })
       return options.failing
         ? route.fulfill({ status: 502, json: { detail: 'catalog_unreachable' } })
-        : route.fulfill({ contentType: 'application/atom+xml', body: feed })
+        : route.fulfill({ contentType: 'application/atom+xml', body: options.feed ?? feed })
     }
     if (request.method() === 'DELETE') {
       deletes.push(id)
@@ -63,6 +68,36 @@ async function connect(page: Page, options: Options = {}) {
 }
 
 const libresName = 'Ebooks libres et gratuits'
+
+test('catalog covers line up even when their titles and authors have different lengths', async ({ page }) => {
+  const title = 'A much longer title that needs more space than its neighbour in the catalog grid'
+  const authors = 'First Contributor, Second Contributor, Third Contributor, Fourth Contributor'
+  const held = {
+    item: { id: 'shelf', name: 'Shelf', kind: 'opds', host: 'https://shelf.example', has_login: false, needs_login: false, position: 0, updated_at: '2026-11-25T10:00:00Z' },
+    url: 'https://shelf.example/opds/',
+  }
+  await connect(page, { held, feed: feed.replace('</feed>', `
+    <entry><id>urn:long</id><title>${title}</title><updated>2026-11-25T10:00:00Z</updated>
+      ${authors.split(', ').map(name => `<author><name>${name}</name></author>`).join('')}
+      <link rel="http://opds-spec.org/image/thumbnail" type="image/png" href="https://shelf.example/cover.png"/>
+      <link rel="http://opds-spec.org/acquisition" type="application/epub+zip" href="/book/2.epub"/>
+    </entry>
+  </feed>`) })
+  await page.setViewportSize({ width: 2520, height: 1000 })
+  await page.goto('/quire/#/catalog')
+  const cards = page.locator('.catalog-book')
+  await expect(cards).toHaveCount(2)
+  const image = cards.last().locator('img')
+  await expect.poll(() => image.evaluate(element => (element as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
+  const covers = await cards.locator('.catalog-cover').evaluateAll(elements => elements.map(element => {
+    const { top, width, height } = element.getBoundingClientRect()
+    return { top, width, height }
+  }))
+  expect(covers[0]).toEqual(covers[1])
+  await cards.last().click()
+  await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible()
+  await expect(page.getByText(authors, { exact: true })).toBeVisible()
+})
 
 test('an open catalog is checked, added in one click and opens through the server', async ({ page }) => {
   const server = await connect(page)

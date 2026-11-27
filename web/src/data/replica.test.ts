@@ -358,3 +358,20 @@ it('copies guest reading state atomically without replacing newer connected edit
   expect(snapshot.highlights[0].id).toBe(highlight.id)
   expect(snapshot.pending).toBe(3)
 })
+
+it('keeps reading activity account-local and prevents cleared sessions returning from another tab', async () => {
+  const replica = await open()
+  const tab = await open()
+  const otherAccount = await open(undefined, 'other-' + namespace)
+  const {generation} = await tab.readReadingRecording()
+  const session = {id: 'session', bookId: book.key, title: book.title, startedAt: 1000, utcOffsetMinutes: 0, seconds: 60}
+  await tab.saveReadingSession(session, generation)
+  expect((await replica.readingStatistics())[1]).toEqual([session])
+  expect((await otherAccount.readingStatistics())[1]).toEqual([])
+  expect((await replica.snapshot()).pending).toBe(0)
+  await replica.updateReadingRecording({clear: true, enabled: false})
+  await tab.saveReadingSession({...session, seconds: 120}, generation)
+  const [recording, sessions] = await replica.readingStatistics()
+  expect(recording.enabled).toBe(false)
+  expect(sessions).toEqual([])
+})

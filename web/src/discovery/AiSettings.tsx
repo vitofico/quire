@@ -1,5 +1,5 @@
 import { english, interpolate, type Translate } from "./translation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Setting, SwitchSetting } from "../settings/Settings";
 import {
   type AiConfig, type DiscoveryRequest, type Preferences, type Profile, type Recommendation,
@@ -176,6 +176,7 @@ function ProfileControls({ request, settings, t }: {
   const [profile, setProfile] = useState<Profile>();
   const [message, setMessage] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const refreshNote = useId();
   const { preferences, config } = settings;
   const canRefresh = preferences.ai_enabled && !missingProvider(config, preferences);
 
@@ -207,21 +208,26 @@ function ProfileControls({ request, settings, t }: {
   }
 
   return (
-    <section className="discovery-panel panel">
+    <section className="discovery-panel panel reader-profile">
       <h3>{t("Reader profile")}</h3>
-      <p>{t("Refreshing sends eligible reading statistics to the AI provider and can use your daily profile quota.")}</p>
-      {!preferences.ai_enabled && <p>{t("Enable AI in Settings to refresh your profile.")}</p>}
-      {preferences.ai_enabled && missingProvider(config, preferences) && <p>{t("Select an available AI provider in Settings.")}</p>}
-      <div className="discovery-actions">
-        <button disabled={busy} onClick={() => load(false)}>{t("Open saved profile")}</button>
-        <button disabled={busy || ambiguous || !canRefresh} onClick={() => load(true)}>{t("Refresh profile")}</button>
-        <button disabled={busy} onClick={() => setConfirmDelete(true)}>{t("Delete profile")}</button>
+      <div className="discovery-actions profile-actions">
+        <button className="primary" disabled={busy} onClick={() => load(false)}>{t("Open saved profile")}</button>
+        <button className="ghost" aria-describedby={refreshNote} disabled={busy || ambiguous || !canRefresh}
+          onClick={() => load(true)}>{t("Refresh profile")}</button>
         {busy && <button onClick={cancel}>{t(paid ? "Stop waiting" : "Cancel")}</button>}
+        <button className="link profile-delete" disabled={busy} onClick={() => setConfirmDelete(true)}>{t("Delete profile")}</button>
       </div>
-      {confirmDelete && <div role="group" aria-label={t("Delete reader profile")}>
+      <p className="hint profile-note" id={refreshNote}>
+        {t("Refreshing sends connected library statistics to your AI provider and can use your daily quota.")}
+      </p>
+      {!preferences.ai_enabled && <p className="hint">{t("Enable AI in Settings to refresh your profile.")}</p>}
+      {preferences.ai_enabled && missingProvider(config, preferences) && <p className="hint">{t("Select an available AI provider in Settings.")}</p>}
+      {confirmDelete && <div className="profile-confirmation" role="group" aria-label={t("Delete reader profile")}>
         <p>{t("Delete your saved reader profile and its recommendations?")}</p>
-        <button disabled={busy} onClick={remove}>{t("Delete saved profile")}</button>
-        <button disabled={busy} onClick={() => setConfirmDelete(false)}>{t("Keep profile")}</button>
+        <div className="discovery-actions">
+          <button className="danger" disabled={busy} onClick={remove}>{t("Delete saved profile")}</button>
+          <button className="ghost" disabled={busy} onClick={() => setConfirmDelete(false)}>{t("Keep profile")}</button>
+        </div>
       </div>}
       {busy && <p role="status">{t("Working on reader profile…")}</p>}
       {error && <p role="alert">{translateRequestMessage(t, error)}</p>}
